@@ -144,7 +144,7 @@ func seedGenericOneOffAcceptedImplementation(t *testing.T, s *store.Store, grant
 	}); err != nil {
 		t.Fatalf("seed the accepted prerequisite lane dispatch: %v", err)
 	}
-	agentWorkerCompletedThroughSeam(t, s, "work-1", attemptID, "accepted-impl-completed-"+attemptID, store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})
+	agentWorkerCompletedThroughSeam(t, s, attemptID, "accepted-impl-completed-"+attemptID, store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})
 	var epoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)

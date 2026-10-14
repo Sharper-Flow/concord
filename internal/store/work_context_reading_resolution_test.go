@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// CON-887 item 3: every declared required reading resolves before a worker
+// Every declared required reading resolves before a worker
 // spawns. The dispatch preparation samples every declared reading's source
 // identities in the same read snapshot as the work version, claim, and
 // context, closes SQL, resolves the repository and knowledge sources under
@@ -53,13 +53,13 @@ func readingResolutionFixture(t *testing.T, workID string, readings func(workCon
 func readingSources(f workContextFixture) []map[string]any {
 	return []map[string]any{
 		f.repoReading(workContextTestChild, "", ""),
-		f.knowledgeReading(workContextTestChild),
+		f.knowledgeReading(),
 	}
 }
 
 // repoReadingShape builds one resolvable repository reading whose identity
 // the caller overrides.
-func repoReadingShape(f workContextFixture, project, path, commit string) []map[string]any {
+func repoReadingShape(project, path, commit string) []map[string]any {
 	return []map[string]any{
 		map[string]any{"domain_id": workContextTestChild, "reason": "the reading carries the bounded reason", "source": map[string]any{"kind": "repository_file", "project_id": project, "path": path, "commit_oid": commit}},
 	}
@@ -67,7 +67,7 @@ func repoReadingShape(f workContextFixture, project, path, commit string) []map[
 
 // knowledgeReadingShape builds one knowledge reading whose identity the
 // caller overrides.
-func knowledgeReadingShape(f workContextFixture, sourceID, lawID, hash string) []map[string]any {
+func knowledgeReadingShape(sourceID, lawID, hash string) []map[string]any {
 	return []map[string]any{
 		map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": sourceID, "law_id": lawID, "content_hash": hash}},
 	}
@@ -167,7 +167,7 @@ func TestDispatchRequiredReadingResolutionPositiveControls(t *testing.T) {
 		return []map[string]any{
 			f.repoReading(workContextTestRoot, workContextRootRationale, ""),
 			f.repoReading(workContextTestChild, "", "other"),
-			f.knowledgeReading(workContextTestChild),
+			f.knowledgeReading(),
 		}
 	})
 	defer fixture.store.Close()
@@ -182,7 +182,7 @@ func TestDispatchRequiredReadingResolutionPositiveControls(t *testing.T) {
 func TestDispatchRequiredReadingResolution(t *testing.T) {
 	t.Run("a missing commit object refuses with zero effects", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-missing-commit", func(f workContextFixture) []map[string]any {
-			return repoReadingShape(f, f.sources.repoProject, f.sources.repoPath, strings.Repeat("beef", 10))
+			return repoReadingShape(f.sources.repoProject, f.sources.repoPath, strings.Repeat("beef", 10))
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-missing-commit")
@@ -194,7 +194,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("a tree at the declared path refuses", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-tree", func(f workContextFixture) []map[string]any {
-			return repoReadingShape(f, f.sources.repoProject, "internal/store", f.sources.repoCommit)
+			return repoReadingShape(f.sources.repoProject, "internal/store", f.sources.repoCommit)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-tree")
@@ -214,7 +214,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 				fixtureGitRun(t, repo, "commit", "-m", "add the symlink reading target")
 			})
 			head := strings.TrimSpace(fixtureGitRun(t, repo, "rev-parse", "HEAD"))
-			return repoReadingShape(f, f.sources.repoProject, "linked-source", head)
+			return repoReadingShape(f.sources.repoProject, "linked-source", head)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-symlink")
@@ -231,7 +231,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 				fixtureGitRun(t, repo, "commit", "-m", "add the gitlink reading target")
 			})
 			head := strings.TrimSpace(fixtureGitRun(t, repo, "rev-parse", "HEAD"))
-			return repoReadingShape(f, f.sources.repoProject, "vendored-dep", head)
+			return repoReadingShape(f.sources.repoProject, "vendored-dep", head)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-gitlink")
@@ -243,7 +243,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("a Project outside the work's Product scope refuses", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-foreign-project", func(f workContextFixture) []map[string]any {
-			return repoReadingShape(f, "project-2", f.sources.repoPath, f.sources.repoCommit)
+			return repoReadingShape("project-2", f.sources.repoPath, f.sources.repoCommit)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-foreign-project")
@@ -258,7 +258,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			// Project "project" holds the law-home locator plus the foreign
 			// registry locator, so its repository is ambiguous by
 			// construction.
-			return repoReadingShape(f, "project", f.sources.repoPath, f.sources.repoCommit)
+			return repoReadingShape("project", f.sources.repoPath, f.sources.repoCommit)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-ambiguous")
@@ -284,7 +284,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("a Product member Project that is not a registered knowledge source refuses", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-unregistered-source", func(f workContextFixture) []map[string]any {
-			return knowledgeReadingShape(f, f.sources.otherProject, f.sources.lawID, f.sources.lawHash)
+			return knowledgeReadingShape(f.sources.otherProject, f.sources.lawID, f.sources.lawHash)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-unregistered-source", currentFixtureView(t, fixture))
@@ -296,7 +296,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("a foreign knowledge source refuses", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-foreign-source", func(f workContextFixture) []map[string]any {
-			return knowledgeReadingShape(f, "project-2", f.sources.lawID, f.sources.lawHash)
+			return knowledgeReadingShape("project-2", f.sources.lawID, f.sources.lawHash)
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-foreign-source")
@@ -308,7 +308,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("a law hash mismatch refuses without repinning", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-law-mismatch", func(f workContextFixture) []map[string]any {
-			return knowledgeReadingShape(f, f.sources.lawProject, f.sources.lawID, "sha256:"+strings.Repeat("9", 64))
+			return knowledgeReadingShape(f.sources.lawProject, f.sources.lawID, "sha256:"+strings.Repeat("9", 64))
 		})
 		defer fixture.store.Close()
 		err := readingDispatchWithView(t, fixture, "attempt-reading-law-mismatch")
@@ -320,7 +320,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 
 	t.Run("an absent canonical locator refuses as typed unavailable", func(t *testing.T) {
 		fixture := readingResolutionFixture(t, "work-reading-old-locator", func(f workContextFixture) []map[string]any {
-			return knowledgeReadingShape(f, f.sources.lawProject, f.sources.lawID, f.sources.lawHash)
+			return knowledgeReadingShape(f.sources.lawProject, f.sources.lawID, f.sources.lawHash)
 		})
 		defer fixture.store.Close()
 		// The law was amended: the projection's canonical locator moved off
@@ -376,7 +376,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 		// path at its own commit: the swapped reading refuses on its ordinal,
 		// naming its own Project.
 		swapped := readingResolutionFixture(t, "work-reading-swapped", func(f workContextFixture) []map[string]any {
-			return repoReadingShape(f, f.sources.otherProject, f.sources.repoPath, f.sources.otherCommit)
+			return repoReadingShape(f.sources.otherProject, f.sources.repoPath, f.sources.otherCommit)
 		})
 		defer swapped.store.Close()
 		err := readingDispatchWithView(t, swapped, "attempt-reading-swapped")
@@ -502,30 +502,39 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			}},
 			{"the law projection hash moves", func(t *testing.T, f workContextFixture) {
 				hash := "sha256:" + strings.Repeat("6", 64)
-				f.store.Transact(context.Background(), func(tx *Transaction) error {
+				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
 					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `UPDATE law_subjects SET content_hash=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, hash, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID)
 					mustTxExec(t, tx, `UPDATE law_domain_homes SET law_content_hash=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, hash, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID)
 					mustTxExec(t, tx, `DELETE FROM fold_guard`)
 					return nil
 				})
+				if err != nil {
+					t.Fatalf("law projection hash drift transaction failed: %v", err)
+				}
 			}},
 			{"the registered source's registration instant moves", func(t *testing.T, f workContextFixture) {
-				f.store.Transact(context.Background(), func(tx *Transaction) error {
+				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
 					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `UPDATE product_knowledge_sources SET registered_at='drifted' WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
 					mustTxExec(t, tx, `DELETE FROM fold_guard`)
 					return nil
 				})
+				if err != nil {
+					t.Fatalf("source registration instant drift transaction failed: %v", err)
+				}
 			}},
 			{"the registered source is removed and re-added", func(t *testing.T, f workContextFixture) {
-				f.store.Transact(context.Background(), func(tx *Transaction) error {
+				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
 					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `DELETE FROM product_knowledge_sources WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
 					mustTxExec(t, tx, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'drifted')`, f.sources.lawProject, f.sources.lawLocator)
 					mustTxExec(t, tx, `DELETE FROM fold_guard`)
 					return nil
 				})
+				if err != nil {
+					t.Fatalf("source re-registration drift transaction failed: %v", err)
+				}
 			}},
 			{"the knowledge watermark digest moves", func(t *testing.T, f workContextFixture) {
 				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET scanned_content_digest=? WHERE home_project_id=? AND home_locator_id=?; DELETE FROM fold_guard`, "sha256:"+strings.Repeat("3", 64), f.sources.lawProject, f.sources.lawLocator); err != nil {
@@ -626,7 +635,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			return []map[string]any{
 				f.repoReading(workContextTestChild, "", ""),
 				f.repoReading(workContextTestChild, "", "other"),
-				f.knowledgeReading(workContextTestChild),
+				f.knowledgeReading(),
 			}
 		}(fixture), "finding_refs": []string{}, "context_findings": []map[string]any{}}
 		if err := fixture.recordWorkContext(t, payload); err != nil {

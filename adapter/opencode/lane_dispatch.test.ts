@@ -1183,7 +1183,7 @@ test("a provenance manifest over the store bound authorizes nothing in the core 
   }
 })
 
-// CON-887 item 3: every declared required reading resolves in the core before
+// Every declared required reading resolves in the core before
 // a worker spawns. The core owns the entire resolution — the adapter adds no
 // second source resolver and no Git probe of its own. A typed core refusal
 // that names a declared reading reaches the coordinator with its cause and

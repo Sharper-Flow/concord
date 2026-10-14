@@ -2386,5 +2386,5 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 			}
 		}
 	}
-	agentWorkerCompletedThroughSeam(t, s, "work-1", attemptID, "regroute-completion-"+suffix+"-"+attemptID, completedPayload)
+	agentWorkerCompletedThroughSeam(t, s, attemptID, "regroute-completion-"+suffix+"-"+attemptID, completedPayload)
 }

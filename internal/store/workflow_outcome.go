@@ -236,8 +236,8 @@ func decodeObjectFields(data []byte) (map[string]json.RawMessage, error) {
 // duplicate keys, bounded nesting, no unknown fields, no trailing content,
 // and a whole-payload size bound that refuses without truncating. The named
 // wrappers carry each object's own limit; callers never pass a raw budget.
-func decodeWorkflowJSONStrict(data []byte, max int, target any) error {
-	if len(data) == 0 || len(data) > max {
+func decodeWorkflowJSONStrict(data []byte, maxBytes int, target any) error {
+	if len(data) == 0 || len(data) > maxBytes {
 		return workflowOutcomeFailure("JSON payload exceeds the bounded input size")
 	}
 	if err := validateWorkflowJSONStructure(data); err != nil {

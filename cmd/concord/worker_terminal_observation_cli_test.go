@@ -226,8 +226,9 @@ func typedWorkerEvidenceError(t *testing.T, out string) (kind, effectState strin
 // assertZeroTerminalEffects proves a refusal landed nothing: no terminal
 // event for the attempt, no derived workflow failure record, the attempt
 // still dispatched, and the assertion nonce unconsumed.
-func assertZeroTerminalEffects(t *testing.T, dbPath, attemptID, nonce string) {
+func assertZeroTerminalEffects(t *testing.T, dbPath, nonce string) {
 	t.Helper()
+	const attemptID = "attempt-1"
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -457,7 +458,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if effectState != "none" || !retrySafe {
 			t.Fatalf("typed failure effect_state=%q retry_safe=%v, want none and true", effectState, retrySafe)
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-observe-gitfail1")
+		assertZeroTerminalEffects(t, dbPath, "nonce-observe-gitfail1")
 	})
 
 	t.Run("a probe deadline refuses with zero terminal effects", func(t *testing.T) {
@@ -476,7 +477,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if effectState != "none" {
 			t.Fatalf("typed failure effect_state = %q, want none", effectState)
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-observe-slow001")
+		assertZeroTerminalEffects(t, dbPath, "nonce-observe-slow001")
 	})
 
 	t.Run("no sql connection is held while git runs", func(t *testing.T) {
@@ -522,7 +523,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if code := <-codeOut; code == 0 {
 			t.Fatalf("the blocked observation admitted the completion: out=%s", outBuf.String())
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-observe-holdg001")
+		assertZeroTerminalEffects(t, dbPath, "nonce-observe-holdg001")
 	})
 
 	t.Run("a claim drift between probe and append refuses", func(t *testing.T) {
@@ -536,7 +537,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("a claim drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-observe-driftc1")
+		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftc1")
 	})
 
 	t.Run("a window drift between probe and append refuses", func(t *testing.T) {
@@ -550,7 +551,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("a window drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-observe-driftw1")
+		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftw1")
 	})
 
 	t.Run("a forged echo never replaces the core observation", func(t *testing.T) {
@@ -769,7 +770,7 @@ func TestWorkerEvidenceRecoveryAfterObservationRefusal(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("the transient git failure did not refuse the completion: out=%s", out)
 		}
-		assertZeroTerminalEffects(t, dbPath, "attempt-1", "nonce-recover-refused1")
+		assertZeroTerminalEffects(t, dbPath, "nonce-recover-refused1")
 
 		// The existing recovery route reads the original attempt identity
 		// for the retained report.

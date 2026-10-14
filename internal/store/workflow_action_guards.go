@@ -1629,81 +1629,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
-			if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
-				return events, "", err
-			}
-			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
-				return events, "", err
-			}
-			// CON-887: the packet must consume the current work-context
-			// view the same way it consumes the current correction — the
-			// spawn compares the pinned bytes against current state.
-			admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
-			if contextErr != nil {
-				return events, "", contextErr
-			}
-			if admittedContext != nil && admittedContext.SubjectCommit != "" {
-				completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
-			}
-			// The authorization records the source-event frontier of
-			// the admitted work-context view, so every terminal report can be
-			// attributed to the exact authorized input it consumed. A new
-			// authorization always records the field: the view's nonnegative
-			// frontier when a view is present, explicit zero when it is
-			// absent. Absence stays reserved for authorizations recorded
-			// before this field existed.
-			dispatchFrontier := int64(0)
-			if admittedContext != nil {
-				dispatchFrontier = admittedContext.SourceEventFrontier
-			}
-			completionValues["worker_context_frontier"] = dispatchFrontier
-			// CON-883: the packet must carry the latest context
-			// checkpoint the same way it consumes the current correction,
-			// so coordinator directions recorded before the spawn reach
-			// the worker the core dispatched.
-			if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
-			}
-			// The recorded law context, design record, proposal, and work
-			// text ride the packet as typed members the core holds to the
-			// current records, never as adapter-authored prose.
-			if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
-			}
-			// CD-0205: the completion records the selected worker-job
-			// revision the packet binds, so worker.dispatched, the report,
-			// and the acceptance can each be held to that exact revision.
-			job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
-			if jobErr != nil {
-				return events, "", jobErr
-			}
-			if job != nil {
-				completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
-			}
-			// The dispatch admission is the one live subject-freshness owner.
-			// It revalidates the sealed pre-transaction preparation with SQL
-			// only, refuses a live HEAD that does not match the admitted
-			// subject, and joins the accepted implementation delivery for a
-			// review dispatch, after the packet-shape checks above.
-			if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
-				return events, "", err
-			}
-			// One aggregate byte bound over the whole dispatch context the
-			// packet carries. The measurement is pure and runs once here,
-			// after the current-record and identity admissions and before any
-			// dispatch effect; the derived retry dispatch a combined
-			// rejection carries answers to the same bound through this same
-			// guard.
-			if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
-				return events, "", err
-			}
-			// Every declared required reading resolved before the dispatch:
-			// the sealed preparation's witnesses revalidate against current
-			// source registrations with SQL only, so a changed source or a
-			// preparation that never resolved cannot dispatch. The derived
-			// retry a combined rejection carries answers to the same owner
-			// through this same guard.
-			if err := admitWorkerDispatchReadingResolutionTx(in.ctx, in.tx, in.request.WorkID, admittedContext); err != nil {
+			if err := bindWorkerDispatchCompletionTx(in, lane, packetRaw, completionValues); err != nil {
 				return events, "", err
 			}
 		}
@@ -1762,6 +1688,65 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil
+}
+
+func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDefinition, packetRaw json.RawMessage, completionValues map[string]any) error {
+	if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
+		return err
+	}
+	if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+		return err
+	}
+	// The packet consumes the current work-context view and correction;
+	// admission compares the pinned bytes against current state.
+	admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
+	if contextErr != nil {
+		return contextErr
+	}
+	if admittedContext != nil && admittedContext.SubjectCommit != "" {
+		completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
+	}
+	// Every authorization records the admitted view's source-event frontier,
+	// or explicit zero when no view is present. Terminal reports bind to it.
+	dispatchFrontier := int64(0)
+	if admittedContext != nil {
+		dispatchFrontier = admittedContext.SourceEventFrontier
+	}
+	completionValues["worker_context_frontier"] = dispatchFrontier
+	// The packet carries the latest context checkpoint, so directions
+	// recorded before the spawn reach the dispatched worker.
+	if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+		return err
+	}
+	// The law context, design, proposal, and work text are typed members
+	// held to current records, never adapter-authored prose.
+	if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+		return err
+	}
+	// CD-0205: dispatch, report, and acceptance bind the selected job revision.
+	job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
+	if jobErr != nil {
+		return jobErr
+	}
+	if job != nil {
+		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
+	}
+	// Revalidate the sealed pre-transaction preparation with SQL only,
+	// including the accepted implementation subject for a review dispatch.
+	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
+		return err
+	}
+	// The whole context answers to one aggregate bound before dispatch
+	// effects, including a retry derived from a combined rejection.
+	if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
+		return err
+	}
+	// Every required reading resolved before dispatch. Revalidate sealed
+	// witnesses against source registrations with SQL only.
+	if err := admitWorkerDispatchReadingResolutionTx(in.ctx, in.tx, in.request.WorkID, admittedContext); err != nil {
+		return err
+	}
+	return nil
 }
 
 func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {

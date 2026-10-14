@@ -22,9 +22,10 @@ import (
 // historical authorization without a recorded frontier keeps explicit
 // absence on the terminal it produces.
 
-// laneForID returns the registered lane definition with the given ID.
-func laneForID(t *testing.T, id string) LaneDefinition {
+// laneForID returns the registered implement lane definition.
+func laneForID(t *testing.T) LaneDefinition {
 	t.Helper()
+	const id = "implement"
 	for _, definition := range BuiltinLaneDefinitions() {
 		if definition.ID == id {
 			return definition
@@ -79,7 +80,7 @@ func prepareWorkerTerminalDelivery(t *testing.T, s *Store, workID, attemptID, ev
 // seedGitClaimRepo materializes the claimed worktree as one real git
 // repository with a committed seed file and records its active claim, so the
 // terminal delivery observation probes a reachable worktree.
-func seedGitClaimRepo(t *testing.T, s *Store, workID string) string {
+func seedGitClaimRepo(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "claim-"+workID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -103,7 +104,6 @@ func seedGitClaimRepo(t *testing.T, s *Store, workID string) string {
 	run("add", "-A")
 	run("commit", "--allow-empty", "-m", "claimed worktree seed")
 	insertWorkerWorktreeEntry(t, s, workID, dir)
-	return dir
 }
 
 // rawTerminalFrontier reads one event's consumed_context_frontier straight
@@ -183,7 +183,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if frontierG <= frontierF {
 			t.Fatalf("fixture frontier did not advance: F=%d G=%d", frontierF, frontierG)
 		}
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, attemptID, lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +227,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if gotZero != 0 {
 			t.Fatalf("dispatch authorization frontier = %d, want explicit zero for an absent view", gotZero)
 		}
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +262,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			t.Fatal("the dispatch authorization recorded no worker_context_frontier")
 		}
 		declareSampleWorkContext(t, fixture, "the later declaration must not reach the failed terminal")
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, attemptID, lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -315,7 +315,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 	if err := dispatchBindingAttempt(t, s, seed, attemptID, packet); err != nil {
 		t.Fatalf("dispatch refused: %v", err)
 	}
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

@@ -190,8 +190,9 @@ func reviewSubjectSupersedeContract(t *testing.T, s *Store, workID string) {
 // current step with the given session worktree and returns the refusal. The
 // job-capable repair step dispatches only a selected ready revision, so the
 // caller records one fresh revision per review dispatch.
-func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attemptID, sessionWorktree string) error {
+func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attemptID, sessionWorktree string) error {
 	t.Helper()
+	const stepID = "repair"
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
@@ -263,7 +264,7 @@ func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) Worke
 func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string, observed bool) {
 	t.Helper()
 	s := f.store
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	job := reviewSubjectReadyRevision(t, f)
 	view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), f.workID)
 	if viewErr != nil || view == nil {
@@ -311,7 +312,7 @@ func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
 	otherClaim := reviewSubjectCloneClaim(t, claimDir)
 
 	t.Run("the review pins the accepted delivery subject", func(t *testing.T) {
-		if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-r1", claimDir); err != nil {
+		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-r1", claimDir); err != nil {
 			t.Fatalf("review dispatch refused the accepted delivery: %v", err)
 		}
 		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-r1"); window.SubjectCommit != head {
@@ -321,13 +322,13 @@ func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
 
 	t.Run("a newer unaccepted or failed completion cannot replace the accepted source", func(t *testing.T) {
 		reviewSubjectImplementComplete(t, fixture, "attempt-review-unaccepted-z", "complete-review-unaccepted-z", true)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-review-failed-z2", laneForID(t, "implement"), nil)}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-review-failed-z2", laneForID(t), nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "failed-review-z2", "attempt-review-failed-z2", preferredModelForLane(laneForID(t, "implement")), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "failed-review-z2", "attempt-review-failed-z2", preferredModelForLane(laneForID(t)), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-r2", claimDir); err != nil {
+		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-r2", claimDir); err != nil {
 			t.Fatalf("review refused with a newer unaccepted and failed completion standing: %v", err)
 		}
 		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-r2"); window.SubjectCommit != head {
@@ -344,7 +345,7 @@ func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
 		if wrongTree == "" {
 			t.Fatal("the wrong-worktree accepted delivery was not recorded")
 		}
-		if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-newer-wrong-tree", claimDir); err != nil {
+		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-newer-wrong-tree", claimDir); err != nil {
 			t.Fatalf("review refused with a newer wrong-worktree acceptance standing: %v", err)
 		}
 		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-newer-wrong-tree"); window.SubjectCommit != head {
@@ -362,7 +363,7 @@ func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
 		if seedWrongTreeAcceptedDelivery(t, s, fixture, other) == "" {
 			t.Fatal("the wrong-worktree accepted delivery was not recorded")
 		}
-		err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-wrong-only", claimDir)
+		err := reviewSubjectDispatch(t, s, fixture, "attempt-review-wrong-only", claimDir)
 		if err == nil || !hasFailureKind(err, KindUnauthorizedDispatch) || !strings.Contains(err.Error(), "no accepted implementation delivery on this worktree claim") {
 			t.Fatalf("wrong-project-only review error = %v, want %s refusing the review whose only accepted delivery belongs to another worktree", err, KindUnauthorizedDispatch)
 		}
@@ -380,7 +381,7 @@ func TestReviewDispatchMissingObservedDelivery(t *testing.T) {
 	// accepted result presents to the review.
 	reviewSubjectImplementComplete(t, fixture, "attempt-review-unobserved", "complete-review-unobserved", false)
 	reviewSubjectAccept(t, s, fixture.workID, "attempt-review-unobserved")
-	err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-unobserved-r", claimDir)
+	err := reviewSubjectDispatch(t, s, fixture, "attempt-review-unobserved-r", claimDir)
 	if err == nil || !hasFailureKind(err, KindUnauthorizedDispatch) || !strings.Contains(err.Error(), "fresh implementation attempt") {
 		t.Fatalf("unobserved review error = %v, want %s requiring a fresh implementation attempt", err, KindUnauthorizedDispatch)
 	}
@@ -388,7 +389,7 @@ func TestReviewDispatchMissingObservedDelivery(t *testing.T) {
 	t.Run("a fresh accepted implementation closes the gap", func(t *testing.T) {
 		reviewSubjectImplementComplete(t, fixture, "attempt-review-fresh", "complete-review-fresh", true)
 		reviewSubjectAccept(t, s, fixture.workID, "attempt-review-fresh")
-		if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-review-fresh-r", claimDir); err != nil {
+		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-fresh-r", claimDir); err != nil {
 			t.Fatalf("review refused a fresh accepted implementation delivery: %v", err)
 		}
 		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-fresh-r"); window.SubjectCommit == "" {
@@ -427,7 +428,7 @@ func reviewSubjectCloneClaim(t *testing.T, claimDir string) string {
 // an accepted delivery whose dispatch window names that other claim.
 func seedWrongTreeAcceptedDelivery(t *testing.T, s *Store, f workContextFixture, sessionWorktree string) string {
 	t.Helper()
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	job := reviewSubjectReadyRevision(t, f)
 	view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), f.workID)
 	if viewErr != nil || view == nil {
@@ -562,7 +563,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 		defer fixture.store.Close()
 		s := fixture.store
 		claimDir, _ := reviewSubjectClaim(t, s, fixture.workID)
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		job := reviewSubjectReadyRevision(t, fixture)
 		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
 		if viewErr != nil || view == nil {
@@ -645,14 +646,14 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 // work requires. The observation is prepared against a synthetic runner
 // answering the work's qualified verify subject, exactly as the shared
 // dispatch invoker does.
-func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, owner WorkflowActor) string {
+func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, owner WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
 	var stepID string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&stepID); err != nil {
 		t.Fatal(err)
 	}
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	job := WorkerJobBinding{JobID: "job:accepted-delivery-" + workID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
@@ -679,7 +680,6 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), s, completion)
 	reviewSubjectAccept(t, s, workID, attemptID)
-	return attemptID
 }
 
 // TestReviewDispatchSupersededContractStillPinsAcceptedSubject proves the
@@ -696,7 +696,7 @@ func TestReviewDispatchSupersededContractStillPinsAcceptedSubject(t *testing.T) 
 	reviewSubjectImplementComplete(t, fixture, "attempt-supersede-y", "complete-supersede-y", true)
 	reviewSubjectAccept(t, s, fixture.workID, "attempt-supersede-y")
 	reviewSubjectSupersedeContract(t, s, fixture.workID)
-	if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-supersede-r1", claimDir); err != nil {
+	if err := reviewSubjectDispatch(t, s, fixture, "attempt-supersede-r1", claimDir); err != nil {
 		t.Fatalf("review refused the accepted delivery under the superseded contract: %v", err)
 	}
 	if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-supersede-r1"); window.SubjectCommit != head {
@@ -705,7 +705,7 @@ func TestReviewDispatchSupersededContractStillPinsAcceptedSubject(t *testing.T) 
 
 	// A later rejected implementation result cannot replace the accepted
 	// source, and it does not let an older one through either.
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	failedJob := reviewSubjectReadyRevision(t, fixture)
 	failedView, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
 	if viewErr != nil || failedView == nil {
@@ -720,7 +720,7 @@ func TestReviewDispatchSupersededContractStillPinsAcceptedSubject(t *testing.T) 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "failed-supersede-z", "attempt-supersede-z", preferredModelForLane(lane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reviewSubjectDispatch(t, s, fixture, "repair", "attempt-supersede-r2", claimDir); err != nil {
+	if err := reviewSubjectDispatch(t, s, fixture, "attempt-supersede-r2", claimDir); err != nil {
 		t.Fatalf("review refused with a later rejected implementation standing: %v", err)
 	}
 	if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-supersede-r2"); window.SubjectCommit != head {

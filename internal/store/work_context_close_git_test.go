@@ -69,7 +69,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	closeGitWorkflowEvent(t, s, workID, ownerRef, WorkflowContractApproved, map[string]any{
+	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:context-close", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:context-close", "immutable_subject_ref": "commit:" + base, "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
@@ -108,7 +108,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	closeGitWorkflowEvent(t, s, workID, reviewerRef, WorkflowActorRecorded, map[string]any{
+	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowActorRecorded, map[string]any{
 		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
 		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": string(reviewer.ActorClass),
 	})
@@ -125,16 +125,16 @@ func TestWorkContextCloseGit(t *testing.T) {
 		run := "close-git-evidence-" + kind
 		ref := "evidence:close-git-" + kind
 		seedWorkflowAuthority(t, s, run, workID, "principal/"+kind, "request/"+kind, []string{ref})
-		closeGitWorkflowEvent(t, s, workID, ownerRef, WorkflowEvidenceBound, map[string]any{
+		closeGitWorkflowEvent(t, s, ownerRef, WorkflowEvidenceBound, map[string]any{
 			"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": "principal/" + kind,
 			"producer_run_ref": run, "producer_watermark": "request/" + kind, "observed_at": "2026-10-10T00:00:00Z",
 		})
 	}
-	closeGitWorkflowEvent(t, s, workID, reviewerRef, WorkflowVerdictRecorded, map[string]any{
+	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowVerdictRecorded, map[string]any{
 		"contract_version": 1, "predicate_id": "predicate:context-close", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef,
 		"evaluation_evidence": []string{"evidence:close-git-verification"},
 	})
-	closeGitWorkflowEvent(t, s, workID, reviewerRef, WorkflowPremiseConfirmed, map[string]any{
+	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowPremiseConfirmed, map[string]any{
 		"contract_version": 1, "confirming_actor_ref": reviewerRef,
 	})
 	version := verdictItemVersion(t, s, workID)
@@ -199,8 +199,9 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 }
 
-func closeGitWorkflowEvent(t *testing.T, s *Store, workID, actor, kind string, fields map[string]any) {
+func closeGitWorkflowEvent(t *testing.T, s *Store, actor, kind string, fields map[string]any) {
 	t.Helper()
+	const workID = "context-close-git"
 	version := verdictItemVersion(t, s, workID)
 	fields["work_id"], fields["expected_version"], fields["resulting_version"] = workID, version, version+1
 	event := workflowEventWithActor(fmt.Sprintf("close-git-%s-%d", kind, version), kind, workID, actor, fields)

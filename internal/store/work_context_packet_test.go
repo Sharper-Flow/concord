@@ -154,7 +154,7 @@ func declareSampleWorkContext(t *testing.T, f workContextFixture, statement stri
 	if err := f.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{
 			f.repoReading(workContextTestRoot, workContextRootRationale, ""),
-			f.knowledgeReading(workContextTestChild),
+			f.knowledgeReading(),
 		},
 		"finding_refs": []string{},
 		"context_findings": []map[string]any{
@@ -616,7 +616,7 @@ func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
 		if viewErr != nil || view == nil || view.SubjectCommit != head {
 			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
 		}
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		job := reviewSubjectReadyRevision(t, fixture)
 		view, viewErr = readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
 		if viewErr != nil || view == nil || view.SubjectCommit != head {
@@ -762,7 +762,7 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		if viewErr != nil || view == nil || view.SubjectCommit != head {
 			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
 		}
-		lane := laneForID(t, "implement")
+		lane := laneForID(t)
 		job := reviewSubjectReadyRevision(t, fixture)
 		view, viewErr = readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
 		if viewErr != nil || view == nil || view.SubjectCommit != head {
@@ -978,7 +978,7 @@ func seedAggregateBoundDeclarations(t *testing.T, f workContextFixture, evidence
 	first := map[string]any{
 		"required_reading": []map[string]any{
 			f.repoReading(workContextTestRoot, workContextRootRationale, ""),
-			f.knowledgeReading(workContextTestChild),
+			f.knowledgeReading(),
 		},
 		"finding_refs":     []string{},
 		"context_findings": aggregateBoundFindings("finding", ref),
@@ -1022,13 +1022,13 @@ func seedAggregateBoundDeclarations(t *testing.T, f workContextFixture, evidence
 // seedAggregateBoundContext seeds the full boundary fixture: the claimed
 // worktree with its qualified subject, the ready job revision whose native
 // preparations ride the view, and the two retained declarations. It returns
-// the claimed worktree directory and the job binding the packets bind.
-func seedAggregateBoundContext(t *testing.T, f workContextFixture, evidenceRefBytes int) (string, WorkerJobBinding) {
+// the job binding the packets bind.
+func seedAggregateBoundContext(t *testing.T, f workContextFixture, evidenceRefBytes int) WorkerJobBinding {
 	t.Helper()
-	claimDir, _ := reviewSubjectClaim(t, f.store, f.workID)
+	reviewSubjectClaim(t, f.store, f.workID)
 	job := reviewSubjectReadyRevision(t, f)
 	seedAggregateBoundDeclarations(t, f, evidenceRefBytes)
-	return claimDir, job
+	return job
 }
 
 // recordAggregateCheckpoint records one checkpoint_context action with the
@@ -1226,20 +1226,20 @@ func aggregateCommittedRejections(t *testing.T, s *Store, workID string) (int, i
 // computes. The store's whole-action-payload input bound refuses oversized
 // packets earlier on the full route; that bound owns a distinct population,
 // and the assembly reaches the aggregate admission with every other packet
-// admission live. It returns the refusal error, or the appended completion
-// events on success; the caller owns the transaction outcome.
-func aggregateAssemblyDispatch(t *testing.T, f workContextFixture, attemptID string, packet map[string]any) (error, []Event) {
+// admission live. It returns the appended completion events on success, or
+// the refusal error; the caller owns the transaction outcome.
+func aggregateAssemblyDispatch(t *testing.T, f workContextFixture, attemptID string, packet map[string]any) ([]Event, error) {
 	t.Helper()
 	subject, subjectErr := readCurrentOracleSubject(context.Background(), f.store.DatabaseForTesting(), f.workID)
 	if subjectErr != nil {
-		return subjectErr, nil
+		return nil, subjectErr
 	}
 	preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), f.store, PrepareWorkerDispatchRequest{
 		WorkID: f.workID, SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID),
 		Runner: qualifiedSubjectRunner{head: subject},
 	})
 	if prepErr != nil {
-		return prepErr, nil
+		return nil, prepErr
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
 	sessionWorktree := dispatchSessionWorktree(t, f.store, f.workID)
@@ -1262,7 +1262,7 @@ func aggregateAssemblyDispatch(t *testing.T, f workContextFixture, attemptID str
 	}
 	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 	defer tx.Rollback()
 	request := WorkflowActionExecutionRequest{
@@ -1279,9 +1279,9 @@ func aggregateAssemblyDispatch(t *testing.T, f workContextFixture, attemptID str
 		evidenceRefs: []string{"evidence:" + attemptID}, eventActor: "client:concord-1:principal/operator",
 	}, 1, []Event{})
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
-	return nil, events
+	return events, nil
 }
 
 // TestDispatchContextAggregateBound proves the whole-dispatch-context bound:
@@ -1298,9 +1298,9 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 	t.Run("exactly 65536 bytes admits", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-agg-boundary-exact")
 		defer fixture.store.Close()
-		_, job := seedAggregateBoundContext(t, fixture, 120)
+		job := seedAggregateBoundContext(t, fixture, 120)
 		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65536)
-		err, events := aggregateAssemblyDispatch(t, fixture, "attempt-agg-exact", aggregateDispatchPacket(t, fixture, "attempt-agg-exact", job, checkpoint, nil))
+		events, err := aggregateAssemblyDispatch(t, fixture, "attempt-agg-exact", aggregateDispatchPacket(t, fixture, "attempt-agg-exact", job, checkpoint, nil))
 		if err != nil {
 			t.Fatalf("dispatch refused an aggregate exactly at the 65536-byte bound: %v", err)
 		}
@@ -1312,9 +1312,9 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 	t.Run("one byte over refuses whole with zero dispatch effects", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-agg-boundary-over")
 		defer fixture.store.Close()
-		_, job := seedAggregateBoundContext(t, fixture, 120)
+		job := seedAggregateBoundContext(t, fixture, 120)
 		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65537)
-		err, events := aggregateAssemblyDispatch(t, fixture, "attempt-agg-over", aggregateDispatchPacket(t, fixture, "attempt-agg-over", job, checkpoint, nil))
+		events, err := aggregateAssemblyDispatch(t, fixture, "attempt-agg-over", aggregateDispatchPacket(t, fixture, "attempt-agg-over", job, checkpoint, nil))
 		var failure *Failure
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "65537") || !strings.Contains(failure.Detail, "65536") {
 			t.Fatalf("over-bound dispatch error = %v, want %s naming the measured 65537 bytes and the 65536-byte bound", err, KindLimitExceeded)
@@ -1346,7 +1346,7 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 	})
 
 	t.Run("all three members measure together at the bound", func(t *testing.T) {
-		setup := func(t *testing.T, workID string, target int) (error, []Event) {
+		setup := func(t *testing.T, workID string, target int) ([]Event, error) {
 			t.Helper()
 			fixture := seedWorkContextFixture(t, workID)
 			defer fixture.store.Close()
@@ -1371,14 +1371,14 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 			checkpoint := tuneAggregateCheckpointToTarget(t, fixture, correction, target)
 			return aggregateAssemblyDispatch(t, fixture, "attempt-agg-a2", aggregateDispatchPacket(t, fixture, "attempt-agg-a2", job, checkpoint, correction))
 		}
-		err, events := setup(t, "ctx-agg-all-three-exact", 65536)
+		events, err := setup(t, "ctx-agg-all-three-exact", 65536)
 		if err != nil {
 			t.Fatalf("dispatch refused an all-three aggregate exactly at the bound: %v", err)
 		}
 		if len(events) != 1 || events[0].Kind != WorkflowActionCompleted {
 			t.Fatalf("assembly appended %d event(s), want the one dispatch completion at exactly the all-three bound", len(events))
 		}
-		err, events = setup(t, "ctx-agg-all-three-over", 65537)
+		events, err = setup(t, "ctx-agg-all-three-over", 65537)
 		var failure *Failure
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded {
 			t.Fatalf("all-three over-bound dispatch error = %v, want %s refusing the whole request", err, KindLimitExceeded)
@@ -1391,7 +1391,7 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 	t.Run("a full-route dispatch at exactly 65536 admits", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-agg-full-route-exact")
 		defer fixture.store.Close()
-		_, job := seedAggregateBoundContext(t, fixture, 120)
+		job := seedAggregateBoundContext(t, fixture, 120)
 		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65536)
 		if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-agg-full-route", job, checkpoint, nil)); err != nil {
 			t.Fatalf("the full dispatch route refused an aggregate exactly at the 65536-byte bound: %v", err)
@@ -1404,7 +1404,7 @@ func TestDispatchContextAggregateBound(t *testing.T) {
 	t.Run("a known-valid smaller context passes the same full route", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-agg-full-route-control")
 		defer fixture.store.Close()
-		_, job := seedAggregateBoundContext(t, fixture, 120)
+		job := seedAggregateBoundContext(t, fixture, 120)
 		recordAggregateCheckpoint(t, fixture, "hypothesis", "diagnosis", "strategy")
 		if measured := aggregateBoundaryProbe(t, aggregateBoundaryMembers(t, fixture, nil)); measured >= 65536 {
 			t.Fatalf("control fixture aggregate = %d bytes, want clearly under the bound", measured)
@@ -1437,7 +1437,7 @@ func latestFixtureCheckpoint(t *testing.T, f workContextFixture) *ContextCheckpo
 // same route the rejection fixtures use.
 func completeAggregateAttempt(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding) {
 	t.Helper()
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1577,7 +1577,7 @@ func TestRejectRetryContextAggregateBound(t *testing.T) {
 	setup := func(t *testing.T, workID string) (workContextFixture, func(t *testing.T, withRetry bool) error) {
 		t.Helper()
 		fixture := seedWorkContextFixture(t, workID)
-		_, job := seedAggregateBoundContext(t, fixture, 180)
+		job := seedAggregateBoundContext(t, fixture, 180)
 		recordAggregateCheckpoint(t, fixture, "hypothesis", "diagnosis", "strategy")
 		if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-rr-a1", job, latestFixtureCheckpoint(t, fixture), nil)); err != nil {
 			t.Fatalf("first dispatch refused before the rejection existed: %v", err)

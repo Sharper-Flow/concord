@@ -375,8 +375,8 @@ func (f workContextFixture) repoReading(domain, rationale, which string) map[str
 // knowledgeReading builds one resolvable knowledge reading pinned to the
 // fixture's committed law record: the registered source Project, the record
 // ID, and the exact committed content hash.
-func (f workContextFixture) knowledgeReading(domain string) map[string]any {
-	return map[string]any{"domain_id": domain, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
+func (f workContextFixture) knowledgeReading() map[string]any {
+	return map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
 }
 
 // seedWorkContextFixture seeds one break-fix work item whose approved

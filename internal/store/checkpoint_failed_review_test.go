@@ -101,7 +101,7 @@ func parkWorkflowInstanceAt(t *testing.T, s *Store, workID, step string) {
 func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string, owner WorkflowActor, stepID string) {
 	t.Helper()
 	ctx := context.Background()
-	lane := laneForID(t, "implement")
+	lane := laneForID(t)
 	var registered RegisteredDefinition
 	var ref string
 	var version int64

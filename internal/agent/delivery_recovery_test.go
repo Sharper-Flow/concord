@@ -96,7 +96,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 			}
 		}
 	}
-	agentWorkerCompletedThroughSeam(t, s, "work-1", attemptID, "delivery-recovery-completed-"+attemptID, payload)
+	agentWorkerCompletedThroughSeam(t, s, attemptID, "delivery-recovery-completed-"+attemptID, payload)
 }
 
 func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
@@ -305,8 +305,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 // authenticated terminal preparation sampled outside the transaction. A
 // non-implementation attempt owes no observation and the preparation probes
 // nothing.
-func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, workID, attemptID, eventID string, payload store.WorkerCompletedPayload) {
+func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, eventID string, payload store.WorkerCompletedPayload) {
 	t.Helper()
+	const workID = "work-1"
 	ctx := context.Background()
 	if payload.EvidenceOrigin == "" {
 		payload.EvidenceOrigin = store.WorkerEvidenceReported

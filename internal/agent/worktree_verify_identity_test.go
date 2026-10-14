@@ -173,8 +173,16 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 		request.ApprovalVersionsJSON = fmt.Sprintf(`{"work":%d}`, version)
 		request.ApprovalConsequence = "recovery"
 	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), request)
+	ctx := context.Background()
+	if store.WorkflowActionRequiresSubjectFreshness(action) {
+		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
+		if prepErr != nil {
+			t.Fatalf("verify-identity journey action %s: %v", action, prepErr)
+		}
+		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 		return err
 	}); err != nil {
 		t.Fatalf("verify-identity journey action %s: %v", action, err)

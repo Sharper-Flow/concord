@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,9 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	}
 	if claim.Entry.State != worktreeEntryActive {
 		t.Fatalf("worktree claim state=%q, want active", claim.Entry.State)
+	}
+	if err := os.MkdirAll(claim.Entry.Path, 0o700); err != nil {
+		t.Fatal(err)
 	}
 	return s, git, owner, reviewer
 }
@@ -187,15 +191,23 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), 0, reviewer); err != nil {
+	terminal := func(action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, Runner: git})
+		if err != nil {
+			return err
+		}
+		journey := &candidateJourney{s: s, workID: workID}
+		return journey.terminalActionContext(t, WithWorkerDispatchPreparation(ctx, prepared), action, payload, actor, operator)
+	}
+	if err := terminal("record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), reviewer, nil); err != nil {
 		t.Fatalf("record_verdict after the verify bind refused: %v", err)
 	}
-	if err := runRecoveryAction(ctx, t, s, workID, "confirm_premise", workID+":confirm-verify-bound", readWorkVersion(t, s, workID), nil, owner, recoveryOperator(workID)); err != nil {
+	if err := terminal("confirm_premise", nil, owner, recoveryOperator(workID)); err != nil {
 		t.Fatalf("confirm_premise with the verify run bound refused: %v", err)
 	}
 	// The verdict actor is the invoking actor, and it must differ from the
 	// execution the fixture started under, so the distinct reviewer completes.
-	if err := runRecoveryAction(ctx, t, s, workID, "complete", workID+":complete-verify-bound", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), reviewer, nil); err != nil {
+	if err := terminal("complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), reviewer, nil); err != nil {
 		t.Fatalf("completion with the verify run as verification evidence refused: %v", err)
 	}
 	var state string

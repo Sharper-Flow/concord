@@ -264,6 +264,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, conflict
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
+	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
+		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
+			return result, err
+		}
+	}
 	// One admission derivation for the fold: the tx-scoped loader folds the
 	// instance history into the abstract admission state once, the request's
 	// consumed operator approval fills ordinary failed-retry approval, and the pure

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,7 +166,36 @@ func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparatio
 
 func (j *candidateJourney) action(t *testing.T, action string, payload any, actor WorkflowActor) error {
 	t.Helper()
+	if WorkflowActionRequiresSubjectFreshness(action) {
+		return j.terminalAction(t, action, mustJSONValue(payload), actor, nil)
+	}
 	return runVerdictActionAs(t, j.s, j.workID, action, mustJSONValue(payload), 0, actor)
+}
+
+func (j *candidateJourney) terminalAction(t *testing.T, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+	t.Helper()
+	ctx := context.Background()
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	if err != nil {
+		return err
+	}
+	ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	return j.terminalActionContext(t, ctx, action, payload, actor, operator)
+}
+
+func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+	t.Helper()
+	version := verdictItemVersion(t, j.s, j.workID)
+	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
+	return j.s.Transact(ctx, func(transaction *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, transaction, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, OperatorActor: operator,
+			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
+			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
+			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		})
+		return err
+	})
 }
 
 // candidateAtVerify is a journey parked at verify after A was produced,
@@ -303,14 +333,14 @@ func (j *candidateAtVerify) refuse(t *testing.T, route string, run func() error)
 
 func (j *candidateAtVerify) confirmPremise(t *testing.T) error {
 	t.Helper()
-	return runIssue933OperatorAction(t, j.s, j.workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), j.fixture.owner, j.fixture.operator)
+	return j.terminalAction(t, "confirm_premise", json.RawMessage(`{"contract_version":1}`), j.fixture.owner, &j.fixture.operator)
 }
 
 // completeOrdinary is the ordinary completion call: impact_verdict only, with
 // no current_commit, evidence_commit, or asserted staleness.
 func (j *candidateAtVerify) completeOrdinary(t *testing.T) error {
 	t.Helper()
-	return runIssue933OperatorAction(t, j.s, j.workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, j.fixture.operator)
+	return j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, &j.fixture.operator)
 }
 
 // staleAcceptance drives the declared acceptance routes on A proof alone:
@@ -460,7 +490,12 @@ func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capabili
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	if _, err := dispatchJoinAttempt(context.Background(), t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
+	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	if err != nil {
+		t.Fatalf("prepare dispatch %s: %v", attemptID, err)
+	}
+	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
+	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatalf("dispatch %s on %s: %v", attemptID, laneID, err)
 	}
 	bound := job
@@ -579,6 +614,13 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	if implementCompletions != 1 {
 		t.Errorf("implementation completions = %d, want only the managed A attempt", implementCompletions)
 	}
+	var bDeliveries int
+	if err := j.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.observed_delivery.commit')=?`, j.workID, WorkerCompleted, j.b).Scan(&bDeliveries); err != nil {
+		t.Fatal(err)
+	}
+	if bDeliveries != 0 {
+		t.Errorf("worker deliveries naming coordinator B = %d, want none", bDeliveries)
+	}
 }
 
 // TestManagedCandidateSubjectCorrectiveDispatchOnB proves corrective liveness
@@ -649,7 +691,12 @@ func (j *candidateJourney) dispatchReview(t *testing.T, attemptID string) {
 	t.Helper()
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, "review", laneVersion, laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
+	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	if err != nil {
+		t.Fatalf("prepare review %s: %v", attemptID, err)
+	}
+	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
+	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatalf("dispatch review %s: %v", attemptID, err)
 	}
 	j.laneDispatch(t, attemptID, "review", nil)
@@ -694,9 +741,14 @@ func (j *candidateJourney) completeLane(t *testing.T, attemptID, capability stri
 		payload.Evidence[0].OracleReceipt = receipt
 		event.Payload = mustJSONValue(payload)
 	}
-	if err := ApplyOperation(context.Background(), j.s, Operation{Events: []Event{event}}); err != nil {
-		t.Fatalf("complete %s: %v", attemptID, err)
+	ctx := context.Background()
+	prepared, err := PrepareWorkerTerminalDelivery(ctx, j.s, PrepareWorkerTerminalDeliveryRequest{
+		WorkID: j.workID, AttemptID: attemptID, EventID: event.EventID, Runner: ExecGitRunner{},
+	})
+	if err != nil {
+		t.Fatalf("prepare completion %s: %v", attemptID, err)
 	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), j.s, event)
 }
 
 func (j *candidateJourney) dispatchEpoch(t *testing.T, attemptID string) int64 {
@@ -741,7 +793,7 @@ type subjectRecord struct{ id, kind, payload string }
 func (j *candidateJourney) snapshotSubjectRecords(t *testing.T, subject string) map[string]subjectRecord {
 	t.Helper()
 	records := map[string]subjectRecord{}
-	rows, err := j.s.db.Query(`SELECT event_id,kind||'@'||payload_version,payload FROM domain_events WHERE subject_id=? AND (kind IN (?,?) OR (kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'))`, j.workID, WorkerCompleted, WorkerDispatched, WorkflowActionCompleted)
+	rows, err := j.s.db.Query(`SELECT event_id,kind||'@'||payload_version,payload FROM domain_events WHERE subject_id=? AND (kind IN (?,?) OR (kind=? AND json_extract(payload,'$.action_id') IN ('dispatch_worker','accept_worker_result','accept_worker_evidence')))`, j.workID, WorkerCompleted, WorkerDispatched, WorkflowActionCompleted)
 	if err != nil {
 		t.Fatal(err)
 	}

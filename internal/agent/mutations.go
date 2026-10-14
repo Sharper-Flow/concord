@@ -1264,6 +1264,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 // prepare their one sealed proof after replay, budget, and approval handling,
 // before the action transaction opens. Admission revalidates it with SQL only.
 func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actionID string, payload json.RawMessage) (context.Context, error) {
+	if store.WorkflowActionRequiresSubjectFreshness(actionID) {
+		preparation, err := store.PrepareWorkflowAcceptanceFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree})
+		if err != nil {
+			return ctx, err
+		}
+		return store.WithWorkerDispatchPreparation(ctx, preparation), nil
+	}
 	if actionID == "dispatch_worker" || (actionID == "reject_worker_result" && store.RejectRetryMemberPresent(payload)) {
 		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree})
 		if err != nil {

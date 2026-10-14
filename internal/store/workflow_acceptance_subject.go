@@ -15,6 +15,12 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		return nil
 	}
 	var subjects []string
+	if prepared := workerDispatchPreparationFrom(ctx); prepared != nil && prepared.proof.acceptance && prepared.proof.pinReceipt != nil {
+		if prepared.proof.workID != workID || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" {
+			return newFailure(KindStaleRequiresReview, "workflow_action", "terminal acceptance requires a clean native subject observation", false, "verify the clean worktree and prepare acceptance again")
+		}
+		subjects = append(subjects, prepared.proof.observation.Commit, strings.TrimPrefix(prepared.proof.pinReceipt.SubjectRef, "commit:"))
+	}
 	for _, attempt := range reviewAttempts {
 		var subject string
 		err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events
@@ -74,6 +80,33 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		}
 	}
 	return nil
+}
+
+// WorkflowActionRequiresSubjectFreshness is the closed terminal-gate set the
+// native mutation boundary prepares before opening its action transaction.
+func WorkflowActionRequiresSubjectFreshness(actionID string) bool {
+	return actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
+}
+
+func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID string) error {
+	if isWorkflowReplay(ctx) {
+		return nil
+	}
+	subject, err := readCurrentOracleSubject(ctx, tx, workID)
+	if err != nil || subject == "" {
+		return err
+	}
+	prepared := workerDispatchPreparationFrom(ctx)
+	if prepared == nil || !prepared.proof.acceptance || prepared.proof.workID != workID {
+		return newFailure(KindInvalidOperation, "workflow_action", "terminal acceptance reached live assembly without its sealed subject preparation", false, "prepare acceptance through the native mutation boundary before opening its transaction")
+	}
+	if prepared.proof.pinReceipt == nil || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" || prepared.proof.observation.Commit != subject {
+		return newFailure(KindStaleRequiresReview, "workflow_action", "the live clean HEAD does not match the qualified terminal subject", false, "verify the clean worktree and prepare acceptance again")
+	}
+	if err := prepared.revalidateDispatchIdentitiesTx(ctx, tx, workID, true); err != nil {
+		return err
+	}
+	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, nil)
 }
 
 // workflowAcceptedSubjectCurrent reads the evidence that terminal acceptance

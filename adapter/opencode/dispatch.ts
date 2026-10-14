@@ -294,7 +294,13 @@ export interface NativeOracleStream {
 
 // The store selects these immutable records by the job's preparation refs.
 // This type carries metadata only, never the retained stdout/stderr bytes.
-export interface NativeOraclePreparation {
+// The recipe family closes the record: a Go preparation keeps the legacy
+// selected test names and case map and carries no host props, while a
+// target_runner_v1 preparation carries the closed materializer/runner axes
+// and real witness IDs and never fabricates Go test names. The undefined
+// mirrors make a mixed-family shape unrepresentable and keep both witness
+// grammars addressable across the union.
+interface NativeOraclePreparationCommon {
   protocol: "native_oracle_v2"
   phase: "prepare"
   qualification: "ready" | "unavailable"
@@ -312,14 +318,34 @@ export interface NativeOraclePreparation {
   files: { path: string; blob_oid: string; sha256: string }[]
   toolchain_identity: string
   build_environment_digest: string
-  selected_test_names: string[]
-  case_to_test_map: Record<string, string[]>
   selected_distinct_count: number
   native_plan_sha256: string
   stdout: NativeOracleStream
   stderr: NativeOracleStream
   streams_complete: boolean
 }
+
+export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon {
+  selected_test_names: string[]
+  case_to_test_map: Record<string, string[]>
+  recipe_kind?: undefined
+  target_materializer?: undefined
+  target_runner?: undefined
+  selected_witness_ids?: undefined
+  case_to_witness_map?: undefined
+}
+
+export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
+  recipe_kind: "target_runner_v1"
+  target_materializer: "none" | "uv"
+  target_runner: "pytest" | "check"
+  selected_witness_ids: string[]
+  case_to_witness_map: Record<string, string[]>
+  selected_test_names?: undefined
+  case_to_test_map?: undefined
+}
+
+export type NativeOraclePreparation = NativeOracleGoPreparation | NativeOracleTargetPreparation
 
 export interface AgentLanePacketWorkContext {
   source_event_frontier: number

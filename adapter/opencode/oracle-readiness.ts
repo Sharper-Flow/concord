@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { AgentLanePacket, DispatchRunner, NativeOraclePreparation } from "./dispatch"
+import type { AgentLanePacket, DispatchRunner, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
 
 // Readiness consumes the native owner's qualified, job-selected preparation
 // records. The core dispatch admission owns subject freshness — it observes
@@ -23,10 +23,52 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []
 }
 
+// The closed admitted materializer/runner pairs of target_runner_v1. Every
+// other pair — including unknown members — refuses before any probe.
+const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check"])
+
+// Witness IDs are runner-defined exact identities: 1 to 256 bytes, unique,
+// and free of control characters, mirroring the core's closed manifest rule.
+const visibleWitnessPattern = /^[^\x00-\x1f\x7f]*$/
+
+function targetWitnessesValid(preparation: NativeOracleTargetPreparation, cases: string[]): boolean {
+  if (preparation.selected_test_names !== undefined || preparation.case_to_test_map !== undefined) return false
+  if (!admittedTargetPairs.has(`${preparation.target_materializer}:${preparation.target_runner}`)) return false
+  const selected = preparation.selected_witness_ids
+  if (!Array.isArray(selected) || selected.length < 1 || selected.length > 40) return false
+  if (new Set(selected).size !== selected.length || preparation.selected_distinct_count !== selected.length) return false
+  if (!selected.every((witness) => witness.length >= 1 && Buffer.byteLength(witness, "utf8") <= 256 && visibleWitnessPattern.test(witness))) return false
+  const map = preparation.case_to_witness_map
+  if (!isRecord(map) || Object.keys(map).length !== cases.length) return false
+  const selectedSet = new Set(selected)
+  const covered = new Set<string>()
+  for (const id of cases) {
+    const witnesses = strings(map[id])
+    if (witnesses.length < 1 || witnesses.length > 8 || new Set(witnesses).size !== witnesses.length) return false
+    for (const witness of witnesses) {
+      if (!selectedSet.has(witness)) return false
+      covered.add(witness)
+    }
+  }
+  return covered.size === selected.length
+}
+
+function goWitnessesValid(preparation: NativeOracleGoPreparation, cases: string[]): boolean {
+  if (preparation.recipe_kind !== undefined || preparation.target_materializer !== undefined || preparation.target_runner !== undefined
+    || preparation.selected_witness_ids !== undefined || preparation.case_to_witness_map !== undefined) return false
+  const names = preparation.selected_test_names
+  return Array.isArray(names) && names.length > 0 && new Set(names).size === names.length
+    && preparation.selected_distinct_count === names.length
+    && cases.length > 0 && isRecord(preparation.case_to_test_map)
+    && cases.every((id) => {
+      const witnesses = strings(preparation.case_to_test_map[id])
+      return witnesses.length > 0 && witnesses.every((name) => names.includes(name))
+    })
+}
+
 function preparationMatches(preparation: NativeOraclePreparation, control: Record<string, unknown>, packet: AgentLanePacket): boolean {
   const source = control.recipe_source
   const actual = preparation.recipe_source
-  const names = preparation.selected_test_names
   const cases = strings(control.case_ids)
   const refs = strings(control.readiness_evidence_refs)
   const argv = strings(control.argv)
@@ -39,12 +81,10 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
     && source.project_id === actual.project_id && source.path === actual.path && source.commit_oid === actual.commit_oid
     && preparation.streams_complete && preparation.stdout.complete && preparation.stderr.complete
     && preparation.stdout.stream === "stdout" && preparation.stderr.stream === "stderr" && preparation.stdout.ref.length > 0 && preparation.stderr.ref.length > 0
-    && Array.isArray(names) && names.length > 0 && new Set(names).size === names.length && preparation.selected_distinct_count === names.length
-    && cases.length > 0 && isRecord(preparation.case_to_test_map)
-    && cases.every((id) => {
-      const witnesses = strings(preparation.case_to_test_map[id])
-      return witnesses.length > 0 && witnesses.every((name) => names.includes(name))
-    })
+    && cases.length > 0
+    && (preparation.recipe_kind === "target_runner_v1"
+      ? targetWitnessesValid(preparation, cases)
+      : goWitnessesValid(preparation, cases))
 }
 
 export async function verifyPacketOracleReadiness(packet: AgentLanePacket, deps: OracleReadinessDeps): Promise<OracleReadinessRefusal | null> {

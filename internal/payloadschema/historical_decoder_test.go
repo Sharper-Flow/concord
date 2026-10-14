@@ -245,6 +245,13 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"worker_packet2":             "CD-0198 D5: the versioned packet2 identity the derived-failure implementation v29 and break_fix v26 dispatch payloads declare",
 	"work_context_view2":         "the versioned work-context view worker_packet2 anchors, resolving the nav-free group",
 	"work_context_domain_group2": "the current nav-free domain group: domain identity, reading ordinals, and finding ids, without the retired repository navigation cards",
+	// The failure-attribution correction inputs the promoted pins declare
+	// (implementation v31, break_fix v28, research v18): the declared field
+	// schema is worker_failure_observation, whose frozen closure adds the
+	// typed host observation and source citation it cites.
+	"worker_failure_observation":      "CON-787: the producer observation the failure-attribution pins' failure_attribution correction input declares",
+	"worker_failure_host_observation": "CON-787: the typed host event observation a worker_failure_observation host_event source carries",
+	"worker_failure_source":           "CON-787: the typed source citation a worker_failure_observation carries",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

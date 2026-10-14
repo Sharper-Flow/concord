@@ -173,6 +173,23 @@ strategy fills from the standing default, which are the values the correction
 context applies today when the caller omits them. The record stops being a
 callable action and the coordinator call disappears.
 
+On attribution-capable versions, the terminal event owns the typed
+observation. Its existing derived workflow failure fact references that
+attribution. Derivation neither copies a second causal record nor creates
+another correction event. Live application commits the existing pair once.
+Rebuild folds that retained pair without another derivation.
+
+Born-failed dispatch and abandonment keep their existing terminal
+representations and liveness gates. Attribution does not fabricate model
+readback or another terminal outcome. A failed or uncertain evidence write
+remains a refusal with its actual effect state. No successful attribution
+write or replacement window is inferred.
+
+Rejection and retry still share the sole dispatch admission. Attribution
+changes no count, limit, approval, convergence, fence, or rejection-only
+escape. The correction diagnosis and strategy retain their existing source and
+defaults.
+
 Second, `reject_worker_result` gains an optional retry dispatch in its payload.
 The fold appends the rejection and the dispatch in one transaction. The retry
 mints a fresh fenced attempt identity, and the dispatch binds the same packet
@@ -230,6 +247,15 @@ version of the families that declare the actions, with prior versions pinned.
   when its work dispatches. This record decides and implements nothing.
 
 ## Verification
+
+```gherkin
+Scenario: One derived failure fact references the terminal attribution
+  Given one terminal attempt with a typed attribution record
+  When the store applies it live and rebuilds its log
+  Then exactly one derived workflow failure fact references the same
+  attribution
+  And correction count and escalation equal the live projection
+```
 
 - `python3 scripts/check-doc-contract.py` proves this record carries the current
   decision outline and passes the writing rules.

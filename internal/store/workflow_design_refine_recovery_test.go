@@ -329,7 +329,7 @@ func refineRetryCorrection(t *testing.T, s *Store, workID string) *WorkflowCorre
 func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixture, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.implementation"), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s, owner := fixture.store, fixture.owner
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {

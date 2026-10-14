@@ -60,10 +60,19 @@ func reconstructWorkerEvidenceAck(ctx context.Context, tx *store.Transaction, ex
 // members onto the comparison payload as raw JSON. The stored payload is the
 // authority for what the store derived; a member it does not carry stays
 // absent, and a caller-supplied member can never stand in for one.
+//
+// The failure_attribution identity is core-derived the same way :
+// the caller's request carries the producer observation only, so the stored
+// event's derived identity is overlaid onto the comparison's attribution
+// while the caller's observation bytes still compare. A stored identity
+// beside a request without attribution refuses, as does the reverse.
 func mergeWorkerTerminalProducerFields(existing, requested store.Event) (store.Event, error) {
 	var storedMembers struct {
 		ConsumedContextFrontier *int64                        `json:"consumed_context_frontier"`
 		ObservedDelivery        *store.WorkerObservedDelivery `json:"observed_delivery"`
+		FailureAttribution      *struct {
+			Identity json.RawMessage `json:"identity"`
+		} `json:"failure_attribution"`
 	}
 	if err := json.Unmarshal(existing.Payload, &storedMembers); err != nil {
 		return store.Event{}, err
@@ -87,6 +96,22 @@ func mergeWorkerTerminalProducerFields(existing, requested store.Event) (store.E
 			return store.Event{}, err
 		}
 		members["observed_delivery"] = raw
+	}
+	if storedMembers.FailureAttribution != nil && len(storedMembers.FailureAttribution.Identity) > 0 {
+		requestedAttribution, ok := members["failure_attribution"]
+		if !ok {
+			return store.Event{}, errors.New("worker evidence replay omits the failure_attribution the stored event records")
+		}
+		var attributionMembers map[string]json.RawMessage
+		if err := json.Unmarshal(requestedAttribution, &attributionMembers); err != nil {
+			return store.Event{}, err
+		}
+		attributionMembers["identity"] = storedMembers.FailureAttribution.Identity
+		raw, err := json.Marshal(attributionMembers)
+		if err != nil {
+			return store.Event{}, err
+		}
+		members["failure_attribution"] = raw
 	}
 	raw, err := json.Marshal(members)
 	if err != nil {

@@ -384,11 +384,20 @@ func (f workContextFixture) knowledgeReading() map[string]any {
 // the registry fixture above installed.
 func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	t.Helper()
-	ctx := context.Background()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return seedWorkContextFixtureWithDefinition(t, workID, registered)
+}
+
+// seedWorkContextFixtureWithDefinition seeds the same fixture under an
+// explicit registered definition, so a suite can pin the latest head that
+// predates a later definition-gated requirement without changing the
+// fixture's own shape.
+func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition) workContextFixture {
+	t.Helper()
+	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
@@ -1253,7 +1262,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 // retained report without today's registry.
 func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-terminal-domain")
+	// The terminal-report binding fixture predates the failure-attribution
+	// requirement: its refusal subtests want the finding-domain
+	// validation kinds, and its admitted failure lands as the plain
+	// released terminal the rule was authored against. Pin the latest
+	// pre-attribution head so the attribution gate never shadows the
+	// domain refusals this test proves.
+	fixture := seedWorkContextFixtureWithDefinition(t, "ctx-terminal-domain", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
@@ -1315,5 +1330,120 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 	}
 	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
 		t.Fatalf("replay of retained terminal reports refused without the registry: %v", err)
+	}
+}
+
+// TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead is the
+// current-head counterpart of the pre-attribution witness above. The failed
+// terminal carries the recorded producer observation and lands through the
+// authorized dispatch window's live ingest, and the same two properties hold:
+// the finding-domain refusals keep their kinds past the attribution gate, and
+// replay folds the retained reports — and the derived failure record —
+// without today's registry. Completion finding-domain admission
+// carries no attribution member on any pin, so the released plain-terminal
+// completion path stays witnessed by the test above alone.
+func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
+	t.Parallel()
+	fixture := seedWorkContextFixture(t, "ctx-terminal-domain-current")
+	defer fixture.store.Close()
+	finding := func(domain, rationale string) []WorkerContextFinding {
+		return []WorkerContextFinding{{Kind: "observation", Statement: "a reported claim", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: domain, ProductWideRationale: rationale}}
+	}
+	// The authorized dispatch window is what the attribution identity derives
+	// from, so the attempt is dispatched through the real dispatch boundary.
+	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
+	job := seedReadyWorkerJob(t, fixture)
+	view, viewErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if viewErr != nil || view == nil {
+		t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
+	}
+	attempt := "attempt-domain-current-1"
+	if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, attempt, job, view)); err != nil {
+		t.Fatalf("authorized dispatch refused: %v", err)
+	}
+	// The authorization alone leaves the attempt in_flight, and a
+	// worker_error terminal is admissible only on a dispatched attempt
+	// (in_flight admits abandonment alone) — the lifecycle gate stays exact.
+	// Stage the attempt's actual authorized worker.dispatched evidence
+	// through the lane-actor seam, with the packet digest the window
+	// recorded and the binding it authorized.
+	var packetDigest string
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowActionCompleted, attempt).Scan(&packetDigest); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchLane LaneDefinition
+	for _, candidate := range BuiltinLaneDefinitions() {
+		if candidate.ID == "implement" {
+			dispatchLane = candidate
+			break
+		}
+	}
+	if dispatchLane.ID == "" {
+		t.Fatal("lane implement is not registered")
+	}
+	model := preferredModelForLane(dispatchLane)
+	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
+	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, dispatchEvidence, "principal/operator", "client/concord-1")
+		if prepErr != nil {
+			return prepErr
+		}
+		_, appendErr := AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return appendErr
+	}); err != nil {
+		t.Fatalf("the authorized lane dispatch evidence for %s: %v", attempt, err)
+	}
+	// The attributed failure event builder: recorded observation, no authored
+	// identity — the live ingest derives it from the window.
+	attributedFailure := func(eventID string, findings []WorkerContextFinding) Event {
+		payload := WorkerFailedPayload{AttemptID: attempt, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "the worker reported the failed check", ContextFindings: findings}
+		payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
+		return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+	}
+	refusals := []struct {
+		name     string
+		findings []WorkerContextFinding
+		want     FailureKind
+	}{
+		{"missing domain", finding("", ""), KindInvalidPayload},
+		{"unknown domain", finding("domain:absent", ""), KindUnknownScope},
+		{"root without rationale", finding(workContextTestRoot, ""), KindInvalidPayload},
+		{"child with rationale", finding(workContextTestChild, workContextRootRationale), KindInvalidPayload},
+	}
+	for index, refusal := range refusals {
+		if err := s2WorkerFailedLive(t, fixture.store, attributedFailure(fmt.Sprintf("ctx-domain-current-refused-%d", index), refusal.findings)); !hasFailureKind(err, refusal.want) {
+			t.Fatalf("attributed failure %s error = %v, want %s", refusal.name, err, refusal.want)
+		}
+	}
+	if err := s2WorkerFailedLive(t, fixture.store, attributedFailure("ctx-domain-current-ok", finding(workContextTestRoot, workContextRootRationale))); err != nil {
+		t.Fatalf("root-domain attributed failure with rationale refused: %v", err)
+	}
+	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
+		t.Fatalf("derived records for %s = %+v, want exactly one from the attributed terminal", attempt, records)
+	}
+	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
+		t.Fatalf("replay of the retained attributed reports refused without the registry: %v", err)
+	}
+	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
+		t.Fatalf("rebuilt derived records for %s = %+v, want the one attributed terminal's record", attempt, records)
 	}
 }

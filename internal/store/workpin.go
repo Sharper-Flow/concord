@@ -93,6 +93,13 @@ type WorkPinAttempt struct {
 	Epoch int64  `json:"epoch"`
 	Lane  string `json:"lane"`
 	State string `json:"state"`
+	// FailureAttribution exposes the failed attempt's terminal failure
+	// attribution exactly as the event-based reader resolves it: the
+	// recorded block, the explicit legacy_unavailable marker beside the
+	// source version that owns it, or a nil block for a capable terminal
+	// that recorded none. It stays absent on every attempt whose state is
+	// not failed.
+	FailureAttribution *WorkerFailureAttributionRecord `json:"failure_attribution,omitempty"`
 }
 
 type WorkPinEvidence struct {
@@ -438,6 +445,18 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "rebuild the worker and workflow projections from the event log")
 		}
 		attempt.Epoch = epoch.Int64
+		// A failed terminal exposes its attribution through the one
+		// event-based reader, inside this same transaction: the queryer is
+		// the caller's tx, so the pin and the dedicated attribution read
+		// answer identically for the same log state and no second table or
+		// read path exists.
+		if attempt.State == "failed" {
+			record, readErr := WorkerFailureAttributionForAttemptTx(ctx, tx, workID, attempt.ID)
+			if readErr != nil {
+				return readErr
+			}
+			attempt.FailureAttribution = record
+		}
 		pin.Attempt = &attempt
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "work_pin", "cannot read worker attempt", true, "retry once the database is readable", err)
@@ -476,7 +495,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		return err
 	}
 	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery && admits("reject_worker_result") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "reject_worker_result"), pin.Version, "worker_result_rejection"))
 	}
 	// A completed instance with nonterminal work retains only the admitted
 	// complete-step contract correction. Every other action remains immutable.
@@ -508,10 +527,10 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
 		if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "delivery_gate_correction"))
 		}
 	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
 	if correctionErr != nil {

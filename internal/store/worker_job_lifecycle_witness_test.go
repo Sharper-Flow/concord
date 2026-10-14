@@ -125,8 +125,10 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 	acceptor := reviewGateAcceptor(id)
 	job := &WorkerJobBinding{JobID: "job:original-corrective", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "review-rewritten-1", job)
-	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "corrective objective remains unsatisfied")
-	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "review-rewritten-failure")
+	// The live ingest carries the recorded observation the promoted pin
+	// requires and derives the failure record in the same commit, replacing
+	// the explicit record disposition.
+	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "corrective objective remains unsatisfied")
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 	// The rewritten revision keeps its unrelated objective; the oracle the
@@ -162,8 +164,7 @@ func TestWitnessUnrelatedLocalAcceptHoldsSameStepWall(t *testing.T) {
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:witness-failed", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-wall-1", job)
-	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "fallback blocked")
-	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-wall-fail")
+	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "fallback blocked")
 	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil || before != 1 {
 		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
@@ -196,8 +197,7 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:witness-satisfying", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-satisfy-1", job)
-	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "fallback blocked")
-	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-satisfy-fail")
+	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "fallback blocked")
 	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil || before != 1 {
 		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
@@ -233,8 +233,7 @@ func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:witness-corrective", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-binding-1", job)
-	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "fallback blocked")
-	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-binding-fail")
+	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "fallback blocked")
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 	// The rewritten revision keeps its unrelated objective; the oracle the

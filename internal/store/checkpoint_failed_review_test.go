@@ -174,7 +174,7 @@ func failCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID strin
 // the operator and the premise confirmation.
 func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "verify", []string{"verification"}, []string{"verification", "artifact"})
 	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, "verify"), "verify")
 	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
@@ -286,7 +286,7 @@ func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 // the earlier completed attempt cannot advance the step with its own epoch.
 func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	const workID = "effect-step-stale-completed-attempt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "repair")
 	ownerRef, err := WorkflowActorRef(fixture.owner)

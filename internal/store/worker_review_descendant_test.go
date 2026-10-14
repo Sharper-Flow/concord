@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func descendantReviewFixture(t *testing.T, id string) (*candidateJourney, string) {
@@ -132,7 +133,14 @@ func TestReviewDescendantNewerEditingDispatchRefuses(t *testing.T) {
 					if state == "abandoned" {
 						kind = WorkerFailureAbandoned
 					}
-					event := workerFailedContextFindingsEvent(j.workID, "new-editor-failed", "new-editor", preferredModelForLane(reviewGateLane(t, capability)), kind, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+					event := Event{
+						EventID: "new-editor-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: j.workID,
+						Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed),
+						Payload: mustJSONValue(WorkerFailedPayload{
+							AttemptID: "new-editor", ReadbackModel: preferredModelForLane(reviewGateLane(t, capability)), FailureKind: kind, Detail: "bounded worker error",
+							FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: attributionHostObservation()},
+						}),
+					}
 					workerTerminalEventThroughSeam(t, j.s, event)
 				default:
 					j.completeLane(t, "new-editor", capability, &job, nil)

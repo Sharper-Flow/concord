@@ -4,10 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func nativeTargetTestManifest() (nativeTargetOracleManifest, OracleControl) {
@@ -348,6 +352,80 @@ func TestNativeTargetAxisCheckArgvStructure(t *testing.T) {
 	}
 }
 
+// Every caller-owned argument — the pinned script slot and the data
+// arguments — is a literal value: the producer's $scratch slot must never
+// occupy either position, or stage substitution would redirect the pinned
+// script to a candidate-owned path beside the pinned bytes. Literal
+// interpreter-name arguments and extensionless pinned scripts stay valid.
+func TestNativeTargetAxisCheckArgvScratchSlots(t *testing.T) {
+	for name, argv := range map[string][]string{
+		"script_slot_exact":  {"bash", "$scratch"},
+		"script_slot_prefix": {"bash", "$scratch/snapshot/chkfix/scripts/check.sh"},
+		"python_script_slot": {"python3", "$scratch/scripts/check.py"},
+		"data_arg_exact":     {"bash", "scripts/check.sh", "$scratch"},
+		"data_arg_prefix":    {"bash", "scripts/check.sh", "--log", "$scratch/out.txt"},
+	} {
+		if err := validateNativeTargetCheckArgv(argv); err == nil {
+			t.Fatalf("producer $scratch slot admitted in %s: %v", name, argv)
+		} else if !strings.Contains(err.Error(), "bounded literal arguments") {
+			t.Fatalf("producer $scratch slot in %s refused with the wrong message: %v", name, err)
+		}
+	}
+	for _, argv := range [][]string{
+		{"bash", "scripts/check.sh", "bash", "python3", "pytest", "uv"},
+		{"bash", "scripts/check"},
+		{"python3", "scripts/check.py", "--expected", "7"},
+	} {
+		if err := validateNativeTargetCheckArgv(argv); err != nil {
+			t.Fatalf("literal caller-owned arguments refused: %v: %v", argv, err)
+		}
+	}
+}
+
+// An option-shaped name is an ordinary relative file name, so HarnessFiles
+// membership alone can carry an interpreter option through the script slot:
+// the interpreter then resolves the slot as its own option (or stdin) and
+// exits zero without grading the pinned bytes. The script slot is a literal
+// file operand, while data arguments behind a real script keep their
+// leading-flag literals and a contained dashed name like scripts/-check
+// stays a legal operand.
+func TestNativeTargetAxisCheckArgvOptionSlots(t *testing.T) {
+	for name, argv := range map[string][]string{
+		"long_option":  {"bash", "--version"},
+		"short_option": {"python3", "-c"},
+		"stdin_dash":   {"bash", "-"},
+	} {
+		if err := validateNativeTargetCheckArgv(argv); err == nil {
+			t.Fatalf("interpreter option admitted in the script slot: %s: %v", name, argv)
+		} else if !strings.Contains(err.Error(), "literal file operand") {
+			t.Fatalf("interpreter option in the script slot refused with the wrong message: %s: %v", name, err)
+		}
+	}
+	none := nativeTargetOracleManifest{
+		Kind: nativeTargetKind, Materializer: nativeTargetMaterializerNone, Runner: nativeTargetRunnerCheck,
+		Root:         "chkfix",
+		HarnessFiles: []string{"chkfix/--version"},
+		SupportFiles: []string{},
+		Cases:        map[string][]string{"case:fixture": {"shell-value"}},
+		Checks:       []nativeTargetCheck{{Witness: "shell-value", Argv: []string{"bash", "--version"}}},
+		Pin:          nativeTargetPin{Shell: "5.3.9"},
+	}
+	control := OracleControl{CaseIDs: []string{"case:fixture"}, Argv: []string{"check", "shell-value"}, Cwd: "chkfix"}
+	if err := validateNativeTargetManifest(none, control); err == nil {
+		t.Fatal("pinned option-shaped script slot was admitted by manifest validation")
+	}
+	for _, argv := range [][]string{
+		{"bash", "scripts/check.sh", "--expected", "7"},
+		{"python3", "scripts/check.py", "--strict"},
+		{"bash", "scripts/check.sh", "-"},
+		{"bash", "scripts/-check"},
+	} {
+		if err := validateNativeTargetCheckArgv(argv); err != nil {
+			t.Fatalf("leading-flag data arguments or a contained dashed script name were refused: %v: %v", argv, err)
+		}
+	}
+}
+
 // Stage resolution owns only the executable position: literal data
 // arguments keep their exact bytes, and producer-owned scratch
 // substitution still applies to its own closed stage arguments.
@@ -532,6 +610,142 @@ func slicesEqualStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// budgetWitnesses renders n zero-padded witnesses under one pinned harness
+// file prefix, already in the selector's sorted order.
+func budgetWitnesses(prefix string, n int) []string {
+	witnesses := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		witnesses = append(witnesses, fmt.Sprintf("%s::test_%02d", prefix, i))
+	}
+	return witnesses
+}
+
+// budgetCheckManifest renders a check manifest with one pinned script and
+// one declared check per witness, for either materializer.
+func budgetCheckManifest(materializer string, witnesses []string) nativeTargetOracleManifest {
+	m := nativeTargetOracleManifest{
+		Kind: nativeTargetKind, Materializer: materializer, Runner: nativeTargetRunnerCheck,
+		Root:         "chkfix",
+		SupportFiles: []string{},
+		Pin:          nativeTargetPin{Shell: "5.3.9"},
+	}
+	for i := range witnesses {
+		script := fmt.Sprintf("scripts/check-%02d.sh", i)
+		m.HarnessFiles = append(m.HarnessFiles, "chkfix/"+script)
+		m.Checks = append(m.Checks, nativeTargetCheck{Witness: witnesses[i], Argv: []string{"bash", script}})
+	}
+	m.Cases = map[string][]string{"case:a": witnesses[:8], "case:b": witnesses[8:]}
+	if materializer == nativeTargetMaterializerUV {
+		m.Pin = nativeTargetPin{Python: "3.13.7", UV: "0.11.26", Shell: "5.3.9", DepManifest: "pyproject.toml", DepLock: "uv.lock"}
+	}
+	return m
+}
+
+// The stage budget is the public result's staged bound. The complete
+// execute plan is the constructed materializer prefix plus one graded
+// stage per selected witness: a uv+pytest control with fifteen selected
+// witnesses renders seventeen stages and must refuse both phases before
+// any stage runs, while the populations at and under the bound render
+// their exact plans — sixteen stages for fourteen pytest witnesses, the
+// metadata stage plus fifteen witnesses for uv+check, and fifteen stages
+// for none+check.
+func TestNativeTargetAxisStageBudget(t *testing.T) {
+	m, _ := nativeTargetTestManifest()
+	py := &nativeTargetOraclePlan{Recipe: m}
+	w15 := budgetWitnesses("tests/test_budget_a.py", 15)
+	for _, phase := range []string{"prepare", "execute"} {
+		stages, err := py.stages(phase, w15)
+		if err == nil {
+			t.Fatalf("fifteen pytest witnesses rendered a %s stage plan: %d stages", phase, len(stages))
+		}
+		assertFailureKind(t, err, KindLimitExceeded)
+		if !strings.Contains(err.Error(), "stage") {
+			t.Fatalf("stage budget refusal does not name the staged bound: %v", err)
+		}
+	}
+	w14 := budgetWitnesses("tests/test_budget_a.py", 14)
+	prepare, err := py.stages("prepare", w14)
+	if err != nil || len(prepare) != 3 {
+		t.Fatalf("fourteen-witness preparation rendered %d stages err=%v", len(prepare), err)
+	}
+	execute, err := py.stages("execute", w14)
+	if err != nil || len(execute) != nativeTargetStageBudget {
+		t.Fatalf("fourteen-witness execution rendered %d stages err=%v", len(execute), err)
+	}
+	if execute[0].Name != "metadata" || execute[1].Name != "toolcheck" {
+		t.Fatalf("fourteen-witness execution lost its prefix stages: %s %s", execute[0].Name, execute[1].Name)
+	}
+	for _, stage := range execute[2:] {
+		if stage.Name != "test" {
+			t.Fatalf("fourteen-witness execution carries a non-graded stage: %s", stage.Name)
+		}
+	}
+	uvCheckWitnesses := budgetWitnesses("chkfix/check", 15)
+	uvCheck := &nativeTargetOraclePlan{Recipe: budgetCheckManifest(nativeTargetMaterializerUV, uvCheckWitnesses)}
+	for _, phase := range []string{"prepare", "execute"} {
+		stages, err := uvCheck.stages(phase, uvCheckWitnesses)
+		if err != nil || len(stages) != nativeTargetStageBudget {
+			t.Fatalf("uv+check %s rendered %d stages err=%v, want 15 witnesses inside the bound", phase, len(stages), err)
+		}
+	}
+	noneCheck := &nativeTargetOraclePlan{Recipe: budgetCheckManifest(nativeTargetMaterializerNone, uvCheckWitnesses)}
+	for _, phase := range []string{"prepare", "execute"} {
+		stages, err := noneCheck.stages(phase, uvCheckWitnesses)
+		if err != nil || len(stages) != 15 {
+			t.Fatalf("none+check %s rendered %d stages err=%v, want fifteen stages under the bound", phase, len(stages), err)
+		}
+	}
+}
+
+// The budget constant is tied to the generated public result: both phase
+// branches of native_oracle_result record at most nativeTargetStageBudget
+// stages, and the lookup reads the authored definitions — a missing
+// definition, branch, or bound refuses the test instead of defaulting.
+func TestNativeTargetStageBudgetMatchesGeneratedResultBound(t *testing.T) {
+	document := payloadschema.Document()
+	defs, ok := document["$defs"].(map[string]any)
+	if !ok {
+		t.Fatal("generated payload schema carries no $defs")
+	}
+	result, ok := defs["native_oracle_result"].(map[string]any)
+	if !ok {
+		t.Fatal("generated payload schema carries no native_oracle_result definition")
+	}
+	branches, ok := result["oneOf"].([]any)
+	if !ok || len(branches) != 2 {
+		t.Fatalf("native_oracle_result carries %d oneOf branches, want the prepare and execute phases", len(branches))
+	}
+	for _, raw := range branches {
+		branch, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatal("native_oracle_result branch is not a schema object")
+		}
+		properties, ok := branch["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("native_oracle_result branch carries no properties")
+		}
+		phaseProperty, ok := properties["phase"].(map[string]any)
+		if !ok {
+			t.Fatal("native_oracle_result branch carries no phase property")
+		}
+		phase, ok := phaseProperty["const"].(string)
+		if !ok {
+			t.Fatal("native_oracle_result branch phase carries no const")
+		}
+		stagesProperty, ok := properties["stages"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s phase carries no stages property", phase)
+		}
+		maxItems, ok := stagesProperty["maxItems"].(json.Number)
+		if !ok {
+			t.Fatalf("%s phase stages property carries no authored maxItems", phase)
+		}
+		if maxItems.String() != strconv.Itoa(nativeTargetStageBudget) {
+			t.Fatalf("%s phase stages maxItems = %v, want the nativeTargetStageBudget %d", phase, maxItems, nativeTargetStageBudget)
+		}
+	}
 }
 
 func TestNativeTargetAxisPytestCollectParser(t *testing.T) {

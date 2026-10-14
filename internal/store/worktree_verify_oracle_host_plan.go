@@ -66,6 +66,13 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 			stages = append(stages, NativeOracleStage{Name: "toolcheck", Argv: []string{"pytest", "--version", "-p", "no:cacheprovider", "-q"}})
 		}
 	}
+	// Readiness must not qualify a control whose execute result exceeds the
+	// public stage envelope, even when preparation itself is shorter.
+	if planned := len(stages) + len(witnesses); planned > nativeTargetStageBudget {
+		return nil, oracleFailure(KindLimitExceeded,
+			"complete target stage plan renders "+strconv.Itoa(planned)+" stages over the "+strconv.Itoa(nativeTargetStageBudget)+"-stage result bound",
+			"select fewer witnesses for the pinned runner")
+	}
 	switch pair.Runner {
 	case nativeTargetRunnerPytest:
 		if phase == "prepare" {

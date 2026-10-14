@@ -111,6 +111,8 @@ const (
 	// nativeTargetWitnessMaxBytes matches the verify-command part bound, so
 	// a selected witness stays renderable as one exact argv value.
 	nativeTargetWitnessMaxBytes = 256
+	// Both phases share the public result's stage envelope.
+	nativeTargetStageBudget = 16
 )
 
 var nativeTargetVersionPin = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
@@ -236,10 +238,10 @@ func nativeTargetCheckFor(m nativeTargetOracleManifest, witness string) (nativeT
 
 // validateNativeTargetCheckArgv enforces one check's structural bounded
 // argv: the closed interpreter slot, then the one pinned harness script the
-// check invokes, then bounded literal data arguments. No interpreter
-// option, inline program, or staging command can occupy the body: the slot
-// directly behind the interpreter must name a declared pinned harness
-// script, so the interpreter never receives one.
+// check invokes, then bounded literal data arguments. Producer scratch
+// placeholders must never redirect the pinned script to candidate-owned
+// bytes. Interpreter options and inline programs cannot occupy the script
+// slot.
 func validateNativeTargetCheckArgv(argv []string) error {
 	if err := validateWorktreeVerifyCommand(argv); err != nil {
 		return nativeUnavailable("check argv exceeds the bounded verify command shape")
@@ -252,12 +254,19 @@ func validateNativeTargetCheckArgv(argv []string) error {
 	if len(argv) < 2 {
 		return nativeUnavailable("check argv must name one pinned harness script behind the interpreter slot")
 	}
+	// The script slot is a literal file operand: a value starting with '-'
+	// is the interpreter's own option (or stdin), never the pinned file.
+	// HarnessFiles membership cannot decide this — an option-shaped name is
+	// an ordinary relative file name — and an admitted option slot lets the
+	// interpreter exit zero on its own flag without ever grading the pinned
+	// bytes.
+	if strings.HasPrefix(argv[1], "-") {
+		return nativeUnavailable("check argv script slot must be a literal file operand, not an interpreter option")
+	}
 	for _, part := range argv[1:] {
 		if strings.Contains(part, "::") {
 			return nativeUnavailable("check argv values must not carry witness separators")
 		}
-	}
-	for _, part := range argv[2:] {
 		if part == "$scratch" || strings.Contains(part, "$scratch/") || strings.ContainsAny(part, "\x00") {
 			return nativeUnavailable("check argv values must be bounded literal arguments")
 		}

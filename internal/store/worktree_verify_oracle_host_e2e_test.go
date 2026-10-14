@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -689,8 +690,6 @@ func newNativeTargetFixtureAtRoot(t *testing.T, root string) *nativeTargetFixtur
 	return f
 }
 
-// newNativeTargetCheckFixture builds the none+check fixture: two pinned
-// checks with explicit bounded argv — one bash check carrying arguments, one
 // newNativeTargetCheckFixture builds the none+check fixture under its
 // nested project root.
 func newNativeTargetCheckFixture(t *testing.T) *nativeTargetFixture {
@@ -992,6 +991,26 @@ func (f *nativeTargetFixture) commitAll(t *testing.T, message string) {
 // qualified subject, the bundle, and two authorized dispatch bindings.
 func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRouteFixture) {
 	t.Helper()
+	f.seedTargetAuthority(t)
+	prepare := &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	var err error
+	f.prepare, err = f.s.VerifyWorktree(context.Background(), f.request("prepare", prepare))
+	if err != nil || f.prepare.Oracle == nil || f.prepare.Oracle.Qualification != "ready" {
+		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
+	}
+	if f.launches != 0 {
+		t.Fatalf("preparation launched the acceptance body: launches=%d", f.launches)
+	}
+	f.a = f.authorize(t, "a", seed.owner)
+	f.b = f.authorize(t, "b", seed.owner)
+}
+
+// seedTargetAuthority seeds the active claim, the qualified subject, the
+// pinned bundle, and the launch hook, leaving the preparation to the
+// caller: a fixture whose manifest must refuse preparation on a
+// conforming store cannot assert a ready preparation of its own.
+func (f *nativeTargetFixture) seedTargetAuthority(t *testing.T) {
+	t.Helper()
 	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-target-claim','target-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
@@ -1016,17 +1035,6 @@ func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRou
 			t.Errorf("launch with unavailable sole SQL connection: %d %v", count, err)
 		}
 	}
-	prepare := &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
-	var err error
-	f.prepare, err = f.s.VerifyWorktree(context.Background(), f.request("prepare", prepare))
-	if err != nil || f.prepare.Oracle == nil || f.prepare.Oracle.Qualification != "ready" {
-		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
-	}
-	if f.launches != 0 {
-		t.Fatalf("preparation launched the acceptance body: launches=%d", f.launches)
-	}
-	f.a = f.authorize(t, "a", seed.owner)
-	f.b = f.authorize(t, "b", seed.owner)
 }
 
 func (f *nativeTargetFixture) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {
@@ -1107,5 +1115,302 @@ func TestNativeTargetAxisUnsupportedPairE2E(t *testing.T) {
 	}
 	if f.launches != 0 {
 		t.Fatalf("unsupported pair refusal launched the acceptance body: %d", f.launches)
+	}
+}
+
+// A uv+pytest control whose complete execute plan exceeds the public
+// result's staged bound — the materializer prefix plus one graded stage
+// per witness — refuses preparation itself with the typed limit refusal:
+// the store never pays a preparation for an output it could not record,
+// and no acceptance program launches.
+func TestNativeTargetAxisStageBudgetRefusesPreparation(t *testing.T) {
+	f := newNativeTargetFixture(t)
+	var manifest map[string]any
+	if err := json.Unmarshal([]byte(f.manifestJSON), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	harness, ok := manifest["harness_files"].([]any)
+	if !ok {
+		t.Fatal("fixture manifest carries no harness file inventory")
+	}
+	// Two pinned files carry all fifteen witnesses, so the harness
+	// inventory stays inside its own bound; the superseded single-witness
+	// file leaves the inventory and the tree, or collection would observe
+	// a foreign witness.
+	witnessesA := budgetWitnesses("tests/test_budget_a.py", 8)
+	witnessesB := budgetWitnesses("tests/test_budget_b.py", 7)
+	pytestBody := func(count int) string {
+		var body strings.Builder
+		for i := 0; i < count; i++ {
+			fmt.Fprintf(&body, "def test_%02d():\n    pass\n\n", i)
+		}
+		return body.String()
+	}
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "tests/test_budget_a.py"): pytestBody(8),
+		nativeTargetFixtureName(f.root, "tests/test_budget_b.py"): pytestBody(7),
+	})
+	if err := os.Remove(filepath.Join(f.repo, f.root, "tests", "test_value.py")); err != nil {
+		t.Fatal(err)
+	}
+	kept := make([]any, 0, len(harness)+2)
+	for _, raw := range harness {
+		name, ok := raw.(string)
+		if !ok {
+			t.Fatal("fixture harness inventory carries a non-string path")
+		}
+		if strings.HasSuffix(name, "tests/test_value.py") {
+			continue
+		}
+		kept = append(kept, name)
+	}
+	kept = append(kept,
+		nativeTargetFixtureName(f.root, "tests/test_budget_a.py"),
+		nativeTargetFixtureName(f.root, "tests/test_budget_b.py"),
+	)
+	manifest["harness_files"] = kept
+	witnesses := append(append([]string{}, witnessesA...), witnessesB...)
+	manifest["cases"] = map[string]any{"case:a": witnessesA, "case:b": witnessesB}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, f.recipePath), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.commitAll(t, "stage budget overbound")
+	b := f.bundle
+	b.Control.RecipeSource.CommitOID = f.head
+	b.Control.CaseIDs = []string{"case:a", "case:b"}
+	b.Control.Argv = append([]string{"pytest"}, witnesses...)
+	splitCase := func(id string) OracleCase {
+		c := b.Cases[0]
+		c.CaseID = id
+		return c
+	}
+	b.Cases = []OracleCase{splitCase("case:a"), splitCase("case:b")}
+	if _, err := f.s.VerifyWorktree(context.Background(), f.request("budget-subject", nil)); err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("budget-prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &b}))
+	if err == nil || (r.Oracle != nil && r.Oracle.Qualification == "ready") {
+		t.Fatalf("over-budget witness population prepared: %+v %v launches=%d", r, err, f.launches)
+	}
+	assertFailureKind(t, err, KindLimitExceeded)
+	if !strings.Contains(err.Error(), "16-stage result bound") {
+		t.Fatalf("over-budget refusal does not name the staged bound: %v", err)
+	}
+	if f.launches != 0 {
+		t.Fatalf("over-budget refusal launched the acceptance body: %d", f.launches)
+	}
+}
+
+// newNativeTargetScratchRedirectFixture builds the none+check fixture whose
+// single declared check carries the producer's $scratch slot in its script
+// position: the slot root-joins to a genuinely pinned value check A, while
+// run-time stage substitution redirects the invocation to the candidate's
+// ordinary undeclared script B beside it. The manifest selects the shell
+// check only and pins only the shell runtime.
+func newNativeTargetScratchRedirectFixture(t *testing.T) *nativeTargetFixture {
+	t.Helper()
+	const work = "native-target-redirect-work"
+	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	f.controlArgv = []string{"check", "shell-value"}
+	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
+	redirect := "$scratch/snapshot/" + f.root + "/scripts/check.sh"
+	pinnedA := nativeTargetFixtureName(f.root, redirect)
+	raw, err := json.Marshal(map[string]any{
+		"kind":          "target_runner_v1",
+		"materializer":  "none",
+		"runner":        "check",
+		"root":          f.root,
+		"harness_files": []string{pinnedA},
+		"support_files": []string{},
+		"cases":         map[string][]string{"case:fixture": {"shell-value"}},
+		"checks":        []map[string]any{{"witness": "shell-value", "argv": []string{"bash", redirect}}},
+		"pin":           map[string]string{"shell": shellVersion},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.manifestJSON = string(raw)
+	// A is the pinned value check; B is the ordinary undeclared script the
+	// candidate owns. Both honestly expect 7 at the recipe commit.
+	honest := "#!/usr/bin/env bash\nset -euo pipefail\ntest \"$(cat value.txt)\" = \"7\"\n"
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "value.txt"):         "7\n",
+		pinnedA:                                              honest,
+		nativeTargetFixtureName(f.root, "scripts/check.sh"): honest,
+		f.recipePath:                                         f.manifestJSON,
+	})
+	f.commitAll(t, "pinned redirect harness")
+	f.seedTargetAuthority(t)
+	return f
+}
+
+// redirectFalseGreen completes the pre-fix attack: the candidate moves its
+// own undeclared script and the production value to 8 while the pinned
+// value check A stays immutable at 7, and the redirected check grades the
+// candidate's copy — a pass A would have failed. It returns the
+// qualification the store recorded.
+func (f *nativeTargetFixture) redirectFalseGreen(t *testing.T) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.repo, f.root, "scripts", "check.sh"), []byte("#!/usr/bin/env bash\nset -euo pipefail\ntest \"$(cat value.txt)\" = \"8\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, f.root, "value.txt"), []byte("8\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.commitAndPrepare(t, "redirected-candidate")
+	if f.bundle.Control.RecipeSource.CommitOID == f.head {
+		t.Fatal("the pinned recipe moved with the candidate commit")
+	}
+	pinned, err := os.ReadFile(filepath.Join(f.repo, f.root, "$scratch", "snapshot", f.root, "scripts", "check.sh"))
+	if err != nil || !strings.Contains(string(pinned), `= "7"`) {
+		t.Fatalf("the pinned value check did not stay immutable at 7: %q %v", pinned, err)
+	}
+	o := f.authorize(t, "redirected-candidate", f.actor)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("redirected-execute", &o))
+	if err != nil || r.Oracle == nil {
+		t.Fatalf("redirect execute: %+v %v", r, err)
+	}
+	return r.Oracle.Qualification
+}
+
+// The producer's $scratch slot in a check's script position redirects the
+// run from the pinned harness bytes to a candidate-owned path beside them:
+// every caller-owned argument is literal, so a conforming store refuses
+// the manifest unavailable before any program launches. The pre-fix
+// demonstration branch records the actual false green first.
+func TestNativeTargetAxisScratchRedirectScriptSlot(t *testing.T) {
+	f := newNativeTargetScratchRedirectFixture(t)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("redirect-prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}))
+	if err == nil && r.Oracle != nil && r.Oracle.Qualification == "ready" {
+		t.Fatalf("hostile $scratch script slot was admitted and qualified %q (launches=%d): the pinned value check never ran", f.redirectFalseGreen(t), f.launches)
+	}
+	assertFailureKind(t, err, KindUnavailable)
+	if !strings.Contains(err.Error(), "bounded literal arguments") {
+		t.Fatalf("redirect script slot refused with the wrong message: %v", err)
+	}
+	if f.launches != 0 {
+		t.Fatalf("redirect refusal launched the acceptance body: %d", f.launches)
+	}
+}
+
+// newNativeTargetOptionScriptFixture builds the none+check fixture whose
+// single declared check names the option-shaped pinned file --version in
+// its script slot: the manifest genuinely pins that file, so HarnessFiles
+// membership alone carries the slot past admission. The interpreter
+// resolves the slot as its own option and exits zero without grading the
+// pinned body. The interpreter decides whether the false green is
+// reachable: python3's preparation helper reads the pinned bytes (a valid
+// python body) honestly, while bash's -n preparation helper refuses
+// --version as an option by accident of its own argument parser.
+func newNativeTargetOptionScriptFixture(t *testing.T, interpreter string) *nativeTargetFixture {
+	t.Helper()
+	const work = "native-target-option-work"
+	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	witness := "python-value"
+	pin := map[string]string{"python": liveVersionForTest(t, "python3", `Python ([0-9][0-9.]*)`)}
+	argv := []string{interpreter, "--version"}
+	body := "import pathlib\nimport sys\n\nsys.exit(0 if pathlib.Path(\"value.txt\").read_text().strip() == \"7\" else 1)\n"
+	if interpreter == "bash" {
+		witness = "shell-value"
+		pin = map[string]string{"shell": liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)}
+		body = "#!/usr/bin/env bash\nset -euo pipefail\ntest \"$(cat value.txt)\" = \"7\"\n"
+	}
+	f.controlArgv = []string{"check", witness}
+	raw, err := json.Marshal(map[string]any{
+		"kind":          "target_runner_v1",
+		"materializer":  "none",
+		"runner":        "check",
+		"root":          f.root,
+		"harness_files": []string{nativeTargetFixtureName(f.root, "--version")},
+		"support_files": []string{},
+		"cases":         map[string][]string{"case:fixture": {witness}},
+		"checks":        []map[string]any{{"witness": witness, "argv": argv}},
+		"pin":           pin,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.manifestJSON = string(raw)
+	// The candidate's production value is 8: the pinned body would fail if
+	// any interpreter ever read it, so a recorded pass is a false witness.
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "value.txt"): "8\n",
+		nativeTargetFixtureName(f.root, "--version"): body,
+		f.recipePath:                                 f.manifestJSON,
+	})
+	f.commitAll(t, "pinned option script")
+	f.seedTargetAuthority(t)
+	return f
+}
+
+// optionFalseGreen completes the pre-fix attack for the python3 slot:
+// preparation's pinned-file helper reads the option-shaped bytes honestly,
+// and execution resolves the slot as python3's own option — the version
+// banner replaces the graded body, the host-observed exit is zero, and the
+// witness qualifies although the pinned body would have failed the
+// candidate's production value of 8. It returns the recorded
+// qualification.
+func (f *nativeTargetFixture) optionFalseGreen(t *testing.T) string {
+	t.Helper()
+	o := f.authorize(t, "option-candidate", f.actor)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("option-execute", &o))
+	if err != nil || r.Oracle == nil {
+		t.Fatalf("option script slot execute: %+v %v", r, err)
+	}
+	pinned, err := os.ReadFile(filepath.Join(f.repo, f.root, "--version"))
+	if err != nil || !strings.Contains(string(pinned), `== "7"`) {
+		t.Fatalf("the pinned check body did not stay immutable at 7: %q %v", pinned, err)
+	}
+	return r.Oracle.Qualification
+}
+
+// A manifest can pin a file whose name is an interpreter option and name it
+// in the script slot: HarnessFiles membership alone admitted it, and the
+// interpreter resolved the slot as its own option — preparation and
+// execution exited zero without grading the pinned body, a true witness
+// for a false check. The script slot is a literal file operand, so a
+// conforming store refuses the manifest unavailable before preparation is
+// ready, with no acceptance launch. The pre-fix demonstration branch
+// records the actual false witness first.
+func TestNativeTargetAxisOptionScriptSlot(t *testing.T) {
+	f := newNativeTargetOptionScriptFixture(t, "python3")
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("option-prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}))
+	if err == nil && r.Oracle != nil && r.Oracle.Qualification == "ready" {
+		f.prepare = r
+		t.Fatalf("interpreter option script slot was admitted and qualified %q (launches=%d): the pinned check body never ran", f.optionFalseGreen(t), f.launches)
+	}
+	assertFailureKind(t, err, KindUnavailable)
+	if !strings.Contains(err.Error(), "literal file operand") {
+		t.Fatalf("option script slot refused with the wrong message: %v", err)
+	}
+	if f.launches != 0 {
+		t.Fatalf("option script slot refusal launched the acceptance body: %d", f.launches)
+	}
+}
+
+// The same grammar boundary covers the bash slot the manifest grammar
+// admits just as well: bash resolves --version as its own option at
+// execution time, and only its preparation helper refuses the option — by
+// accident of its own argument parser, never by the store's admission
+// rule. The structural refusal is the only control.
+func TestNativeTargetAxisOptionScriptSlotBash(t *testing.T) {
+	f := newNativeTargetOptionScriptFixture(t, "bash")
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("option-bash-prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}))
+	if err == nil && r.Oracle != nil && r.Oracle.Qualification == "ready" {
+		f.prepare = r
+		t.Fatalf("bash option script slot was admitted and qualified %q (launches=%d)", f.optionFalseGreen(t), f.launches)
+	}
+	assertFailureKind(t, err, KindUnavailable)
+	if !strings.Contains(err.Error(), "literal file operand") {
+		t.Fatalf("bash option script slot refused with the wrong message: %v", err)
+	}
+	if f.launches != 0 {
+		t.Fatalf("bash option script slot refusal launched the acceptance body: %d", f.launches)
 	}
 }

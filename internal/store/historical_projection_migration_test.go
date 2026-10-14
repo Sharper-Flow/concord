@@ -98,10 +98,58 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	// Seed the readback-era row at its released schema, after routing
+	// columns were removed, rather than passing it through a current fold.
+	migration := migrations[43]
+	if err := applyMigration(ctx, db, migration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for i, model := range []string{"", "openai/gpt-5.6-luna"} {
+		attempt := []string{"attempt-migrated-digestless-empty", "attempt-migrated-digestless-model"}[i]
+		at := time.Unix(int64(40+i), 0).UTC()
+		members := map[string]any{"host_provenance": histDeclaredHostProvenance()}
+		if model != "" {
+			members["readback_model"] = model
+		}
+		appendEvent(histDispatchEvent(t, attempt+"-dispatch", attempt, 3, at, members))
+		if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
+			(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
+			VALUES('work-w',?,'research',1,?,'research',?,'1.0','1.0','dispatched','','',?,NULL)`,
+			attempt, historicalResearchLaneDigest, model, at.Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	s := &Store{db: db, path: path}
-	want := map[string]histAttempt{}
-	for _, attempt := range []string{"attempt-migrated-preferred", "attempt-migrated-undeclared"} {
-		want[attempt] = histAttemptRow(t, db, attempt)
+	// All surviving columns, including NULL timestamps and empty failure
+	// details, must retain the same bytes through migration and replay.
+	attemptBytes := func(attempt string) string {
+		t.Helper()
+		var row string
+		if err := db.QueryRowContext(ctx, `SELECT json_array(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) FROM worker_attempts WHERE attempt_id=?`, attempt).Scan(&row); err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	wantBytes := map[string]string{}
+	for _, attempt := range []string{"attempt-migrated-preferred", "attempt-migrated-undeclared", "attempt-migrated-digestless-empty", "attempt-migrated-digestless-model"} {
+		wantBytes[attempt] = attemptBytes(attempt)
 	}
 	log := histEventRows(t, s)
 	if err := migrateRestoredStage(ctx, db); err != nil {
@@ -118,18 +166,18 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 		}
 	}
 	assertUniverse("migration")
-	for attempt, row := range want {
-		if got := histAttemptRow(t, db, attempt); got != row {
-			t.Fatalf("migration changed %s: %+v, want %+v", attempt, got, row)
+	for attempt, row := range wantBytes {
+		if got := attemptBytes(attempt); got != row {
+			t.Fatalf("migration changed %s row bytes: %s, want %s", attempt, got, row)
 		}
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
 	assertUniverse("replay")
-	for attempt, row := range want {
-		if got := histAttemptRow(t, db, attempt); got != row {
-			t.Fatalf("replay disagrees with migration for %s: %+v, want %+v", attempt, got, row)
+	for attempt, row := range wantBytes {
+		if got := attemptBytes(attempt); got != row {
+			t.Fatalf("replay changed %s row bytes: %s, want %s", attempt, got, row)
 		}
 	}
 	if !reflect.DeepEqual(log, histEventRows(t, s)) {

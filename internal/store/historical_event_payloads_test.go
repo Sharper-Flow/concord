@@ -288,6 +288,9 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 		"terminal_detail": "host resolved a model outside the declared resolution set",
 		"host_provenance": histDeclaredHostProvenance(),
 	}))
+	insertHistoricalEvent(t, s, histDispatchEvent(t, "hist-dispatch-v3-readback", "attempt-hist-v3-readback", 3, time.Unix(35, 0).UTC(), map[string]any{
+		"readback_model": "openai/gpt-5.6-luna", "host_provenance": histDeclaredHostProvenance(),
+	}))
 
 	insertHistoricalEvent(t, s, histWorkerFailedEvent(t, "hist-failed-empty-observation", "attempt-hist-v1", time.Unix(40, 0).UTC(), []any{}))
 	insertHistoricalEvent(t, s, histWorkerFailedEvent(t, "hist-failed-real-observation", "attempt-hist-v2", time.Unix(41, 0).UTC(), []any{
@@ -361,6 +364,7 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 		"attempt-hist-v2-fallback": {lifecycle: "dispatched", readback: "zai-coding-plan/glm-5.3"},
 		"attempt-hist-v3":          {lifecycle: "dispatched", readback: "openai/gpt-5.6-luna"},
 		"attempt-hist-v3-terminal": {lifecycle: "failed", failureKind: WorkerFailureModelIdentity, failedAt: "set", readback: "anthropic/claude-unexpected"},
+		"attempt-hist-v3-readback": {lifecycle: "dispatched", readback: "openai/gpt-5.6-luna"},
 	} {
 		got := histAttemptRow(t, s.DatabaseForTesting(), name)
 		if got.laneID != "research" || got.laneVersion != 1 || got.laneDigest != historicalResearchLaneDigest || got.class != "research" {
@@ -846,6 +850,9 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		"worker dispatched routing members": {histDispatchEvent(t, "live-old-dispatch", "attempt-live", 1, time.Unix(30, 0).UTC(), map[string]any{
 			"routing_policy_version": historicalRoutingPolicyToken, "resolved_model": "openai/gpt-5.6-luna",
 		}), histDecodeRefusal},
+		"worker dispatched digestless readback": {histDispatchEvent(t, "live-digestless-dispatch", "attempt-live", 3, time.Unix(30, 0).UTC(), map[string]any{
+			"readback_model": "", "host_provenance": histDeclaredHostProvenance(),
+		}), "packet_digest must be a sha256 digest"},
 		"native run map universe": {legacyNativeRunEvent("live-old-native", nativePayload), histDecodeRefusal},
 	} {
 		before := countEvents(t)

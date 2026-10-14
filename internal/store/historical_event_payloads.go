@@ -49,13 +49,53 @@ func recordedDispatchSchemas() map[int][]recordedPayloadSchema {
 		return routed(p) && json.Unmarshal(p["resolved_model"], &model) == nil && model != ""
 	}
 	schemas := map[int][]recordedPayloadSchema{}
-	for _, version := range []int{1, 2, 3} {
+	for _, version := range []int{1, 2} {
 		schemas[version] = []recordedPayloadSchema{
 			{matches: old, adapt: adaptRecordedDispatch},
 			{matches: func(p map[string]json.RawMessage) bool { return !routed(p) }, adapt: recordedIdentity},
 		}
 	}
+	schemas[3] = []recordedPayloadSchema{
+		{matches: old, adapt: adaptRecordedDispatch},
+		{matches: matchesRecordedReadbackDispatch, adapt: adaptRecordedReadbackDispatch},
+		{matches: func(p map[string]json.RawMessage) bool {
+			return !routed(p) && recordedHasAny(p, "packet_digest")
+		}, adapt: recordedIdentity},
+	}
 	return schemas
+}
+
+func matchesRecordedReadbackDispatch(payload map[string]json.RawMessage) bool {
+	for _, key := range []string{"attempt_id", "lane_id", "lane_version", "lane_digest", "capability_class", "packet_schema_version", "report_schema_version", "host_provenance"} {
+		if !recordedHasAny(payload, key) {
+			return false
+		}
+	}
+	for key, value := range payload {
+		switch key {
+		case "attempt_id", "lane_id", "lane_version", "lane_digest", "capability_class", "packet_schema_version", "report_schema_version", "host_provenance",
+			"readback_model", "terminal", "terminal_failure_kind", "terminal_detail":
+			if string(value) == "null" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func adaptRecordedReadbackDispatch(event Event) (Event, error) {
+	var payload WorkerDispatchedPayload
+	if err := decodeRegisteredPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if payload.PacketSchemaVersion != WorkerPacketSchemaVersionLegacy || payload.ReportSchemaVersion != WorkerReportSchemaVersionLegacy {
+		return Event{}, invalidWorkerPayload("recorded readback dispatch requires the released 1.0 schema pair")
+	}
+	// The readback-era v3 writer predates packet digests. Use the same
+	// unavailable marker as routed v3 dispatches, without changing its header.
+	return upcastWorkerDispatchedV2(event)
 }
 
 func recordedOccupancyReleaseSchemas() map[int][]recordedPayloadSchema {

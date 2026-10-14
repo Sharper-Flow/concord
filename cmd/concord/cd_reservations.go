@@ -18,7 +18,7 @@ import (
 // Placement: a core CLI verb rather than a host script, the same rationale
 // project-resolve carries — the reservation table and the worktree ownership
 // are authority data only the core can read. The verb is unauthenticated, as
-// project-resolve and project-canonical-path are (CD-0079 D2): the trust
+// project-resolve is (CD-0079 D2): the trust
 // boundary is filesystem access to the authority database, which a caller
 // able to exec this verb already holds. This is a read. It appends no event,
 // and CD-0021's rejection of a second write authority still binds.

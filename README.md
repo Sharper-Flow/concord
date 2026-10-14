@@ -102,8 +102,10 @@ bounded JSON result.
 ```sh
 concord --version
 concord --help
-concord zl <work>
 ```
+
+You start each session with your host tooling. Inside a session, agents enter
+managed work through the adapter's `concord_work_start` tool.
 
 ## Build and verify from source
 

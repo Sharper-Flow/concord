@@ -192,7 +192,7 @@ type WorkItem struct {
 	// classification: the immutable intake fields plus the core's sibling
 	// snapshot. It rides the same authoritative intent reads as the task
 	// and value statement (the scope read and the full-detail list); bounded
-	// summary reads and the launcher keep their column-only shape.
+	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
 }
 

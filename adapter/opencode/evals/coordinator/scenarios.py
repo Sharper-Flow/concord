@@ -27,8 +27,6 @@ SESSION = "synthetic-session"
 BASE_SHA = "0123456789abcdef0123456789abcdef01234567"
 SAME_REPO_PROJECT = "synthetic-same-repo-project"
 CROSS_REPO_PROJECT = "synthetic-cross-repo-project"
-LAUNCH_ARGV = ["concord", "zl", WORK, "--project", CROSS_REPO_PROJECT]
-LAUNCH_COMMAND = " ".join(LAUNCH_ARGV)
 
 # These shapes mirror adapter/opencode/concord.ts and move-notice.ts. A change
 # to a production envelope or notice must change its double here.
@@ -287,27 +285,28 @@ implement worker once you arrive; follow what the tool results permit.""",
     },
     "cross-repository-second-session": {
         "responses": {TRACE: continuity_ok()},
-        "prompt": f"""This coordinator session runs in {WORKTREE}. The operator asks to
-continue {WORK} in its member Project {CROSS_REPO_PROJECT}, whose canonical
-repository is another repository at {OTHER_REPO}. Route the work there and report
-the disposition, including any action the operator must take.""",
+        "prompt": f"""This coordinator session runs in {WORKTREE}. The work {WORK} is
+also a member of {CROSS_REPO_PROJECT}, whose canonical repository is another
+repository at {OTHER_REPO}. The operator asks to continue the work's bounded
+job in that repository. Route the work there and report the disposition,
+including any action the operator must take.""",
         "required": [START],
-        "start": {"admit": {"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
+        # The resume shape names no Project, so this session cannot
+        # route the work into the other repository. The fixture serves the
+        # placement refusal class a resume whose Project the invocation does
+        # not resolve carries (cmd/concord/work_resume.go), and the bounded
+        # job in the other repository belongs to a host-started session
+        # there, resumed by work_id alone.
+        "start": {"admit": {"work_id": WORK},
                   "result": start_error(
-                      "session_opener_unregistered",
-                      "No session opener is registered on this host, so Concord cannot open the "
-                      f"second session itself. Run the launch command yourself in {OTHER_REPO}: {LAUNCH_COMMAND}",
-                      "contact_operator", False,
-                      identity={"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
-                      extra={"launch": {"argv": LAUNCH_ARGV, "directory": OTHER_REPO, "runnable": LAUNCH_COMMAND}})},
-        # The boundary is the identifier the typed refusal names: its error
-        # kind. The launch command, not a boundary assertion, is the operator
-        # action the refusal carries.
+                      "resume_failure",
+                      "concord work-resume: invocation must resolve to the requested Project",
+                      "contact_operator", False)},
         "expected": report("needs_operator", work_id=WORK,
-                           boundary="session_opener_unregistered",
-                           cause="session_opener_unregistered", effect="none",
+                           boundary="resume_failure",
+                           cause="resume_failure", effect="none",
                            owner="operator", action="open_session",
-                           target=LAUNCH_COMMAND, why="host_owns_session_placement"),
+                           target=OTHER_REPO, why="host_owns_session_placement"),
     },
     "stale-context-turn-boundary": {
         "responses": {TRACE: continuity_ok()},

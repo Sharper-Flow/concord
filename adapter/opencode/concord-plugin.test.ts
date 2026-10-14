@@ -137,12 +137,12 @@ describe("plugin entry registers the session compacting hook", () => {
     // the hook is resolved.
     const hook = await compactingHook()
     hostControlPlane().bind({
-      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the tab stub" }, response: new Response(null, { status: 200 }) }),
+      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the closure notice" }, response: new Response(null, { status: 200 }) }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     })
     const output = { context: [] as string[] }
     await hook({ sessionID: "session-compact" }, output)
-    expect(output.context).toEqual(["Goal: Ship the tab stub"])
+    expect(output.context).toEqual(["Goal: Ship the closure notice"])
   })
 
   test("leaves a title without the goal prefix out of the compaction context", async () => {

@@ -254,125 +254,41 @@ documented session API.
 ### The second coordinator session
 
 A work item that spans two repositories gets one coordinator session per
-repository (CD-0178 D2). `concord_work_start` resume accepts an optional
-`project_id` naming a member Project of the work. A Project in the calling
-session's own repository keeps the claim-and-move route. A Project in
-another repository routes through the host-registered session opener
-(CD-0182):
+repository (CD-0178 D2). Concord starts no session. The coordinator or operator
+opens a session in the second repository's registered checkout, and that
+session resumes the work through `concord_work_start` with exactly
+`{ work_id }`.
 
-- With an opener registered, the adapter substitutes `{directory}` (the
-  target Project's canonical path), `{title}` (the work ID), and `{command}`
-  (the core launch argv, spliced as separate elements) and runs it without a
-  shell. The result reports the opener's exit status and argv and never
-  claims the new session is running. Before the run, the adapter probes that
-  the canonical path resolves to an existing directory on this filesystem
-  (CD-0093 D3 fail-closed); a path that no longer resolves refuses the
-  opener and falls back to the launch command.
-- With no opener registered, the result carries the exact launch command and
-  directory for the operator.
-- An invalid opener refuses naming the invalid field and still carries the
-  command. No route runs a shell, so titles and paths cannot inject into the
-  opener argv.
+Resume takes only `work_id`. It claims the work in the Project the calling
+session's own repository resolves. The second session needs no environment
+variables, no added Product memberships, and no trust-scope grant changes. A
+different Project in the same repository moves through
+`concord_work_transition` operation `worktree_claim`. A claim or resume that
+targets another repository refuses with the typed `cross_repository_claim`
+failure before any worktree exists. The refusal carries a `session_placement`
+detail that names the work, the Project, and the registered checkout
+directory. The remedy is a host-started session in that directory.
 
-The opener is host placement, and Concord ships none. The operator registers
-one argv template in the options of the Concord plugin tuple entry in the
-OpenCode config:
+The resolved Project owns the session's Product scope. An inherited
+`CONCORD_SELECTED_PRODUCT_ID` selection applies only when it names one of that
+Project's Products. A Project that spans Products refuses until the operator
+names one.
 
-```jsonc
-{
-  "plugin": [
-    ["/path/to/concord-plugin.ts", {
-      "session_opener": ["my-tab-command", "new-tab", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"]
-    }]
-  ]
-}
-```
+### The calling-host registry probe
 
-`{command}` must be one whole element and appear once. Unknown placeholders
-refuse. Registering the opener is the operator's standing consent for
-coordinators to open sessions and spend model quota. `concord zl <work>
---project <project>` is the launch the opener carries. The named Project
-must be a member of the work. The session lands in that Project's active
-worktree when one is usable, else its canonical path (CD-0093 D3 fail-closed
-stands). The named Project also owns the session's Product scope: an
-inherited Product selection applies only when it names one of that
-Project's Products, and a Project spanning Products refuses until the
-operator names one. Resuming in the second repository's coordinator needs
-no environment variables, no added Product memberships, and no trust-scope
-grant changes.
+Preparing a session for managed work runs one bounded probe of the calling
+host: the bare `opencode debug config` command in the session's claimed
+directory, under the environment the calling process already has. The probe
+resolves the registry the identity check reads, and Concord appends no
+wrapper, option, or placeholder to it. An interrupted probe is a typed
+transient failure, and the same request passes once the host answers.
 
-### The host launch command
+An operator who wraps the host binary does that in host configuration, outside
+this repository.
 
-An operator who runs OpenCode through a host wrapper — one that prepares a
-per-Project data directory or supervises an in-TUI restart — names the
-wrapper once with a `host_command` argv array in the same plugin options
-(CD-0189):
-
-```jsonc
-{
-  "plugin": [
-    ["/path/to/concord-plugin.ts", {
-      "host_command": ["my-opencode-wrapper", "--profile", "work"]
-    }]
-  ]
-}
-```
-
-Absent, every session starts the bare `opencode` executable, as before.
-Present, every host invocation the Go core makes uses it: the Product and
-work launch (`<cmd...> --agent <handle> --prompt <prompt>`), the Project-path
-launch (`<cmd...> --prompt <prompt>`), and the registry probe shared by
-`concord session` and session-prepare (`<cmd...> debug config`), all in the
-resolved directory. Concord appends its fixed arguments; the array runs as
-argv with no shell and no placeholders.
-
-The value must be a non-empty array of non-empty strings. A present but
-malformed value refuses the launch or probe with a diagnostic naming
-`host_command`, and nothing starts through a fallback command. When the
-option is present, a second probe runs through the configured command, and
-its own `debug config` document must carry an identical `host_command`: the
-agent registry check reads that second document, so the verified registry is
-the one the wrapper resolves (CD-0093 D2). A configured command adds one
-probe per start, and that probe runs the wrapper's own start and exit
-behavior.
-
-`OPENCODE_BIN` stays a test seam. Adapter worker dispatch and the
-move-session version diagnostic stay on the bare host: worker lanes are not
+`OPENCODE_BIN` stays a test seam. Adapter worker dispatch and the move-session
+version diagnostic stay on the bare host: worker lanes are not
 operator-resumable sessions.
-
-### Operator work-state tab
-
-The adapter renames the zellij tab and pane frame for every successful mutation
-result that carries a `WorkPin`. The names use the returned post-state pin, not
-request fields or a second database read:
-
-```text
-tab:  CON-42
-pane: Concord | CON-42 | execution | Shorten the zellij tab name
-```
-
-The tab carries one stub: the recorded `linear_issue_key` when present,
-and the project stub otherwise, for
-example `toolbox`. The pane frame carries the full work state: project display
-name, identifier, step, and work title joined with ` | ` and cut at 64 code
-points. Absent fields drop from the pane name.
-
-The tab mapping reads `ZELLIJ_PANE_ID` from `zellij action list-panes -a -j`,
-then calls `zellij action rename-tab-by-id` with the matching `tab_id` and
-`zellij action rename-pane` with the pane id. The adapter caches the mapping
-briefly per session and strips control bytes and pipe characters from both
-names.
-
-`work_start` names the pane frame with the work title alone, because the
-session-prepare contract carries no step or project display name and the
-adapter does not add a database read for a cosmetic name. The first mutation
-replaces it with the full work state. Both renames stay best effort: no
-`ZELLIJ_PANE_ID`, an empty name, or a failed zellij call warns and never
-changes a recorded outcome.
-
-A failed best-effort side effect — a zellij rename, or a session title write
-the host refused — appends a warning line to the tool result output after the
-envelope, because the agent is the only reader that can respond to it.
 
 ### The text-part channel
 
@@ -414,9 +330,8 @@ The plugin registers `experimental.session.compacting` and reads the session
 title through the control plane. When the title starts with `Goal: `, the hook
 pushes that one line onto the compaction context, and the host joins it into
 the compaction prompt so the anchored summary restates the goal. The hook is
-required because the title alone never reaches the model and the continuity
-block injects only when the session entry route exported the selected Product
-and work.
+required because the title never reaches the model, and the continuity block
+injects only when the session's directory resolves an active claim.
 
 Every title write stays best effort: an absent route, an empty title, or a
 failed call warns and never changes a recorded outcome.

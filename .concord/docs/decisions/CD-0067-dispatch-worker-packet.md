@@ -60,6 +60,69 @@ the field is historical, and its output follows
 the legacy report grammar; a packet that pins the protocol never falls back
 to that grammar.
 
+Amended 2026-10-13 for the consumed context frontier, the core-observed
+delivery observation, and core-owned subject freshness
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+the dispatch completion also records `worker_context_frontier`, the
+nonnegative source-event frontier of the admitted work-context view: the
+highest sequence among the work item's context-source events at read time. A
+present view carries its frontier, including zero, and a dispatch whose
+admitted view is absent carries explicit zero. Absence of the recorded field
+stays reserved for terminals recorded before this field existed, and no
+reader turns that absence into zero. Every terminal event whose
+authorization recorded the field derives `consumed_context_frontier` from
+that authorization: a completed and a failed report carry it, a failure
+without a report included. The field attributes the terminal input to the
+exact authorization; it never claims the worker read every entry.
+
+A completed implementation-lane report records `observed_delivery`, the
+closed delivery observation the store took itself: one raw commit OID and
+the `clean` or `dirty` state of the attempt's authorized claimed worktree.
+The store observes before the terminal transaction opens, and the ingest
+revalidates the sampled window, attempt, and claim identities with SQL only
+before the append. A caller, a packet, or a worker value can neither supply
+nor alter the field. Dirty but reachable worktrees record `dirty`. A Git
+failure or deadline refuses the completion with zero terminal events,
+derived failures, and nonce effects; no `unavailable` observation exists. An
+exact acknowledgment of a recorded event returns the stored observation and
+probes no Git. A completion whose authorization recorded no worktree
+binding, and every completion recorded before this observation existed,
+keeps explicit absence. The store never fills that absence from current
+state. The missing observation is an approved known cost, and the remedy is
+a fresh implementation attempt, never fabricated clean evidence.
+
+The dispatch admission is the one live subject-freshness owner. Before the
+action transaction opens, the store observes the claimed worktree's `HEAD`
+and clean status under one fixed deadline. Inside the transaction it
+revalidates the sampled identities with SQL only, and a live clean `HEAD`
+that does not equal the admitted `subject_commit` refuses before any effect.
+The review lane's own `HEAD` and tree check against the packet subject stays
+the backstop for drift after authorization; no adapter probe runs at the
+dispatch boundary.
+
+A review dispatch joins the newest accepted implementation delivery on the
+review's own claimed worktree. The join runs through acceptance, the exact
+completed attempt, and the dispatch identity. That delivery's clean
+`observed_delivery` must equal the shared qualified `subject_commit`. A
+delivery recorded under an earlier contract version of the same work item
+may host the review under the active contract. The judging contract is the
+packet's own binding, which the admission admits only at the active
+contract. The accepted delivery's own contract version stays readable
+through the existing records. Newer rejected, failed, or unaccepted results
+cannot replace the accepted delivery, and they do not let an older one
+through. A delivery from another work item, Project, or worktree cannot host
+the review, and a cancelled or superseded work item cannot review. This join
+resets no correction budget, refunds no attempt, and opens no approval
+challenge. A review whose joined delivery carries no clean core observation
+refuses; the approved remedy is a fresh implementation attempt.
+
+The dispatch packet is admitted whole under the shared dispatch context
+bound. The canonical JSON object of the packet's present
+`inputs.work_context`, `inputs.checkpoint`, and `inputs.correction` members
+may not exceed the bound CD-0016 declares. An over-bound packet refuses
+whole and is never trimmed. A derived retry dispatch answers to the same
+bound.
+
 ### D3. Closed-object fields get a registry value type
 
 A new PayloadValueType `object` validates that a field is one strict JSON

@@ -91,6 +91,17 @@ conclusions, rejected routes, and open questions as report `context_findings`
 with a `domain_id` from the packet's Domains. The view carries at most
 32 readings and 32 findings.
 
+## Dispatch subject
+
+`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
+OID identity this attempt reviews; never author or replace it. Before
+reviewing, run `git rev-parse --verify HEAD^{commit}` and
+`git status --porcelain=v1 -z --untracked-files=all` in the dispatched
+worktree. If HEAD is not exactly that `subject_commit`, or the tree is not
+clean, the checked-out change is not the subject the packet pins: return one
+report with `status` `failed` that names the observed HEAD and the mismatch.
+Never review a different commit, and never author `subject_commit`.
+
 ## Coordinator checkpoint
 
 When `inputs.checkpoint` is present, its `strategy` and `diagnosis` are

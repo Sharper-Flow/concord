@@ -66,6 +66,51 @@ test("retained historical report recovery uses original event identity and prove
   expect(new Set(calls.map((call) => call.request.assertion.nonce)).size).toBe(calls.length)
 })
 
+// A typed Git observation refusal from the terminal ingest stops the first
+// recovery submission without closing the attempt or looping. Once the
+// worktree answers, the same native retained-report route re-submits the same
+// report under the same attempt and terminal event identity, launching no
+// replacement worker.
+test("a typed git observation refusal keeps the retained report recoverable through the same route", async () => {
+  const { reader } = host()
+  const calls: { verb: string; request: any }[] = []
+  let worktreeAnswers = false
+  const runner = { async run(argv: string[], input: string) {
+    const request = JSON.parse(input)
+    calls.push({ verb: argv[1], request })
+    if (argv[1] === "worker-complete" && !worktreeAnswers) {
+      return {
+        exitCode: 1,
+        stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "git_unreachable", operation: "worker_terminal_observation", retry_safe: true, effect_state: "none", message: "store: worker_terminal_observation: git_unreachable: cannot observe the attempt's clean status" } }),
+        stderr: "",
+      }
+    }
+    return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+  } }
+  const options = { sessionReader: reader, credentials, evidenceRunner: runner, concordBinary: "concord-test", workerDirectory: process.cwd() }
+  const refused = await reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", options, new AbortController().signal)
+  expect(refused.outcome).toBe("error")
+  expect(refused.error?.message).toContain("cannot observe the attempt's clean status")
+  expect(refused.error?.retry_safe).toBe(true)
+  expect((refused.error as any)?.details?.effect_state).toBe("none")
+  const completions = calls.filter((call) => call.verb === "worker-complete")
+  expect(completions).toHaveLength(1)
+  const terminalEventID = completions[0].request.event_id
+  worktreeAnswers = true
+  const result = await reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", { ...options }, new AbortController().signal)
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  const retries = calls.filter((call) => call.verb === "worker-complete")
+  expect(retries).toHaveLength(2)
+  expect(retries[1].request.event_id).toBe(terminalEventID)
+  expect(retries[1].request.attempt_id).toBe(packet.attempt_id)
+  expect(retries[1].request.report_schema_version).toBe(completions[0].request.report_schema_version)
+  expect(JSON.stringify(retries[1].request.evidence)).toBe(JSON.stringify(completions[0].request.evidence))
+  expect(JSON.stringify(retries[1].request.context_findings)).toBe(JSON.stringify(completions[0].request.context_findings))
+  const dispatches = calls.filter((call) => call.verb === "worker-dispatch")
+  expect(new Set(dispatches.map((call) => call.request.event_id))).toEqual(new Set([recovery.dispatch_event_id]))
+  expect(calls.every((call) => call.verb !== "task")).toBe(true)
+})
+
 test("a previously committed completion reuses its historical terminal event id", async () => {
   const { reader } = host()
   const calls: any[] = []

@@ -181,6 +181,35 @@ receipts remain visible as regression baselines, not current-subject proof.
 Independent evidence, per-predicate verdicts, and operator authority remain
 required by their existing owners.
 
+Amended 2026-10-13 for the delivery observation and the review subject
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+a completed implementation-lane completion carries the store's own clean or
+dirty `observed_delivery` when the store observed its claimed worktree
+(CD-0067 D2); an authorization with no recorded worktree binding keeps
+explicit absence. The
+observation is the delivery's producer-owned Git identity, not a verdict: it
+grants no semantic acceptance, no integration proof, no delivery assertion,
+and no review qualification by itself. A failed attempt records no delivery
+observation, probes no Git, and retains its consumed frontier.
+
+A review dispatch joins the newest accepted implementation delivery on the
+review's own claimed worktree. The join runs through acceptance, the exact
+completed attempt, and the dispatch identity. The joined delivery's clean
+observation must equal the shared qualified subject the packet carries. An
+accepted delivery recorded under an earlier contract version of the same
+work item may host the review under the active contract. The judging
+contract is the packet's own binding, which the admission admits only at the
+active contract; the accepted delivery's own contract version stays readable
+through the existing records. Newer rejected, failed, or unaccepted results
+cannot replace the accepted delivery, and they do not let an older one
+through. A delivery from another work item, Project, or worktree cannot host
+the review, and a cancelled or superseded work item cannot review.
+Historical completions without the observation refuse the review. The
+approved remedy is a fresh implementation attempt, never a fabricated
+observation. This join resets no correction budget, refunds no attempt, and
+opens no approval challenge; the walls of CD-0164 and CD-0148 hold exactly
+as before.
+
 ### D3. Local acceptance holds the step and asserts no delivery
 
 An accept of a job-bound attempt that carries no delivery assertion is local

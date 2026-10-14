@@ -329,6 +329,14 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		if parseErr != nil {
 			return result, parseErr
 		}
+		// A combined rejection with a retry prepared one dispatch proof
+		// before this transaction opened. The pre-rejection state the proof
+		// sampled must still stand at this outer entry.
+		if rejectRetry != nil {
+			if err := revalidateDispatchProofAtRejectEntry(ctx, tx, request.WorkID); err != nil {
+				return result, err
+			}
+		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err

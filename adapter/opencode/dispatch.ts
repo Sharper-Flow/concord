@@ -1621,7 +1621,7 @@ class WorkerEvidenceFailure extends Error {
 function workerEvidenceEnvelope(lane: AgentLane, packet: AgentLanePacket | Pick<AgentLanePacket, "work_id" | "attempt_id">, failure: WorkerEvidenceFailure): AgentResultEnvelope {
   const envelope = errorEnvelope(lane, packet, "error", "error", failure.message, "reconcile_operation")
   envelope.error!.retry_safe = failure.retrySafe
-  envelope.error!.details = { effect_state: failure.effectState, operation: failure.operation, event_ids: failure.eventIDs }
+  envelope.error!.details = { effect_state: failure.effectState, operation: failure.operation, event_ids: failure.eventIDs, core_kind: failure.kind }
   return envelope
 }
 

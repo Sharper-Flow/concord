@@ -867,3 +867,78 @@ func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID stri
 	}
 	return current, nil
 }
+
+// DispatchContextAggregateMaxBytes is the whole-dispatch-context bound: the
+// canonical JSON object of exactly the packet's present work_context,
+// checkpoint, and correction members may not exceed 64 KiB of UTF-8 bytes,
+// member names and delimiters included. It is a dispatch capacity and owns
+// its own population: the declaration combined bound, the view findings
+// bound, the per-entry bounds, and the terminal findings bound protect
+// different populations and stay untouched. The whole-action decode budget
+// composes the packet's other declared maxima around this aggregate —
+// TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima derives that
+// composition from the generated contract, so no copied packet-parts
+// nominal exists.
+const DispatchContextAggregateMaxBytes = 64 * 1024
+
+// measureDispatchContextAggregateBytes measures one pure population: the
+// canonical JSON object formed from exactly the packet input members whose
+// keys are present — inputs.work_context, inputs.checkpoint, and
+// inputs.correction — with member names and JSON delimiters included. Each
+// present member is canonicalized through the shared encoder, so the count
+// is UTF-8 canonical bytes, never the raw packet's whitespace and never a
+// rune count. An absent key contributes no member bytes, so a packet with
+// none of the three members measures the two bytes of "{}". A present key
+// carrying JSON null is a present member and measures its canonical name
+// and value; the closed packet schema refuses such a member, so the shape
+// owner rejects it before this measurement ever runs in live admission.
+func measureDispatchContextAggregateBytes(packetRaw json.RawMessage) (int, error) {
+	var packet struct {
+		Inputs struct {
+			WorkContext json.RawMessage `json:"work_context"`
+			Checkpoint  json.RawMessage `json:"checkpoint"`
+			Correction  json.RawMessage `json:"correction"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(packetRaw, &packet); err != nil {
+		return 0, workContextFailure(KindInvalidPayload, "work_context", "the worker packet does not decode as one JSON object", "supply the lane packet bound to this work item and attempt")
+	}
+	members := map[string]json.RawMessage{}
+	for name, raw := range map[string]json.RawMessage{
+		"work_context": packet.Inputs.WorkContext,
+		"checkpoint":   packet.Inputs.Checkpoint,
+		"correction":   packet.Inputs.Correction,
+	} {
+		if len(raw) == 0 {
+			continue
+		}
+		canonical, err := canonicalJSON(raw)
+		if err != nil {
+			return 0, workContextFailure(KindInvalidPayload, "work_context", "the packet's "+name+" member cannot be canonicalized for measurement", "supply the closed typed member the packet schema declares")
+		}
+		members[name] = canonical
+	}
+	object, err := json.Marshal(members)
+	if err != nil {
+		return 0, wrapFailure(KindInvariantViolation, "work_context", "the dispatch context aggregate cannot be measured", false, "repair the packet members", err)
+	}
+	return len(object), nil
+}
+
+// refuseOverBoundDispatchContext refuses a dispatch whose present context
+// members measure above the aggregate bound. The refusal is whole and keeps
+// the whole request: no findings, preparations, checkpoint directions, or
+// correction state is omitted to fit, and the error names the measured bytes
+// and the bound.
+func refuseOverBoundDispatchContext(packetRaw json.RawMessage) error {
+	measured, err := measureDispatchContextAggregateBytes(packetRaw)
+	if err != nil {
+		return err
+	}
+	if measured <= DispatchContextAggregateMaxBytes {
+		return nil
+	}
+	return workContextFailure(KindLimitExceeded, "work_context",
+		fmt.Sprintf("the dispatch context members measure %d bytes of canonical JSON, above the %d-byte aggregate dispatch context bound; the request is refused whole and never trimmed", measured, DispatchContextAggregateMaxBytes),
+		"reduce the retained work context, checkpoint, or correction through their own owners, then rebuild and dispatch a fresh packet")
+}

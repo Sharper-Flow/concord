@@ -4,7 +4,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { configureCoreBinary, dispatchWorker, resolveWorkerReportFromText, validateAgentLanePacket, validateAgentLaneReport, type AgentLanePacket, type CanonicalLaneReport, type DispatchRunner, type HostProvenance, type NativeOraclePreparation } from "./dispatch"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
-// Readiness consumes native metadata and observes clean HEAD. Report
+// Readiness consumes native metadata without subprocesses. Report
 // admission composes the raw subject OID from the authorized typed packet.
 
 // Fake-runner suite: bind any worker-evidence CLI call to a nominal core path
@@ -128,17 +128,14 @@ function reviewPacket(): AgentLanePacket {
   } as AgentLanePacket
 }
 
-// The runner observes HEAD/status and records every argv. Any other native
-// command is an error, not a fabricated preparation or worker outcome.
-function gitRunner(): { runner: DispatchRunner; seen: string[][] } {
+// Every readiness subprocess is forbidden, including Git, core calls,
+// compiler commands, and automatic native preparation.
+function readinessRunner(): { runner: DispatchRunner; seen: string[][] } {
   const seen: string[][] = []
   const runner: DispatchRunner = {
     async run(argv) {
       seen.push([...argv])
-      const rest = argv[0] === "git" && argv[1] === "-C" ? argv.slice(3) : argv
-      if (rest[0] === "rev-parse") return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" }
-      if (argv[0] === "git" && rest[0] === "status") return { exitCode: 0, stdout: "", stderr: "" }
-      throw new Error(`unexpected preauthorization command: ${argv.join(" ")}`)
+      throw new Error(`unexpected readiness command: ${argv.join(" ")}`)
     },
   }
   return { runner, seen }
@@ -166,23 +163,23 @@ test("native case witness maps admit only bounded case keys and typed witness ar
   }
 })
 
-test("an oracle packet consumes matching native preparations and rechecks clean HEAD", async () => {
-  const { runner, seen } = gitRunner()
+test("an oracle packet consumes matching native preparations without a subprocess", async () => {
+  const { runner, seen } = readinessRunner()
   const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).toBeNull()
-  expect(seen.length).toBe(2)
+  expect(seen).toEqual([])
 })
 
 test("an oracle-free packet performs no git probes and refuses nothing", async () => {
-  const { runner, seen } = gitRunner()
+  const { runner, seen } = readinessRunner()
   const legacy: AgentLanePacket = { ...oraclePacket(), inputs: { ...oraclePacket().inputs, worker_job: undefined } }
   const refusal = await verifyPacketOracleReadiness(legacy, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).toBeNull()
-  expect(seen.length).toBe(0)
+  expect(seen).toEqual([])
 })
 
 test("a mismatched native recipe commit refuses readiness and names its control", async () => {
-  const { runner } = gitRunner()
+  const { runner } = readinessRunner()
   const candidate = oraclePacket()
   candidate.inputs.work_context!.oracle_preparations![0].recipe_source = { ...ORACLE_RECIPE_SOURCE, commit_oid: "f".repeat(40) }
   const refusal = await verifyPacketOracleReadiness(candidate, { runner, directory: "/claimed/worktree", signal: SIGNAL })
@@ -192,7 +189,7 @@ test("a mismatched native recipe commit refuses readiness and names its control"
 })
 
 test("a mismatched native recipe path refuses readiness", async () => {
-  const { runner } = gitRunner()
+  const { runner } = readinessRunner()
   const candidate = oraclePacket()
   candidate.inputs.work_context!.oracle_preparations![0].recipe_source = { ...ORACLE_RECIPE_SOURCE, path: "wrong.json" }
   const refusal = await verifyPacketOracleReadiness(candidate, { runner, directory: "/claimed/worktree", signal: SIGNAL })
@@ -200,40 +197,39 @@ test("a mismatched native recipe path refuses readiness", async () => {
   expect(refusal!.message).toContain("control:harness-digest")
 })
 
-test("a git probe that itself fails refuses readiness with the probe outcome", async () => {
-  const runner: DispatchRunner = { async run() { return { exitCode: 128, stdout: "", stderr: "fatal: not a git repository" } } }
-  const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
-  expect(refusal).not.toBeNull()
-  expect(refusal!.message).toContain("does not match")
-  expect(refusal!.message).toContain("git rev-parse exited 128")
-})
-
 test("a control without retained readiness evidence refuses readiness structurally", async () => {
   const evidenceless = { ...ORACLE, controls: [{ ...ORACLE.controls[0], readiness_evidence_refs: [] }, ORACLE.controls[1]] }
   const packet = { ...oraclePacket(), inputs: { ...oraclePacket().inputs, worker_job: { ...JOB, acceptance_oracle: evidenceless } } } as AgentLanePacket
-  const { runner } = gitRunner()
+  const { runner } = readinessRunner()
   const refusal = await verifyPacketOracleReadiness(packet, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("control:harness-digest")
   expect(refusal!.message).toContain("readiness evidence")
 })
 
+test("readiness leaves runner failures to the core freshness owner", async () => {
+  const seen: string[][] = []
+  const runner: DispatchRunner = { async run(argv) {
+    seen.push([...argv])
+    return { exitCode: 128, stdout: "", stderr: "fatal: not a git repository" }
+  } }
+  const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
+  expect(refusal).toBeNull()
+  expect(seen).toEqual([])
+})
+
 test("readiness never executes the oracle argv and never calls the core", async () => {
-  const { runner, seen } = gitRunner()
-  await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
-  expect(seen.length).toBeGreaterThan(0)
-  for (const argv of seen) {
-    expect(argv[0]).toBe("git")
-    expect(argv.join(" ")).not.toContain("bin/oc-test")
-    expect(argv.join(" ")).not.toContain("TestOwnerOracle")
-  }
+  const { runner, seen } = readinessRunner()
+  const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
+  expect(refusal).toBeNull()
+  expect(seen).toEqual([])
 })
 
 const FIXED_PROVENANCE: HostProvenance = { sources: [{ kind: "agent_definition", path: ".opencode/agents/concord-implement.md", sha256: `sha256:${"e".repeat(64)}` }], digest: `sha256:${"e".repeat(64)}` }
 
 test("dispatch refuses an unverifiable oracle before the authorization call", async () => {
   let authorizations = 0
-  const { runner, seen } = gitRunner()
+  const { runner, seen } = readinessRunner()
   const candidate = oraclePacket()
   candidate.inputs.work_context!.oracle_preparations = []
   const result = await dispatchWorker(candidate, {

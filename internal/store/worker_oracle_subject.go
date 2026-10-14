@@ -85,9 +85,12 @@ func readOracleVerifySubjectReceipt(ctx context.Context, q queryer, workID, runR
 }
 
 // readCurrentOracleSubject selects the newest qualified verify receipt for an
-// active worktree. It does not claim that Git is still there: the
-// adapter must compare this pinned subject with its fresh clean HEAD before
-// authorization. A later dirty/failed run contributes no qualified subject.
+// active worktree. It does not claim that Git is still there: the core
+// dispatch admission owns subject freshness and compares this pinned subject
+// with its own clean HEAD observation before any dispatch effect; the review
+// lane's HEAD/tree check against the packet subject is the backstop for
+// drift after authorization. A later dirty/failed run contributes no
+// qualified subject.
 const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		AND EXISTS (SELECT 1 FROM worktree_entries e
 			WHERE e.set_id=? AND e.project_id=l.project_id AND e.path=l.path

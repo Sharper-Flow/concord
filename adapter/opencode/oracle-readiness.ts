@@ -2,9 +2,11 @@ import { createHash } from "node:crypto"
 import type { AgentLanePacket, DispatchRunner, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
 
 // Readiness consumes the native owner's qualified, job-selected preparation
-// records. It observes clean HEAD before dispatch authorization, but runs no
-// worker control, compiler, or automatic native preparation. The core owns
-// the exact bundle, environment, receipt, and authority joins.
+// records. The core dispatch admission owns subject freshness — it observes
+// the claimed worktree's clean HEAD against the packet subject before the
+// action transaction — so this check runs no git at all. It still refuses a
+// packet whose oracle lacks a core-qualified subject or a matching
+// qualified preparation per control.
 export interface OracleReadinessDeps {
   runner: DispatchRunner
   directory: string
@@ -101,21 +103,6 @@ export async function verifyPacketOracleReadiness(packet: AgentLanePacket, deps:
       const id = isRecord(control) ? control.control_id : "control:?"
       return { message: `acceptance oracle control ${id} has no matching qualified native preparation in its retained readiness evidence; explicitly request worktree_verify oracle phase prepare, then record its actual preparation run reference in the ready job and refresh the packet` }
     }
-  }
-  const probe = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
-    try {
-      return await deps.runner.run(argv, "", deps.signal)
-    } catch (error) {
-      return { exitCode: -1, stdout: error instanceof Error ? error.message : String(error) }
-    }
-  }
-  const head = await probe(["git", "-C", deps.directory, "rev-parse", "--verify", "HEAD^{commit}"])
-  if (head.exitCode !== 0 || head.stdout.trim() !== subject) {
-    return { message: `acceptance oracle subject_commit ${subject} does not match the observed HEAD (git rev-parse exited ${head.exitCode}); ${recovery}` }
-  }
-  const status = await probe(["git", "-C", deps.directory, "status", "--porcelain=v1", "-z", "--untracked-files=all"])
-  if (status.exitCode !== 0 || status.stdout.length !== 0) {
-    return { message: `acceptance oracle requires clean HEAD, including the index and untracked files (git status exited ${status.exitCode}); ${recovery}` }
   }
   return null
 }

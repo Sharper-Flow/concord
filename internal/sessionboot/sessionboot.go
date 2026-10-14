@@ -17,6 +17,12 @@ const (
 	SessionContractVersion = "1.0"
 )
 
+// MaxBootPacketBytes is the session boot packet's own cap. The boot packet is
+// its own bounded population, not a request or a result envelope: the cap
+// keeps the size the boot packet has always carried, named here so the boot
+// population never moves when the request or response budgets change.
+const MaxBootPacketBytes = 65536
+
 type Packet struct {
 	SchemaVersion          string         `json:"schema_version"`
 	SessionType            string         `json:"session_type"`
@@ -33,7 +39,7 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 	}
 	// The boot read pages boundaries from the start, so the fit needs only
 	// the work identity to derive a boundary cursor.
-	raw, _, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, agent.MaxEnvelopeBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
+	raw, _, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, MaxBootPacketBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
 		raw, err := json.Marshal(Packet{
 			SchemaVersion: SchemaVersion, SessionType: SessionType,
 			SessionContractVersion: SessionContractVersion,
@@ -53,8 +59,8 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 }
 
 func Validate(raw []byte) error {
-	if len(raw) > agent.MaxEnvelopeBytes {
-		return fmt.Errorf("session boot packet exceeds %d bytes", agent.MaxEnvelopeBytes)
+	if len(raw) > MaxBootPacketBytes {
+		return fmt.Errorf("session boot packet exceeds %d bytes", MaxBootPacketBytes)
 	}
 	if err := agent.ValidatePayloadSchema("session_boot_packet", raw); err != nil {
 		return fmt.Errorf("session boot packet schema: %w", err)

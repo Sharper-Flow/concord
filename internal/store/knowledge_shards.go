@@ -131,13 +131,15 @@ func composeKnowledgeManifest(shards knowledgeShards, role knowledgeManifestRole
 	return parseKnowledgeManifestForRole(composed, pathPrefix, role)
 }
 
-// readKnowledgeShardsAtCommit reads the shard tree at one commit through a
-// single git archive call. The second result is false when the commit carries
-// no head shard in any layout, which is the shape a commit that predates the
-// shards has. The newest layout the commit carries wins (CD-0194 D5).
-func readKnowledgeShardsAtCommit(ctx context.Context, repo, commit string) (knowledgeShards, bool, error) {
+// readKnowledgeShardsAtCommitRunner reads the shard tree at one commit
+// through a single git archive call on the caller's runner, so a
+// committed-read policy runner or an injected test runner executes the
+// extraction. The second result is false when the commit carries no head
+// shard in any layout, which is the shape a commit that predates the shards
+// has. The newest layout the commit carries wins (CD-0194 D5).
+func readKnowledgeShardsAtCommitRunner(ctx context.Context, runner GitRunner, repo, commit string) (knowledgeShards, bool, error) {
 	for _, layout := range knowledgeShardLayouts {
-		shards, sharded, err := readKnowledgeShardsAtCommitLayout(ctx, repo, commit, layout)
+		shards, sharded, err := readKnowledgeShardsAtCommitLayout(ctx, runner, repo, commit, layout)
 		if err != nil || sharded {
 			return shards, sharded, err
 		}
@@ -145,8 +147,8 @@ func readKnowledgeShardsAtCommit(ctx context.Context, repo, commit string) (know
 	return knowledgeShards{}, false, nil
 }
 
-func readKnowledgeShardsAtCommitLayout(ctx context.Context, repo, commit string, layout knowledgeShardLayout) (knowledgeShards, bool, error) {
-	out, err := runGit(ctx, repo, "ls-tree", "-z", commit, "--", layout.headPath)
+func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, repo, commit string, layout knowledgeShardLayout) (knowledgeShards, bool, error) {
+	out, err := runner.Run(ctx, repo, "ls-tree", "-z", commit, "--", layout.headPath)
 	if err != nil {
 		return knowledgeShards{}, false, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot inspect the knowledge shard tree", true, "restore the git object and retry", err)
 	}
@@ -160,7 +162,7 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, repo, commit string,
 	if entries[0].kind != "blob" || entries[0].mode != "100644" {
 		return knowledgeShards{}, true, newFailure(KindInvalidNoteProof, "read_knowledge_manifest", "manifest head is not a regular blob", false, "commit a regular manifest head file")
 	}
-	archive, err := runGit(ctx, repo, "archive", "--format=tar", commit, "--", layout.root)
+	archive, err := runner.Run(ctx, repo, "archive", "--format=tar", commit, "--", layout.root)
 	if err != nil {
 		return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed knowledge shards", true, "restore the shard blobs and retry", err)
 	}

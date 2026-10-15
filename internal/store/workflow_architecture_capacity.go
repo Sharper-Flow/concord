@@ -533,23 +533,8 @@ func architectureCapacityCurrentMembersTx(ctx context.Context, tx *sql.Tx, workI
 	return members, nil
 }
 
-// validateArchitectureCapacityAffectedWorkTx rejects the first slot the
-// work's actual current projections over-allocate. Every recorded worker-job
-// revision must fit the worker_job slot on its own — never only the ready
-// ones and never a stripped projection — so capacity is satisfiable when a
-// revision becomes dispatchable, not discovered at dispatch. The worker_job
-// member is the lexicographically last packet input, so its span carries no
-// trailing comma; every other present member charges the comma the next
-// dispatch reserves beside it.
-func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	profile, found, err := architectureCapacityProfileForWorkTx(ctx, tx, workID)
-	if err != nil || !found {
-		return err
-	}
-	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
+// architectureCapacityChargeCheck rejects the first measured slot over reserve.
+func architectureCapacityChargeCheck(ctx context.Context, q queryer, profile ArchitectureCapacityProfile, members map[string]json.RawMessage, workID string) error {
 	slotBytes := make(map[architectureCapacitySlot]int, len(architectureCapacitySlotsInOrder))
 	for key, value := range members {
 		slot, _, known := architectureCapacityClassifyMember(key)
@@ -560,7 +545,7 @@ func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx,
 		}
 		slotBytes[slot] += architectureMemberSpan(key, value, true)
 	}
-	views, err := readWorkerJobRevisions(ctx, tx, workID)
+	views, err := readWorkerJobRevisions(ctx, q, workID)
 	if err != nil {
 		return err
 	}
@@ -581,4 +566,60 @@ func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx,
 		}
 	}
 	return nil
+}
+
+// validateArchitectureCapacityAffectedWorkTx rejects the first over-slot.
+func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	profile, found, err := architectureCapacityProfileForWorkTx(ctx, tx, workID)
+	if err != nil || !found {
+		return err
+	}
+	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	return architectureCapacityChargeCheck(ctx, tx, profile, members, workID)
+}
+
+// One receipt-publishing release pre-measures the context on its own snapshot.
+
+type architectureCapacityVerifyPublish struct {
+	SubjectCommit string
+}
+
+// architectureCapacityProspectiveVerifyTx measures current members plus the published subject.
+func architectureCapacityProspectiveVerifyTx(ctx context.Context, tx *sql.Tx, workID string, publish *architectureCapacityVerifyPublish) (bool, error) {
+	profile, found, err := architectureCapacityProfileForWorkTx(ctx, tx, workID)
+	if err != nil || !found {
+		return found, err
+	}
+	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
+	if err != nil {
+		return true, err
+	}
+	view, err := readWorkContextView(ctx, tx, workID)
+	if err != nil {
+		return true, err
+	}
+	if publish != nil {
+		if view == nil {
+			// readWorkContextView returns nil only when nothing else projects.
+			var frontier int64
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&frontier); err != nil {
+				return true, workflowProjectionError(err, "cannot read the work-context source frontier for capacity measurement")
+			}
+			view = &WorkContextView{SubjectCommit: publish.SubjectCommit, SourceEventFrontier: frontier, RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
+		} else {
+			projected := *view
+			projected.SubjectCommit = publish.SubjectCommit
+			view = &projected
+		}
+		raw, err := json.Marshal(view)
+		if err != nil {
+			return true, architectureCapacityFailure(KindInvariantViolation,
+				"the work_context projection cannot be serialized for capacity measurement", "repair the member's owning record")
+		}
+		members["work_context"] = raw
+	}
+	return true, architectureCapacityChargeCheck(ctx, tx, profile, members, workID)
 }

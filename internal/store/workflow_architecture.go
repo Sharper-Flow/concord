@@ -294,3 +294,260 @@ func validateDesignArchitectureCanonicalBound(architecture WorkflowDesignArchite
 	}
 	return nil
 }
+
+// designArchitectureFirstError returns the first refusal in a list of pure
+// checks: every check only reads its arguments, so evaluating the whole list
+// is safe and the first listed refusal keeps precedence.
+func designArchitectureFirstError(checks ...error) error {
+	for _, err := range checks {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func designArchitectureOwnerRef(section, ownerID string, owners map[string]WorkflowDesignArchitectureOwner) error {
+	if _, exists := owners[ownerID]; !exists {
+		return designArchitectureFailure(KindInvalidPayload, "architecture "+section+" names undeclared owner "+ownerID, "map every entry to a declared owner")
+	}
+	return nil
+}
+
+func designArchitectureResolves(section, label string, ids []string, index map[string]bool) error {
+	for _, id := range ids {
+		if !index[id] {
+			return designArchitectureFailure(KindInvalidPayload, "architecture "+section+" names undeclared "+label+" "+id, "name only declared entries")
+		}
+	}
+	return nil
+}
+
+// validateWorkflowDesignArchitecture enforces the closed architecture value
+// surface and reads no store state: membership arrives from the caller's
+// predicate, and pinned-blob resolution of reference ranges happens later at
+// dispatch preparation.
+func validateWorkflowDesignArchitecture(architecture WorkflowDesignArchitecture, memberProject func(string) bool) error {
+	owners, err := validateDesignArchitectureOwners(architecture.Owners, memberProject)
+	if err != nil {
+		return err
+	}
+	invariants, err := validateDesignArchitectureInvariants(architecture.Invariants, owners)
+	if err != nil {
+		return err
+	}
+	references, err := validateDesignArchitectureReferences(architecture.References, memberProject)
+	if err != nil {
+		return err
+	}
+	files, err := validateDesignArchitectureFiles(architecture.Files, memberProject)
+	if err != nil {
+		return err
+	}
+	unchanged, err := validateDesignArchitectureUnchangedFiles(architecture.UnchangedFiles, memberProject)
+	if err != nil {
+		return err
+	}
+	return designArchitectureFirstError(
+		validateDesignArchitectureDataFlows(architecture.DataFlow, owners, invariants),
+		validateDesignArchitectureFailureBehavior(architecture.FailureBehavior, owners, invariants),
+		validateDesignArchitectureSlices(architecture.Slices, owners, invariants, references, unchanged, files),
+		validateDesignArchitectureCapacity(architecture.Capacity),
+		validateDesignArchitectureCanonicalBound(architecture),
+	)
+}
+
+func validateDesignArchitectureOwners(entries []WorkflowDesignArchitectureOwner, memberProject func(string) bool) (map[string]WorkflowDesignArchitectureOwner, error) {
+	if _, err := designArchitectureSection(entries, 1, designArchitectureOwnersMax, "owners", func(owner WorkflowDesignArchitectureOwner) string { return owner.OwnerID }); err != nil {
+		return nil, err
+	}
+	owners := make(map[string]WorkflowDesignArchitectureOwner, len(entries))
+	for _, owner := range entries {
+		if err := designArchitectureFirstError(
+			designArchitectureRepoEntry("owner "+owner.OwnerID, owner.ProjectID, owner.Path, memberProject),
+			designArchitectureBoundedText(owner.Symbol, "owner "+owner.OwnerID+" symbol", designArchitectureSymbolMaxBytes),
+		); err != nil {
+			return nil, err
+		}
+		owners[owner.OwnerID] = owner
+	}
+	return owners, nil
+}
+
+func validateDesignArchitectureInvariants(entries []WorkflowDesignArchitectureInvariant, owners map[string]WorkflowDesignArchitectureOwner) (map[string]bool, error) {
+	index, err := designArchitectureSection(entries, 1, designArchitectureInvariantsMax, "invariants", func(invariant WorkflowDesignArchitectureInvariant) string { return invariant.InvariantID })
+	if err != nil {
+		return nil, err
+	}
+	for _, invariant := range entries {
+		if err := designArchitectureFirstError(
+			designArchitectureOwnerRef("invariant "+invariant.InvariantID, invariant.OwnerID, owners),
+			designArchitectureBoundedText(invariant.Statement, "invariant "+invariant.InvariantID+" statement", designArchitectureStatementMaxBytes),
+		); err != nil {
+			return nil, err
+		}
+	}
+	return index, nil
+}
+
+func validateDesignArchitectureDataFlows(entries []WorkflowDesignArchitectureDataFlow, owners map[string]WorkflowDesignArchitectureOwner, invariants map[string]bool) error {
+	if _, err := designArchitectureSection(entries, 1, designArchitectureDataFlowsMax, "data flows", func(flow WorkflowDesignArchitectureDataFlow) string { return flow.FlowID }); err != nil {
+		return err
+	}
+	for _, flow := range entries {
+		if err := designArchitectureFirstError(
+			designArchitectureOwnerRef("data flow "+flow.FlowID, flow.FromOwnerID, owners),
+			designArchitectureOwnerRef("data flow "+flow.FlowID, flow.ToOwnerID, owners),
+			designArchitectureBoundedText(flow.Value, "data flow "+flow.FlowID+" value", designArchitectureStatementMaxBytes),
+			designArchitectureResolves("data flow "+flow.FlowID, "invariant", flow.InvariantIDs, invariants),
+		); err != nil {
+			return err
+		}
+		if !uniqueStrings(flow.InvariantIDs) {
+			return designArchitectureFailure(KindInvalidPayload, "architecture data flow "+flow.FlowID+" names an invariant twice", "name each invariant once per flow")
+		}
+	}
+	return nil
+}
+
+func validateDesignArchitectureFailureBehavior(entries []WorkflowDesignArchitectureFailureBehavior, owners map[string]WorkflowDesignArchitectureOwner, invariants map[string]bool) error {
+	if _, err := designArchitectureSection(entries, 1, designArchitectureFailuresMax, "failure behaviors", func(behavior WorkflowDesignArchitectureFailureBehavior) string { return behavior.FailureID }); err != nil {
+		return err
+	}
+	for _, behavior := range entries {
+		if err := designArchitectureFirstError(
+			designArchitectureOwnerRef("failure behavior "+behavior.FailureID, behavior.OwnerID, owners),
+			designArchitectureBoundedText(behavior.Condition, "failure behavior "+behavior.FailureID+" condition", designArchitectureStatementMaxBytes),
+			designArchitectureBoundedText(behavior.Result, "failure behavior "+behavior.FailureID+" result", designArchitectureStatementMaxBytes),
+			designArchitectureResolves("failure behavior "+behavior.FailureID, "invariant", behavior.Preserves, invariants),
+		); err != nil {
+			return err
+		}
+		if !uniqueStrings(behavior.Preserves) {
+			return designArchitectureFailure(KindInvalidPayload, "architecture failure behavior "+behavior.FailureID+" preserves an invariant twice", "preserve each invariant once")
+		}
+	}
+	return nil
+}
+
+func validateDesignArchitectureReferences(entries []WorkflowDesignArchitectureReference, memberProject func(string) bool) (map[string]bool, error) {
+	index, err := designArchitectureSection(entries, 1, designArchitectureReferencesMax, "references", func(reference WorkflowDesignArchitectureReference) string { return reference.ReferenceID })
+	if err != nil {
+		return nil, err
+	}
+	for _, reference := range entries {
+		if reference.StartLine < 1 || reference.EndLine < reference.StartLine {
+			return nil, designArchitectureFailure(KindInvalidPayload, "architecture reference "+reference.ReferenceID+" line bounds must be positive with end not before start", "pin ordered line bounds")
+		}
+		if err := designArchitectureRepositorySource(reference.Source, "reference "+reference.ReferenceID, memberProject); err != nil {
+			return nil, err
+		}
+	}
+	return index, nil
+}
+
+func validateDesignArchitectureFiles(entries []WorkflowDesignArchitectureFile, memberProject func(string) bool) (map[designArchitectureFileKey]bool, error) {
+	if err := designArchitectureCount(len(entries), 0, designArchitectureFilesMax, "files", "declare at most 128 files"); err != nil {
+		return nil, err
+	}
+	roles := map[string]bool{DesignArchitectureFileRoleSource: true, DesignArchitectureFileRoleTest: true, DesignArchitectureFileRoleGenerated: true}
+	files := make(map[designArchitectureFileKey]bool, len(entries))
+	for _, file := range entries {
+		key := designArchitectureFileKey{file.ProjectID, file.Path}
+		if files[key] {
+			return nil, designArchitectureFailure(KindInvalidPayload, "architecture file "+file.Path+" of Project "+file.ProjectID+" is declared twice", "declare each file once")
+		}
+		if !roles[file.Role] {
+			return nil, designArchitectureFailure(KindInvalidPayload, "architecture file "+file.Path+" role must be source, test, or generated", "use one closed file role")
+		}
+		switch file.Role {
+		case DesignArchitectureFileRoleGenerated:
+			if file.GeneratedBy == nil {
+				return nil, designArchitectureFailure(KindInvalidPayload, "architecture generated file "+file.Path+" names no pinned generator source", "pin the generator with project_id, path, and commit_oid")
+			}
+			if err := designArchitectureRepositorySource(*file.GeneratedBy, "generated file "+file.Path+" generator", memberProject); err != nil {
+				return nil, err
+			}
+		default:
+			if file.GeneratedBy != nil {
+				return nil, designArchitectureFailure(KindInvalidPayload, "architecture "+file.Role+" file "+file.Path+" carries a generator source", "only generated entries name a generator")
+			}
+		}
+		if err := designArchitectureRepoEntry("file "+file.Path, file.ProjectID, file.Path, memberProject); err != nil {
+			return nil, err
+		}
+		files[key] = true
+	}
+	return files, nil
+}
+
+func validateDesignArchitectureUnchangedFiles(entries []WorkflowDesignArchitectureUnchangedFile, memberProject func(string) bool) (map[designArchitectureFileKey]bool, error) {
+	if err := designArchitectureCount(len(entries), 0, designArchitectureUnchangedMax, "unchanged files", "declare at most 128 unchanged files"); err != nil {
+		return nil, err
+	}
+	unchanged := make(map[designArchitectureFileKey]bool, len(entries))
+	for _, file := range entries {
+		key := designArchitectureFileKey{file.ProjectID, file.Path}
+		if unchanged[key] {
+			return nil, designArchitectureFailure(KindInvalidPayload, "architecture unchanged file "+file.Path+" of Project "+file.ProjectID+" is declared twice", "declare each unchanged file once")
+		}
+		if err := designArchitectureRepoEntry("unchanged file "+file.Path, file.ProjectID, file.Path, memberProject); err != nil {
+			return nil, err
+		}
+		unchanged[key] = true
+	}
+	return unchanged, nil
+}
+
+func validateDesignArchitectureSlices(entries []WorkflowDesignArchitectureSlice, owners map[string]WorkflowDesignArchitectureOwner, invariants, references map[string]bool, unchanged, files map[designArchitectureFileKey]bool) error {
+	if _, err := designArchitectureSection(entries, 1, designArchitectureSlicesMax, "slices", func(slice WorkflowDesignArchitectureSlice) string { return slice.SliceID }); err != nil {
+		return err
+	}
+	kinds := map[string]bool{DesignArchitectureSliceKindEdit: true, DesignArchitectureSliceKindIntegration: true}
+	for position, slice := range entries {
+		if slice.Ordinal != position {
+			return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture slice %s ordinal %d must equal its declared position %d", slice.SliceID, slice.Ordinal, position), "order slices by their declared position")
+		}
+		if !kinds[slice.Kind] {
+			return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" kind must be edit or integration", "use one closed slice kind")
+		}
+		owner, exists := owners[slice.OwnerID]
+		if !exists {
+			return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" names undeclared owner "+slice.OwnerID, "map every slice to its one declared owner")
+		}
+		if slice.Kind != DesignArchitectureSliceKindIntegration || len(slice.Files) > 0 {
+			if err := designArchitectureCount(len(slice.Files), 1, designArchitectureSliceFilesMax, "slice "+slice.SliceID+" files", "give each editing slice one to sixty-four exact files"); err != nil {
+				return err
+			}
+		}
+		if !uniqueStrings(slice.Files) || !uniqueStrings(slice.InvariantIDs) || !uniqueStrings(slice.ReferenceIDs) || !uniqueStrings(slice.Tests) {
+			return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" names a file, invariant, reference, or test control twice", "name each file, invariant, reference, and test control once per slice")
+		}
+		for _, path := range slice.Files {
+			key := designArchitectureFileKey{owner.ProjectID, path}
+			if unchanged[key] {
+				return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" file "+path+" overlaps an unchanged file of Project "+owner.ProjectID, "remove the overlap; unchanged files accept no worker or resolution edits")
+			}
+			if !files[key] {
+				return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" file "+path+" is not a declared file of the owner's Project "+owner.ProjectID, "draw each slice file set from the approved file map")
+			}
+		}
+		if slice.MaxChangedLines < designArchitectureMinChangedLines || slice.MaxChangedLines > designArchitectureMaxChangedLines {
+			return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture slice %s max_changed_lines %d must be between %d and %d", slice.SliceID, slice.MaxChangedLines, designArchitectureMinChangedLines, designArchitectureMaxChangedLines), "declare each slice budget between one and five hundred lines")
+		}
+		if err := designArchitectureFirstError(
+			designArchitectureBoundedText(slice.EndState, "slice "+slice.SliceID+" end_state", designArchitectureStatementMaxBytes),
+			designArchitectureCount(len(slice.Tests), 1, designArchitectureSliceTestsMax, "slice "+slice.SliceID+" tests", "give each slice one to thirty-two stable control IDs"),
+			designArchitectureResolves("slice "+slice.SliceID, "invariant", slice.InvariantIDs, invariants),
+			designArchitectureResolves("slice "+slice.SliceID, "reference", slice.ReferenceIDs, references),
+		); err != nil {
+			return err
+		}
+		for _, test := range slice.Tests {
+			if !oracleControlIDPattern.MatchString(test) {
+				return designArchitectureFailure(KindInvalidPayload, "architecture slice "+slice.SliceID+" test "+test+" must match the existing control identity grammar", "name existing acceptance-oracle controls, not a second command language")
+			}
+		}
+	}
+	return nil
+}

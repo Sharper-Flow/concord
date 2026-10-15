@@ -409,11 +409,11 @@ func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed 
 func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
+	_, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
 	grant.Worktree = worktree
 	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-rc")
 	recordSelectedResearchContextForCombinedReject(t, s, service, grant, "combined-reject-research-1", "pack-combined-reject-rc")
-	version = workVersion(t, s, "work-1")
+	version := workVersion(t, s, "work-1")
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

@@ -562,14 +562,12 @@ func TestWorkContextResearchSelection(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-research-mismatch")
 		defer fixture.store.Close()
 		pack := seedResearchContextPack(t, fixture, "mismatch")
-		bindResearchPack(t, fixture, pack.PackID, 2, true)
-		err := recordResearchDeclarationTx(t, fixture, map[string]any{
-			"finding_refs":          []string{},
-			"context_findings":      []map[string]any{},
-			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
-		}, nil)
-		if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "revision") {
-			t.Fatalf("mismatched pin error = %v, want %s refusing the unbound revision", err, KindInvalidPayload)
+		for _, revision := range []int64{1, 2} {
+			bindResearchPack(t, fixture, pack.PackID, 3-revision, true)
+			err := recordResearchDeclarationTx(t, fixture, map[string]any{"finding_refs": []string{}, "context_findings": []map[string]any{}, "research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, revision, []string{"f1", "f3"}[revision-1], workContextTestChild)}}, nil)
+			if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "revision") {
+				t.Fatalf("mismatched pin error = %v, want %s refusing the unbound revision", err, KindInvalidPayload)
+			}
 		}
 	})
 

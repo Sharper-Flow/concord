@@ -131,6 +131,8 @@ def run_checker(root: Path, manifest: dict, argv: list[str] | None = None) -> tu
         sys.stdout, sys.stderr = captured_out, captured_err
         try:
             exit_code = checker.main(list(argv or []))
+        except SystemExit as stop:
+            exit_code = stop.code if isinstance(stop.code, int) else 2
         finally:
             sys.stdout, sys.stderr = old_out, old_err
     return exit_code, captured_out.getvalue(), captured_err.getvalue()
@@ -2958,6 +2960,475 @@ def test_current_citation_rejects_test_declared_only_in_ignored_file() -> None:
     code, output, error = run_checker(root, manifest)
     assert code == 1, (code, output, error)
     assert "missing Go test: internal/fixture.TestIgnored" in output, output
+
+
+# ---------------------------------------------------------------------------
+# Draft mode: `--draft PATH [PATH ...]`.
+# ---------------------------------------------------------------------------
+
+
+DRAFT_BODY_WRONG_ORDER = """# A reordered draft
+
+## Context
+
+The context states the problem.
+
+## Consequences
+
+The consequence states the effect.
+
+## Decision
+
+The decision states the rule.
+
+## Alternatives considered
+
+- Apply the rule retroactively. Rejected: it invents rationale.
+
+## Verification
+
+The verification states the proof with `internal/store.TestCurrentDecision`.
+"""
+
+DRAFT_BODY_BAD_GHERKIN = FULL_DECISION_BODY + """
+## Acceptance criteria
+
+- The rule applies to every registered draft.
+"""
+
+DRAFT_BODY_BANNED_PHRASE = FULL_DECISION_BODY.replace(
+    "The decision states the rule.",
+    "The decision prefers to utilize the existing shard.",
+)
+
+DRAFT_BODY_LONG_SENTENCE = FULL_DECISION_BODY.replace(
+    "The decision states the rule.",
+    "The coordinator records the accepted decision in the manifest shard, "
+    "the validator reads the same shard on every later run, and the agent "
+    "that asks for the rule in a later session receives the accepted text "
+    "without a second lookup or a second read of the whole corpus.",
+)
+
+DRAFT_BODY_UNEXPANDED_ABBREVIATION = FULL_DECISION_BODY.replace(
+    "The decision states the rule.",
+    "The QZX gate states the rule.",
+)
+
+
+def test_draft_mode_accepts_valid_unregistered_current_decision() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_draft_mode_accepts_absolute_contained_path() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", str(root / path)]
+    )
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_draft_mode_reports_findings_for_noncanonical_absolute_path() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/partial.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    absolute = root.parent / ".." / root.parent.name / root.name / path
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", str(absolute)]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert f"missing-section: {path} (Alternatives considered)" in stdout, stdout
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_checks_multiple_drafts_in_one_call() -> None:
+    root = sandbox()
+    first = ".concord/docs/drafts/first.md"
+    second = ".concord/docs/drafts/second.md"
+    write_spec(root, first, FULL_DECISION_BODY)
+    write_spec(root, second, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", first, second]
+    )
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_draft_mode_fails_on_missing_outline_section() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/partial.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        "missing-section: .concord/docs/drafts/partial.md (Alternatives considered)"
+        in stdout
+    ), stdout
+
+
+def test_draft_mode_fails_on_outline_order_violation() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/reordered.md"
+    write_spec(root, path, DRAFT_BODY_WRONG_ORDER)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "section-out-of-order: .concord/docs/drafts/reordered.md" in stdout, stdout
+    assert "Decision follows Consequences" in stdout, stdout
+
+
+def test_draft_mode_fails_on_invalid_gherkin_criteria() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/bad-gherkin.md"
+    write_spec(root, path, DRAFT_BODY_BAD_GHERKIN)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "ac-not-gherkin: .concord/docs/drafts/bad-gherkin.md" in stdout, stdout
+
+
+def test_draft_mode_fails_on_banned_phrase() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/banned.md"
+    write_spec(root, path, DRAFT_BODY_BANNED_PHRASE)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "ste-banned-phrase: .concord/docs/drafts/banned.md" in stdout, stdout
+    assert "'utilize'" in stdout, stdout
+
+
+def test_draft_mode_fails_on_long_sentence() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/long.md"
+    write_spec(root, path, DRAFT_BODY_LONG_SENTENCE)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "ste-sentence-length: .concord/docs/drafts/long.md" in stdout, stdout
+
+
+def test_draft_mode_fails_on_unexpanded_abbreviation() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/abbr.md"
+    write_spec(root, path, DRAFT_BODY_UNEXPANDED_ABBREVIATION)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "ste-abbreviation: .concord/docs/drafts/abbr.md" in stdout, stdout
+    assert "(ABBR=QZX)" in stdout, stdout
+
+
+def test_draft_mode_reports_each_failing_draft_in_a_batch() -> None:
+    root = sandbox()
+    missing = ".concord/docs/drafts/batch-missing.md"
+    banned = ".concord/docs/drafts/batch-banned.md"
+    write_spec(root, missing, PARTIAL_DECISION_BODY)
+    write_spec(root, banned, DRAFT_BODY_BANNED_PHRASE)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", missing, banned]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "missing-section: .concord/docs/drafts/batch-missing.md" in stdout, stdout
+    assert "ste-banned-phrase: .concord/docs/drafts/batch-banned.md" in stdout, stdout
+
+
+def test_draft_mode_does_not_check_corpus_records() -> None:
+    root = sandbox()
+    draft = ".concord/docs/drafts/proposed.md"
+    corrupt = ".concord/docs/decisions/corpus-broken.md"
+    write_spec(root, corrupt, PARTIAL_DECISION_BODY)
+    write_spec(root, draft, FULL_DECISION_BODY)
+    manifest = manifest_with(
+        root, [decision_record(corrupt, "CD-0400")], contract=amended_decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", draft])
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_draft_mode_uses_the_current_profile_beside_legacy_records() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/partial.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(
+        root, with_legacy_record([]), contract=amended_decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        "missing-section: .concord/docs/drafts/partial.md (Alternatives considered)"
+        in stdout
+    ), stdout
+
+
+def test_draft_mode_findings_fail_when_enforcement_is_off() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/partial.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    contract = amended_decision_contract()
+    contract["enforced"] = False
+    manifest = manifest_with(root, [], contract=contract)
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "missing-section:" in stdout, stdout
+
+
+def test_draft_mode_fails_without_a_decision_contract() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(
+        root, [], contract={"enforced": True, "banned_phrases": ["utilize"]}
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "doc contract check failed" in stderr, stderr
+
+
+def test_draft_mode_fails_without_a_current_decision_outline() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "no current decision outline" in stdout, stdout
+
+
+def test_draft_mode_finds_missing_draft_path() -> None:
+    root = sandbox()
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", "docs/absent-draft.md"]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "docs/absent-draft.md" in stdout, stdout
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_finds_directory_draft_path() -> None:
+    root = sandbox()
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", "docs"])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "draft-path: docs (not an existing .md file)" in stdout, stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_finds_non_markdown_draft_path() -> None:
+    root = sandbox()
+    write_spec(root, "docs/notes.txt", "notes\n")
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", "docs/notes.txt"]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert "docs/notes.txt" in stdout, stdout
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_finds_traversal_draft_path() -> None:
+    root = sandbox()
+    outside = root.parent / f"{root.name}-outside.md"
+    outside.write_text(FULL_DECISION_BODY, encoding="utf-8")
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    try:
+        exit_code, stdout, stderr = run_checker(
+            root, manifest, ["--draft", f"../{root.name}-outside.md"]
+        )
+    finally:
+        outside.unlink()
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        f"draft-path: ../{root.name}-outside.md (outside the repository root)"
+        in stdout
+    ), stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_finds_external_absolute_draft_path() -> None:
+    root = sandbox()
+    outside = Path(tempfile.mkdtemp(prefix="dc-outside-")) / "valid-decision.md"
+    outside.write_text(FULL_DECISION_BODY, encoding="utf-8")
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", str(outside)]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert f"draft-path: {outside} (outside the repository root)" in stdout, stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_refuses_symlink_aliasing_a_registered_document() -> None:
+    root = sandbox()
+    registered = ".concord/docs/decisions/registered.md"
+    write_spec(root, registered, FULL_DECISION_BODY)
+    drafts = root / ".concord/docs/drafts"
+    drafts.mkdir(parents=True)
+    (drafts / "alias.md").symlink_to(root / registered)
+    manifest = manifest_with(
+        root, [decision_record(registered, "CD-0401")], contract=amended_decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", ".concord/docs/drafts/alias.md"]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        "draft-path: .concord/docs/drafts/alias.md (resolves to a registered "
+        "record; a draft must be unregistered)" in stdout
+    ), stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_refuses_a_registered_path() -> None:
+    root = sandbox()
+    registered = ".concord/docs/decisions/registered.md"
+    write_spec(root, registered, FULL_DECISION_BODY)
+    manifest = manifest_with(
+        root, [decision_record(registered, "CD-0402")], contract=amended_decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", registered])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        f"draft-path: {registered} (resolves to a registered record; "
+        "a draft must be unregistered)" in stdout
+    ), stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_reports_a_registered_path_that_cannot_resolve() -> None:
+    root = sandbox()
+    registered = ".concord/docs/decisions/looped-registered.md"
+    draft = ".concord/docs/drafts/proposed.md"
+    write_spec(root, draft, FULL_DECISION_BODY)
+    manifest = manifest_with(
+        root, [decision_record(registered, "CD-0403")], contract=amended_decision_contract()
+    )
+    real_resolve = Path.resolve
+
+    def loop(path: Path, **kwargs: object) -> Path:
+        if path.name == "looped-registered.md":
+            raise RuntimeError("simulated symlink loop")
+        return real_resolve(path, **kwargs)
+
+    with mock.patch.object(Path, "resolve", loop):
+        exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", draft])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert registered in stdout, stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_refuses_escaping_symlink() -> None:
+    root = sandbox()
+    outside = Path(tempfile.mkdtemp(prefix="dc-outside-")) / "valid-decision.md"
+    outside.write_text(FULL_DECISION_BODY, encoding="utf-8")
+    drafts = root / ".concord/docs/drafts"
+    drafts.mkdir(parents=True)
+    (drafts / "escape.md").symlink_to(outside)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", ".concord/docs/drafts/escape.md"]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        "draft-path: .concord/docs/drafts/escape.md (outside the repository root)"
+        in stdout
+    ), stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_refuses_cyclic_symlink() -> None:
+    root = sandbox()
+    drafts = root / ".concord/docs/drafts"
+    drafts.mkdir(parents=True)
+    (drafts / "cycle.md").symlink_to("cycle.md")
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", ".concord/docs/drafts/cycle.md"]
+    )
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert (
+        "draft-path: .concord/docs/drafts/cycle.md (unresolvable path)"
+        in stdout.splitlines()
+        or "draft-path: .concord/docs/drafts/cycle.md (not an existing .md file)"
+        in stdout.splitlines()
+    ), stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_reports_a_selected_path_that_cannot_resolve() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/looped.md"
+    real_resolve = Path.resolve
+
+    def loop(path: Path, **kwargs: object) -> Path:
+        if path.name == "looped.md":
+            raise RuntimeError("simulated symlink loop")
+        return real_resolve(path, **kwargs)
+
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    with mock.patch.object(Path, "resolve", loop):
+        exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert path in stdout, stdout
+    assert "doc contract check failed" in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+
+
+def test_draft_mode_rejects_report_only_together() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    exit_code, stdout, stderr = run_checker(
+        root, manifest, ["--draft", path, "--report-only"]
+    )
+    assert exit_code == 2, (exit_code, stdout, stderr)
+    assert (
+        "argument --report-only: not allowed with argument --draft" in stderr
+    ), stderr
+
+
+def test_draft_mode_writes_no_files() -> None:
+    root = sandbox()
+    path = ".concord/docs/drafts/proposed.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(root, [], contract=amended_decision_contract())
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    def snapshot(base: Path) -> dict[str, bytes]:
+        return {
+            str(item.relative_to(base)): item.read_bytes()
+            for item in sorted(base.rglob("*"))
+            if item.is_file() and ".git" not in item.parts
+        }
+
+    before = snapshot(root)
+    exit_code, stdout, stderr = run_checker(root, manifest, ["--draft", path])
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert snapshot(root) == before
 
 
 def main() -> int:

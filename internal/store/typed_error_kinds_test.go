@@ -51,8 +51,8 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 	}
 }
 
-// The two kinds the store fold previously omitted. Named explicitly so the
-// specific regression in #265 cannot silently return.
+// stale_law_revision and domain_overlap are required members of the typed-error
+// vocabulary: TypedErrorKindAllowed must accept both.
 func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"stale_law_revision", "domain_overlap"} {

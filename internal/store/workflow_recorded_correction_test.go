@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -96,9 +97,17 @@ func mustRecordedCorrectionPin(t *testing.T, ref string, version int64) Register
 }
 
 // The archived rule's admission requires an implementation or break-fix
-// family and a preceding eligible producer. Runtime replay uses only table data.
+// family, a pin at or below the family's frozen released registration cap,
+// and a preceding eligible producer. The cap comes from
+// workflowReleasedRecoveryRouteFamilies alone, so the proof and the frozen
+// route quarantine encode the era boundary once. Runtime replay uses only
+// table data.
 func archivedCorrectionTargetForProof(definition WorkflowDefinition, currentStep string) string {
 	if definition.WorkKind != WorkKindImplementation && definition.WorkKind != WorkKindBreakFix {
+		return ""
+	}
+	family, ok := workflowReleasedRecoveryRouteFamilies[definition.Ref]
+	if !ok || definition.Version > family.through {
 		return ""
 	}
 	return archivedCorrectionResolverForProof(definition, currentStep)
@@ -127,11 +136,11 @@ func archivedCorrectionResolverForProof(definition WorkflowDefinition, currentSt
 	return fallback
 }
 
-// TestRecordedCorrectionCoversFailureAttributionPins derives each failure
-// attribution pin's route through the admission-filtered archived proof and
-// requires both the recorded resolver and the table to honor that
-// derivation, beside the exhaustive all-pin comparison.
-func TestRecordedCorrectionCoversFailureAttributionPins(t *testing.T) {
+// TestRecordedCorrectionFailureAttributionPinsUseDeclaredRoutes holds the
+// four registered post-era failure-attribution pins: they have no archived
+// row, and replay uses the declared routes at every definition step,
+// including empty results.
+func TestRecordedCorrectionFailureAttributionPinsUseDeclaredRoutes(t *testing.T) {
 	for _, tc := range []struct {
 		ref     string
 		version int64
@@ -141,85 +150,197 @@ func TestRecordedCorrectionCoversFailureAttributionPins(t *testing.T) {
 		{"workflow.implementation", 31},
 		{"workflow.implementation", 32},
 	} {
-		t.Run(tc.ref, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s-v%d", tc.ref, tc.version), func(t *testing.T) {
 			entry := mustRecordedCorrectionPin(t, tc.ref, tc.version)
+			boundary, ok := workflowReleasedRecoveryRouteFamilies[tc.ref]
+			if !ok {
+				t.Fatalf("failure-attribution pin: no frozen released family for %s", tc.ref)
+			}
+			if tc.version <= boundary.through {
+				t.Fatalf("failure-attribution pin %s v%d is not post-era above the frozen cap %d", tc.ref, tc.version, boundary.through)
+			}
 			pin := recordedCorrectionPin{tc.ref, tc.version, entry.Digest}
-			route := recordedCorrectionRoute{}
+			if row, carried := recordedCorrectionRoutes[pin]; carried {
+				t.Fatalf("%s v%d pin %s carries a historical table row (%q, %v)", tc.ref, tc.version, pin.digest, row.target, row.steps)
+			}
+			withoutRoute, withRoute := 0, 0
 			for _, step := range entry.Definition.StepGraph.Steps {
-				archived := archivedCorrectionTargetForProof(entry.Definition, step.ID)
-				if archived == "" {
-					continue
+				declared := workflowCorrectionReturnTarget(entry.Definition, step.ID)
+				got, err := workflowRecordedCorrectionReturnTarget(entry, step.ID)
+				if err != nil || got != declared {
+					t.Fatalf("%s v%d recorded return at %s = (%q, %v), want the unchanged declared reader's %q", tc.ref, tc.version, step.ID, got, err, declared)
 				}
-				if route.target != "" && route.target != archived {
-					t.Fatalf("one pin has inconsistent archived producers at %s", step.ID)
+				if declared == "" {
+					withoutRoute++
+				} else {
+					withRoute++
 				}
-				route.target = archived
-				route.steps = append(route.steps, step.ID)
 			}
-			if route.target == "" {
-				t.Fatalf("%s v%d derives no archived correction route", tc.ref, tc.version)
-			}
-			sort.Strings(route.steps)
-			have, ok := recordedCorrectionRoutes[pin]
-			if !ok || !reflect.DeepEqual(have, route) {
-				t.Fatalf("%s v%d pin %s table row = (%q, %v) present=%v, want derived (%q, %v)", tc.ref, tc.version, pin.digest, have.target, have.steps, ok, route.target, route.steps)
-			}
-			for _, step := range route.steps {
-				got, err := workflowRecordedCorrectionReturnTarget(entry, step)
-				if err != nil || got != route.target {
-					t.Fatalf("%s v%d recorded return at %s = (%q, %v), want (%q, nil)", tc.ref, tc.version, step, got, err, route.target)
-				}
+			if withoutRoute == 0 || withRoute == 0 {
+				t.Fatalf("%s v%d comparison is vacuous: %d steps resolved no route and %d resolved one", tc.ref, tc.version, withoutRoute, withRoute)
 			}
 		})
 	}
 }
 
-func TestRecordedCorrectionTableMatchesEveryReleasedPinAndStep(t *testing.T) {
+// recordedCorrectionExpectedTableForProof derives the exact expected recorded
+// correction table from the era-bound archived proof over every released pin
+// and step. It consults only the archived admission, the declared route
+// reader, and the registry — never the global recorded table.
+func recordedCorrectionExpectedTableForProof() (map[recordedCorrectionPin]recordedCorrectionRoute, error) {
 	want := map[recordedCorrectionPin]recordedCorrectionRoute{}
+	var problems []string
 	excludedArchitectureTargets := 0
 	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
-		entry := mustRecordedCorrectionPin(t, definition.Ref, definition.Version)
+		entry, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+		if !ok {
+			problems = append(problems, fmt.Sprintf("missing registered definition %s v%d", definition.Ref, definition.Version))
+			continue
+		}
 		pin := recordedCorrectionPin{definition.Ref, definition.Version, entry.Digest}
 		for _, step := range definition.StepGraph.Steps {
 			old, current := archivedCorrectionTargetForProof(definition, step.ID), workflowCorrectionReturnTarget(definition, step.ID)
 			if old != "" && current != "" && old != current {
-				t.Fatalf("conflicting applicable rules at %v %s: %s != %s", pin, step.ID, old, current)
+				problems = append(problems, fmt.Sprintf("conflicting applicable rules at %s v%d %s: %s != %s", pin.ref, pin.version, step.ID, old, current))
 			}
 			if definition.Ref == "workflow.architecture_spike" {
 				raw := archivedCorrectionResolverForProof(definition, step.ID)
 				if raw != "" && current != "" && raw != current {
 					excludedArchitectureTargets++
 					if old != "" {
-						t.Fatal("raw architecture-spike target survived archived admission")
+						problems = append(problems, "raw architecture-spike target survived archived admission")
 					}
 				}
 			}
-			expected := current
-			if old != "" {
-				route := want[pin]
-				if route.target != "" && route.target != old {
-					t.Fatal("one pin has inconsistent archived producers")
-				}
-				route.target = old
-				route.steps = append(route.steps, step.ID)
-				want[pin] = route
-				expected = old
+			if old == "" {
+				continue
 			}
-			got, err := workflowRecordedCorrectionReturnTarget(entry, step.ID)
-			if err != nil || got != expected {
-				t.Fatalf("%v %s: target=%q want=%q error=%v", pin, step.ID, got, expected, err)
+			route := want[pin]
+			if route.target != "" && route.target != old {
+				problems = append(problems, fmt.Sprintf("one pin has inconsistent archived producers at %s v%d %s", pin.ref, pin.version, step.ID))
 			}
+			route.target = old
+			route.steps = append(route.steps, step.ID)
+			want[pin] = route
 		}
 	}
 	for pin, route := range want {
 		sort.Strings(route.steps)
 		want[pin] = route
 	}
-	if !reflect.DeepEqual(want, recordedCorrectionRoutes) {
-		t.Fatal("recorded table differs from admission-filtered archived rule over released pins")
-	}
 	if excludedArchitectureTargets == 0 {
-		t.Fatal("proof did not exercise excluded raw architecture-spike targets")
+		problems = append(problems, "proof did not exercise excluded raw architecture-spike targets")
+	}
+	if len(problems) != 0 {
+		return nil, fmt.Errorf("recorded correction table derivation failed: %s", strings.Join(problems, "; "))
+	}
+	return want, nil
+}
+
+// recordedCorrectionExactTableError is the one exact-map checker: nil when
+// candidate equals want under reflect.DeepEqual, a named error otherwise.
+func recordedCorrectionExactTableError(want, candidate map[recordedCorrectionPin]recordedCorrectionRoute) error {
+	if reflect.DeepEqual(want, candidate) {
+		return nil
+	}
+	return fmt.Errorf("candidate table differs from the derived %d-row expected table", len(want))
+}
+
+func TestRecordedCorrectionTableMatchesEveryReleasedPinAndStep(t *testing.T) {
+	want, err := recordedCorrectionExpectedTableForProof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+		entry := mustRecordedCorrectionPin(t, definition.Ref, definition.Version)
+		for _, step := range definition.StepGraph.Steps {
+			expected := workflowCorrectionReturnTarget(definition, step.ID)
+			if old := archivedCorrectionTargetForProof(definition, step.ID); old != "" {
+				expected = old
+			}
+			got, err := workflowRecordedCorrectionReturnTarget(entry, step.ID)
+			if err != nil || got != expected {
+				t.Fatalf("%s v%d %s: target=%q want=%q error=%v", definition.Ref, definition.Version, step.ID, got, expected, err)
+			}
+		}
+	}
+	if err := recordedCorrectionExactTableError(want, recordedCorrectionRoutes); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRecordedCorrectionExactTableRejectsInEraRowDeletion is a mutation
+// witness: the derived expected table carries the last in-era implementation
+// and break-fix row, and a copy missing that row — selected from the frozen
+// registration caps — fails the exact-map check.
+func TestRecordedCorrectionExactTableRejectsInEraRowDeletion(t *testing.T) {
+	want, err := recordedCorrectionExpectedTableForProof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
+		boundary, ok := workflowReleasedRecoveryRouteFamilies[ref]
+		if !ok {
+			t.Fatalf("mutation witness: no frozen released family for %s", ref)
+		}
+		entry := mustRecordedCorrectionPin(t, ref, boundary.through)
+		pin := recordedCorrectionPin{ref, boundary.through, entry.Digest}
+		if _, carried := want[pin]; !carried {
+			t.Fatalf("derived expected table lacks its last in-era %s row v%d", ref, boundary.through)
+		}
+		candidate := maps.Clone(want)
+		delete(candidate, pin)
+		if err := recordedCorrectionExactTableError(want, candidate); err == nil {
+			t.Fatalf("deleting the last in-era %s row v%d was not rejected", ref, boundary.through)
+		}
+	}
+}
+
+// TestRecordedCorrectionPostEraPinsNeedNoTableRow is a mutation witness: the
+// first post-era pin and the latest registered successor of each correction
+// family carry no derived row, and adding the archived row such a pin would
+// once have had fails the exact-map check.
+func TestRecordedCorrectionPostEraPinsNeedNoTableRow(t *testing.T) {
+	want, err := recordedCorrectionExpectedTableForProof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := map[string]int64{}
+	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+		if definition.Version > latest[definition.Ref] {
+			latest[definition.Ref] = definition.Version
+		}
+	}
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
+		boundary, ok := workflowReleasedRecoveryRouteFamilies[ref]
+		if !ok {
+			t.Fatalf("post-era witness: no frozen released family for %s", ref)
+		}
+		for _, version := range []int64{boundary.through + 1, latest[ref]} {
+			if version <= boundary.through {
+				t.Fatalf("post-era witness pin %s v%d is not post-era", ref, version)
+			}
+			entry := mustRecordedCorrectionPin(t, ref, version)
+			pin := recordedCorrectionPin{ref, version, entry.Digest}
+			if _, carried := want[pin]; carried {
+				t.Fatalf("derived expected table carries a post-era row for %s v%d", ref, version)
+			}
+			added := recordedCorrectionRoute{}
+			for _, step := range entry.Definition.StepGraph.Steps {
+				if target := archivedCorrectionResolverForProof(entry.Definition, step.ID); target != "" {
+					added.target = target
+					added.steps = append(added.steps, step.ID)
+				}
+			}
+			if added.target == "" {
+				t.Fatalf("post-era pin %s v%d derives no archived row to add", ref, version)
+			}
+			candidate := maps.Clone(want)
+			candidate[pin] = added
+			if err := recordedCorrectionExactTableError(want, candidate); err == nil {
+				t.Fatalf("adding a post-era row for %s v%d was not rejected", ref, version)
+			}
+		}
 	}
 }
 
@@ -362,5 +483,117 @@ func wantFoldCorrectionFailure(t *testing.T, err error, detail, recovery string)
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || failure.Op != "fold_event" || failure.Detail != detail || failure.RetrySafe || failure.RecoveryAction != recovery {
 		t.Fatalf("fold correction refusal = %v, want %s %q with recovery %q", err, KindIllegalLifecycleTransition, detail, recovery)
+	}
+}
+
+// TestRecordedCorrectionPostEraPinsMatchTheDeclaredRoute holds the fixed
+// post-era implementation and break-fix pins on their declared fallback:
+// the archived oracle, the declared route reader, and the unchanged replay
+// reader return one identical nonempty target at every compared step.
+func TestRecordedCorrectionPostEraPinsMatchTheDeclaredRoute(t *testing.T) {
+	postEraFamilies := []struct {
+		ref   string
+		last  int64
+		steps []string
+	}{
+		{ref: "workflow.break_fix", last: 29, steps: []string{"complete", "delivery", "verify"}},
+		{ref: "workflow.implementation", last: 32, steps: []string{"acceptance", "delivery", "release"}},
+	}
+	pins, compared, mismatches := 0, 0, 0
+	for _, family := range postEraFamilies {
+		boundary, ok := workflowReleasedRecoveryRouteFamilies[family.ref]
+		if !ok {
+			t.Fatalf("post-era witness: no frozen released family for %s", family.ref)
+		}
+		for version := boundary.through + 1; version <= family.last; version++ {
+			pins++
+			entry := mustRecordedCorrectionPin(t, family.ref, version)
+			for _, step := range family.steps {
+				archived := archivedCorrectionResolverForProof(entry.Definition, step)
+				declared := workflowCorrectionReturnTarget(entry.Definition, step)
+				replay, err := workflowRecordedCorrectionReturnTarget(entry, step)
+				if archived != "" && archived == declared && err == nil && replay == declared {
+					compared++
+					t.Logf("post-era witness %s v%d digest %s step %s archived %q declared %q replay %q match", family.ref, version, entry.Digest, step, archived, declared, replay)
+					continue
+				}
+				mismatches++
+				t.Errorf("post-era witness %s v%d digest %s step %s archived %q declared %q replay %q err %v", family.ref, version, entry.Digest, step, archived, declared, replay, err)
+			}
+		}
+	}
+	if pins != 20 {
+		t.Errorf("post-era witness selected %d pins, want 20", pins)
+	}
+	if compared != 60 {
+		t.Errorf("post-era witness compared %d steps, want 60", compared)
+	}
+	t.Logf("post-era witness totals: pins %d, compared steps %d, mismatches %d", pins, compared, mismatches)
+}
+
+// TestRecordedCorrectionPostEraRefineIsRefusedByLiveWriter drives the real
+// live writer route — runIssue933OperatorAction through
+// applyWorkflowActionRawTx and its commit, with no replay context — at the
+// refine step of the first post-era pin of each correction family, using the
+// fixture's own owner and operator actors. Refine declares no correction
+// route on those pins, so the request must return the one typed
+// invalid-operation refusal the no-route shape produces and leave the
+// retained event rows, the
+// work version, the refine step, the pinned definition, and the projections
+// exactly as they stood.
+func TestRecordedCorrectionPostEraRefineIsRefusedByLiveWriter(t *testing.T) {
+	for _, tc := range []struct {
+		ref  string
+		slug string
+	}{
+		{"workflow.implementation", "implementation"},
+		{"workflow.break_fix", "break-fix"},
+	} {
+		boundary, ok := workflowReleasedRecoveryRouteFamilies[tc.ref]
+		if !ok {
+			t.Fatalf("post-era writer witness: no frozen released family for %s", tc.ref)
+		}
+		version := boundary.through + 1
+		t.Run(fmt.Sprintf("%s-v%d", tc.ref, version), func(t *testing.T) {
+			workID := fmt.Sprintf("recorded-correction-post-era-refine-%s", tc.slug)
+			fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, tc.ref, version, "refine")
+			s := fixture.store
+			defer s.Close()
+			entry := mustRecordedCorrectionPin(t, tc.ref, version)
+			if got := workflowCorrectionReturnTarget(entry.Definition, "refine"); got != "" {
+				t.Fatalf("refine unexpectedly declares a live correction route %q; a refusal there would not name the absent route", got)
+			}
+			events, projections := histEventRows(t, s), projectionSnapshot(t, s)
+			var versionBefore, definitionVersionBefore int64
+			var stepBefore string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT w.version,i.current_step,i.definition_version FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&versionBefore, &stepBefore, &definitionVersionBefore); err != nil {
+				t.Fatal(err)
+			}
+			if stepBefore != "refine" || definitionVersionBefore != version {
+				t.Fatalf("fixture = %s@%d at %q, want the first post-era pin v%d at refine", tc.ref, definitionVersionBefore, stepBefore, version)
+			}
+			correction := json.RawMessage(`{"diagnosis":"the retained result requires correction","strategy":"return to the recorded producer step","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+			err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator)
+			const wantDetail = "request_correction requires a current non-ok verification verdict after worker delivery"
+			const wantRecovery = "record the current verification verdict or reread the work pin"
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || failure.Op != "workflow_action" || failure.Detail != wantDetail || failure.RetrySafe || failure.RecoveryAction != wantRecovery {
+				t.Fatalf("post-era refine request_correction = %v, want %s %q with recovery %q", err, KindInvalidOperation, wantDetail, wantRecovery)
+			}
+			var versionAfter, definitionVersionAfter int64
+			var stepAfter string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT w.version,i.current_step,i.definition_version FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&versionAfter, &stepAfter, &definitionVersionAfter); err != nil {
+				t.Fatal(err)
+			}
+			if versionAfter != versionBefore || stepAfter != stepBefore || definitionVersionAfter != definitionVersionBefore {
+				t.Fatalf("refused correction moved state %d/%q@%d to %d/%q@%d", versionBefore, stepBefore, definitionVersionBefore, versionAfter, stepAfter, definitionVersionAfter)
+			}
+			if !reflect.DeepEqual(events, histEventRows(t, s)) {
+				t.Fatal("refused correction appended or changed a retained event row")
+			}
+			if projections != projectionSnapshot(t, s) {
+				t.Fatal("refused correction changed a projection")
+			}
+		})
 	}
 }

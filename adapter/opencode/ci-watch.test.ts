@@ -154,7 +154,7 @@ function result(result: { title: string; output: string }): Record<string, unkno
   return JSON.parse(result.output) as Record<string, unknown>
 }
 
-const context = { sessionID: SESSION, abort: new AbortController().signal }
+const context = { sessionID: SESSION, agent: "concord-operator", abort: new AbortController().signal }
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 

@@ -596,7 +596,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     expect(started.status).toBe("started")

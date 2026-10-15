@@ -763,6 +763,7 @@ func workflowActionAllowsOperatorIdentity(actionID string) bool {
 }
 
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
+	newPolicy := g.entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1
 	if g.request.OperatorActor == nil {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
@@ -779,12 +780,21 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 			if !state.CorrectionRequestRecovery {
 				return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 			}
+			if newPolicy {
+				// A repair request is routine: no operator approval identity,
+				// and no self-evaluation predicate — the requesting
+				// coordinator may have executed the failed delivery.
+				return nil
+			}
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
 		if state.ContractCorrectionAvailable {
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil
+	}
+	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" && g.request.ActionID != "supersede_contract" {
+		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for "+g.request.ActionID+"; invoke under the authenticated evaluator or coordinator identity", false, "act under the verified caller identity")
 	}
 	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
@@ -1898,7 +1908,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		return result, bindingErr
 	}
 	request.ExpectedVersion += int64(len(bindingEvents))
-	completion, completionErr := workflowCompletionEvent(ctx, tx, request, actor, payload)
+	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, registry, entry.Definition, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
 	}

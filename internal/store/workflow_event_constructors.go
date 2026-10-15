@@ -523,6 +523,9 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 		return nil, actorErr
 	}
 	if request.OperatorActor != nil {
+		if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+			return nil, newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for verdicts; the independent evaluator invokes record_verdict under its own authenticated identity", false, "record the verdict as the independent evaluator")
+		}
 		// Operator approval supplies evaluator authority without relabeling
 		// the coordinator or the worker that performed the delivery.
 		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {

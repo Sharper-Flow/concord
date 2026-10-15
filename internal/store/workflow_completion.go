@@ -174,7 +174,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "complete_workflow"); err != nil {
+	if err := workflowCompletionCallerAuthority(ctx, tx, definition, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
 
@@ -1304,4 +1304,24 @@ func WorkflowChangedRefsDigest(refs []string) string {
 	sort.Strings(copyRefs)
 	h := sha256.Sum256([]byte(strings.Join(copyRefs, "\x00")))
 	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+// workflowCompletionCallerAuthority holds the completing caller's authority.
+// consequence_v1 separates evaluation from completion recording: any
+// authorized non-worker coordinator may record completion, including the
+// initiating one — the stored evaluator's distinctness from execution is
+// clause 4's check, not the terminal requester's. The legacy policy keeps the
+// completing caller distinct from execution.
+func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, completingActor string) error {
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		authority, err := workflowEvaluationAuthority(ctx, tx, workID, completingActor)
+		if err != nil {
+			return err
+		}
+		if authority == WorkflowWorkerEvaluator {
+			return newFailure(KindUnauthorized, "complete_workflow", "worker actors cannot record workflow completion", false, "return the worker report to the coordinator")
+		}
+		return nil
+	}
+	return workflowActorsDistinct(ctx, tx, workID, completingActor, "", false, "complete_workflow")
 }

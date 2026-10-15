@@ -326,10 +326,6 @@ export function canonicalDirectory(value: unknown): string | null {
   }
 }
 
-function isResolvableDirectory(value: unknown): value is string {
-  return canonicalDirectory(value) !== null
-}
-
 function canonicalDirectoryIdentity(value: string): string | null {
   if (!path.isAbsolute(value)) return null
   return "sha256:" + createHash("sha256").update(value, "utf8").digest("hex")

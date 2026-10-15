@@ -913,6 +913,143 @@ func TestNativeTargetAxisVenvRecordGate(t *testing.T) {
 	}
 }
 
+// TestNativeTargetAxisVenvRecordGateNested pins RECORD path ownership for a
+// nested vendored distribution: rows resolve against the .dist-info parent,
+// the unhashed self-row uses that parent's base, and every integrity
+// refusal survives, while a global site-packages base or a vendor fence
+// fails the fixture.
+func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
+	venv := t.TempDir()
+	site := filepath.Join(venv, "lib", "python3.13", "site-packages")
+	nestedInfo := filepath.Join(site, "vendor", "tinyfix-1.0.dist-info")
+	outerInfo := filepath.Join(site, "tinyfix-outer-1.0.dist-info")
+	payloadPath := filepath.Join(site, "vendor", "tinyfix", "__init__.py")
+	for _, dir := range []string{nestedInfo, filepath.Dir(payloadPath), outerInfo, filepath.Join(site, "tinyfix"), filepath.Join(site, "sibling"), filepath.Join(venv, "bin")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sha := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
+	}
+	payload, metadata := []byte("VALUE = 7\n"), []byte("Name: tinyfix\nVersion: 1.0\n")
+	aux, sentinel := []byte("AUX = 1\n"), []byte("outside\n")
+	write := func(path string, body []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(payloadPath, payload)
+	write(filepath.Join(nestedInfo, "METADATA"), metadata)
+	write(filepath.Join(site, "sibling", "aux.py"), aux)
+	// A conflicting top-level payload: a global site-packages base would
+	// hash this decoy instead of the nested payload and fail the fixture.
+	write(filepath.Join(site, "tinyfix", "__init__.py"), []byte("VALUE = decoy\n"))
+	// Exists outside the venv so the escape case refuses on containment,
+	// not on a missing file.
+	write(filepath.Join(venv, "..", "outside-sentinel.txt"), sentinel)
+	var nestedRecord []byte
+	writeNested := func(rows string) {
+		nestedRecord = []byte(rows)
+		write(filepath.Join(nestedInfo, "RECORD"), nestedRecord)
+	}
+	// The outer inventory only hashes the nested RECORD and is rehashed
+	// after every RECORD mutation, so the outer row never masks the
+	// nested refusal under test.
+	writeOuter := func(inventoryNested bool) {
+		rows := ""
+		if inventoryNested {
+			rows += "vendor/tinyfix-1.0.dist-info/RECORD," + sha(nestedRecord) + "," + itoaForTest(len(nestedRecord)) + "\n"
+		}
+		write(filepath.Join(outerInfo, "RECORD"), []byte(rows+"tinyfix-outer-1.0.dist-info/RECORD,,\n"))
+	}
+	// reset installs rows; empty rows removes the nested RECORD entirely.
+	reset := func(rows string) {
+		write(payloadPath, payload)
+		if rows == "" {
+			if err := os.Remove(filepath.Join(nestedInfo, "RECORD")); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			writeNested(rows)
+		}
+		writeOuter(rows != "")
+	}
+	self := "tinyfix-1.0.dist-info/RECORD,,\n"
+	valid := "tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
+		// Parent-relative row inside the venv: refused only by a fence
+		// that wrongly locks every row to the vendor parent.
+		"../sibling/aux.py," + sha(aux) + "," + itoaForTest(len(aux)) + "\n" +
+		self
+	reset(valid)
+	t.Run("valid", func(t *testing.T) {
+		if err := nativeTargetVerifyVenvRecords(venv); err != nil {
+			t.Fatalf("nested vendor distribution was refused: %v", err)
+		}
+	})
+	scenarios := map[string]struct {
+		rows   string
+		mutate func()
+		want   string
+	}{
+		"missing_payload": {
+			rows: valid,
+			mutate: func() {
+				if err := os.Remove(payloadPath); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "RECORD entry is missing from the materialized environment",
+		},
+		"changed_same_size_hash": {
+			rows: valid,
+			mutate: func() {
+				write(payloadPath, []byte("VALUE = 9\n"))
+			},
+			want: "materialized file differs from its wheel RECORD digest",
+		},
+		"changed_size": {
+			rows: valid,
+			mutate: func() {
+				write(payloadPath, []byte("VALUE = 77\n"))
+			},
+			want: "RECORD size mismatch",
+		},
+		"missing_record": {
+			rows: "",
+			want: "installed distribution has no readable RECORD",
+		},
+		"unhashed_non_self": {
+			rows: "tinyfix-1.0.dist-info/METADATA,,\n" + self,
+			want: "unhashed RECORD entry is unsupported",
+		},
+		"absolute_entry": {
+			rows: "/absolute/evil," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" + self,
+			want: "malformed RECORD entry",
+		},
+		// Five ../ steps from the vendor base cross the venv root to the
+		// existing sentinel beside it, so containment refuses before the read.
+		"escape_beyond_venv": {
+			rows: "../../../../../outside-sentinel.txt," + sha(sentinel) + "," + itoaForTest(len(sentinel)) + "\n" + self,
+			want: "RECORD entry escapes the materialized venv",
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			reset(scenario.rows)
+			if scenario.mutate != nil {
+				scenario.mutate()
+			}
+			if err := nativeTargetVerifyVenvRecords(venv); err == nil || !strings.Contains(err.Error(), scenario.want) {
+				t.Fatalf("%s: got %v, want refusal %q", name, err, scenario.want)
+			}
+		})
+	}
+}
+
 func TestNativeTargetAxisControlledEnvScrub(t *testing.T) {
 	t.Setenv("PYTEST_ADDOPTS", "--evil")
 	t.Setenv("NODE_OPTIONS", "--evil")

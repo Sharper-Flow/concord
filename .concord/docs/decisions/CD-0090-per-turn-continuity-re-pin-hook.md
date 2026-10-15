@@ -88,6 +88,21 @@ machine-read version field exists; the `ManifestDigest` remains the machine
 identity for skew checks. This record is the durable prose location of the
 version number.
 
+### D6. Projection size never strands continuity
+
+The continuity read returns the inline payload whenever the complete result
+fits the unchanged 51,200-byte envelope limit. Otherwise it returns the
+CD-0016 lossless projection pages. Each page carries the largest whole UTF-8
+fragment that keeps the complete result within that limit. Page metadata and
+the signed envelope frame have fixed, tested bounds, so every page carries at
+least one code point and the read always advances.
+
+Boot and per-turn re-pin carry the inline payload when the boot packet fits
+its separate 65,536-byte cap. Otherwise they carry a deterministic projection
+reference. The reference names the exact work, projection digest, length, and
+canonical continuity read. It claims no complete contract, question, intent
+set, or evidence. It changes no reading obligation.
+
 ## Invariants
 
 1. The adapter plugin hook holds no authority: no approval, gating, or payload

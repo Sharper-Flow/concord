@@ -38,24 +38,46 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 		return nil, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
 	}
 	// The boot read pages boundaries from the start, so the fit needs only
-	// the work identity to derive a boundary cursor.
-	raw, _, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, MaxBootPacketBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
-		raw, err := json.Marshal(Packet{
-			SchemaVersion: SchemaVersion, SessionType: SessionType,
-			SessionContractVersion: SessionContractVersion,
-			ManifestDigest:         agent.ManifestDigest,
-			ProductID:              productID, WorkID: fitted.WorkID,
-			Continuity: agent.ContinuityPayload(fitted),
-		})
+	// the work identity to derive a boundary cursor. The packet carries the
+	// inline projection whenever its measured complete-prefix fit fits the
+	// boot packet's own cap; no smaller fixed payload cap sits below it.
+	raw, size, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, MaxBootPacketBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
+		raw, err := json.Marshal(bootPacket(productID, fitted.WorkID, agent.ContinuityPayload(fitted)))
 		return raw, len(raw), err
 	})
 	if err != nil {
 		return nil, err
 	}
+	if size > MaxBootPacketBytes {
+		// CD-0090 D6: a fixed projection no complete-prefix reduction can
+		// shrink travels as the closed deterministic projection reference of
+		// the original captured snapshot, never of a reduced candidate. The
+		// reference names the exact work, the canonical digest and length,
+		// and the canonical initial continuity read; it mints no timestamp
+		// and no signature.
+		reference, err := agent.ContinuityProjectionReference(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		raw, err = json.Marshal(bootPacket(productID, snapshot.WorkID, reference))
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := Validate(raw); err != nil {
 		return nil, err
 	}
 	return raw, nil
+}
+
+func bootPacket(productID, workID string, continuity map[string]any) Packet {
+	return Packet{
+		SchemaVersion: SchemaVersion, SessionType: SessionType,
+		SessionContractVersion: SessionContractVersion,
+		ManifestDigest:         agent.ManifestDigest,
+		ProductID:              productID, WorkID: workID,
+		Continuity: continuity,
+	}
 }
 
 func Validate(raw []byte) error {

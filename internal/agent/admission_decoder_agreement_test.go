@@ -11,12 +11,10 @@ import (
 	"testing"
 )
 
-// CD-0038 amendment (2026-10-02): the agent-facing budget object is retired.
-// Time is bounded only by requested_budget_seconds and size only by
-// limit/page. These tests pin the retirement on both sides of the boundary
-// that disagreed in production: the admission validator refused nothing and
-// the strict input decoder refused the field the published schema still
-// taught, so a caller repaired one refusal into the next.
+// The agent-facing budget object is retired: time is bounded only by
+// requested_budget_seconds and size only by limit/page. These tests pin the
+// admission/decoder agreement: admission refuses unsupported budget fields and
+// no input struct decodes them, so neither side accepts what the other refuses.
 
 func TestAdmissionRefusesTheRetiredBudgetObject(t *testing.T) {
 	t.Parallel()

@@ -2,15 +2,9 @@
 """The one canonical byte form for an authored knowledge shard.
 
 Knowledge records and coverage records are hand-authored JSON objects, one file
-per record. Nothing owned their byte form, so it drifted: indentation and
-trailing newlines diverged across the corpus until a reformatting diff and a
-content diff were indistinguishable in review, and an editor writing a shard had
-no way to know which form was correct.
-
-Both shard generators normalise through this module. Regenerating repairs a
-drifted shard in place; --check refuses one. The canonical form is the one 141
-of the 144 existing shards already used, so adopting it rewrites only the
-outliers.
+per record. This module owns their byte form. Both shard generators normalise
+through it: regenerating repairs a drifted shard in place, and --check refuses
+one.
 
 Key order is alphabetical rather than authored, because a stable order is what
 makes a content change legible in a diff.

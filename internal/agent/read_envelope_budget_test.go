@@ -279,18 +279,32 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := r.read(ctx, NewBase("large-continuity", r.Tool, r.Operation), []byte(`{"work_id":"work-1","limit":1}`), "C19.Continuity")
-			if err != nil {
-				t.Fatal(err)
-			}
+			input := map[string]any{"work_id": "work-1", "limit": 1}
+			doc, _, pages, response := readContinuityDocument(t, ctx, r, "large-continuity", input)
 			assertBoundedRead(t, response)
 			if text == "\\" {
-				if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != EffectNone || !strings.Contains(response.Error.Message, "projection") {
-					t.Fatalf("oversized fixed projection must return its actual cause: %+v", response.Error)
+				// The escaped projection cannot fit any complete prefix, so
+				// the read answers with the lossless page transport instead
+				// of refusing: the reconstructed document carries the same
+				// fixed projection the inline answer would have carried.
+				if doc == nil || pages < 2 {
+					t.Fatalf("oversized fixed projection must answer losslessly through projection pages; pages=%d doc=%d", pages, len(doc))
+				}
+				var document struct {
+					Pinned struct {
+						LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`
+						WorkPin          *store.WorkPin           `json:"work_pin"`
+					} `json:"pinned"`
+				}
+				if err := json.Unmarshal(doc, &document); err != nil {
+					t.Fatal(err)
+				}
+				if document.Pinned.LatestCheckpoint == nil || len(document.Pinned.LatestCheckpoint.Hypothesis) != 4096 || document.Pinned.WorkPin == nil || len(document.Pinned.WorkPin.NextValidIntents) == 0 {
+					t.Fatalf("large pin or durable checkpoint lost in the reconstructed document: checkpoint=%v workpin=%v", document.Pinned.LatestCheckpoint != nil, document.Pinned.WorkPin != nil)
 				}
 			} else {
-				if response.Outcome != OutcomeOK {
-					t.Fatalf("continuity = %+v", response.Error)
+				if doc != nil {
+					t.Fatal("a fitting projection must stay inline")
 				}
 				var payload map[string]json.RawMessage
 				if err := json.Unmarshal(response.Result, &payload); err != nil {
@@ -298,6 +312,9 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 				}
 				if _, duplicate := payload["latest_checkpoint"]; duplicate {
 					t.Fatal("checkpoint duplicated outside pinned")
+				}
+				if _, paged := payload["projection_page"]; paged {
+					t.Fatal("a fitting projection must stay inline, not page")
 				}
 				var pinned struct {
 					LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`

@@ -442,10 +442,11 @@ func nativeTargetVerifyMaterialization(ctx context.Context, t *nativeTargetOracl
 // wheel RECORD entry. uv verifies downloaded archives once but never re-reads
 // cached unpacked bytes, so this gate is the dependency-integrity check for
 // the materialized environment: a corrupted cached wheel surfaces here.
-// RECORD paths resolve against site-packages; entries may legitimately name
-// the venv's own bin scripts through relative parent steps and are verified
-// there. An empty hash is legitimate only for the RECORD file itself; any
-// other unhashed or mismatching entry refuses.
+// RECORD paths resolve against the directory containing each .dist-info,
+// not against site-packages; entries may legitimately name the venv's own
+// bin scripts through relative parent steps and are verified there. An
+// empty hash is legitimate only for the distribution's RECORD self-entry;
+// any other unhashed or mismatching entry refuses.
 func nativeTargetVerifyVenvRecords(venv string) error {
 	sites, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
 	if err != nil || len(sites) != 1 {
@@ -459,6 +460,7 @@ func nativeTargetVerifyVenvRecords(venv string) error {
 		if !d.IsDir() || !strings.HasSuffix(name, ".dist-info") {
 			return nil
 		}
+		base, selfRow := filepath.Dir(filepath.Join(siteRoot, name)), filepath.Base(name)+"/RECORD"
 		data, err := fs.ReadFile(os.DirFS(siteRoot), name+"/RECORD")
 		if err != nil {
 			return nativeUnavailable("installed distribution has no readable RECORD: " + name)
@@ -475,12 +477,12 @@ func nativeTargetVerifyVenvRecords(venv string) error {
 			if rel == "" || strings.HasPrefix(rel, "/") {
 				return nativeUnavailable("malformed RECORD entry in " + name)
 			}
-			resolved := filepath.Clean(filepath.Join(siteRoot, rel))
+			resolved := filepath.Clean(filepath.Join(base, rel))
 			if resolved != venvRoot && !strings.HasPrefix(resolved, venvRoot+string(filepath.Separator)) {
 				return nativeUnavailable("RECORD entry escapes the materialized venv in " + name)
 			}
 			if digest == "" {
-				if rel != name+"/RECORD" {
+				if rel != selfRow {
 					return nativeUnavailable("unhashed RECORD entry is unsupported in " + name + ": " + rel)
 				}
 				continue

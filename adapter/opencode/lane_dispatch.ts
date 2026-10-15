@@ -24,7 +24,7 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { computeHostPromptProvenance, dispatchRetriedWorker, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
-import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
+import { buildAgentLanePacket, readContinuityProjection, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
@@ -134,13 +134,15 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (utility) return utilityDispatchRefusal(utility, input)
   // The continuity read supplies the durable anchors: product identity and
   // workflow step. Anything else — narrative, mandate — is read once the
-  // packet builder runs below. The strict-refusal style mirrors packet.ts's
-  // readOperation so a degraded or error-enveloped core response cannot
-  // seed an attempt whose step is not the operator's pinned one.
-  const continuity = await deps.invoke("concord_work_trace", { operation: "continuity", input: { work_id: input.work_id, page: { cursor: null, limit: 1 } } }, deps.context)
-  if (!isRecord(continuity) || continuity.outcome !== "ok" || !isRecord(continuity.result) || !isRecord(continuity.result.pinned)) {
-    const detail = !isRecord(continuity) ? "no envelope" : continuity.outcome !== "ok" ? `outcome ${String(continuity.outcome)}` : "missing pinned continuity"
-    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", `concord_work_trace.continuity ${detail} for ${input.work_id}`, "reconcile_operation")
+  // packet builder runs below. The shared reconstruction helper joins every
+  // page of an oversized projection before any anchor is read, so a
+  // fragment can never pose as a complete pin (CD-0016 as amended); its
+  // typed transport failure refuses the dispatch as an error envelope, and
+  // a degraded or error-enveloped core response still cannot seed an
+  // attempt whose step is not the operator's pinned one.
+  const continuity = await readContinuityProjection(input.work_id, { context: deps.context, invoke: deps.invoke })
+  if (continuity.failure) {
+    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", continuity.failure.message, "reconcile_operation")
   }
   const pinned = continuity.result.pinned
   const productIdentity = pinned.product_identity
@@ -154,7 +156,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // carries no Product selector: the operator scopes the session. The refusal
   // is blocked/reconcile_operation because no retry can succeed until the
   // session's ambient scope resolves one Product.
-  const resolvedScope = isRecord(continuity.resolved_scope) ? continuity.resolved_scope : null
+  // The first envelope's resolved scope, preserved across a paged join.
+  const resolvedScope = continuity.resolvedScope ?? null
   const ambientProduct = resolvedScope !== null && typeof resolvedScope.product_id === "string" && resolvedScope.product_id.length > 0 ? resolvedScope.product_id : ""
   if (ambientProduct === "") {
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `the dispatching session resolves no ambient Product (none, or ambiguous); scope the session to one Product before dispatching ${input.work_id}`, "reconcile_operation")

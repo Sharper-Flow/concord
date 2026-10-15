@@ -1075,10 +1075,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	// concord.pm6.compaction) is an auxiliary operation layered over the item:
 	// the item's pin already verified above, and the auxiliary claim is not a
 	// step of that workflow, so the identity and current-step equalities do
-	// not apply to it (#204 replaced the namespace guard with an
-	// item-has-workflow-instance guard and dragged auxiliary claims into this
-	// comparison, which refused compaction publish on every workflow-bearing
-	// work item by construction).
+	// not apply to it.
 	if !validWorkflowRef(req.WorkflowTypeRef) {
 		return nil
 	}

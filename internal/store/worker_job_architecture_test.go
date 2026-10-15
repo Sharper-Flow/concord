@@ -196,9 +196,9 @@ func seedJobBindingFixtureWithDefinition(t *testing.T, workID string, registered
 	return fixture
 }
 
-func seedJobBindingFixture(t *testing.T, workID, ref string, withBindingField, required, withDesign bool, mutatePlan func(*WorkflowDesignArchitecture)) jobBindingFixture {
+func seedJobBindingFixture(t *testing.T, workID, ref string, required, withDesign bool, mutatePlan func(*WorkflowDesignArchitecture)) jobBindingFixture {
 	t.Helper()
-	return seedJobBindingFixtureWithDefinition(t, workID, jobBindingDefinition(t, ref, withBindingField, required), withDesign, mutatePlan)
+	return seedJobBindingFixtureWithDefinition(t, workID, jobBindingDefinition(t, ref, true, required), withDesign, mutatePlan)
 }
 
 // jobBindingStepForTest reports the pinned definition's record_worker_job
@@ -216,7 +216,7 @@ func jobBindingStepForTest(t *testing.T, definition WorkflowDefinition) string {
 	return ""
 }
 
-// jobBindingMemberPayload builds the architecture_binding member the capable
+// jobBindingMember builds the architecture_binding member the capable
 // pin's recording carries.
 func jobBindingMember(revision int64, digest, sliceID string) map[string]any {
 	return map[string]any{"design_revision": revision, "design_digest": digest, "slice_id": sliceID}
@@ -346,9 +346,9 @@ func jobBindingViewMap(t *testing.T, view WorkerJobRevisionView) map[string]any 
 // moveJobBindingDesignForTest records one more architecture-bearing design
 // through the design writer, so the current identity moves past a recorded
 // binding. It returns the moved identity.
-func moveJobBindingDesignForTest(t *testing.T, s *Store, workID, ownerProject string) (int64, string) {
+func moveJobBindingDesignForTest(t *testing.T, s *Store, workID string) (int64, string) {
 	t.Helper()
-	moved := jobBindingArchitectureFixture(ownerProject)
+	moved := jobBindingArchitectureFixture("project")
 	moved.Invariants[0].Statement = "the revised plan the binding must match instead"
 	version := readWorkVersion(t, s, workID)
 	if err := applyProjectionEvents(t, s, workID, version, projectionDesignEvent(t, workID, "job-binding-design-move-"+workID, version, "moved", &moved)); err != nil {
@@ -394,7 +394,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("a capable pin records the exact binding into content, digest, event, view, and packet", func(t *testing.T) {
 		const workID = "job-binding-exact"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:exact", []string{jobBindingSliceFiles[1], jobBindingSliceFiles[0]}, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the exact current binding and slice must record: %v", err)
@@ -453,7 +453,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("the slice owner's Project derives the scope over the work's primary", func(t *testing.T) {
 		const workID = "job-binding-secondary"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, false, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, false, nil)
 		// A second member Project joins the work, and the design's owner
 		// names it, so the derived scope can only come from the slice.
 		version := readWorkVersion(t, fixture.store, workID)
@@ -505,7 +505,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
 				workID := "job-binding-scope-" + testCase.name
-				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 				fields := jobBindingRecordingFields("job:scope", testCase.scope, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 				err := recordJobBindingRevisionForTest(t, fixture, workID, fields)
 				requireJobBindingRefusal(t, err)
@@ -515,7 +515,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("job checks must carry the slice's declared test controls", func(t *testing.T) {
 		const workID = "job-binding-controls"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:controls", jobBindingSliceFiles, []string{"go test ./internal/store/"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		err := recordJobBindingRevisionForTest(t, fixture, workID, fields)
 		requireJobBindingRefusal(t, err)
@@ -524,14 +524,14 @@ func TestArchitectureJobBinding(t *testing.T) {
 	t.Run("the binding must name the current design identity and a real slice", func(t *testing.T) {
 		t.Run("an unknown slice refuses", func(t *testing.T) {
 			const workID = "job-binding-unknown-slice"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 			fields := jobBindingRecordingFields("job:unknown-slice", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "no-such-slice"), true)
 			requireJobBindingRefusal(t, recordJobBindingRevisionForTest(t, fixture, workID, fields))
 		})
 		t.Run("a stale design identity refuses", func(t *testing.T) {
 			const workID = "job-binding-stale"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
-			movedRevision, movedDigest := moveJobBindingDesignForTest(t, fixture.store, workID, "project")
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
+			movedRevision, movedDigest := moveJobBindingDesignForTest(t, fixture.store, workID)
 			if movedDigest == fixture.digest || movedRevision != fixture.revision+1 {
 				t.Fatal("the moved design kept the predecessor identity; the fixture cannot present a stale identity")
 			}
@@ -540,7 +540,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 		})
 		t.Run("an invented identity over an absent design refuses", func(t *testing.T) {
 			const workID = "job-binding-absent-design"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, false, nil)
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, false, nil)
 			fields := jobBindingRecordingFields("job:absent", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(1, "sha256:"+strings.Repeat("e", 64), "binding-edit"), true)
 			requireJobBindingRefusal(t, recordJobBindingRevisionForTest(t, fixture, workID, fields))
 		})
@@ -552,7 +552,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 	// refuses through the scope equality alone.
 	t.Run("a job may bind the integration slice under its empty file set", func(t *testing.T) {
 		const workID = "job-binding-integration-unscoped"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:integration", []string{}, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-integration"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the integration-slice binding under its empty file set must record: %v", err)
@@ -568,28 +568,28 @@ func TestArchitectureJobBinding(t *testing.T) {
 	})
 	t.Run("a recording claiming edit scope against the integration slice refuses by scope", func(t *testing.T) {
 		const workID = "job-binding-integration-scoped"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:integration", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-integration"), true)
 		requireJobBindingRefusal(t, recordJobBindingRevisionForTest(t, fixture, workID, fields))
 	})
 
 	t.Run("a capable pin requires the binding", func(t *testing.T) {
 		const workID = "job-binding-required"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:unbound", jobBindingSliceFiles, []string{"control:fixture"}, nil, false)
 		requireJobBindingRefusal(t, recordJobBindingRevisionForTest(t, fixture, workID, fields))
 	})
 
 	t.Run("the fold requires the binding a capable pin declares", func(t *testing.T) {
 		const workID = "job-binding-fold-required"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		err := applyJobBindingMemberEventForTest(t, fixture.store, workID, "unbound", "", nil)
 		requireJobBindingRefusal(t, err)
 	})
 
 	t.Run("a loose declaration grants no capability", func(t *testing.T) {
 		const workID = "job-binding-loose"
-		fixture := seedJobBindingFixture(t, workID, jobBindingLooseRef, true, false, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingLooseRef, false, true, nil)
 		fields := jobBindingRecordingFields("job:loose", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		requireJobBindingRefusal(t, recordJobBindingRevisionForTest(t, fixture, workID, fields))
 	})
@@ -651,12 +651,12 @@ func TestArchitectureJobBinding(t *testing.T) {
 			PathScope: []string{"internal/store/worker_jobs.go"}, PredicateIDs: []string{}, Checks: []string{"control:fixture"},
 			Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
 		}
-		requireJobBindingRefusal(t, applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, alias, nil, `"Architecture_Binding":null`))
+		requireJobBindingRefusal(t, applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, alias, `"Architecture_Binding":null`))
 	})
 
 	t.Run("a stale prospective job becomes unready without mutating history", func(t *testing.T) {
 		const workID = "job-binding-stale-unready"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:prospective", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the exact binding must record before the design moves: %v", err)
@@ -669,7 +669,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 		if len(views) != 1 {
 			t.Fatalf("ready revisions before the move = %d, want the one bound revision", len(views))
 		}
-		movedRevision, movedDigest := moveJobBindingDesignForTest(t, fixture.store, workID, "project")
+		movedRevision, movedDigest := moveJobBindingDesignForTest(t, fixture.store, workID)
 		if movedDigest == fixture.digest || movedRevision != fixture.revision+1 {
 			t.Fatal("the moved design kept the recorded digest; the staleness assertion cannot distinguish identities")
 		}
@@ -691,7 +691,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("no readiness is fabricated from the binding", func(t *testing.T) {
 		const workID = "job-binding-no-fabricated-readiness"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:unasserted", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		fields["ready"] = false
 		delete(fields, "readiness_evidence")
@@ -714,7 +714,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("declared slice tests must resolve exact acceptance-oracle controls", func(t *testing.T) {
 		const workID = "job-binding-unjoined-control"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, func(plan *WorkflowDesignArchitecture) {
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, func(plan *WorkflowDesignArchitecture) {
 			plan.Slices[0].Tests = []string{"control:fixture", "control:unjoined"}
 		})
 		fields := jobBindingRecordingFields("job:unjoined", jobBindingSliceFiles, []string{"control:fixture", "control:unjoined"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
@@ -726,7 +726,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 	// binds and resolves end to end.
 	t.Run("a slice id with the architecture grammar's slash records and resolves", func(t *testing.T) {
 		const workID = "job-binding-slash-slice"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, func(plan *WorkflowDesignArchitecture) {
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, func(plan *WorkflowDesignArchitecture) {
 			plan.Slices[0].SliceID = "binding/edit"
 		})
 		fields := jobBindingRecordingFields("job:slash", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding/edit"), true)
@@ -754,19 +754,19 @@ func TestArchitectureJobBinding(t *testing.T) {
 		}
 		t.Run("an identity alias with the same value refuses", func(t *testing.T) {
 			const workID = "job-binding-envelope-same"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 			payload := bindingPayload(t, fixture, workID, "job:envelope-typed")
-			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, nil, `"JOB_ID":"`+payload.JobID+`"`)
+			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, `"JOB_ID":"`+payload.JobID+`"`)
 			requireJobBindingRefusal(t, err)
 		})
 		t.Run("an alias value cannot shadow the canonical identity", func(t *testing.T) {
 			const workID = "job-binding-envelope-shadow"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 			// The typed decode keeps the exact-match canonical member, so the
 			// digest covers the canonical identity and the spliced alias
 			// value cannot substitute a second one.
 			payload := bindingPayload(t, fixture, workID, "job:envelope-typed")
-			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, nil, `"JOB_ID":"job:envelope-shadow"`)
+			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, `"JOB_ID":"job:envelope-shadow"`)
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "digest does not match the derived content digest") {
 				t.Fatalf("the shadowing alias event = %v, want the digest refusal that proves the canonical identity held", err)
@@ -774,9 +774,9 @@ func TestArchitectureJobBinding(t *testing.T) {
 		})
 		t.Run("an architecture binding alias refuses", func(t *testing.T) {
 			const workID = "job-binding-envelope-binding-alias"
-			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+			fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 			payload := bindingPayload(t, fixture, workID, "job:envelope-binding")
-			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, nil, `"Architecture_Binding":`+string(mustJSONValue(jobBindingMember(fixture.revision, fixture.digest, "binding-edit"))))
+			err := applyJobBindingEnvelopeEventForTest(t, fixture.store, workID, payload, `"Architecture_Binding":`+string(mustJSONValue(jobBindingMember(fixture.revision, fixture.digest, "binding-edit"))))
 			requireJobBindingRefusal(t, err)
 		})
 	})
@@ -797,7 +797,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
 				const workID = "job-binding-action-shape"
-				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 				payload := jobBindingSplicedActionPayload(t, fixture, workID, testCase.member)
 				requireJobBindingRefusal(t, runVerdictActionAs(t, fixture.store, workID, "record_worker_job", payload, 0, fixture.owner))
 			})
@@ -819,7 +819,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
 				const workID = "job-binding-fold-shape"
-				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+				fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 				before := readJobBindingState(t, fixture.store, workID, "job:fold-"+testCase.bindingName)
 				err := applyJobBindingMemberEventForTest(t, fixture.store, workID, testCase.bindingName, testCase.extraKey, testCase.extraValue)
 				requireJobBindingRefusal(t, err)
@@ -832,12 +832,12 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("rebuild retains the recorded binding without re-deriving it", func(t *testing.T) {
 		const workID = "job-binding-rebuild"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:retained", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the exact binding must record before the rebuild: %v", err)
 		}
-		moveJobBindingDesignForTest(t, fixture.store, workID, "project")
+		moveJobBindingDesignForTest(t, fixture.store, workID)
 		if err := RebuildFromLog(ctx, fixture.store); err != nil {
 			t.Fatalf("the rebuild must retain the recorded binding: %v", err)
 		}
@@ -861,7 +861,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("packet admission carries the binding and rejects tampered members", func(t *testing.T) {
 		const workID = "job-binding-packet"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:packet", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the exact binding must record before the packet: %v", err)
@@ -933,7 +933,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("a binding-capable definition gains no dispatch job capability before activation", func(t *testing.T) {
 		const workID = "job-binding-dispatch-capability"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:preactivation", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the binding must record on the capable pin: %v", err)
@@ -962,7 +962,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("an integration-bound job's supplemental controls stay independent of the native set", func(t *testing.T) {
 		const workID = "job-binding-integration-native"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, func(plan *WorkflowDesignArchitecture) {
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, func(plan *WorkflowDesignArchitecture) {
 			plan.Slices[1].Tests = []string{"control:native-integration-parent-order"}
 		})
 		fields := jobBindingRecordingFields("job:integration-native", []string{}, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-integration"), true)
@@ -1027,7 +1027,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("dispatch admission refuses a stale bound revision without history moving", func(t *testing.T) {
 		const workID = "job-binding-stale-ready"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:stale-ready", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the exact binding must record before the design moves: %v", err)
@@ -1037,7 +1037,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 			t.Fatal(err)
 		}
 		binding := views[0].Binding
-		moveJobBindingDesignForTest(t, fixture.store, workID, "project")
+		moveJobBindingDesignForTest(t, fixture.store, workID)
 		before := readJobBindingState(t, fixture.store, workID, "job:stale-ready")
 		requireJobBindingRefusal(t, requireWorkerJobRevisionStateReadyTx(ctx, fixture.store.DatabaseForTesting(), workID, binding))
 		if after := readJobBindingState(t, fixture.store, workID, "job:stale-ready"); after != before {
@@ -1047,7 +1047,7 @@ func TestArchitectureJobBinding(t *testing.T) {
 
 	t.Run("native readiness stays conjunctive beside the binding", func(t *testing.T) {
 		const workID = "job-binding-native-conjunctive"
-		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, true, nil)
+		fixture := seedJobBindingFixture(t, workID, jobBindingPinRef, true, true, nil)
 		fields := jobBindingRecordingFields("job:native", jobBindingSliceFiles, []string{"control:fixture"}, jobBindingMember(fixture.revision, fixture.digest, "binding-edit"), true)
 		if err := recordJobBindingRevisionForTest(t, fixture, workID, fields); err != nil {
 			t.Fatalf("the bound ready recording with its prepared fixture oracle must hold: %v", err)
@@ -1102,19 +1102,16 @@ func jobBindingEnvelopePayload(fixture jobBindingFixture, jobID string, withBind
 }
 
 // applyJobBindingEnvelopeEventForTest appends one raw worker.job_recorded
-// event whose digest covers the exact typed content, with the caller's
-// canonical member overwrites and one raw alias member spliced last, so the
-// case-insensitive typed decode and the canonical SQL readback read different
-// identities from one recorded revision.
-func applyJobBindingEnvelopeEventForTest(t *testing.T, s *Store, workID string, payload WorkerJobRecordedPayload, canonicalOverwrites map[string]any, aliasRaw string) error {
+// event whose digest covers the exact typed content, with one raw alias
+// member spliced after the canonical typed members, so the case-insensitive
+// typed decode and the canonical SQL readback read different identities from
+// one recorded revision.
+func applyJobBindingEnvelopeEventForTest(t *testing.T, s *Store, workID string, payload WorkerJobRecordedPayload, aliasRaw string) error {
 	t.Helper()
 	payload.Digest = DeriveWorkerJobDigest(payload)
 	values := map[string]any{}
 	if err := json.Unmarshal(mustJSONValue(payload), &values); err != nil {
 		t.Fatal(err)
-	}
-	for key, value := range canonicalOverwrites {
-		values[key] = value
 	}
 	version := readWorkVersion(t, s, workID)
 	values["work_id"] = workID

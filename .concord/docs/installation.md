@@ -12,6 +12,7 @@ refuses to continue when any of these are missing:
 - Linux amd64;
 - `git`, `opencode`, `secret-tool`, `gnome-keyring-daemon`, `busctl`,
   `dbus-run-session`, and `systemctl` commands;
+- Git 2.38.0 or newer, which native integration requires;
 - a user-session D-Bus service named `org.freedesktop.secrets`; and
 - the installer's binary directory on `PATH`.
 

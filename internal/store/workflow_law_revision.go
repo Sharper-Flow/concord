@@ -20,8 +20,7 @@ type workflowContractSupersessionContextKey struct{}
 // A replay folds events serially in one transaction. The running identity
 // count therefore matches the event-log order without a query for each edge.
 type workflowReplayState struct {
-	relationIdentity  int64
-	occupancyReleases map[occupancyReplayClaim]*occupancyReplayRelease
+	relationIdentity int64
 }
 
 func workflowReplayContext(ctx context.Context) context.Context {

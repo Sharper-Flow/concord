@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,6 +16,18 @@ import (
 func recordedOccupancyFixture(t *testing.T, marker string) *Store {
 	t.Helper()
 	s, _, _ := worktreeFixture(t)
+	insertRecordedOccupancyCreation(t, s, marker)
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// insertRecordedOccupancyCreation appends the fixture's historical creation
+// event without folding it, so later release events fold in the same replay
+// pass that creates the marked occupant row.
+func insertRecordedOccupancyCreation(t *testing.T, s *Store, marker string) {
+	t.Helper()
 	creation := map[string]any{
 		"expected_version": 2, "resulting_version": 3,
 		"set_id": WorktreeSetID("work-w"), "project_id": "project-w", "claim_op_id": "wt-op-1",
@@ -32,10 +45,6 @@ func recordedOccupancyFixture(t *testing.T, marker string) *Store {
 		EventID: "recorded-occupancy-creation", Kind: "work.worktree_created", SubjectType: SubjectWorkItem,
 		SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1, Payload: raw,
 	})
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	return s
 }
 
 // Raw historical fixtures must carry the committed occupancy effect before
@@ -114,6 +123,69 @@ func assertRecordedOccupancyRefusal(t *testing.T, s *Store, event Event) {
 	}
 }
 
+// recordedOccupancySessionRefs reads the surviving occupancy sessions in a
+// stable order.
+func recordedOccupancySessionRefs(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT session_ref FROM worktree_occupancy ORDER BY session_ref`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// assertRecordedOccupancyReplayConverged replays the retained log twice,
+// requires the exact surviving occupancy sessions and byte-identical
+// retained events, and requires backup and restore to agree on the same
+// occupancy and retained-byte result.
+func assertRecordedOccupancyReplayConverged(t *testing.T, s *Store, wantSessions []string) {
+	t.Helper()
+	before := histEventRows(t, s)
+	for range 2 {
+		if err := RebuildFromLog(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		if got := recordedOccupancySessionRefs(t, s.db); !reflect.DeepEqual(got, wantSessions) {
+			t.Fatalf("replay occupancy=%v, want %v", got, wantSessions)
+		}
+		if !reflect.DeepEqual(before, histEventRows(t, s)) {
+			t.Fatal("replay changed retained bytes")
+		}
+	}
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	if _, err := Backup(context.Background(), s, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	restored := filepath.Join(t.TempDir(), "restored.db")
+	if _, err := RestoreBackup(context.Background(), snapshot, restored); err != nil {
+		t.Fatal(err)
+	}
+	restoredDB, err := sql.Open(driverName, dataSourceName(restored))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredDB.Close()
+	restoredStore := &Store{db: restoredDB}
+	if got := recordedOccupancySessionRefs(t, restoredDB); !reflect.DeepEqual(got, wantSessions) {
+		t.Fatalf("restored occupancy=%v, want %v", got, wantSessions)
+	}
+	if got := histEventRows(t, restoredStore); !reflect.DeepEqual(before, got) {
+		t.Fatal("restored retained events diverge from the original log")
+	}
+}
+
 func TestRecordedOccupancyMissingMarkerAdmitsBothReleaseSchemas(t *testing.T) {
 	for _, scalar := range []bool{true, false} {
 		for _, incarnation := range []bool{false, true} {
@@ -146,9 +218,18 @@ func TestRecordedOccupancyMissingMarkerAdmitsBothReleaseSchemas(t *testing.T) {
 	}
 }
 
+// recordedVacatePlannedMain is the synthetic planned registered main
+// checkout the released v1 vacate writers recorded in their destination and
+// landed members. It is the planned path, never landing evidence, and no
+// fixture reads a live host path through it.
+const recordedVacatePlannedMain = "/workspace/main"
+
 func appendRecordedOccupancyVacate(t *testing.T, s *Store, id, session string) Event {
 	t.Helper()
-	raw, err := json.Marshal(sessionVacatedPayload{WorkID: "work-w", ProjectID: "project-w", SessionRef: session, SourceDirectory: claimPath(s)})
+	raw, err := json.Marshal(sessionVacatedPayload{
+		WorkID: "work-w", ProjectID: "project-w", SessionRef: session, SourceDirectory: claimPath(s),
+		DestinationDirectory: recordedVacatePlannedMain, LandedDirectory: recordedVacatePlannedMain,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,21 +238,21 @@ func appendRecordedOccupancyVacate(t *testing.T, s *Store, id, session string) E
 	return event
 }
 
-func TestRecordedOccupancyVacateUsesMarkerAndDistinctSessionBound(t *testing.T) {
+// A recorded v1 vacate is evidence its release committed: the first vacate
+// against an explicit empty marker member and the second vacate by a
+// distinct session against an empty recorded source each replay their own
+// released-target effects.
+func TestRecordedOccupancyVacateAdmitsReleasedEmptyTargets(t *testing.T) {
 	for _, marker := range []string{"absent", ""} {
 		t.Run("marker-"+marker, func(t *testing.T) {
 			s := recordedOccupancyFixture(t, marker)
 			defer s.Close()
-			first := appendRecordedOccupancyVacate(t, s, "unrecorded-vacate", "ses-unrecorded")
-			if marker != "absent" {
-				assertRecordedOccupancyRefusal(t, s, first)
-				return
-			}
+			appendRecordedOccupancyVacate(t, s, "unrecorded-vacate", "ses-unrecorded")
 			if err := RebuildFromLog(context.Background(), s); err != nil {
 				t.Fatal(err)
 			}
-			second := appendRecordedOccupancyVacate(t, s, "different-unrecorded-vacate", "ses-different")
-			assertRecordedOccupancyRefusal(t, s, second)
+			appendRecordedOccupancyVacate(t, s, "different-unrecorded-vacate", "ses-different")
+			assertRecordedOccupancyReplayConverged(t, s, nil)
 		})
 	}
 }
@@ -199,4 +280,44 @@ func TestRecordedOccupancyUnreproducibleRowRefusesRebuildAndBackup(t *testing.T)
 	if _, err := os.Stat(snapshot); !os.IsNotExist(err) {
 		t.Fatalf("refused backup left a snapshot: %v", err)
 	}
+}
+
+// Two distinct unknown sessions vacate the same empty recorded source in one
+// replay pass. Each six-member v1 vacate is evidence its own release
+// committed, so neither consumes a lifetime allowance the other needs.
+func TestRecordedOccupancyVacateAdmitsTwoDistinctUnknownSessions(t *testing.T) {
+	s := recordedOccupancyFixture(t, "absent")
+	defer s.Close()
+	appendRecordedOccupancyVacate(t, s, "first-unknown-vacate", "ses-unrecorded")
+	appendRecordedOccupancyVacate(t, s, "second-unknown-vacate", "ses-different")
+	assertRecordedOccupancyReplayConverged(t, s, nil)
+}
+
+// A creation's occupant row was already released before these historical
+// releases, so its creation marker no longer describes an occupant: the
+// scalar and the row-set release of the empty recorded source each replay
+// their own committed effect. Creation and releases fold in one replay pass,
+// the way the released history was written.
+func TestRecordedOccupancyReleasedMarkerRowAdmitsScalarAndRowSet(t *testing.T) {
+	for _, scalar := range []bool{true, false} {
+		t.Run(fmt.Sprintf("scalar-%t", scalar), func(t *testing.T) {
+			s, _, _ := worktreeFixture(t)
+			defer s.Close()
+			insertRecordedOccupancyCreation(t, s, "ses-recorded")
+			appendRecordedOccupancyRelease(t, s, "recorded-occupant-release", "ses-recorded", false, false)
+			appendRecordedOccupancyRelease(t, s, "released-marker-release", "ses-unrecorded", scalar, false)
+			assertRecordedOccupancyReplayConverged(t, s, nil)
+		})
+	}
+}
+
+// A v1 vacate released the session's rows on fold. The first recorded
+// row-set release after it names a row the vacate already deleted, and the
+// committed release event is its own evidence, not a duplicate release.
+func TestRecordedOccupancyFirstRowSetReleaseAfterVacateAdmits(t *testing.T) {
+	s := recordedOccupancyFixture(t, "absent")
+	defer s.Close()
+	appendRecordedOccupancyVacate(t, s, "first-vacate", "ses-unrecorded")
+	appendRecordedOccupancyRelease(t, s, "first-row-set-after-vacate", "ses-unrecorded", false, false)
+	assertRecordedOccupancyReplayConverged(t, s, nil)
 }

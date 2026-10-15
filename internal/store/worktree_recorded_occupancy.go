@@ -7,62 +7,46 @@ import (
 	"fmt"
 )
 
-type occupancyReplayClaim struct {
-	creationSeq int64
-	worktreeID  string
-}
-
-type occupancyReplayRelease struct {
-	unrecordedSession string
-	released          map[string]bool
-}
-
-// Only serial recorded folds populate this state. A recorded release that
-// actually deleted a row does not consume the unrecorded-session allowance.
-func occupancyReplayReleaseTx(ctx context.Context, tx *sql.Tx, event Event, setID, projectID, claimOpID string) (*occupancyReplayRelease, error) {
-	state, replay := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	if !replay || event.replaySourcePayloadVersion != 1 || event.Seq <= 0 {
-		return nil, nil
+// admitRecordedOccupancyReleaseTx admits one recorded historical release
+// during serial replay. The committed event is evidence its target was
+// released by the writer's own transaction, so admission re-derives from the
+// retained log alone: the governing creation's identity, never its creation
+// occupant member, no lifetime session count, and no liveness observation.
+// The recorded kind and shape own the target: exclusive kinds refuse while
+// another session's row stands, and a row-set release owns only the row it
+// names.
+func admitRecordedOccupancyReleaseTx(ctx context.Context, tx *sql.Tx, event Event, setID, projectID, claimOpID, sessionRef string) (bool, error) {
+	if !isWorkflowReplay(ctx) || event.replaySourcePayloadVersion != 1 || event.Seq <= 0 {
+		return false, nil
 	}
-	var creationSeq int64
+	// Exclusivity is a property of the recorded event, never a caller knob.
+	var exclusive bool
+	switch {
+	case event.Kind == "work.session_vacated" && event.recordedPayloadShape == recordedShapeCurrent:
+		exclusive = true
+	case event.Kind == "work.worktree_occupancy_released" && event.recordedPayloadShape == recordedShapeScalarOccupancyRelease:
+		exclusive = true
+	case event.Kind == "work.worktree_occupancy_released" && event.recordedPayloadShape == recordedShapeCurrent:
+		exclusive = false
+	default:
+		return false, nil
+	}
 	var raw []byte
-	err := tx.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE kind='work.worktree_created' AND subject_type='work_item' AND subject_id=? AND json_extract(payload,'$.claim_op_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, event.SubjectID, claimOpID, event.Seq).Scan(&creationSeq, &raw)
+	err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE kind='work.worktree_created' AND subject_type='work_item' AND subject_id=? AND json_extract(payload,'$.claim_op_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, event.SubjectID, claimOpID, event.Seq).Scan(&raw)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return false, nil
 	}
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot read the governing occupancy creation", true, "retry once the retained log is readable", err)
+		return false, wrapFailure(KindUnavailable, "fold_event", "cannot read the governing occupancy creation", true, "retry once the retained log is readable", err)
 	}
-	var members map[string]json.RawMessage
 	var creation worktreeCreatedPayload
-	if err := json.Unmarshal(raw, &members); err != nil {
-		return nil, err
-	}
 	if err := json.Unmarshal(raw, &creation); err != nil {
-		return nil, err
-	}
-	if _, present := members["occupant_session_ref"]; present || creation.SetID != setID || creation.ProjectID != projectID {
-		return nil, nil
-	}
-	worktreeID := worktreeOccupancyID(setID, projectID, claimOpID)
-	key := occupancyReplayClaim{creationSeq, worktreeID}
-	if state.occupancyReleases == nil {
-		state.occupancyReleases = map[occupancyReplayClaim]*occupancyReplayRelease{}
-	}
-	release := state.occupancyReleases[key]
-	if release == nil {
-		release = &occupancyReplayRelease{released: map[string]bool{}}
-		state.occupancyReleases[key] = release
-	}
-	return release, nil
-}
-
-func admitUnrecordedOccupancyReleaseTx(ctx context.Context, tx *sql.Tx, event Event, setID, projectID, claimOpID, sessionRef string, scalar bool) (bool, error) {
-	release, err := occupancyReplayReleaseTx(ctx, tx, event, setID, projectID, claimOpID)
-	if err != nil || release == nil {
 		return false, err
 	}
-	if scalar {
+	if creation.SetID != setID || creation.ProjectID != projectID {
+		return false, nil
+	}
+	if exclusive {
 		var others int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE worktree_id=? AND session_ref<>?`, worktreeOccupancyID(setID, projectID, claimOpID), sessionRef).Scan(&others); err != nil {
 			return false, err
@@ -71,20 +55,7 @@ func admitUnrecordedOccupancyReleaseTx(ctx context.Context, tx *sql.Tx, event Ev
 			return false, nil
 		}
 	}
-	if (release.unrecordedSession != "" && release.unrecordedSession != sessionRef) || (!scalar && release.released[sessionRef]) {
-		return false, nil
-	}
-	release.unrecordedSession = sessionRef
-	release.released[sessionRef] = true
 	return true, nil
-}
-
-func noteRecordedOccupancyReleaseTx(ctx context.Context, tx *sql.Tx, event Event, setID, projectID, claimOpID, sessionRef string) error {
-	release, err := occupancyReplayReleaseTx(ctx, tx, event, setID, projectID, claimOpID)
-	if err == nil && release != nil {
-		release.released[sessionRef] = true
-	}
-	return err
 }
 
 type occupancyRebuildRow struct {

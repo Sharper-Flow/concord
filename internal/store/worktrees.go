@@ -499,7 +499,7 @@ func foldWorktreeOccupancyReleased(ctx context.Context, tx *sql.Tx, event Event)
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		admitted, err := admitUnrecordedOccupancyReleaseTx(ctx, tx, event, p.SetID, p.ProjectID, p.ClaimOpID, p.SessionRef, event.recordedPayloadShape == recordedShapeScalarOccupancyRelease)
+		admitted, err := admitRecordedOccupancyReleaseTx(ctx, tx, event, p.SetID, p.ProjectID, p.ClaimOpID, p.SessionRef)
 		if err != nil {
 			return err
 		}
@@ -508,7 +508,7 @@ func foldWorktreeOccupancyReleased(ctx context.Context, tx *sql.Tx, event Event)
 		}
 		return newFailure(KindProjectionConflict, "fold_event", "occupancy release targets a session not recorded for this worktree", false, "release a session the worktree currently records")
 	}
-	return noteRecordedOccupancyReleaseTx(ctx, tx, event, p.SetID, p.ProjectID, p.ClaimOpID, p.SessionRef)
+	return nil
 }
 
 // WorktreeSetID derives the one optional worktree set id for a work item.
@@ -3176,7 +3176,7 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, event Ev
 		return err
 	}
 	if !held && isWorkflowReplay(ctx) && event.replaySourcePayloadVersion == 1 {
-		admitted, err := admitUnrecordedOccupancyReleaseTx(ctx, tx, event, WorktreeSetID(workID), projectID, claimOpID, sessionRef, true)
+		admitted, err := admitRecordedOccupancyReleaseTx(ctx, tx, event, WorktreeSetID(workID), projectID, claimOpID, sessionRef)
 		if err != nil {
 			return err
 		}
@@ -3206,10 +3206,7 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, event Ev
 	// One delete clears the vacated worktree's row and every other stale row
 	// of this session, in this or any other work item.
 	_, err = tx.ExecContext(ctx, `DELETE FROM worktree_occupancy WHERE session_ref=?`, sessionRef)
-	if err != nil {
-		return err
-	}
-	return noteRecordedOccupancyReleaseTx(ctx, tx, event, WorktreeSetID(workID), projectID, claimOpID, sessionRef)
+	return err
 }
 
 // refuseWhenSessionOccupiesAnotherWorktreeTx keeps the occupancy projection

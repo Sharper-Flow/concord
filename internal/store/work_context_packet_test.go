@@ -334,28 +334,22 @@ func TestDispatchRefusesPacketMissingWorkContext(t *testing.T) {
 	}
 }
 
-// A current view past its bounds leaves the pin readable without the member,
-// and the dispatch refuses with the reader's own overflow error, so the
-// overflow is never silently dropped or truncated into a packet.
+// A current view past its bounds refuses the dispatch with the reader's own
+// strict overflow error and zero dispatch effects, so the overflow is never
+// silently dropped or truncated into a packet. The work pin's own omitted
+// member on this state is CON-918's boundary, not a desired behavior this
+// suite asserts.
 func TestDispatchRefusesWorkContextViewOverflow(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-overflow")
 	defer fixture.store.Close()
 	seedWorkContextOverflow(t, fixture)
-	pin, err := ReadWorkPin(context.Background(), fixture.store, fixture.workID)
-	if err != nil {
-		t.Fatalf("work pin read refused on the overflowed view: %v", err)
-	}
-	marshaled, err := json.Marshal(pin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(marshaled, []byte(`"work_context"`)) {
-		t.Fatalf("work pin carries work context past the view bound:\n%s", marshaled)
-	}
-	err = dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-overflow", seedReadyWorkerJob(t, fixture), nil))
+	err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-overflow", seedReadyWorkerJob(t, fixture), nil))
 	if !hasFailureKind(err, KindLimitExceeded) {
 		t.Fatalf("overflow dispatch error = %v, want %s from the work context reader", err, KindLimitExceeded)
+	}
+	if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 0 {
+		t.Fatalf("dispatch_worker starts = %d, want zero behind the overflow refusal", got)
 	}
 }
 

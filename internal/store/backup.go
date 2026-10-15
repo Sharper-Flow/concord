@@ -43,11 +43,10 @@ func notifyRestoreStageReady(ctx context.Context, path string) {
 }
 
 // backupper is the small driver surface required by the Online Backup API.
-// Keeping both methods in the assertion prevents accidentally using a wrapper
-// that cannot also restore a verified snapshot.
+// The source-owned NewBackup direction lets Concord pin the source read
+// snapshot; the driver owns the destination handle the DSN names.
 type backupper interface {
 	NewBackup(string) (*sqlite.Backup, error)
-	NewRestore(string) (*sqlite.Backup, error)
 }
 
 // BackupOptions supplies the non-SQLite authorities recorded in the manifest.
@@ -148,6 +147,21 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 			}
 		}
 	}()
+	tx, err := beginReadTx(ctx, conn)
+	if err != nil {
+		_ = conn.Close()
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot pin a backup source snapshot", true, "retry once the database is readable", err)
+	}
+	// A deferred BEGIN pins no snapshot; consume one read through the
+	// transaction so the copy observes one source state instead of restarting
+	// between batches.
+	var schemaObjects int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema`).Scan(&schemaObjects); err != nil {
+		pinErr := wrapFailure(KindUnavailable, "backup", "cannot pin the backup source snapshot", true, "retry once the database is readable", err)
+		_ = tx.Rollback()
+		_ = conn.Close()
+		return manifest, pinErr
+	}
 	backupErr := conn.Raw(func(raw any) error {
 		driverConn, ok := raw.(backupper)
 		if !ok {
@@ -194,6 +208,12 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		}
 		return nil
 	})
+	// Exit Raw before releasing the snapshot: a rollback during the copy
+	// would reset the source pager and restart the backup's progress. The
+	// rollback can report sql.ErrTxDone after a context cancellation.
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) && backupErr == nil {
+		backupErr = wrapFailure(KindUnavailable, "backup", "cannot release the backup source snapshot", true, "retry once the database is readable", err)
+	}
 	_ = conn.Close()
 	if backupErr != nil {
 		return manifest, backupErr
@@ -320,18 +340,8 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 	}
 	notifyRestoreStageReady(ctx, stage)
 
-	stageDB, err := sql.Open(driverName, dataSourceName(stage))
-	if err != nil {
-		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot open restore staging database", true, "check destination permissions", err)
-	}
-	stageDB.SetMaxOpenConns(1)
-	if err := stageDB.PingContext(ctx); err != nil {
-		_ = stageDB.Close()
-		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot initialize restore staging database", true, "check destination permissions", err)
-	}
-	restoreErr := runOnlineRestore(ctx, stageDB, source)
-	if restoreErr != nil {
-		return RestoreReport{}, restoreErr
+	if err := runOnlineRestore(ctx, source, stage); err != nil {
+		return RestoreReport{}, err
 	}
 
 	inventory, err := verifyRestoredStage(ctx, stage, manifest)
@@ -371,16 +381,7 @@ func verifyBackupReplay(ctx context.Context, snapshot string, manifest BackupMan
 	if err := stageFile.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "backup", "cannot close backup verification staging file", true, "check snapshot permissions", err)
 	}
-	stageDB, err := sql.Open(driverName, dataSourceName(stage))
-	if err != nil {
-		return wrapFailure(KindUnavailable, "backup", "cannot open backup verification staging database", true, "check the snapshot directory", err)
-	}
-	stageDB.SetMaxOpenConns(1)
-	if err := stageDB.PingContext(ctx); err != nil {
-		_ = stageDB.Close()
-		return wrapFailure(KindUnavailable, "backup", "cannot initialize backup verification staging database", true, "check the snapshot directory", err)
-	}
-	if err := runOnlineRestore(ctx, stageDB, snapshot); err != nil {
+	if err := runOnlineRestore(ctx, snapshot, stage); err != nil {
 		return err
 	}
 	// The staging clone now holds the snapshot bytes; the stage-ready seam
@@ -392,64 +393,93 @@ func verifyBackupReplay(ctx context.Context, snapshot string, manifest BackupMan
 }
 
 // runOnlineRestore copies the verified source into the staging database
-// through SQLite's Online Backup API, stepping with bounded retries until
-// the copy completes.
-func runOnlineRestore(ctx context.Context, stageDB *sql.DB, source string) error {
-	conn, err := stageDB.Conn(ctx)
+// through SQLite's Online Backup API. The copy runs on one source connection
+// whose read-only snapshot stays pinned for the whole copy, so an incremental
+// step cannot reopen the source transaction and restart its progress. The
+// driver owns the staging destination handle; no destination pool is opened.
+func runOnlineRestore(ctx context.Context, source, stage string) error {
+	db, err := sql.Open(driverName, readOnlyDataSource(source))
 	if err != nil {
-		_ = stageDB.Close()
-		return wrapFailure(KindUnavailable, "restore_backup", "cannot acquire restore staging connection", true, "retry the restore", err)
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot open restore source database read-only", false, "supply a readable verified snapshot", err)
 	}
-	restoreErr := conn.Raw(func(raw any) error {
-		driverConn, ok := raw.(backupper)
-		if !ok {
-			return newFailure(KindUnavailable, "restore_backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
+	db.SetMaxOpenConns(1)
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		_ = db.Close()
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot acquire restore source connection", true, "retry the restore", err)
+	}
+	tx, err := beginReadTx(ctx, conn)
+	if err != nil {
+		_ = conn.Close()
+		_ = db.Close()
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot pin a restore source snapshot", true, "retry the restore", err)
+	}
+	restoreErr := func() error {
+		if err := consumeSourceSnapshot(ctx, tx); err != nil {
+			return err
 		}
-		operation, err := driverConn.NewRestore(readOnlyDataSource(source))
-		if err != nil {
-			return wrapFailure(KindUnavailable, "restore_backup", "cannot initialize SQLite online restore", true, "retry from a readable verified snapshot", err)
-		}
-		finished := false
-		finish := func() error {
-			if finished {
-				return nil
+		return conn.Raw(func(raw any) error {
+			driverConn, ok := raw.(backupper)
+			if !ok {
+				return newFailure(KindUnavailable, "restore_backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
 			}
-			finished = true
-			return operation.Finish()
-		}
-		for retries := 0; ; {
-			if err := contextErr(ctx); err != nil {
-				_ = finish()
-				return wrapFailure(KindUnavailable, "restore_backup", "online restore was interrupted", true, "discard the staging database and retry", err)
+			operation, err := driverConn.NewBackup(dataSourceName(stage))
+			if err != nil {
+				return wrapFailure(KindUnavailable, "restore_backup", "cannot initialize SQLite online restore", true, "retry from a readable verified snapshot", err)
 			}
-			more, stepErr := operation.Step(backupStepPages)
-			if stepErr == nil {
-				if !more {
-					break
+			finished := false
+			finish := func() error {
+				if finished {
+					return nil
 				}
-				retries = 0
-				continue
+				finished = true
+				return operation.Finish()
 			}
-			if !isRetryableBackupError(stepErr) || retries >= backupRetryLimit {
+			for {
+				if err := contextErr(ctx); err != nil {
+					_ = finish()
+					return wrapFailure(KindUnavailable, "restore_backup", "online restore was interrupted", true, "discard the staging database and retry", err)
+				}
+				more, stepErr := operation.Step(backupStepPages)
+				if stepErr == nil {
+					if !more {
+						break
+					}
+					continue
+				}
 				_ = finish()
 				return wrapFailure(KindUnavailable, "restore_backup", "online restore step failed", true, "discard the staging database and retry", stepErr)
 			}
-			retries++
-			if err := waitBackupRetry(ctx); err != nil {
-				_ = finish()
-				return wrapFailure(KindUnavailable, "restore_backup", "online restore retry was interrupted", true, "discard the staging database and retry", err)
+			if err := finish(); err != nil {
+				return wrapFailure(KindUnavailable, "restore_backup", "cannot finish SQLite online restore", true, "discard the staging database and retry", err)
 			}
-		}
-		if err := finish(); err != nil {
-			return wrapFailure(KindUnavailable, "restore_backup", "cannot finish SQLite online restore", true, "discard the staging database and retry", err)
-		}
-		return nil
-	})
-	_ = conn.Close()
-	if closeErr := stageDB.Close(); restoreErr == nil {
-		restoreErr = closeErr
+			return nil
+		})
+	}()
+	// Exit Raw before releasing the snapshot: a rollback during the copy
+	// would reset the source pager and restart the backup's progress. The
+	// rollback can report sql.ErrTxDone when a context cancellation already
+	// ended the transaction.
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) && restoreErr == nil {
+		restoreErr = wrapFailure(KindUnavailable, "restore_backup", "cannot release the restore source snapshot", true, "retry the restore", err)
+	}
+	if err := conn.Close(); err != nil && restoreErr == nil {
+		restoreErr = wrapFailure(KindUnavailable, "restore_backup", "cannot release the restore source connection", true, "retry the restore", err)
+	}
+	if err := db.Close(); err != nil && restoreErr == nil {
+		restoreErr = wrapFailure(KindUnavailable, "restore_backup", "cannot close the restore source pool", true, "retry the restore", err)
 	}
 	return restoreErr
+}
+
+// consumeSourceSnapshot reads one row through the open read transaction. A
+// deferred transaction pins no snapshot until its first read completes.
+func consumeSourceSnapshot(ctx context.Context, tx *sql.Tx) error {
+	var schemaObjects int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema`).Scan(&schemaObjects); err != nil {
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot pin the restore source snapshot", true, "retry the restore", err)
+	}
+	return nil
 }
 
 // verifyRestoredStage proves the staged copy equals the verified source

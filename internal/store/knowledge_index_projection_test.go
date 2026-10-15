@@ -35,7 +35,7 @@ func seedAuthorityTierHome(t *testing.T) KnowledgeHome {
 			{
 				ID: "CD-0001", Kind: "decision", Path: decisionPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Tiered decision", Summary: "A legislated commitment", Tags: []string{},
-				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 				Scopes:       homeScope(),
 				HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
 				SHA256: "sha256:" + hex.EncodeToString(decisionSum[:]),
@@ -83,7 +83,7 @@ func TestRebuildProjectsDerivedForALegacyCorpus(t *testing.T) {
 		Records: []KnowledgeRecord{{
 			ID: "CD-0001", Kind: "decision", Path: decisionPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 			Title: "Legacy decision", Summary: "Authored before the tier existed", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 			Scopes:       homeScope(),
 			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
 			SHA256: "sha256:" + hex.EncodeToString(decisionSum[:]),

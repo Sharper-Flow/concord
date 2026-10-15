@@ -297,11 +297,11 @@ func seedSupersededLawHome(t *testing.T) KnowledgeHome {
 		Records: []KnowledgeRecord{
 			{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "superseded", Successor: "CD-0002",
 				Date: "2026-09-20T00:00:00Z", Title: "Retired storage rule", Summary: "A retired storage rule", Tags: []string{},
-				Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+				Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 				Scopes:    homeScope(), HomeDomainID: "storage", SHA256: "sha256:" + hex.EncodeToString(retiredSum[:])},
 			{ID: "CD-0002", Kind: "decision", Path: ".concord/docs/decisions/CD-0002.md", Status: "accepted",
 				Date: "2026-09-20T00:00:00Z", Title: "Current storage rule", Summary: "A current storage rule", Tags: []string{},
-				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 				LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0001"}},
 				Scopes:       homeScope(), HomeDomainID: "storage", SHA256: "sha256:" + hex.EncodeToString(currentSum[:])},
 		},

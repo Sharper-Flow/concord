@@ -7,49 +7,170 @@
 
 *Organized Product Development at Chaotic Speed.*
 
-Concord helps one operator coordinate several AI coding agents on one machine.
+Concord is a local coordination engine for AI coding agents. It turns approved
+goals, delegated work, and delivery evidence into a typed, durable workflow.
+One operator coordinates several agents on one machine; the engine decides
+whether each requested transition is admissible.
 
-## What Concord is
+[Completion example](#completion-in-practice) ·
+[Engineering](#engineering-highlights) ·
+[Architecture](#architecture-and-tradeoffs) ·
+[Roadmap](#roadmap) ·
+[Install](#install-a-release)
 
-Concord is a workflow engine over a durable record. It keeps approved
-requirements, work state, evidence, knowledge, and research in one local SQLite
-database. Agents reach that state only through typed, authorized operations, and
-the engine decides whether each operation is admissible. The
-[core architecture](.concord/docs/core-architecture.md) describes these boundaries.
-
-Linear is the sole planning authority. Agents read and write issues, Projects,
-Initiatives, and backlog through the Linear MCP server. Concord keeps managed
-execution state and at most one recorded Linear issue identity (key, UUID, URL)
-per work unit. The binary makes no Linear API call and holds no Linear
-credential. See [managed development authority](.concord/docs/managed-development-authority.md).
-
-## Why it is different
+## Why Concord exists
 
 When agents make independent changes in related parts of one project, each
 change can pass review while the combined result breaks an approved requirement.
-Most agent tooling answers this in the prompt. It assigns roles, orders handoffs,
-and describes the process each agent should follow. Those instructions hold while
-every agent follows them, and nothing outside the prompt checks the result. When
-an agent reports that the work is complete, that report is the only record.
+Concord records approved goals and enforces the workflow conditions that govern
+managed execution.
 
-Concord puts the process in state that an agent cannot write around.
-
-- **Completion carries evidence.** A terminal transition refuses until
-  verification, review, and commit evidence are bound to the work. An agent
-  cannot finish its own work by asserting that it is finished.
+- **Completion carries evidence.** Completion refuses until the evidence kinds
+  required by the approved contract and workflow have durable bindings. An agent's
+  assertion that work is finished does not replace those bindings.
 - **The goal is fixed before the work starts.** The operator approves the
   outcome predicates first. At acceptance, Concord compares the delivered result
   against those predicates rather than against the agent's account of them.
   ([CD-0012](.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md))
-- **Colliding work is refused, not merged later.** Each change declares the
-  architectural Domains it writes. A second change into a claimed Domain refuses
-  to start until the overlap is resolved.
-  ([CD-0041](.concord/docs/decisions/CD-0041-architecture-bound-product-law.md))
+- **Conflicting architectural writes require a resolution.** Product-changing
+  contracts declare their architectural writes. Concurrent execution refuses
+  unresolved overlaps in law additions or modifications, Domain modifications,
+  or Domain-relation modifications. Affecting the same Domain alone does not
+  block execution.
+  ([Architecture and overlap rules](.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-architectural-overlap-is-explicit-before-concurrent-work-proceeds))
 - **A refusal names its remedy.** Every refusal is typed and states which
   condition failed, so a blocked agent reads the route out instead of guessing.
 
 This carries a real cost. An agent must earn each transition, and a session that
 skips a step is refused rather than obeyed.
+
+## Completion in practice
+
+An agent's request to finish is not permission to finish. The
+[terminal-gate integration test](internal/agent/trunk_firewall_test.go#L116-L174)
+exercises two synthetic cases for an approval-gated terminal operation through
+the agent dispatcher:
+
+| Request | Engine result |
+|---|---|
+| Complete work without evidence | Refuse with `missing_evidence`. |
+| Complete work with evidence | Require approval, then complete after a valid signed approval. |
+
+This is a summary of the test cases, not a CLI transcript or a promise that
+evidence alone satisfies every workflow. Required evidence and other completion
+conditions come from the approved contract and workflow.
+
+Run the example from a source checkout:
+
+```sh
+bin/oc-test targeted -- go test ./internal/agent \
+  -run '^TestMainCheckoutLifecyclePreservesTerminalGates$' -count=1 -v
+```
+
+## Engineering highlights
+
+### Authority enforced outside the prompt
+
+Registered-client policies restrict operations by capability, Product, Project,
+and agent scope. Worker evidence uses Ed25519 signatures bound to the specific
+attempt; timestamp and nonce checks reject expired or replayed assertions.
+Authenticating a worker report does not grant that worker permission to accept
+its own result.
+
+Inspect the [authorization checks](internal/agent/authority.go),
+[signed-evidence validation](internal/agent/worker_evidence.go), and
+[authority refusal tests](internal/agent/authority_refusal_kind_test.go).
+
+### Explicit durability boundaries
+
+SQLite holds transactional execution state and durable event history. The store
+uses `synchronous=FULL` for designated durable transactions, then restores
+`synchronous=NORMAL` for ordinary writes. A pinned reader does not prevent the
+durable commit. The distinction makes the durability cost explicit rather than
+claiming that every write has the same crash guarantee.
+
+Inspect the [transaction owner](internal/store/durable.go) and
+[durability tests](internal/store/durable_test.go). The separate
+[ten-process conformance harness](internal/store/conformance_test.go) exercises
+concurrent access to the local store.
+
+### Recoverable installation and automated releases
+
+The release workflow builds Linux amd64 artifacts, generates an SPDX software
+bill of materials, checksums every uploaded asset, and attests build provenance.
+The installer journals changes and recovers interrupted operations without
+overwriting files the operator changed after the transaction began.
+
+The [installer tests](scripts/test-installer.py#L2099-L2157) inject process death at each
+transaction phase during install, upgrade, and uninstall. The
+[release workflow](.github/workflows/release.yml) owns publication.
+
+## Architecture and tradeoffs
+
+```mermaid
+flowchart LR
+    Host["OpenCode · operator and agents"] --> Adapter["TypeScript adapter"]
+    Adapter -->|typed operations| Core["Go core · authorization and workflow"]
+    Core --> Store[("SQLite · state, events, evidence")]
+```
+
+- **One core owns the rules.** Go owns domain logic and workflow admission. The
+  TypeScript adapter handles host context, credentials, and transport rather
+  than maintaining a second implementation of those rules.
+- **Local authority, not a distributed service.** One SQLite database keeps
+  approved requirements, execution state, evidence, knowledge, and research
+  together. The design targets one operator's machine, not a multi-host service.
+- **Planning stays separate from execution.** Agents use the Linear MCP server
+  for planning. Concord retains at most one recorded issue identity per work
+  unit; the binary makes no Linear API call and holds no Linear credential.
+
+The security boundary trusts the OS account, OpenCode process, installed adapter,
+and credential service. It does not isolate arbitrary code that already controls
+that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage),
+[core architecture](.concord/docs/core-architecture.md), and
+[managed development authority](.concord/docs/managed-development-authority.md).
+
+## Build and verify from source
+
+Source development uses the Go toolchain pinned in [`go.mod`](go.mod). Adapter
+tests also need Bun. Run these commands from the repository root to inspect the
+CLI and test the CLI package and adapter:
+
+```sh
+go run ./cmd/concord --version
+bin/oc-test targeted -- go test ./cmd/concord
+bin/oc-test targeted -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
+```
+
+For documentation changes, check relative links and public content:
+
+```sh
+bin/oc-test targeted -- python3 scripts/check-doc-links.py
+bin/oc-test targeted -- python3 scripts/check-public-content.py
+```
+
+The local smoke tier runs all Go packages, adapter tests, and JSON/law validation.
+The conformance tier runs the ten-process SQLite harness:
+
+```sh
+bin/oc-test smoke
+bin/oc-test conformance
+```
+
+See [`bin/oc-test`](bin/oc-test) for workload and host admission details, and the
+[CI workflow](.github/workflows/ci.yml) for the required repository checks.
+
+## Roadmap
+
+The next development directions extend the same authority and evidence model.
+These are not shipped features or release-date commitments:
+
+- **Bounded implementation jobs.** Give each job an explicit production-size
+  limit and require oversized work to split instead of raising the limit.
+- **Cross-model review of suggested fixes.** Carry proposed patches with review
+  findings, then have another model family check the corrections.
+- **Release-history compatibility.** Expand release gates to exercise event-log
+  restore and rebuild across earlier released binaries and candidate releases.
 
 ## Install a release
 
@@ -75,6 +196,9 @@ an interrupted operation. Restart OpenCode after installation.
 The [installation guide](.concord/docs/installation.md) covers artifact verification,
 managed paths, repair, upgrade, uninstall, and first-use requirements.
 
+<details>
+<summary>Upgrade note: retirement of the planning mirror</summary>
+
 ### Planning retirement upgrade
 
 `concord upgrade` writes a verified snapshot of the unmigrated store to the
@@ -85,6 +209,8 @@ Product planning-mode column. It retains recorded issue identities only when
 both the issue key and URL are non-empty; incomplete links remain only in the
 backup. Use the backup for any reconciliation through the Linear MCP server.
 The migration preserves event history for replay, not retired planning behavior.
+
+</details>
 
 ## First use
 
@@ -102,24 +228,10 @@ bounded JSON result.
 ```sh
 concord --version
 concord --help
-concord zl <work>
+concord zl WORK_ID
 ```
 
-## Build and verify from source
-
-Source development uses the Go toolchain pinned in [`go.mod`](go.mod). Run
-plain `go test` on changed packages during the edit loop. The [CI
-workflow](.github/workflows/ci.yml) shows the repository checks, and
-[`bin/oc-test`](bin/oc-test) documents the local conformance workload.
-
-```sh
-go run ./cmd/concord --version
-go test ./cmd/concord
-bin/oc-test conformance
-bun test adapter/opencode/
-```
-
-The adapter test command needs Bun.
+Replace `WORK_ID` with an existing work item's ID to open its coordinator session.
 
 ## Learn more
 

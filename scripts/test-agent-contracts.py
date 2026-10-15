@@ -2658,4 +2658,76 @@ class ResearchContextProjectionTests(unittest.TestCase):
                 self.validate(invalid, "work_context_research_finding_view")
 
 
+class RetryResponsePacketUnionTests(unittest.TestCase):
+    """The combined rejection's response transports the packet generation
+    the pinned dispatch already admitted.
+
+    mutation_result.retry_worker_packet is a closed anyOf over the unchanged
+    worker_packet2 and worker_packet3 closures. The two overlap — a plain
+    packet validates under both — so oneOf would refuse exactly the ordinary
+    packets the union must keep admitting. The response member carries no
+    schema_version gate of its own: the pinned dispatch admission selects the
+    generation the work's pinned definition declares, and the response
+    returns exactly those admitted bytes.
+    """
+
+    def member(self):
+        return payload_schema["$defs"]["mutation_result"]["properties"]["retry_worker_packet"]
+
+    def validate(self, value):
+        generator.schema_validate(value, self.member(), payload_schema)
+
+    def plain_packet(self, name):
+        return _schema_sample(payload_schema["$defs"][name], payload_schema)
+
+    def research_packet3(self):
+        packet = self.plain_packet("worker_packet3")
+        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
+                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
+                   "status": "active", "scopes": {"mode": "home"}}
+        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
+                  "locator": "internal/store", "title": "the selected source",
+                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
+        entry = {"selection": {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"},
+                 "view_id": "research:9:0", "selection_event_id": "event:9:research", "selection_event_seq": 9,
+                 "ordinal": 0, "required": True, "state": "resolved", "finding": finding, "sources": [source]}
+        view = packet["inputs"].get("work_context")
+        if view is None:
+            view = _schema_sample(payload_schema["$defs"]["work_context_view3"], payload_schema)
+            packet["inputs"]["work_context"] = view
+        view["research_findings"] = [entry]
+        view["domain_groups"] = [{"domain_id": "root", "required_reading_ordinals": [],
+                                  "finding_ids": ["research:9:0"]}]
+        return packet
+
+    def test_the_retry_response_is_the_closed_two_generation_anyof(self):
+        member = self.member()
+        self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3"])
+        self.assertNotIn("oneOf", member)
+        self.assertNotIn("$ref", member)
+        self.assertNotIn("always the versioned packet2 identity", member["description"],
+                         "the response description must not pin one packet generation")
+
+    def test_overlapping_plain_packets_admit_under_the_union(self):
+        # A plain packet validates under both closures, so a oneOf here would
+        # refuse exactly the ordinary packets the transport must keep
+        # admitting.
+        self.validate(self.plain_packet("worker_packet2"))
+        self.validate(self.plain_packet("worker_packet3"))
+
+    def test_research_bearing_packet3_transports_and_malformed_refuses(self):
+        self.validate(self.research_packet3())
+        malformed = self.research_packet3()
+        malformed["inputs"]["work_context"]["research_findings"][0]["selection"]["unknown_member"] = True
+        with self.assertRaises(ValueError):
+            self.validate(malformed)
+        # The retained packet2 closure keeps refusing the research member —
+        # the frozen decoder replay and the live retained route own that
+        # verdict, and a packet3-shaped view can never re-enter it.
+        frozen_member = payload_schema["$defs"]["worker_packet2"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(frozen_member["$ref"], "#/$defs/work_context_view2")
+        self.assertNotIn("research_findings", payload_schema["$defs"]["work_context_view2"]["properties"])
+
+
 if __name__ == "__main__": unittest.main()

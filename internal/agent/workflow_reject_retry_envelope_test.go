@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -12,17 +15,27 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// seedDerivedFailureWorkerForCombinedReject seeds work-1 on implementation
-// v29 at its execution step with one dispatched, completed, undispositioned
-// worker attempt, the contract and predicates the packet derivation reads,
-// and the claimed worktree a retry authorization rests on. The caller decides
-// whether a work context rides the view.
+// seedDerivedFailureWorkerForCombinedReject seeds the retained
+// failure-attribution head: implementation v29, whose pinned definition
+// dispatches through the worker_packet2 closure.
 func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string) {
+	return seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 29)
+}
+
+// seedDerivedFailureWorkerForCombinedRejectVersion seeds work-1 on one
+// pinned implementation version at its execution step with one dispatched,
+// completed, undispositioned worker attempt, the contract and predicates the
+// packet derivation reads, and the claimed worktree a retry authorization
+// rests on. The caller decides whether a work context rides the view. The
+// retained head (29) and the research-context head (32) carry the same
+// derivation route, so the parameter isolates the packet generation the
+// pinned definition dispatches.
+func seedDerivedFailureWorkerForCombinedRejectVersion(t *testing.T, s *store.Store, service *Service, grant Authority, definitionVersion int64) (int64, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	definition, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	definition, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", definitionVersion)
 	if !ok {
-		t.Fatal("implementation v29 is not registered")
+		t.Fatalf("implementation v%d is not registered", definitionVersion)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
@@ -264,5 +277,251 @@ func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id LIKE '%:retry'`); got != 1 {
 		t.Fatalf("the normal-size combined call minted %d retry attempts, want one", got)
+	}
+}
+
+// seedCombinedRejectResearchPack authors one research pack owned by work-1
+// itself, so the selection's owner scope matches the combined-reject
+// fixture's Product without a cross-Product grant, and links one source
+// descriptor the resolved view can publish.
+func seedCombinedRejectResearchPack(t *testing.T, s *store.Store, packID string) {
+	t.Helper()
+	ctx := context.Background()
+	identity := func(key string) store.ResearchMutationIdentity {
+		return store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "combined-reject-test", OperationKind: key, IdempotencyKey: packID + "-" + key}
+	}
+	pack, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{
+		Identity: identity("create"), PackID: packID, OwnerWorkID: "work-1", Freshness: store.ResearchCurrent,
+		Revision: store.ResearchRevisionInput{Question: "combined-reject research question", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
+	})
+	if err != nil {
+		t.Fatalf("seed combined-reject research pack: %v", err)
+	}
+	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
+		Identity: identity("source"), PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
+		Source: store.ResearchSource{SourceID: "src-" + packID, Kind: store.SourceCode, Locator: "internal/agent/workflow_reject_retry_envelope_test.go", Title: "combined-reject fixture source", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
+	}); err != nil {
+		t.Fatalf("seed combined-reject research source: %v", err)
+	}
+	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
+		Identity: identity("finding"), PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
+		Finding: store.ResearchFinding{FindingID: "f-" + packID, Kind: store.FindingObservation, Statement: "combined-reject research finding statement", Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, SourceIDs: []string{"src-" + packID}, Scopes: store.ResearchScopes{Mode: "home"}},
+	}); err != nil {
+		t.Fatalf("seed combined-reject research finding: %v", err)
+	}
+}
+
+// recordSelectedResearchContextForCombinedReject declares work-1's work
+// context with the pack's selection bound to the same action, so the current
+// view the derived retry packet rides carries a resolved research entry.
+func recordSelectedResearchContextForCombinedReject(t *testing.T, s *store.Store, service *Service, grant Authority, key, packID string) {
+	t.Helper()
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.RequestID = "request:" + key
+	input := map[string]any{
+		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "record_work_context",
+		"idempotency_key":   key,
+		"research_bindings": []map[string]any{{"pack_id": packID, "revision": int64(1), "use_role": "context", "required": true}},
+		"fields": map[string]any{
+			"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
+			"research_finding_refs": []map[string]any{{
+				"pack_id": packID, "revision": int64(1), "finding_id": "f-" + packID,
+				"domain_id":              pm1fixture.FixtureRootDomainID,
+				"product_wide_rationale": "the selection governs every Domain of the fixture Product",
+			}},
+		},
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if recorded.Outcome != OutcomeOK {
+		t.Fatalf("record the selected research context: %+v", recorded.Error)
+	}
+}
+
+// assertCombinedRejectRetryTransport proves the committed response returns
+// exactly the admitted retry dispatch: the operation-bound fresh attempt,
+// the derived packet bytes the fresh dispatch window's digest covers, and no
+// second dispatch authorization.
+func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed Envelope, before int) {
+	t.Helper()
+	if committed.Outcome != OutcomeOK {
+		t.Fatalf("the combined rejection: %+v", committed.Error)
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(committed.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	var operationID string
+	if err := json.Unmarshal(result["operation_id"], &operationID); err != nil {
+		t.Fatal(err)
+	}
+	var retryAttemptID string
+	if err := json.Unmarshal(result["retry_attempt_id"], &retryAttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if retryAttemptID != operationID+":retry" {
+		t.Fatalf("the committed retry does not bind the original rejection operation: %s vs %s", retryAttemptID, operationID+":retry")
+	}
+	// The dispatch admission digests canonicalJSON(worker_packet), so the
+	// returned packet must reproduce that digest exactly: canonical packet
+	// identity with the admitted dispatch. The digest comparison proves
+	// canonical equality, not whitespace or raw encoding equality.
+	decoded := json.NewDecoder(bytes.NewReader(result["retry_worker_packet"]))
+	decoded.UseNumber()
+	var packetValue any
+	if err := decoded.Decode(&packetValue); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := json.Marshal(packetValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canonical)
+	var returnedDigest string
+	if err := json.Unmarshal(result["worker_packet_digest"], &returnedDigest); err != nil {
+		t.Fatal(err)
+	}
+	if returnedDigest != "sha256:"+hex.EncodeToString(sum[:]) {
+		t.Fatalf("the returned packet does not carry canonical identity with the admitted retry dispatch: %s vs sha256:%s", returnedDigest, hex.EncodeToString(sum[:]))
+	}
+	if after := combinedRejectRefusalEvents(t, s); after != before+2 {
+		t.Fatalf("the combined call recorded %d rejection and dispatch completions, want the rejection and the one retry dispatch", after-before)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id LIKE '%:retry'`); got != 1 {
+		t.Fatalf("the combined call minted %d retry attempts, want the one derived attempt", got)
+	}
+}
+
+// TestCombinedRejectResearchHeadTransportsAdmittedPacket3 proves the
+// response transport invariant on the research-context head: the pinned
+// dispatch admits a worker_packet3 whose work-context view carries the
+// selected research, and the combined rejection's response returns exactly
+// those admitted bytes — canonical packet identity with the digest the
+// fresh dispatch window opened for — with no second dispatch
+// authorization.
+func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	version, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
+	grant.Worktree = worktree
+	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-rc")
+	recordSelectedResearchContextForCombinedReject(t, s, service, grant, "combined-reject-research-1", "pack-combined-reject-rc")
+	version = workVersion(t, s, "work-1")
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.RequestID = "request:combined-reject-research-1"
+	before := combinedRejectRefusalEvents(t, s)
+	committed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: combinedRejectInput(version, latestDispatchEpoch(t, s), "the bounded diagnosis", "the bounded strategy")}, env)
+	assertCombinedRejectRetryTransport(t, s, committed, before)
+	var packet struct {
+		Inputs struct {
+			WorkContext *struct {
+				ResearchFindings []struct {
+					Selection struct {
+						PackID    string `json:"pack_id"`
+						FindingID string `json:"finding_id"`
+						Revision  int64  `json:"revision"`
+					} `json:"selection"`
+					State string `json:"state"`
+				} `json:"research_findings"`
+			} `json:"work_context"`
+		} `json:"inputs"`
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(committed.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(result["retry_worker_packet"], &packet); err != nil {
+		t.Fatal(err)
+	}
+	if packet.Inputs.WorkContext == nil || len(packet.Inputs.WorkContext.ResearchFindings) != 1 {
+		t.Fatalf("the returned retry packet lost the selected research: %s", result["retry_worker_packet"])
+	}
+	entry := packet.Inputs.WorkContext.ResearchFindings[0]
+	if entry.State != "resolved" || entry.Selection.PackID != "pack-combined-reject-rc" || entry.Selection.FindingID != "f-pack-combined-reject-rc" || entry.Selection.Revision != 1 {
+		t.Fatalf("the returned retry packet carries a wrong research entry: %+v", entry)
+	}
+}
+
+// TestCombinedRejectResearchHeadPlainPacketCommits is the overlap control on
+// the same head: a derived packet whose view carries no research validates
+// under both packet generations, so the combined rejection must still commit
+// with the plain transport.
+func TestCombinedRejectResearchHeadPlainPacketCommits(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	version, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
+	grant.Worktree = worktree
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.RequestID = "request:combined-reject-plain-1"
+	before := combinedRejectRefusalEvents(t, s)
+	committed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: combinedRejectInput(version, latestDispatchEpoch(t, s), "the bounded diagnosis", "the bounded strategy")}, env)
+	assertCombinedRejectRetryTransport(t, s, committed, before)
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(committed.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(result["retry_worker_packet"]), `"research_findings"`) {
+		t.Fatalf("the plain-head retry packet invented a research member: %s", result["retry_worker_packet"])
+	}
+}
+
+// TestCombinedRejectRetainedHeadRefusesResearchDeclaration proves the
+// retained head keeps its closed declaration: record_work_context without
+// the selection member refuses the research input outright, before any
+// effect, so a retained pin can never author a selection its packet2
+// dispatch closure cannot carry.
+func TestCombinedRejectRetainedHeadRefusesResearchDeclaration(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
+	grant.Worktree = worktree
+	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-retained")
+	version := workVersion(t, s, "work-1")
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.RequestID = "request:combined-reject-retained-research-1"
+	input := map[string]any{
+		"work_id": "work-1", "expected_version": version, "action_id": "record_work_context",
+		"idempotency_key":   "combined-reject-retained-research-1",
+		"research_bindings": []map[string]any{{"pack_id": "pack-combined-reject-retained", "revision": int64(1), "use_role": "context", "required": true}},
+		"fields": map[string]any{
+			"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
+			"research_finding_refs": []map[string]any{{
+				"pack_id": "pack-combined-reject-retained", "revision": int64(1), "finding_id": "f-pack-combined-reject-retained",
+				"domain_id":              pm1fixture.FixtureRootDomainID,
+				"product_wide_rationale": "the selection governs every Domain of the fixture Product",
+			}},
+		},
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := combinedRejectRefusalEvents(t, s)
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	researchScopeAssertRefused(t, refused, "invalid_input")
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("the refused declaration moved the work version %d -> %d", version, after)
+	}
+	if after := combinedRejectRefusalEvents(t, s); after != before {
+		t.Fatalf("the refused declaration changed rejection or dispatch completions %d -> %d", before, after)
 	}
 }

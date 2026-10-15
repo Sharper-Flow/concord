@@ -6557,8 +6557,15 @@
           "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
         },
         "retry_worker_packet": {
-          "$ref": "#/$defs/worker_packet2",
-          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The derived packet is always the versioned packet2 identity."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/worker_packet2"
+            },
+            {
+              "$ref": "#/$defs/worker_packet3"
+            }
+          ],
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The pinned dispatch admission selects the packet generation the work's pinned definition declares — the retained packet2 closure or the research packet3 closure — and the response returns exactly those admitted bytes; both closures share the 2.0 schema_version and report protocol, so this transport gate invents no second version selection."
         },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"

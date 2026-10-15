@@ -170,11 +170,11 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		wantVersion        int64
 		defectIntake       bool
 	}{
-		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 31},
-		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 28, defectIntake: true},
-		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 18},
-		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 28},
-		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 18},
+		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 32},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 29, defectIntake: true},
+		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 19},
+		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 29},
+		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 19},
 	} {
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {

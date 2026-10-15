@@ -991,16 +991,17 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The canonical heads anchor dispatch at worker_packet2 in every
-        # family, so the two families' identical pairs dedupe to one
-        # variant whose public override stays the lane identity alone.
+        # The canonical heads anchor dispatch at the research-context
+        # worker_packet3 closure in every family, so the three
+        # families' identical pairs dedupe to one variant whose public
+        # override stays the lane identity alone.
         action = self.action("dispatch_worker")
         self.assertEqual(len(action["variants"]), 1)
         variant = action["variants"][0]
         self.assertNotEqual(variant["payload"], variant["public_payload"])
         self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
         packet_refs = {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
-        self.assertEqual(packet_refs, {"worker_packet2"})
+        self.assertEqual(packet_refs, {"worker_packet3"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
         self.assertEqual(len(branches), 1)
@@ -2526,6 +2527,207 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
     def _property(self, schema, fallback_properties, key):
         properties = schema.get("properties") or fallback_properties or {}
         return properties.get(key, {"type": "string"})
+
+
+class ResearchContextProjectionTests(unittest.TestCase):
+    """The selected-research projection is canonical, not copied.
+
+    The lane packet contract owns the research member and its closed defs;
+    the payloads document projects them under the shared names through
+    project_native_oracle_metadata, the current public view carries the same
+    projected member, and the frozen packet3/view3/group3 identities anchor
+    the research-enabled closure beside the byte-exact packet2 identities.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(copy.deepcopy(payload_schema), actions, workflows, teaching)
+
+    def validate(self, value, name):
+        generator.schema_validate(value, self.projected["$defs"][name], self.projected)
+
+    _RESEARCH_ALIASES = {
+        "lane_work_context_research_selection": "work_context_research_selection",
+        "lane_work_context_research_finding": "work_context_research_finding",
+        "lane_work_context_research_finding_view": "work_context_research_finding_view",
+        "lane_research_scopes": "research_scopes",
+        "lane_research_source": "research_source",
+    }
+
+    def _remap(self, node):
+        """The canonical lane node under its shared payload name: every
+        lane-local $ref renamed through the projection aliases."""
+        def remap(node):
+            if isinstance(node, list):
+                return [remap(value) for value in node]
+            if not isinstance(node, dict):
+                return node
+            result = {key: remap(value) for key, value in node.items()}
+            if "$ref" in result:
+                result["$ref"] = "#/$defs/" + self._RESEARCH_ALIASES[result["$ref"].removeprefix("#/$defs/")]
+            return result
+        return remap(copy.deepcopy(node))
+
+    def _remapped_def(self, name):
+        return self._remap(packet_schema["$defs"][name])
+
+    def test_the_shipped_mirror_projects_the_canonical_research_defs(self):
+        for lane, shared in (("lane_work_context_research_selection", "work_context_research_selection"),
+                             ("lane_work_context_research_finding", "work_context_research_finding"),
+                             ("lane_work_context_research_finding_view", "work_context_research_finding_view")):
+            self.assertEqual(self.projected["$defs"][shared], self._remapped_def(lane))
+        # The current public view carries the same projected member the
+        # canonical view declares, under the shared def names.
+        lane_member = packet_schema["$defs"]["lane_work_context_view"]["properties"]["research_findings"]
+        self.assertEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"],
+                         self._remap(lane_member))
+
+    def _project_with_lane_packet(self, lane_document):
+        """Project against a temporary canonical lane packet on disk: the
+        projection owner reads the canonical file, so a canonical-change test
+        mutates the file and restores its exact bytes."""
+        lane_path = generator.LANE_PACKET
+        original = lane_path.read_bytes()
+        lane_path.write_text(json.dumps(lane_document, ensure_ascii=False, indent=2) + "\n")
+        try:
+            actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
+            return generator.project_workflow_action_schema(copy.deepcopy(payload_schema), actions, workflows, teaching)[0]
+        finally:
+            lane_path.write_bytes(original)
+
+    def test_a_canonical_research_change_lands_on_regeneration(self):
+        canonical = copy.deepcopy(packet_schema)
+        canonical["$defs"]["lane_work_context_view"]["properties"]["research_findings"]["maxItems"] = 17
+        regenerated = self._project_with_lane_packet(canonical)
+        self.assertEqual(regenerated["$defs"]["work_context_view"]["properties"]["research_findings"]["maxItems"], 17)
+        self.assertNotEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"]["maxItems"], 17)
+
+    def test_an_unprojected_research_reference_fails_loudly(self):
+        canonical = copy.deepcopy(packet_schema)
+        canonical["$defs"]["lane_work_context_research_finding"]["properties"]["scopes"] = {"$ref": "#/$defs/lane_plan"}
+        with self.assertRaises(ValueError) as ctx:
+            self._project_with_lane_packet(canonical)
+        self.assertIn("lane_plan", str(ctx.exception))
+
+    def test_the_frozen_research_identities_stay_published(self):
+        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+        for name in ("worker_packet3", "work_context_view3", "work_context_domain_group3"):
+            self.assertEqual(self.projected["$defs"][name], frozen[name],
+                             f"the frozen {name} identity drifted from the published shape")
+        work_context = self.projected["$defs"]["worker_packet3"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(work_context["$ref"], "#/$defs/work_context_view3")
+        group_ref = self.projected["$defs"]["work_context_view3"]["properties"]["domain_groups"]["items"]["$ref"]
+        self.assertEqual(group_ref, "#/$defs/work_context_domain_group3")
+        self.assertEqual(
+            self.projected["$defs"]["work_context_domain_group3"]["properties"]["finding_ids"]["items"]["pattern"],
+            "^(finding|research):[0-9]+:[0-9]+$")
+        self.assertEqual(
+            self.projected["$defs"]["work_context_domain_group2"]["properties"]["finding_ids"]["items"]["pattern"],
+            "^finding:[0-9]+:[0-9]+$",
+            "the old frozen group keeps its generic-only id namespace")
+
+    def test_the_closed_research_entry_branches_decide_the_verdict(self):
+        selection = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"}
+        self.validate(selection, "work_context_research_selection")
+        with self.assertRaises(ValueError):
+            self.validate(selection | {"unknown_member": True}, "work_context_research_selection")
+        provenance = {"selection": selection, "view_id": "research:9:0", "selection_event_id": "event:9:semantic",
+                      "selection_event_seq": 9, "ordinal": 0, "required": True}
+        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
+                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
+                   "status": "active", "scopes": {"mode": "home"}}
+        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
+                  "locator": "internal/store", "title": "the selected source",
+                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
+        self.validate(provenance | {"state": "resolved", "finding": finding, "sources": [source]},
+                      "work_context_research_finding_view")
+        self.validate(provenance | {"state": "missing"}, "work_context_research_finding_view")
+        for invalid in (
+            # A resolved-state entry without its body, and an unresolved-state
+            # entry carrying a body, are outside the closed branches.
+            provenance | {"state": "resolved"},
+            provenance | {"state": "missing", "finding": finding, "sources": []},
+            provenance | {"state": "fabricated"},
+            # An unsourced native finding stays accurate: sources may be
+            # empty, but the scopes member the Go reader always serializes
+            # can never drop off the finding.
+            provenance | {"state": "resolved", "finding": {k: v for k, v in finding.items() if k != "scopes"}, "sources": []},
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "work_context_research_finding_view")
+
+
+class RetryResponsePacketUnionTests(unittest.TestCase):
+    """The combined rejection's response transports the packet generation
+    the pinned dispatch already admitted.
+
+    mutation_result.retry_worker_packet is a closed anyOf over the unchanged
+    worker_packet2 and worker_packet3 closures. The two overlap — a plain
+    packet validates under both — so oneOf would refuse exactly the ordinary
+    packets the union must keep admitting. The response member carries no
+    schema_version gate of its own: the pinned dispatch admission selects the
+    generation the work's pinned definition declares, and the response
+    returns exactly those admitted bytes.
+    """
+
+    def member(self):
+        return payload_schema["$defs"]["mutation_result"]["properties"]["retry_worker_packet"]
+
+    def validate(self, value):
+        generator.schema_validate(value, self.member(), payload_schema)
+
+    def plain_packet(self, name):
+        return _schema_sample(payload_schema["$defs"][name], payload_schema)
+
+    def research_packet3(self):
+        packet = self.plain_packet("worker_packet3")
+        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
+                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
+                   "status": "active", "scopes": {"mode": "home"}}
+        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
+                  "locator": "internal/store", "title": "the selected source",
+                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
+        entry = {"selection": {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"},
+                 "view_id": "research:9:0", "selection_event_id": "event:9:research", "selection_event_seq": 9,
+                 "ordinal": 0, "required": True, "state": "resolved", "finding": finding, "sources": [source]}
+        view = packet["inputs"].get("work_context")
+        if view is None:
+            view = _schema_sample(payload_schema["$defs"]["work_context_view3"], payload_schema)
+            packet["inputs"]["work_context"] = view
+        view["research_findings"] = [entry]
+        view["domain_groups"] = [{"domain_id": "root", "required_reading_ordinals": [],
+                                  "finding_ids": ["research:9:0"]}]
+        return packet
+
+    def test_the_retry_response_is_the_closed_two_generation_anyof(self):
+        member = self.member()
+        self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3"])
+        self.assertNotIn("oneOf", member)
+        self.assertNotIn("$ref", member)
+        self.assertNotIn("always the versioned packet2 identity", member["description"],
+                         "the response description must not pin one packet generation")
+
+    def test_overlapping_plain_packets_admit_under_the_union(self):
+        # A plain packet validates under both closures, so a oneOf here would
+        # refuse exactly the ordinary packets the transport must keep
+        # admitting.
+        self.validate(self.plain_packet("worker_packet2"))
+        self.validate(self.plain_packet("worker_packet3"))
+
+    def test_research_bearing_packet3_transports_and_malformed_refuses(self):
+        self.validate(self.research_packet3())
+        malformed = self.research_packet3()
+        malformed["inputs"]["work_context"]["research_findings"][0]["selection"]["unknown_member"] = True
+        with self.assertRaises(ValueError):
+            self.validate(malformed)
+        # The retained packet2 closure keeps refusing the research member —
+        # the frozen decoder replay and the live retained route own that
+        # verdict, and a packet3-shaped view can never re-enter it.
+        frozen_member = payload_schema["$defs"]["worker_packet2"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(frozen_member["$ref"], "#/$defs/work_context_view2")
+        self.assertNotIn("research_findings", payload_schema["$defs"]["work_context_view2"]["properties"])
 
 
 if __name__ == "__main__": unittest.main()

@@ -975,6 +975,43 @@ func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base Envelop
 	return ctx, nil
 }
 
+// researchContextSelectionPacks extracts the research pack identities one
+// record_work_context declaration explicitly selects (CD-0216 D2), decoded
+// with the shared closed selection shape through decodeOperationInput. A
+// present member that is not an array of complete closed entries refuses
+// before the action transaction, so malformed input can never reach the
+// owner-scope check as an empty owner set. The payload is the object produced
+// by workflowActionFields, which owns field-list normalization and unique JSON
+// validation. Only absent members and empty arrays select nothing; every other
+// action keeps its retained shape. The declaration's semantic rules
+// (duplicates, bounds, exact existence, Domain
+// registry) stay with the store constructor that owns them.
+func researchContextSelectionPacks(actionID string, payload json.RawMessage) ([]string, error) {
+	if actionID != "record_work_context" {
+		return nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := decodeOperationInput(payload, &fields); err != nil || fields == nil {
+		return nil, newRuntimeFailure("invalid_input", "research selection fields must be a normalized JSON object", "reread_entities", false)
+	}
+	raw, present := fields["research_finding_refs"]
+	if !present {
+		return nil, nil
+	}
+	var selections []store.WorkContextResearchSelection
+	if err := decodeOperationInput(raw, &selections); err != nil || selections == nil {
+		return nil, errors.New("research_finding_refs must be an array of closed selection entries carrying pack_id, revision, finding_id, and domain_id")
+	}
+	packs := make([]string, 0, len(selections))
+	for index, selection := range selections {
+		if selection.PackID == "" || selection.Revision < 1 || selection.FindingID == "" || selection.DomainID == "" {
+			return nil, fmt.Errorf("research_finding_refs entry %d must carry a complete pack, revision, finding, and Domain reference", index)
+		}
+		packs = append(packs, selection.PackID)
+	}
+	return packs, nil
+}
+
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
@@ -992,6 +1029,15 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	payload = withEvidenceKindDefault(in.ActionID, payload, in.Evidence)
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	// CD-0216 D2: an explicitly selected research pack enters the same
+	// in-transaction owner-scope check as a new binding. The decode refuses
+	// malformed selection input here, before any effect; the owner check
+	// runs inside the action transaction below, ahead of the approval and
+	// idempotency writes.
+	selectedPacks, err := researchContextSelectionPacks(in.ActionID, payload)
+	if err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 	}
 	registry := r.Registry
@@ -1192,7 +1238,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return err
 			}
 		}
-		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings); err != nil {
+		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings, selectedPacks); err != nil {
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {

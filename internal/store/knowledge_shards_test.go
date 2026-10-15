@@ -69,7 +69,7 @@ func writeAggregateAsShards(t *testing.T, repo string, aggregate []byte) {
 			tier := "derived"
 			if kind, _ := record["kind"].(string); kind == "constitution" || kind == "decision" {
 				tier = "legislated"
-				record["authority"] = map[string]any{"tier": tier, "legislated_by": "fixture-authority", "contract_version": 1}
+				record["authority"] = map[string]any{"tier": tier, "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
 			} else {
 				record["authority"] = map[string]any{"tier": tier}
 			}

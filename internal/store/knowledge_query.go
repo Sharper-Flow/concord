@@ -14,6 +14,17 @@ import (
 	"time"
 )
 
+// KnowledgeDemandFailure is one suppressed freshness-demand outcome the
+// search handler defers to Q9's owning per-source degraded path (CD-0159 D6,
+// CD-0020 D3 as amended by CD-0200 D3). It is handler-to-query state, not
+// client input: the identities are exact source Project/locator pairs and the
+// cause is the existing failure kind the demand refused with.
+type KnowledgeDemandFailure struct {
+	ProjectID   string
+	LocatorID   string
+	FailureKind string
+}
+
 type Q9Request struct {
 	Product       string
 	Project       string
@@ -25,6 +36,14 @@ type Q9Request struct {
 	Cursor        string
 	AllowDegraded bool
 	Home          KnowledgeHome
+	// DemandFailures carries the per-source freshness-demand failures the
+	// handler suppressed under AllowDegraded. Each named source degrades
+	// through the same per-source path a stale watermark uses.
+	DemandFailures []KnowledgeDemandFailure
+	// RegistrationsUnread says the source-registration read was suppressed.
+	// It marks every Q9-resolved source except the designated home
+	// unadmitted; a recovered home-only set stays authoritative.
+	RegistrationsUnread bool
 }
 
 type KnowledgeItem struct {
@@ -53,13 +72,30 @@ type KnowledgeItem struct {
 
 type Q9Result struct {
 	ResultMeta
-	Items          []KnowledgeItem `json:"items"`
-	IndexWatermark string          `json:"index_watermark"`
+	Items           []KnowledgeItem           `json:"items"`
+	IndexWatermark  string                    `json:"index_watermark"`
+	SourceOmissions []KnowledgeSourceOmission `json:"source_omissions,omitempty"`
 	// SourceWatermarks carries the per-source freshness verdict of a
 	// Product-wide Q9 over a registered source set (CD-0200). It stays empty
 	// for a single-source answer, whose output is unchanged.
 	SourceWatermarks []KnowledgeSourceWatermark `json:"source_watermarks,omitempty"`
 }
+
+// KnowledgeSourceOmission carries identities separately from the bounded
+// notice family. Demand failures also carry the exact suppressed cause.
+type KnowledgeSourceOmission struct {
+	Kind      KnowledgeSourceOmissionKind `json:"kind"`
+	ProjectID string                      `json:"project_id"`
+	LocatorID string                      `json:"locator"`
+	Cause     string                      `json:"cause,omitempty"`
+}
+
+type KnowledgeSourceOmissionKind string
+
+const (
+	KnowledgeSourceDegraded     KnowledgeSourceOmissionKind = "knowledge_source_degraded"
+	KnowledgeSourceDemandFailed KnowledgeSourceOmissionKind = "knowledge_source_demand_failed"
+)
 
 // KnowledgeSourceWatermark is one registered source's verified freshness
 // verdict inside a federated Q9 answer.
@@ -106,9 +142,18 @@ type CanonicalNote struct {
 
 type Q10Result struct {
 	ResultMeta
-	Status string         `json:"status"`
-	Note   *CanonicalNote `json:"note,omitempty"`
-	Result *Q10Payload    `json:"result"`
+	Status              string                        `json:"status"`
+	Note                *CanonicalNote                `json:"note,omitempty"`
+	Result              *Q10Payload                   `json:"result"`
+	UnverifiedAuthority *KnowledgeUnverifiedAuthority `json:"unverified_authority,omitempty"`
+}
+
+// KnowledgeUnverifiedAuthority identifies a declared contract whose work is
+// not held locally. It is a read warning, never a change to the declared tier.
+type KnowledgeUnverifiedAuthority struct {
+	LawID           string `json:"law_id"`
+	WorkID          string `json:"work_id"`
+	ContractVersion int64  `json:"contract_version"`
 }
 
 type Q10Payload struct {
@@ -446,9 +491,34 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		if recordErr != nil {
 			return out, recordErr
 		}
-		stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
+		manifestRecord, stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
 		if stop || err != nil {
 			return out, err
+		}
+		// CD-0159 D2: the verified manifest entry carries the record's
+		// declared authority, so the exact historical contract resolves after
+		// the Git proof, inside one short read transaction. A held negative
+		// refuses directly regardless of the degraded allowance; an unknown
+		// declared work is unverified, keeps its declared tier, and warns
+		// through the existing envelope.
+		if manifestRecord.Authority.Tier == "legislated" {
+			tx, txErr := beginReadTx(ctx, db)
+			if txErr != nil {
+				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot begin the canonical authority admission", true, "retry once the database is readable", txErr)
+			}
+			unverified, resolveErr := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, manifestRecord)
+			if rbErr := tx.Rollback(); rbErr != nil && resolveErr == nil {
+				resolveErr = wrapFailure(KindUnavailable, "PM1.Q10", "cannot close the canonical authority admission", true, "retry once the database is readable", rbErr)
+			}
+			if resolveErr != nil {
+				return out, resolveErr
+			}
+			if unverified {
+				out.UnverifiedAuthority = &KnowledgeUnverifiedAuthority{
+					LawID: manifestRecord.ID, WorkID: manifestRecord.Authority.LegislatedBy,
+					ContractVersion: manifestRecord.Authority.ContractVersion,
+				}
+			}
 		}
 	}
 	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
@@ -460,29 +530,39 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 }
 
 // verifyQ10ManifestRecord checks one assembled manifest-indexed record
-// against the historical manifest and verifies the committed declaration.
-// The SQL discovery already ran through knowledgeProjectedRecordTx and this
+// against the historical manifest, verifies the committed declaration, and
+// returns the authoritative manifest entry the proof verified. The SQL
+// discovery already ran through knowledgeProjectedRecordTx and this
 // function holds no queryer: the Git proof runs after the database reads
 // closed (CD-0195 D2). A historical failure reports through the out
 // parameter's degraded allowance; stop says the caller must return the out
-// as it now stands instead of continuing to the canonical result.
-func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record KnowledgeRecord, manifestRole knowledgeManifestRole, manifestSchemaVersion, repoPath, commit string, out *Q10Result) (bool, error) {
+// as it now stands instead of continuing to the canonical result. The
+// caller resolves the returned entry's declared authority after this proof.
+func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record KnowledgeRecord, manifestRole knowledgeManifestRole, manifestSchemaVersion, repoPath, commit string, out *Q10Result) (KnowledgeRecord, bool, error) {
 	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit, manifestRole)
 	if manifestErr != nil || missing {
 		if manifestErr == nil {
 			manifestErr = newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded manifest is missing at the historical commit", false, "restore the committed manifest")
 		}
 		_, err := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest schema is unavailable", manifestErr)
-		return true, err
+		return KnowledgeRecord{}, true, err
 	}
 	if manifestSchemaVersion != "" && manifestSchemaVersion != manifest.SchemaVersion {
-		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
+		return KnowledgeRecord{}, true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
 	}
 	if err := verifyManifestRecord(ctx, repoPath, commit, record, manifestRole); err != nil {
 		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
-		return true, verifyErr
+		return KnowledgeRecord{}, true, verifyErr
 	}
-	return false, nil
+	// The Git proof refuses an undeclared projection, so the authoritative
+	// entry is present once the proof succeeds; an absent entry here keeps
+	// the proof failure instead of silently skipping the caller's authority
+	// admission.
+	manifestRecord, found := manifestRecordByID(manifest, record.ID)
+	if !found {
+		return KnowledgeRecord{}, true, newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded projection has no manifest declaration", false, "rebuild from the manifest commit and preserve its metadata")
+	}
+	return manifestRecord, false, nil
 }
 
 // knowledgeProjectedRecordTx assembles the projected manifest record and the
@@ -528,6 +608,17 @@ func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, 
 		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
 	}
 	return record, manifestRole, nil
+}
+
+// manifestRecordByID locates the authoritative manifest entry a projection
+// row was verified against.
+func manifestRecordByID(manifest KnowledgeManifest, id string) (KnowledgeRecord, bool) {
+	for _, record := range manifest.Records {
+		if record.ID == id {
+			return record, true
+		}
+	}
+	return KnowledgeRecord{}, false
 }
 
 // classifyQ10MissingNote classifies an absent archived note: a live work
@@ -774,6 +865,7 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	watermarks := make([]KnowledgeSourceWatermark, 0, len(sources))
 	omissions := make([]string, 0)
 	degraded := false
+	demandFailed := false
 	for _, source := range sources {
 		label := source.HomeProjectID + "/" + source.HomeLocatorID
 		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q9")
@@ -792,8 +884,17 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 			if len(sources) == 1 {
 				omissions = append(omissions, "knowledge_index_lagging_or_unreachable")
 			} else {
-				omissions = append(omissions, "knowledge_source_degraded:"+label)
+				out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
 			}
+		}
+		// A suppressed demand failure degrades the source through this same
+		// per-source path, naming the source and the cause; it never relabels
+		// a freshness verdict the source's own watermark already carries.
+		if cause := knowledgeDemandFailureCause(req, source); cause != "" {
+			demandFailed = true
+			degraded = true
+			authority = "degraded"
+			out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
 		}
 		watermarks = append(watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
 		if authority != "authoritative" && len(sources) > 1 {
@@ -870,8 +971,33 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	out.IndexWatermark = watermarks[0].Watermark
 	if len(sources) > 1 {
 		out.SourceWatermarks = watermarks
+	} else if demandFailed {
+		// A single-source answer whose one source was demand-degraded emits
+		// its affected watermark so the degraded admission is explicit; an
+		// unaffected single-source answer keeps the shape it always had.
+		out.SourceWatermarks = watermarks
 	}
 	return out, nil
+}
+
+// knowledgeDemandFailureCause returns the cause recorded for this source's
+// suppressed demand, or "" when its demand succeeded. An unread registration
+// set marks every resolved source except the designated home unadmitted: a
+// recovered home-only resolution leaves no source to degrade, and the
+// answer's aggregate authority follows the per-source rule alone.
+func knowledgeDemandFailureCause(req Q9Request, source KnowledgeHome) string {
+	for _, failure := range req.DemandFailures {
+		if failure.ProjectID == source.HomeProjectID && failure.LocatorID == source.HomeLocatorID {
+			if failure.FailureKind == "" {
+				return "unknown"
+			}
+			return failure.FailureKind
+		}
+	}
+	if req.RegistrationsUnread && !(source.HomeProjectID == req.Home.HomeProjectID && source.HomeLocatorID == req.Home.HomeLocatorID) {
+		return "registrations_unread"
+	}
+	return ""
 }
 
 // federatedSourceFailure names the source a federated refusal belongs to, so

@@ -479,7 +479,7 @@ func assertRuntimeKnowledgeState(t *testing.T, response Envelope, want string) {
 // contract that fixed its standing; every other kind is derived.
 func recordAuthorityForKind(kind string) map[string]any {
 	if kind == "constitution" || kind == "decision" {
-		return map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+		return map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
 	}
 	return map[string]any{"tier": "derived"}
 }

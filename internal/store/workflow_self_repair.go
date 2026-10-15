@@ -94,6 +94,31 @@ func validateWorkflowSelfRepairAuthorityTx(ctx context.Context, tx *sql.Tx, work
 	if productKey != "concord" {
 		return newFailure(KindUnauthorized, "workflow_self_repair", "self_repair is available only for Concord's own workflow defects", false, "remove self_repair outside the Concord Product")
 	}
+	registered, policyErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if policyErr != nil {
+		return policyErr
+	}
+	return validateWorkflowSelfRepairAuthorityForDefinitionTx(ctx, tx, workID, actorRef, registered.Definition)
+}
+
+// validateWorkflowSelfRepairAuthorityForDefinitionTx is the self-repair
+// authority body minus the verified-definition resolution: the caller supplies
+// the verified definition, so consequence_v1 seams can drive the same owner a
+// live fold drives. Legacy keeps the recorded operator requirement.
+// consequence_v1 accepts the authenticated non-worker coordinator — the real
+// recorded agent-class actor, never a worker — and the classification itself
+// grants no overlap exemption.
+func validateWorkflowSelfRepairAuthorityForDefinitionTx(ctx context.Context, tx *sql.Tx, workID, actorRef string, definition WorkflowDefinition) error {
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, actorRef)
+		if authorityErr != nil {
+			return authorityErr
+		}
+		if authority == WorkflowWorkerEvaluator {
+			return newFailure(KindUnauthorized, "workflow_self_repair", "worker actors cannot classify contract self-repair", false, "return the worker report to the coordinator")
+		}
+		return requireActorClass(ctx, tx, actorRef, string(ActorAgent))
+	}
 	var actorClass string
 	if err := tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actorClass); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_self_repair", "cannot read the self-repair approving actor", true, "retry once the workflow actor projection is readable", err)
@@ -159,8 +184,9 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	if err != nil {
 		return false, err
 	}
-	var raw string
-	err = q.QueryRowContext(ctx, `SELECT self_repair_json FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw)
+	var raw, definitionRef, definitionDigest string
+	var definitionVersion int64
+	err = q.QueryRowContext(ctx, `SELECT self_repair_json,COALESCE(definition_ref,''),COALESCE(definition_version,0),COALESCE(definition_digest,'') FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw, &definitionRef, &definitionVersion, &definitionDigest)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -171,5 +197,22 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	if err != nil {
 		return false, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "rebuild the workflow projection from its event log")
 	}
-	return repair != nil, nil
+	if repair == nil {
+		return false, nil
+	}
+	definition, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Version: definitionVersion, Digest: definitionDigest})
+	if err != nil {
+		return false, err
+	}
+	return workflowSelfRepairOverlapExempt(definition.Definition), nil
+}
+
+// workflowSelfRepairOverlapExempt answers whether one classified contract
+// keeps CD-0150's blanket overlap exemption. The exemption derives from
+// operator-authorized supersession: a legacy classification keeps it, and
+// consequence_v1 supersedes routinely, so its classifications exempt nothing
+// and a real intersection resolves through the dedicated version-pinned
+// overlap route.
+func workflowSelfRepairOverlapExempt(definition WorkflowDefinition) bool {
+	return definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1
 }

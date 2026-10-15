@@ -1229,13 +1229,11 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
 	}
 	if activeCount > 1 && !isWorkflowReplay(ctx) {
-		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
-			ApprovalRef:     p.ApprovalRef,
-			OperationDigest: p.ApprovalOperationDigest,
-			ScopeJSON:       p.ApprovalScopeJSON,
-			VersionsJSON:    p.ApprovalVersionsJSON,
-			Consequence:     p.ApprovalConsequence,
-		}, contractRecoveryApprovalSubject); err != nil {
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		if definitionErr != nil {
+			return nil, definitionErr
+		}
+		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, p, registered.Definition); err != nil {
 			return nil, err
 		}
 	}
@@ -1249,6 +1247,25 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		}
 	}
 	return predecessors, nil
+}
+
+// requireWorkflowDuplicateRecoveryApprovalTx is the duplicate-recovery
+// authorization branch beside the pin the fold resolved. Legacy pins admit
+// only through the recorded operator approval binding; consequence_v1
+// supersedes routinely — the unsigned attributed event keeps the exact
+// predecessor set, audit evidence, and invalidation. Replay never reaches
+// this branch, so it keeps folding its recorded bytes either way.
+func requireWorkflowDuplicateRecoveryApprovalTx(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload, definition WorkflowDefinition) error {
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		return nil
+	}
+	return authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
+		ApprovalRef:     p.ApprovalRef,
+		OperationDigest: p.ApprovalOperationDigest,
+		ScopeJSON:       p.ApprovalScopeJSON,
+		VersionsJSON:    p.ApprovalVersionsJSON,
+		Consequence:     p.ApprovalConsequence,
+	}, contractRecoveryApprovalSubject)
 }
 
 func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {

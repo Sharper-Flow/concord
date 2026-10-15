@@ -789,11 +789,18 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
 		if state.ContractCorrectionAvailable {
+			if newPolicy {
+				// Contract correction is routine under consequence_v1: the
+				// authenticated coordinator supersedes unsigned, and the
+				// fold keeps the duplicate-recovery, stale-law, and
+				// audit-evidence walls it always ran.
+				return nil
+			}
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil
 	}
-	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" && g.request.ActionID != "supersede_contract" {
+	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" {
 		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for "+g.request.ActionID+"; invoke under the authenticated evaluator or coordinator identity", false, "act under the verified caller identity")
 	}
 	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {

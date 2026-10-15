@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
+- **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
 - **Supersedes:** [CD-0025](CD-0025-research-surface.md)
 - **Related:** [CD-0215](CD-0215-retained-research-context.md),
   [CD-0036](CD-0036-breaking-law-cutovers.md), PM1 Q11, and PM3
@@ -36,7 +37,8 @@ No standalone unconditional delete, timer, sweep, or destructive read route exis
 ### D2. Reliance belongs to the consuming boundary
 
 `concord_work_transition.workflow_action` accepts optional `research_bindings`.
-Inside the action transaction, the consuming boundary authorizes the owner of every declared pack under the grant of the caller.
+Inside the action transaction, the consuming boundary authorizes the owner of every newly declared binding or explicitly selected research pack under the grant of the caller.
+A selection-only declaration has the same owner-scope requirement as a new binding.
 The engine validates pack existence and exact revision existence.
 A retained terminal-owner revision is eligible for reliance while it exists.
 Owner terminal status does not certify freshness.
@@ -59,6 +61,7 @@ Exact revision reads and bounded owner descriptors preserve scope checks and exp
 A bounded nested prefix cannot claim to be a complete corpus.
 Terminal-owner reads remain available without destructive reconciliation.
 Shared context carries pack, revision, and finding references with bounded selected provenance, never a stored corpus copy.
+The shared context reader does not reauthorize retained selections against the original author's grant.
 
 ## Alternatives considered
 

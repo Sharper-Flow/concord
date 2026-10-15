@@ -26,7 +26,7 @@ func taxonomyRecord(t *testing.T, id, kind, path, status string, extra map[strin
 	t.Helper()
 	authority := map[string]any{"tier": "derived"}
 	if kind == "constitution" || kind == "decision" {
-		authority = map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+		authority = map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
 	}
 	record := map[string]any{
 		"id": id, "kind": kind, "path": path, "status": status,

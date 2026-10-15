@@ -482,8 +482,8 @@ func decodeWorkerEvidenceBinding(t *testing.T, value map[string]any) WorkerEvide
 }
 
 // signDecodedCanonicalBytes signs whatever production canonicalizes for the
-// decoded envelope: since the v2 members landed on the struct, that is the
-// v2 format for a version 2 envelope and the released v1 bytes otherwise.
+// decoded envelope: the v2 format for a version 2 envelope and the released
+// v1 bytes otherwise.
 // The refusal tests under it refuse at validation, before the signature is
 // checked, so the signer only has to produce a well-formed assertion.
 func signDecodedCanonicalBytes(t *testing.T, key ed25519.PrivateKey, env workerEvidenceAssertionEnvelope) string {

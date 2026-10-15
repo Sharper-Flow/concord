@@ -52,7 +52,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The work pin projects no operator question and no withheld reason
 		// for engineering work.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -118,8 +118,8 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The work pin projects the real question, and its digest is the
 		// exact verified one.
-		digest := approvalDecisionDigest(t, s, workID, "confirm_premise")
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		digest := approvalDecisionDigest(t, s, workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -340,7 +340,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 			t.Fatalf("the independent evaluator's verdict refused: %v", err)
 		}
 		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering before the revision")
-		predecessorDigest := approvalDecisionDigest(t, s, workID, "confirm_premise")
+		predecessorDigest := approvalDecisionDigest(t, s, workID)
 		// The class revision authors the successor fact through the
 		// registered fold; the supersession stales the judged artifact until
 		// fresh production at its route target.
@@ -354,11 +354,11 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true}, "decision successor after the revision")
 		// The successor's projected question carries its own digest: the
 		// predecessor's recorded digest cannot answer it.
-		successorDigest := approvalDecisionDigest(t, s, workID, "confirm_premise")
+		successorDigest := approvalDecisionDigest(t, s, workID)
 		if successorDigest == predecessorDigest {
 			t.Fatal("the successor's decision digest equals the predecessor's; a stale digest could answer the successor")
 		}
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("the decision successor projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -400,7 +400,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, artifactStale: true, engineering: true}, "engineering successor after the revision")
 		// The work pin projects no operator question for the engineering
 		// successor.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("the engineering successor projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -454,7 +454,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The decision continuity snapshot projects the open question with its
 		// exact verified digest at both levels.
-		decisionDigest := approvalDecisionDigest(t, s2, decisionID, "confirm_premise")
+		decisionDigest := approvalDecisionDigest(t, s2, decisionID)
 		decisionSnapshot := approvalContinuitySnapshot(t, s2, registry2, decisionID)
 		if decisionSnapshot.PendingOperatorDecision == nil || decisionSnapshot.WithheldOperatorDecision != nil {
 			t.Fatalf("decision continuity top level projects %+v/%+v, want the open question without a withheld reason", decisionSnapshot.PendingOperatorDecision, decisionSnapshot.WithheldOperatorDecision)
@@ -607,10 +607,14 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// workflowAdmitSupersede classifies the recovery.
 		const engineeringID = "approval-duplicate-count-engineering"
 		const decisionID = "approval-duplicate-count-decision"
-		s, _, definition, _, engineeringActors := seedApprovalItemAtAcceptance(t, engineeringID, []string{})
-		s2, _, _, _, decisionActors := seedApprovalItemAtAcceptance(t, decisionID, []string{"product"})
-		recordApprovalVerdict(t, s, nil, engineeringID, engineeringActors.reviewer)
-		recordApprovalVerdict(t, s2, nil, decisionID, decisionActors.reviewer)
+		s, registry, definition, _, engineeringActors := seedApprovalItemAtAcceptance(t, engineeringID, []string{})
+		s2, registry2, _, _, decisionActors := seedApprovalItemAtAcceptance(t, decisionID, []string{"product"})
+		if err := recordApprovalVerdict(t, s, registry, engineeringID, engineeringActors.reviewer); err != nil {
+			t.Fatalf("the independent evaluator's verdict refused: %v", err)
+		}
+		if err := recordApprovalVerdict(t, s2, registry2, decisionID, decisionActors.reviewer); err != nil {
+			t.Fatalf("the independent evaluator's verdict refused: %v", err)
+		}
 		for name, seed := range map[string]struct {
 			store  *Store
 			workID string

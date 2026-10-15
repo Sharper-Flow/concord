@@ -42,7 +42,7 @@ const resolutionWorkflowRef = "workflow.resolution_local"
 // new-policy pin that no builtin entry can resolve.
 func resolutionPolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
-	definition := routinePolicyDefinition(t, 2)
+	definition := routinePolicyDefinition(t)
 	definition.Ref = resolutionWorkflowRef
 	definition.Version = 1
 	// The decision-record checkpoint folds against the pinned payload
@@ -74,7 +74,7 @@ func tryAppendWorkflowEventsWithRegistry(s *Store, registry DefinitionRegistry, 
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newFoldScope(tx), registry); err != nil {
+	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newFoldScope(tx), registry); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -215,7 +215,7 @@ func advanceResolutionToExecution(t *testing.T, s *Store, registry DefinitionReg
 // producer operation.
 func bindResolutionEvidence(t *testing.T, s *Store, registry DefinitionRegistry, workID string, owner WorkflowActor, kind, subject string) {
 	t.Helper()
-	if err := runResolutionAction(s, registry, workID, "bind_evidence", resolutionEvidencePayload(workID, owner.PrincipalRef, kind, subject), owner, nil); err != nil {
+	if err := runResolutionAction(s, registry, workID, "bind_evidence", resolutionEvidencePayload(workID, owner.PrincipalRef, kind, subject), owner); err != nil {
 		t.Fatalf("bind %s evidence under the local pin: %v", kind, err)
 	}
 }
@@ -275,7 +275,7 @@ func advanceResolutionDelivery(t *testing.T, s *Store, registry DefinitionRegist
 // caller registry: the sanctioned transactional seam whose verified entry the
 // confirmation and completion constructors consume. It returns the refusal so
 // negative callers can assert it.
-func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action string, payload json.RawMessage, actor WorkflowActor) error {
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -288,7 +288,7 @@ func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action s
 	}
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), registry, WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload,
-		Actor: actor, OperatorActor: operator,
+		Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version),
 		ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),
@@ -382,7 +382,7 @@ func recordResolutionVerdict(t *testing.T, s *Store, registry DefinitionRegistry
 	t.Helper()
 	reviewer := reviewerForSeed(t, s, workID)
 	payload := json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`)
-	if err := runResolutionAction(s, registry, workID, "record_verdict", payload, reviewer, nil); err != nil {
+	if err := runResolutionAction(s, registry, workID, "record_verdict", payload, reviewer); err != nil {
 		t.Fatalf("independent verdict refused under the local pin: %v", err)
 	}
 }
@@ -390,7 +390,7 @@ func recordResolutionVerdict(t *testing.T, s *Store, registry DefinitionRegistry
 // runResolutionActionVerdict records one verdict with explicit fields so the
 // worker and self-verdict refusals can name the claimed evaluator.
 func runResolutionActionVerdict(s *Store, registry DefinitionRegistry, workID string, actor WorkflowActor, payload json.RawMessage) error {
-	return runResolutionAction(s, registry, workID, "record_verdict", payload, actor, nil)
+	return runResolutionAction(s, registry, workID, "record_verdict", payload, actor)
 }
 
 func TestWorkflowDefinitionResolution(t *testing.T) {
@@ -573,7 +573,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		bindResolutionEvidence(t, s3, registry, unboundID, owner3, "verification", "evidence:operator-verdict")
 		advanceResolutionDelivery(t, s3, registry, unboundID, owner3)
 		reviewer3 := reviewerForSeed(t, s3, unboundID)
-		if err := runResolutionAction(s3, registry, unboundID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`), reviewer3, nil); err != nil {
+		if err := runResolutionAction(s3, registry, unboundID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`), reviewer3); err != nil {
 			t.Fatalf("verdict refused with only verification bound: %v", err)
 		}
 		unboundTx, err := s3.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -883,13 +883,14 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer targetTx.Rollback()
-		_, appendErr := applyWorkflowOperationTxWithRegistry(context.Background(), targetTx, operation, foreignScope, BuiltinWorkflowRegistry())
+		appendErr := applyWorkflowOperationTxWithRegistry(context.Background(), targetTx, operation, foreignScope, BuiltinWorkflowRegistry())
 		var scopeFailure *Failure
-		if appendErr == nil {
+		switch {
+		case appendErr == nil:
 			t.Fatal("an operation accepted a fold scope owned by another transaction")
-		} else if !failureAs(appendErr, &scopeFailure) {
+		case !failureAs(appendErr, &scopeFailure):
 			t.Fatalf("foreign-scope append returned %v, want a typed refusal", appendErr)
-		} else if scopeFailure.Kind != KindInvariantViolation {
+		case scopeFailure.Kind != KindInvariantViolation:
 			t.Fatalf("foreign-scope append refused with %v, want the typed transaction-binding refusal", appendErr)
 		}
 		if err := targetTx.Rollback(); err != nil {
@@ -955,16 +956,17 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		defer tx.Rollback()
 		boundScope := newFoldScope(tx)
-		if _, err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-first-"+workID), boundScope, BuiltinWorkflowRegistry()); err != nil {
+		if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-first-"+workID), boundScope, BuiltinWorkflowRegistry()); err != nil {
 			t.Fatalf("the first append on its own registry refused: %v", err)
 		}
-		_, rebindingErr := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-second-"+workID), boundScope, second)
+		rebindingErr := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-second-"+workID), boundScope, second)
 		var bindingFailure *Failure
-		if rebindingErr == nil {
+		switch {
+		case rebindingErr == nil:
 			t.Fatal("a scope already bound to one definition registry accepted a conflicting second registry")
-		} else if !failureAs(rebindingErr, &bindingFailure) {
+		case !failureAs(rebindingErr, &bindingFailure):
 			t.Fatalf("conflicting binding append returned %v, want a typed refusal", rebindingErr)
-		} else if bindingFailure.Kind != KindInvariantViolation {
+		case bindingFailure.Kind != KindInvariantViolation:
 			t.Fatalf("conflicting binding append refused with %v, want the typed binding refusal", rebindingErr)
 		}
 		// The store pools one connection: the in-transaction count reads the

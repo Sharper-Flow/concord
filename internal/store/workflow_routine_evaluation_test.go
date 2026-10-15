@@ -23,11 +23,11 @@ import (
 // routinePolicyDefinition copies a registered fixture definition and declares
 // consequence_v1 on the copy. The registry keeps the legacy version; only the
 // pure and transactional owners under test see the declared policy.
-func routinePolicyDefinition(t *testing.T, version int64) WorkflowDefinition {
+func routinePolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(workflowFixtureRef, version)
+	registered, ok := BuiltinWorkflowRegistry().Lookup(workflowFixtureRef, 2)
 	if !ok {
-		t.Fatalf("workflow fixture v%d is not registered", version)
+		t.Fatalf("workflow fixture v%d is not registered", 2)
 	}
 	definition := registered.Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
@@ -116,7 +116,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("legacy correction keeps the operator approval identity", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-legacy-correction"
-		fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+		fixture := prepareVerdictCorrectionFixture(t, workID)
 		g := routineGuardContext(t, fixture.store, workID, "request_correction", nil, false)
 		err := guardOperatorPremiseActor(g)
 		var failure *Failure
@@ -129,7 +129,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-verdict-substitution"
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		definition := routinePolicyDefinition(t, 2)
+		definition := routinePolicyDefinition(t)
 		operator := operatorVerdictActor(t, workID)
 		version := verdictItemVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -162,7 +162,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator, OperatorActor: &operator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t, 2)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
 			t.Fatalf("consequence_v1 completion with an operator actor returned %v, want the no-substitution refusal", err)
@@ -185,7 +185,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		result, err := applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t, 2)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		result, err := applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		if err != nil {
 			t.Fatalf("coordinator completion with an independent verdict refused: %v", err)
 		}
@@ -216,7 +216,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 		defer tx.Rollback()
 		fields := map[string]json.RawMessage{"verdict_actor_ref": json.RawMessage(`"` + ownerRef + `"`), "predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t, 2), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-self-" + workID}, ownerRef, fields, "routine-self-"+workID, version, false, nil)
+		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-self-" + workID}, ownerRef, fields, "routine-self-"+workID, version, false, nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "executing actor cannot evaluate its own delivery") {
 			t.Fatalf("self-verdict returned %v, want the executor refusal without an approval challenge", err)
@@ -236,7 +236,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 		defer tx.Rollback()
 		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		events, err := workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t, 2), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-independent-" + workID}, reviewerRef, fields, "routine-independent-"+workID, version, false, nil)
+		events, err := workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-independent-" + workID}, reviewerRef, fields, "routine-independent-"+workID, version, false, nil)
 		if err != nil {
 			t.Fatalf("independent evaluator verdict refused: %v", err)
 		}
@@ -282,7 +282,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 		defer tx.Rollback()
 		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t, 2), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-worker-" + workID}, reviewerRef, fields, "routine-worker-"+workID, version, false, nil)
+		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-worker-" + workID}, reviewerRef, fields, "routine-worker-"+workID, version, false, nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
 			t.Fatalf("worker-authority verdict returned %v, want the unauthorized refusal", err)
@@ -292,7 +292,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy admits repair request without operator identity", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-correction"
-		fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+		fixture := prepareVerdictCorrectionFixture(t, workID)
 		g := routineGuardContext(t, fixture.store, workID, "request_correction", nil, true)
 		if err := guardOperatorPremiseActor(g); err != nil {
 			t.Fatalf("consequence_v1 repair request without an operator identity refused: %v", err)
@@ -303,7 +303,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		for _, actionID := range []string{"record_verdict", "complete", "request_correction"} {
 			const workID = "routine-new-operator-claim"
-			fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+			fixture := prepareVerdictCorrectionFixture(t, workID)
 			g := routineGuardContext(t, fixture.store, workID, actionID, &fixture.operator, true)
 			err := guardOperatorPremiseActor(g)
 			var failure *Failure
@@ -316,7 +316,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("premise confirmation keeps its operator identity under new policy", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-premise"
-		fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+		fixture := prepareVerdictCorrectionFixture(t, workID)
 		g := routineGuardContext(t, fixture.store, workID, "confirm_premise", &fixture.operator, true)
 		if err := guardOperatorPremiseActor(g); err != nil {
 			t.Fatalf("consequence_v1 premise confirmation with the verified operator identity refused: %v", err)
@@ -358,7 +358,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		}
 		defer tx.Rollback()
 		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:not-bound"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t, 2), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-unbound-" + workID}, reviewerRef, fields, "routine-unbound-"+workID, version, false, nil)
+		_, err = workflowRecordVerdictEvents(context.Background(), tx, routinePolicyDefinition(t), WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-unbound-" + workID}, reviewerRef, fields, "routine-unbound-"+workID, version, false, nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("unbound evaluation evidence returned %v, want the missing-evidence refusal", err)
@@ -376,7 +376,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		if err := workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t, 2), workID, coordinatorRef); err != nil {
+		if err := workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t), workID, coordinatorRef); err != nil {
 			t.Fatalf("consequence_v1 completion authority refused the initiating coordinator: %v", err)
 		}
 	})
@@ -400,7 +400,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		err = workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t, 2), workID, coordinatorRef)
+		err = workflowCompletionCallerAuthority(context.Background(), tx, routinePolicyDefinition(t), workID, coordinatorRef)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "worker actors cannot record workflow completion") {
 			t.Fatalf("worker-authority completion returned %v, want the worker refusal", err)

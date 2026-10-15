@@ -324,9 +324,10 @@ func assertNoApprovalEffect(t *testing.T, s *Store, workID string, baselineVersi
 	assertNoFoldGuardRows(t, s)
 }
 
-// approvalDecisionDigest computes the exact decision-context digest the open
-// question binds, from the same projections the question projection reads.
-func approvalDecisionDigest(t *testing.T, s *Store, workID, actionID string) string {
+// approvalDecisionDigest computes the exact confirm_premise decision-context
+// digest the open question binds, from the same projections the question
+// projection reads.
+func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -355,7 +356,7 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID, actionID string) str
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, actionID)
+	return ComputeWorkflowDecisionContextDigest(workID, workVersion, definition, contract, "confirm_premise")
 }
 
 // approvalPreflightSelection drives the preflight — the owning boundary's
@@ -428,7 +429,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 
 		// The projected operator question is absent for engineering work: no
 		// open question and no withheld reason.
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -699,12 +700,12 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 }
 
 // registeredDigest reads the registered entry's digest for the local
-// definition family from the caller registry.
-func registeredDigest(t *testing.T, registry DefinitionRegistry, ref string) string {
+// resolution definition family from the caller registry.
+func registeredDigest(t *testing.T, registry DefinitionRegistry) string {
 	t.Helper()
-	entry, ok := registry.Lookup(ref, 1)
+	entry, ok := registry.Lookup(resolutionWorkflowRef, 1)
 	if !ok {
-		t.Fatalf("the caller registry does not hold %s v1", ref)
+		t.Fatalf("the caller registry does not hold %s v1", resolutionWorkflowRef)
 	}
 	return entry.Digest
 }
@@ -730,8 +731,8 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 
 		// The projected question is real: it carries the exact verified
 		// digest, and no withheld reason stands beside it.
-		digest := approvalDecisionDigest(t, s, workID, "confirm_premise")
-		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry, resolutionWorkflowRef), workID)
+		digest := approvalDecisionDigest(t, s, workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, definition, registeredDigest(t, registry), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -832,7 +833,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		// refuses with the first unmet prerequisite's typed failure.
 		baselineVersion := verdictItemVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
-		digest := approvalDecisionDigest(t, s, workID, "confirm_premise")
+		digest := approvalDecisionDigest(t, s, workID)
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) {
@@ -862,7 +863,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		if err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:operator-verdict"],"incomparable_with_approved":true}`); err != nil {
 			t.Fatalf("the failed independent evaluation verdict refused: %v", err)
 		}
-		digest := approvalDecisionDigest(t, s, workID, "confirm_premise")
+		digest := approvalDecisionDigest(t, s, workID)
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`)
 		var staleFailure *Failure
 		if err == nil || !failureAs(err, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview {

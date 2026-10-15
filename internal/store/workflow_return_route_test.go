@@ -309,7 +309,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
-			fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+			fixture := prepareVerdictCorrectionFixture(t, workID)
 			err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
 			})
@@ -323,7 +323,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 
 func TestVerdictCorrectionRefusesWithoutExactOperatorApproval(t *testing.T) {
 	const workID = "return-route-refusal-without-operator"
-	fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+	fixture := prepareVerdictCorrectionFixture(t, workID)
 	payload := json.RawMessage(`{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	err := runCorrectionActionWithoutOperator(fixture.store, workID, fixture.owner, payload)
 	var failure *Failure
@@ -363,13 +363,9 @@ func TestHistoricalBreakFixPinSupportsVerdictCorrection(t *testing.T) {
 	}
 }
 
-func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string) workflowReturnRouteFixture {
+func prepareVerdictCorrectionFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	initialStep := "execution"
-	if definitionRef == "workflow.break_fix" {
-		initialStep = "repair"
-	}
-	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, initialStep)
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
 	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
 		t.Fatal(err)

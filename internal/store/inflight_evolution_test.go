@@ -149,10 +149,12 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	// Start in-flight work with every current projection present, then
-	// roll back the verify-lease watermark step. Migrate reapplies that step
-	// while the work remains open.
-	for _, migration := range migrations {
+	// Build the pre-tail schema from the registered migrations: the prefix
+	// steps apply directly and the final registered step stays for Migrate
+	// to execute below.
+	prefix := migrations[:len(migrations)-1]
+	tail := migrations[len(migrations)-1]
+	for _, migration := range prefix {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -170,22 +172,21 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The item starts mid-flight on the pre-tail schema through the
+	// production initialize path, before the final registered migration
+	// applies.
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	const pendingVersion = 127
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, pendingVersion); err != nil {
-		t.Fatalf("cannot remove migration %d from the manifest: %v", pendingVersion, err)
-	}
-	// The selected schema step's objects must leave with its manifest row
-	// before the test reapplies that step while work remains open.
-	if _, err := db.ExecContext(ctx, `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
-		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", pendingVersion, err)
-	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if beforeVersion >= tail.Version {
+		t.Fatalf("pre-tail manifest version %d already records the tail step %d", beforeVersion, tail.Version)
+	}
 
-	// The change lands while the item is open, not before it starts.
+	// The change lands while the item is open, not before it starts. Migrate
+	// executes the real tail step here: its manifest row exists only through
+	// that execution, written in the same transaction as the step's SQL.
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration on a database with in-flight work: %v", err)
 	}

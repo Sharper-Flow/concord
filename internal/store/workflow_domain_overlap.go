@@ -383,9 +383,16 @@ func readWorkflowOverlapJudgedContent(ctx context.Context, q queryer, workID str
 	return content, workflowOverlapResolutionProjectionError(rows.Err())
 }
 
+// workflowContractSupersededJudgedContentPayloadVersion is the
+// workflow.contract_superseded payload version that introduced judged-content
+// comparison in the supersession fold. Recorded versions below it invalidated
+// unconditionally and keep that semantic on replay.
+const workflowContractSupersededJudgedContentPayloadVersion = 3
+
 func invalidateWorkflowOverlapForContractRevisionTx(ctx context.Context, tx *sql.Tx, event Event, predecessors []int64, successor int64) error {
-	// Upcast v1/v2 events retain their recorded invalidation semantics.
-	if event.replaySourcePayloadVersion != 0 {
+	// Upcast pre-v3 events retain their recorded invalidation semantics;
+	// v3 and current compare judged content.
+	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractSupersededJudgedContentPayloadVersion {
 		return invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID)
 	}
 	next, err := readWorkflowOverlapJudgedContent(ctx, tx, event.SubjectID, successor)

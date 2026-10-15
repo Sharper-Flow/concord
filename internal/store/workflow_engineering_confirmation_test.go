@@ -171,7 +171,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		const workID = "engineering-confirm-coordinator"
 		s, _, reviewer, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
 		foldRoutineVerdict(t, s, workID, reviewer)
-		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -203,7 +203,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-substitution"
 		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, operator), &operator, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, operator), &operator, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "takes no operator substitution") {
 			t.Fatalf("engineering confirmation with an operator actor returned %v, want the no-substitution refusal", err)
@@ -214,7 +214,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-digest"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, "digest:human-question"))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, "digest:human-question"))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with a human digest returned %v, want the invalid-input refusal", err)
@@ -225,7 +225,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-choice"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(false, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(false, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with revise choice returned %v, want the invalid-input refusal", err)
@@ -238,7 +238,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
 		// No verdict is folded on this seed, so the acceptance deliverables
 		// the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "recorded workflow verdict") {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-verdict refusal", err)
@@ -265,7 +265,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		if err := delTx.Commit(); err != nil {
 			t.Fatal(err)
 		}
-		_, err = runEngineeringConfirmation(t, s2, routinePolicyDefinition(t, 2), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
+		_, err = runEngineeringConfirmation(t, s2, routinePolicyDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
 			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
 		}
@@ -284,7 +284,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, coordinatorRef, nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
 			t.Fatalf("worker-authority confirmation returned %v, want the unauthorized refusal", err)
@@ -298,7 +298,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		reviewer, _, coordinator := seedRoutineReviewersForSelection(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t, 2)
+		definition := routinePolicyDefinition(t)
 		registry := flipRoutineSelectionPin(t, s, workID, definition)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
@@ -328,7 +328,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t, 2)
+		definition := routinePolicyDefinition(t)
 		registry := flipRoutineSelectionPin(t, s, workID, definition)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
@@ -361,7 +361,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t, 2)
+		definition := routinePolicyDefinition(t)
 		registry := flipRoutineSelectionPin(t, s, workID, definition)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
@@ -396,7 +396,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t, 2)
+		definition := routinePolicyDefinition(t)
 		registry := flipRoutineSelectionPin(t, s, workID, definition)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
@@ -423,7 +423,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		const workID = "engineering-confirm-agent-class"
 		s, _, reviewer, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
 		foldRoutineVerdict(t, s, workID, reviewer)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, operator), nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, operator), nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
@@ -436,12 +436,12 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, reviewer, operator, coordinator := engineeringConfirmationSeed(t, workID, `["product"]`)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		coordinatorRef := ownerRefForTest(t, coordinator)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, coordinatorRef, nil, confirmationFields(true, "digest:human-question"))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, "digest:human-question"))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired {
 			t.Fatalf("decision-bearing confirmation without an operator returned %v, want the approval requirement", err)
 		}
-		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, coordinatorRef, &operator, confirmationFields(true, "digest:human-question"))
+		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, &operator, confirmationFields(true, "digest:human-question"))
 		if err != nil {
 			t.Fatalf("decision-bearing operator confirmation refused: %v", err)
 		}
@@ -462,7 +462,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-null-fact"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, "")
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t, 2), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("null decision fact returned %v, want the fail-closed invalid-input refusal", err)

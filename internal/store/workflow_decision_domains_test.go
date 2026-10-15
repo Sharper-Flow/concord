@@ -147,7 +147,7 @@ func TestDecisionDomains(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if containsJSONMember(string(encoded), "decision_domains") {
+		if containsJSONMember(string(encoded)) {
 			t.Fatalf("an absent fact serialized the member: %s", encoded)
 		}
 		engineering := workflowContractApprovedPayload{DecisionDomains: []string{}}
@@ -155,7 +155,7 @@ func TestDecisionDomains(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !containsJSONMember(string(encoded), "decision_domains") || !strings.Contains(string(encoded), `"decision_domains":[]`) {
+		if !containsJSONMember(string(encoded)) || !strings.Contains(string(encoded), `"decision_domains":[]`) {
 			t.Fatalf("an engineering fact serialized %s, want decision_domains:[]", encoded)
 		}
 		declared := workflowContractApprovedPayload{DecisionDomains: []string{"product"}}
@@ -171,7 +171,7 @@ func TestDecisionDomains(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if containsJSONMember(string(encoded), "decision_domains") {
+		if containsJSONMember(string(encoded)) {
 			t.Fatalf("an absent read fact serialized the member: %s", encoded)
 		}
 		readEngineering := WorkflowReadContract{DecisionDomains: []string{}}
@@ -299,7 +299,7 @@ func TestDecisionDomains(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "decision-contract-decision-old-"+name).Scan(&payload); err != nil {
 				t.Fatal(err)
 			}
-			if containsJSONMember(payload, "decision_domains") {
+			if containsJSONMember(payload) {
 				t.Errorf("replay upcast injected the typed fact into historical bytes: %s", payload)
 			}
 			if stored := storedDecisionDomains(t, s, "decision-old-"+name, 1); stored != "" {
@@ -488,13 +488,13 @@ func TestDecisionDomains(t *testing.T) {
 	})
 }
 
-// containsJSONMember reports whether an encoded object carries a top-level
-// member, without decoding the whole payload into a map.
-func containsJSONMember(payload, member string) bool {
+// containsJSONMember reports whether an encoded object carries the
+// decision_domains member, without decoding the whole payload into a map.
+func containsJSONMember(payload string) bool {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(payload), &fields); err != nil {
 		return false
 	}
-	_, present := fields[member]
+	_, present := fields["decision_domains"]
 	return present
 }

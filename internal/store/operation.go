@@ -445,11 +445,12 @@ func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operati
 // operation with the caller's definition registry bound to the scope before
 // any write. The binding refuses a scope from another transaction and a
 // conflicting second registry on one scope.
-func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) (ApplyOperationResult, error) {
+func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) error {
 	if err := scope.bindRegistry(tx, registry); err != nil {
-		return ApplyOperationResult{}, err
+		return err
 	}
-	return applyWorkflowOperationTx(ctx, tx, operation, scope)
+	_, err := applyWorkflowOperationTx(ctx, tx, operation, scope)
+	return err
 }
 
 func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, workflowAuthority bool) (ApplyOperationResult, error) {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -80,7 +81,14 @@ type WorkerJobRecordedPayload struct {
 	// immutable as the rest of its content, and it reads back only from
 	// this event — no projection column carries it.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	Digest           string            `json:"digest"`
+	// ArchitectureBinding is the design-and-slice identity one
+	// architecture-capable definition's revision binds. It enters the
+	// content digest, so a revision's binding is as immutable as the rest
+	// of its content, and it reads back only from this event — no
+	// projection column carries it, and every revision a non-declaring
+	// definition recorded leaves the member absent.
+	ArchitectureBinding *architectureJobBinding `json:"architecture_binding,omitempty"`
+	Digest              string                  `json:"digest"`
 }
 
 // DeriveWorkerJobDigest derives the canonical content digest of one worker-job
@@ -106,7 +114,8 @@ func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 		ReservedIntegration string                  `json:"reserved_integration,omitempty"`
 		Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
 		AcceptanceOracle    *AcceptanceOracle       `json:"acceptance_oracle,omitempty"`
-	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle}
+		ArchitectureBinding *architectureJobBinding `json:"architecture_binding,omitempty"`
+	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle, payload.ArchitectureBinding}
 	raw, err := json.Marshal(content)
 	if err != nil {
 		return ""
@@ -246,6 +255,17 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot verify the worker-job predicate authority", true, "retry once the contract projection is readable", err)
 		}
 	}
+	// The binding wall holds on the recorded bytes: the pinned declaration
+	// decides whether the member exists, the closed parser decides its
+	// shape, and a live append answers to the current design identity where
+	// replay trusts the recorded authority it admitted.
+	registered, err := verifyWorkflowDefinitionPinTx(ctx, tx, nil, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if err := requireWorkerJobRecordedBindingShapeTx(ctx, tx, event, registered.Definition, payload); err != nil {
+		return err
+	}
 	if payload.ProjectScope != "" {
 		var member int
 		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, event.SubjectID, payload.ProjectScope).Scan(&member); err != nil {
@@ -315,8 +335,9 @@ func nextWorkerJobRevision(ctx context.Context, q queryer, workID, jobID string)
 // workflowRecordWorkerJobEvents builds the worker.job_recorded event the
 // record_worker_job action appends. The caller authors the bounded job; the
 // core derives what the caller must not assert: the parent contract version
-// from the active approved contract, the Project scope from the work's
-// primary Project, the next contiguous revision, and the content digest.
+// from the active approved contract, the Project scope from the bound slice's
+// owner Project for a bound job and from the work's primary Project
+// otherwise, the next contiguous revision, and the content digest.
 func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	jobID := workflowFieldStringDefault(fields, "job_id", "")
 	if !workerJobIDPattern.MatchString(jobID) {
@@ -378,6 +399,25 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 	if oracleCapable && oracle == nil {
 		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition version "+fmt.Sprint(registered.Definition.Version), "author the closed owner/case/control oracle for the job")
 	}
+	// The architecture binding is authored through the pinned definition's
+	// declared action member, the same capability source the oracle uses.
+	// A capable pin requires the member and its exact current design and
+	// slice authority; a non-declaring pin refuses the member outright, so
+	// no binding is ever dropped silently or invented from design presence.
+	bindingCapable := workflowJobArchitectureBindingActive(registered.Definition)
+	var binding *architectureJobBinding
+	if raw, present := fields["architecture_binding"]; present {
+		if !bindingCapable {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job architecture_binding is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), false, "record the job under an architecture-capable definition version or drop the member")
+		}
+		binding, err = parseArchitectureJobBinding(raw, "workflow_action")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if bindingCapable && binding == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job requires architecture_binding on definition version "+fmt.Sprint(registered.Definition.Version), false, "supply the typed design revision, digest, and slice id of the bound slice")
+	}
 	payload := WorkerJobRecordedPayload{
 		JobID: jobID, Revision: revision, ContractVersion: contractVersion,
 		Objective:           workflowFieldStringDefault(fields, "objective", ""),
@@ -391,6 +431,14 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 		ReservedIntegration: workflowFieldStringDefault(fields, "reserved_integration", ""),
 		Readiness:           &WorkerJobReadiness{Ready: ready, Evidence: nonNilStrings(readinessEvidence)},
 		AcceptanceOracle:    oracle,
+		ArchitectureBinding: binding,
+	}
+	if binding != nil {
+		derived, err := workflowJobBindingAuthorityTx(ctx, tx, request.WorkID, binding, payload.PathScope, payload.Checks, oracle)
+		if err != nil {
+			return nil, err
+		}
+		payload.ProjectScope = derived
 	}
 	if oracle != nil {
 		if err := validateAcceptanceOracle(oracle, payload.PredicateIDs); err != nil {
@@ -482,11 +530,12 @@ type WorkerJobRevisionView struct {
 	// AcceptanceOracle reads back from the job-recorded event — never a
 	// projection column — so the view carries exactly the content the
 	// revision's digest covers.
-	AcceptanceOracle   *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	State              string            `json:"state"`
-	Ready              bool              `json:"ready"`
-	SatisfiedResultRef string            `json:"satisfied_result_ref,omitempty"`
-	RecordedAt         string            `json:"recorded_at"`
+	AcceptanceOracle    *AcceptanceOracle       `json:"acceptance_oracle,omitempty"`
+	ArchitectureBinding *architectureJobBinding `json:"architecture_binding,omitempty"`
+	State               string                  `json:"state"`
+	Ready               bool                    `json:"ready"`
+	SatisfiedResultRef  string                  `json:"satisfied_result_ref,omitempty"`
+	RecordedAt          string                  `json:"recorded_at"`
 }
 
 // workerJobReadyPredicate is the one admission rule for selecting a revision
@@ -554,12 +603,31 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	if err != nil {
 		return nil, err
 	}
+	bindings, err := readWorkerJobBindingsTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
 	for index := range views {
 		oracle, recorded := oracles[views[index].Binding]
 		if !recorded {
 			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
 		}
 		views[index].AcceptanceOracle = oracle
+		binding, recorded := bindings[views[index].Binding]
+		if !recorded {
+			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its binding", false, "rebuild the worker-job events from the authoritative log", nil)
+		}
+		views[index].ArchitectureBinding = binding
+		// A binding names a design identity: when the work's current design
+		// no longer carries it, the prospective job is unready and its
+		// recorded history stays exactly as recorded.
+		stale, err := workflowJobBindingStaleTx(ctx, q, workID, binding)
+		if err != nil {
+			return nil, err
+		}
+		if stale {
+			views[index].Ready = false
+		}
 	}
 	return views, nil
 }
@@ -640,6 +708,24 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 	if !ready {
 		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")
 	}
+	// A recorded binding must still name the work's current design identity:
+	// a stale prospective job is undispatchable until a new revision binds
+	// the moved design, and the stale revision's history stays untouched.
+	bindings, err := readWorkerJobBindingsTx(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	architectureBinding, recorded := bindings[WorkerJobBinding{JobID: binding.JobID, Revision: binding.Revision, Digest: digest}]
+	if !recorded {
+		return newFailure(KindInvariantViolation, "workflow_action", "the selected worker-job revision holds no job-recorded event for its binding", false, "rebuild the worker-job events from the authoritative log")
+	}
+	stale, err := workflowJobBindingStaleTx(ctx, q, workID, architectureBinding)
+	if err != nil {
+		return err
+	}
+	if stale {
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision binds design revision "+fmt.Sprint(architectureBinding.DesignRevision)+", which the work's current design no longer carries", false, "record a new revision of the job under the current design before dispatching it")
+	}
 	return nil
 }
 
@@ -677,6 +763,10 @@ type WorkerPacketJob struct {
 	// review, and verify packets bind. Optional and omitted on every
 	// revision a pre-oracle definition recorded.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
+	// ArchitectureBinding is the recorded design-and-slice identity the
+	// packet transports verbatim. Optional and omitted on every revision a
+	// non-declaring definition recorded.
+	ArchitectureBinding *architectureJobBinding `json:"architecture_binding,omitempty"`
 }
 
 // packetJobFromView projects a recorded revision onto the packet shape.
@@ -686,9 +776,13 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 		Objective: view.Objective, StoppingCondition: view.StoppingCondition, ProjectScope: view.ProjectScope,
 		PathScope: nonNilStrings(view.PathScope), PredicateIDs: nonNilStrings(view.PredicateIDs), Checks: nonNilStrings(view.Checks),
 		Prerequisites: nonNilPrerequisites(view.Prerequisites), UnresolvedRefs: nonNilStrings(view.UnresolvedRefs), ReservedIntegration: view.ReservedIntegration,
-		AcceptanceOracle: view.AcceptanceOracle,
+		AcceptanceOracle: view.AcceptanceOracle, ArchitectureBinding: view.ArchitectureBinding,
 	}
 }
+
+// workerPacketJobMembers is the typed packet job's exact JSON member names,
+// derived from the struct itself with embedded fields flattened.
+var workerPacketJobMembers = workflowTypedPayloadJSONNames(reflect.TypeOf(WorkerPacketJob{}))
 
 // validateWorkerPacketJob is the dispatch-time job binding (CD-0205). On a
 // job-capable pin the packet must carry inputs.worker_job naming a ready
@@ -724,6 +818,38 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 	var claimed WorkerPacketJob
 	if err := decoder.Decode(&claimed); err != nil {
 		return nil, refuse("inputs.worker_job is not one closed worker-job object", "build the worker job from the recorded revision")
+	}
+	// The typed member names are the only recognition on this surface: the
+	// case-insensitive decode would fold an alias key into the same field
+	// the recorded comparison reads.
+	var claimedMembers map[string]json.RawMessage
+	if err := decodeWorkflowActionPayloadStrict(packet.Inputs.WorkerJob, &claimedMembers); err != nil || claimedMembers == nil {
+		return nil, refuse("inputs.worker_job is not one strict closed worker-job object", "build the worker job from the recorded revision")
+	}
+	// The exact new shape recognition engages only for a binding-capable pin
+	// or a packet bearing the member in any spelling — the same
+	// case-insensitive join the typed decode applies — so a member-free
+	// legacy packet keeps its released shape.
+	bindingRaw, bindingBearing := claimedMembers["architecture_binding"]
+	if !bindingBearing {
+		for key := range claimedMembers {
+			if strings.EqualFold(key, "architecture_binding") {
+				bindingRaw, bindingBearing = claimedMembers[key], true
+				break
+			}
+		}
+	}
+	if workflowJobArchitectureBindingActive(definition) || bindingBearing {
+		for key := range claimedMembers {
+			if !workerPacketJobMembers[key] {
+				return nil, refuse(fmt.Sprintf("inputs.worker_job member %q is not a typed member name", key), "build the worker job from the recorded revision")
+			}
+		}
+	}
+	if bindingBearing {
+		if _, err := parseArchitectureJobBinding(bindingRaw, "workflow_action"); err != nil {
+			return nil, err
+		}
 	}
 	binding := WorkerJobBinding{JobID: claimed.JobID, Revision: claimed.Revision, Digest: claimed.Digest}
 	if err := requireWorkerJobRevisionReadyTx(ctx, q, workID, binding); err != nil {

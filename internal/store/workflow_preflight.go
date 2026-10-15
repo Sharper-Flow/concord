@@ -390,7 +390,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			}
 		}
 	}
-	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
+	// The selection core consumes the folded admission's confirmation
+	// answer: one classification, no second fact read.
+	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority, factFailure: admission.ConfirmationFactFailure}); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is

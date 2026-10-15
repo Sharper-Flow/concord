@@ -196,15 +196,44 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 
 // workflowOperatorQuestionTx returns the open question for the current step,
 // or the reason its question is withheld. Exactly one of the two is non-nil,
-// and both are nil when the step declares no approval-required action.
+// and both are nil when the step declares no approval-required action. It is
+// the builtin convenience: the caller's read definition is verified against
+// the builtin registry, and the shared owner below answers.
 func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
 	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, nil, err
 	}
-	actionID, ok := workflowOperatorQuestionAction(entry.Definition, currentStep)
+	confirmation, err := foldWorkflowConfirmationTx(ctx, q, workID, entry.Definition)
+	if err != nil {
+		return nil, nil, err
+	}
+	return workflowOperatorQuestionForDefinitionTx(ctx, q, workID, currentStep, workVersion, entry.Definition, definition, contract, confirmation)
+}
+
+// workflowOperatorQuestionForDefinitionTx is the shared question-projection
+// owner. The caller's verified definition resolves the pinned shape and the
+// caller supplies the one folded confirmation answer — the state's fields or
+// a light foldWorkflowConfirmationTx read — so no consumer classifies a
+// second time: engineering work projects neither a question nor a
+// withholding, decision work projects the exact question its digest binds,
+// and a missing or malformed new-policy fact withholds the question with
+// its typed reason.
+func workflowOperatorQuestionForDefinitionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowDefinition, readDefinition WorkflowReadDefinition, contract WorkflowReadContract, confirmation workflowConfirmationFold) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
+	// The step's shape decides first: a step that declares no
+	// approval-required action projects no question and no withholding,
+	// whatever the folded confirmation answer says.
+	actionID, ok := workflowOperatorQuestionAction(definition, currentStep)
 	if !ok {
 		return nil, nil, nil
+	}
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		if confirmation.factFailure != nil {
+			return nil, &WorkflowOperatorQuestionWithheld{ActionID: actionID, Reason: confirmation.factFailure.Detail, Remedy: confirmation.factFailure.RecoveryAction}, nil
+		}
+		if confirmation.authority == WorkflowConfirmationCoordinator {
+			return nil, nil, nil
+		}
 	}
 	if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
 		var failure *Failure
@@ -213,7 +242,7 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 		}
 		return nil, nil, err
 	}
-	return workflowOperatorQuestion(workID, workVersion, definition, contract, actionID), nil, nil
+	return workflowOperatorQuestion(workID, workVersion, readDefinition, contract, actionID), nil, nil
 }
 
 // requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
@@ -365,12 +394,51 @@ func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID str
 	})
 }
 
+// validateWorkflowOperatorSelectionTx is the stateless compatibility half of
+// the selection chain: no folded admission state is in hand, so it folds the
+// confirmation answer once and hands it to the core.
 func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
+	if done, fastErr := workflowOperatorSelectionFastPath(request); done || fastErr != nil {
+		return fastErr
+	}
+	pin := WorkflowDefinitionPin{}
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
+	}
+	entry, err := VerifyWorkflowDefinitionPin(registry, pin)
+	if err != nil {
+		return err
+	}
+	confirmation, err := foldWorkflowConfirmationTx(ctx, tx, request.WorkID, entry.Definition)
+	if err != nil {
+		return err
+	}
+	return validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, confirmation)
+}
+
+// workflowOperatorSelectionFastPath answers the non-confirm fast path: the
+// actions that take no operator selection pass without any store read, and
+// selection fields riding one refuse. The core and the stateless wrapper
+// share it, so neither queries an instance for an answer the request already
+// settles.
+func workflowOperatorSelectionFastPath(request WorkflowActionPreflightRequest) (bool, error) {
 	if request.ActionID != "confirm_premise" {
 		if request.SelectedChoice != "" || request.DecisionContextDigest != "" {
-			return newFailure(KindInvalidPayload, "workflow_operator_question", "question selection is only valid for confirm_premise", false, "use the declared action payload")
+			return false, newFailure(KindInvalidPayload, "workflow_operator_question", "question selection is only valid for confirm_premise", false, "use the declared action payload")
 		}
-		return nil
+		return true, nil
+	}
+	return false, nil
+}
+
+// validateWorkflowOperatorSelectionCoreTx is the selection chain's one core:
+// the caller's verified definition and the one folded confirmation answer —
+// the preflight's state fields or the convenience's light fold — decide
+// between the engineering and decision paths. No caller classifies a second
+// time.
+func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, request WorkflowActionPreflightRequest, confirmation workflowConfirmationFold) error {
+	if done, fastErr := workflowOperatorSelectionFastPath(request); done || fastErr != nil {
+		return fastErr
 	}
 	if request.SelectedChoice == "" {
 		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a selected closed choice", false, "reread the workflow question")
@@ -384,6 +452,11 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
+	// The stored pin must still be the pin the caller verified: a definition
+	// row that moved under the caller's entry is the stale-context refusal.
+	if definition.Ref != entry.Definition.Ref || definition.Version != entry.Definition.Version || definition.Digest != entry.Digest {
+		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the workflow definition moved under the verified entry", false, "refresh_context")
+	}
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_operator_question")
 	if contractErr != nil {
 		if contractErr == sql.ErrNoRows {
@@ -391,41 +464,30 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 		}
 		return contractErr
 	}
-	entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
-	if err != nil {
-		return err
-	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	var decisionDomains sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &decisionDomains); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 	}
-	contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, request.WorkID, contract.Version)
-	if err != nil {
+	predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, request.WorkID, contract.Version)
+	if predicateErr != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "rebuild projections from the event log")
 	}
-	contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
-	if err != nil {
+	contract.OutcomePredicates = predicates
+	selfRepair, selfRepairErr := readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
+	if selfRepairErr != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "rebuild projections from the event log")
 	}
+	contract.SelfRepair = selfRepair
 	engineering := false
 	if entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		if !decisionDomains.Valid {
-			return newFailure(KindInvalidInput, "workflow_operator_question", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+		if confirmation.factFailure != nil {
+			return confirmation.factFailure
 		}
-		var domains []string
-		if json.Unmarshal([]byte(decisionDomains.String), &domains) != nil {
-			return newFailure(KindInvalidInput, "workflow_operator_question", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
-		}
-		decision, decisionErr := ClassifyWorkflowApproval(entry.Definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
-		if decisionErr != nil {
-			return decisionErr
-		}
-		engineering = decision.Consent == WorkflowConsentNone
+		engineering = confirmation.authority == WorkflowConfirmationCoordinator
 	}
 	if engineering {
 		// Engineering: the coordinator records its own confirm choice — no
@@ -455,7 +517,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")
 	}
-	question, _, err := workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
+	question, _, err := workflowOperatorQuestionForDefinitionTx(ctx, tx, request.WorkID, currentStep, workVersion, entry.Definition, definition, contract, confirmation)
 	if err != nil {
 		return err
 	}

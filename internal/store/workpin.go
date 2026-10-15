@@ -38,7 +38,7 @@ type WorkPin struct {
 	// pin's reader verified no definition — the outside-repair hold reads raw
 	// identity only and grants no managed pin authority — so the keys stay
 	// absent on the wire instead of carrying a zero-value or fabricated
-	// definition identity. Only workPinReadInstanceTx sets them.
+	// definition identity. Only workPinReadInstanceForRegistryTx sets them.
 	WorkflowDefinitionVersion *int64  `json:"workflow_definition_version,omitempty"`
 	WorkflowDefinitionDigest  *string `json:"workflow_definition_digest,omitempty"`
 	// Obligations lists the sorted exact evidence obligation IDs the pinned
@@ -152,8 +152,16 @@ func ReadWorkPinTransactionTx(ctx context.Context, transaction *Transaction, wor
 // attempt, recovery intents — each of which owns its own refusals; this
 // function owns their order and the two early exits the phases cannot
 // express (the contract-ambiguity escape hatch and the terminal-state
-// intent selection).
+// intent selection). It is the builtin convenience: the instance's stored
+// pin verifies against the builtin registry.
 func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, error) {
+	return readWorkPinForRegistryTx(ctx, tx, workID, nil)
+}
+
+// readWorkPinForRegistryTx is the registry-threaded pin core: a caller
+// registry verifies the actual stored pin through itself with no builtin
+// fallback, and every phase below resolves the same verified definition.
+func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry) (WorkPin, error) {
 	var pin WorkPin
 	if tx == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "transaction is not open", false, "supply an active read transaction")
@@ -175,7 +183,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		}
 		return pin, nil
 	}
-	registered, readDefinition, instanceState, err := workPinReadInstanceTx(ctx, tx, workID, &pin)
+	registered, readDefinition, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
 	if err != nil {
 		return pin, err
 	}
@@ -304,11 +312,11 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// workPinReadInstanceTx reads the workflow instance, sets the pin's step and
-// workflow type, and verifies the pinned definition against the registry.
-// It returns the registered definition, the raw read definition, and the
-// instance state.
-func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
+// workPinReadInstanceForRegistryTx is the registry-threaded instance phase:
+// a nil registry keeps the builtin convenience verification, and a caller
+// registry verifies the actual stored pin through itself with no builtin
+// fallback.
+func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
 	var definition WorkflowReadDefinition
 	var instanceState string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
@@ -320,7 +328,7 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	pin.WorkflowType = definition.Ref
 	pin.WorkflowDefinitionVersion = &definition.Version
 	pin.WorkflowDefinitionDigest = &definition.Digest
-	registered, err := verifyReadWorkflowDefinition(definition)
+	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
@@ -332,6 +340,18 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	obligations := workflowDefinitionObligationIDs(registered.Definition)
 	pin.Obligations = &obligations
 	return registered, definition, instanceState, nil
+}
+
+// verifyReadWorkflowDefinitionForRegistry verifies one read definition
+// through the existing pin verifier: a nil registry keeps the builtin
+// convenience and its historical refusal shapes, and an explicit registry
+// gets VerifyWorkflowDefinitionPin's complete digest verification with no
+// builtin fallback. There is no second resolver.
+func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, registry DefinitionRegistry) (RegisteredDefinition, error) {
+	if registry == nil {
+		return verifyReadWorkflowDefinition(definition)
+	}
+	return VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
 }
 
 // workPinStepIntentsTx fills the pin's step intents and returns the folded
@@ -411,7 +431,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		}
 		contract.SelfRepair = selfRepair
 		pin.SelfRepair = contract.SelfRepair
-		pending, withheld, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, readDefinition, contract)
+		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority, factFailure: state.ConfirmationFactFailure})
 		if questionErr != nil {
 			return questionErr
 		}

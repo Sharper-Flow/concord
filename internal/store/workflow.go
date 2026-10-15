@@ -541,6 +541,10 @@ type workflowPremiseConfirmedPayload struct {
 	WorkflowVersionFields
 	ContractVersion    int64  `json:"contract_version"`
 	ConfirmingActorRef string `json:"confirming_actor_ref"`
+	// ConfirmationAuthority records whose authority the confirmation
+	// carries: "operator" for the verified operator identity, "coordinator"
+	// for consequence_v1's authenticated non-worker coordinator.
+	ConfirmationAuthority string `json:"confirmation_authority,omitempty"`
 }
 
 type workflowSuccessorLinkedPayload struct {
@@ -3525,9 +3529,26 @@ func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event) 
 	if p.ContractVersion <= 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation has invalid contract version", false, "supply a positive contract version")
 	}
+	registered, registeredErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if registeredErr != nil {
+		return registeredErr
+	}
+	return workflowPremiseConfirmedWriteTx(ctx, tx, registered.Definition, event, p)
+}
+
+// workflowPremiseConfirmedWriteTx is the premise confirmation fold body minus
+// the builtin definition resolution: the caller supplies the verified
+// definition, so consequence_v1 seams can drive the same owner a live fold
+// drives. It validates the claimed authority against the definition and the
+// active contract's stored fact, binds the confirming actor, and records the
+// confirmation row.
+func workflowPremiseConfirmedWriteTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, event Event, p workflowPremiseConfirmedPayload) error {
+	if err := workflowPremiseConfirmedAuthorityTx(ctx, tx, definition, event.SubjectID, p.ContractVersion, p.ConfirmingActorRef, p.ConfirmationAuthority); err != nil {
+		return err
+	}
 	var class string
-	if p.ConfirmingActorRef != event.Actor || tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&class) != nil || class != "operator" {
-		return newFailure(KindInvalidOperation, "fold_event", "premise must be confirmed by an operator actor", false, "record operator approval")
+	if p.ConfirmingActorRef != event.Actor || tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&class) != nil {
+		return newFailure(KindInvalidOperation, "fold_event", "premise confirmation does not carry its declared authority class", false, "record the confirmation under the declared authority identity")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
@@ -3781,6 +3802,94 @@ func upcastWorkflowContractApprovedV3(event Event) (Event, error) {
 // member stay untouched for the fold's source-version gate to refuse.
 func upcastWorkflowContractApprovedV4(event Event) (Event, error) {
 	event.PayloadVersion = 5
+	return event, nil
+}
+
+// workflowPremiseConfirmedAuthorityTx validates a claimed confirmation
+// authority against the verified definition and the active contract's stored
+// decision fact: only consequence_v1 engineering admits coordinator authority,
+// while legacy and decision-bearing contracts require the verified operator.
+// The claimed class and the worker-history rule are checked here, so a forged
+// role cannot ride on a caller-supplied authority string.
+func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, contractVersion int64, confirmingActor, claimedAuthority string) error {
+	if claimedAuthority != "operator" && claimedAuthority != "coordinator" {
+		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation authority is not closed", false, "record operator or coordinator authority")
+	}
+	var stored sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&stored); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindInvariantViolation, "fold_event", "confirmed workflow contract is missing", false, "reread_entities")
+		}
+		return err
+	}
+	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		if claimedAuthority != "operator" {
+			return newFailure(KindInvalidOperation, "fold_event", "premise confirmation on this contract requires the verified operator authority", false, "record operator approval")
+		}
+		return requireActorClass(ctx, tx, confirmingActor, "operator")
+	}
+	// A consequence_v1 confirmation is bound to the contract version it named.
+	// Supersession invalidates it: a live (authored) confirmation must name
+	// the active version, while replayed history keeps its recorded semantics.
+	if !isWorkflowReplay(ctx) {
+		active, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "fold_event")
+		if activeErr != nil {
+			return activeErr
+		}
+		if active != contractVersion {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, active), false, "confirm the active contract version")
+		}
+	}
+	if !stored.Valid {
+		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+	}
+	var domains []string
+	if json.Unmarshal([]byte(stored.String), &domains) != nil {
+		return newFailure(KindInvariantViolation, "fold_event", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+	}
+	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
+	if err != nil {
+		return err
+	}
+	if decision.Consent != WorkflowConsentNone && claimedAuthority != "operator" {
+		return newFailure(KindInvalidOperation, "fold_event", "decision-bearing premise confirmation requires the verified operator authority", false, "record operator approval")
+	}
+	if decision.Consent == WorkflowConsentNone && claimedAuthority != "coordinator" {
+		return newFailure(KindInvalidOperation, "fold_event", "engineering premise confirmation requires the authenticated coordinator authority; the verified operator confirms decision-bearing work alone", false, "record the coordinator confirmation")
+	}
+	if claimedAuthority == "coordinator" {
+		authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, confirmingActor)
+		if authorityErr != nil {
+			return authorityErr
+		}
+		if authority == WorkflowWorkerEvaluator {
+			return newFailure(KindInvalidOperation, "fold_event", "worker actors cannot record an engineering premise confirmation", false, "return the worker report to the coordinator")
+		}
+		return requireActorClass(ctx, tx, confirmingActor, "agent")
+	}
+	return requireActorClass(ctx, tx, confirmingActor, "operator")
+}
+
+// upcastWorkflowPremiseConfirmedV1 carries a v1 premise confirmation into the
+// v2 payload that declares its authority. Every v1 confirmation was recorded
+// under the operator class the fold required, so the upcast stamps the
+// original operator authority explicitly and refuses bytes that already claim
+// an authority member no v1 store ever wrote.
+func upcastWorkflowPremiseConfirmedV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.premise_confirmed v1 payload is not a JSON object", false, "repair the stored workflow premise confirmation")
+	}
+	if _, authored := fields["confirmation_authority"]; authored {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.premise_confirmed v1 cannot carry a confirmation authority member", false, "record the confirmation at its stored version")
+	}
+	fields["confirmation_authority"] = json.RawMessage(`"operator"`)
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.premise_confirmed v1 payload", false, "repair the stored workflow premise confirmation", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
 	return event, nil
 }
 

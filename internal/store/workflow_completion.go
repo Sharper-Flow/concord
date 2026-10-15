@@ -252,16 +252,22 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 	}
 
-	// Clause 5: premise confirmation is an operator approval, not a payload bit.
+	// Clause 5: the premise confirmation carries the authority the contract's
+	// declared decision fact demands — a verified operator for decision-bearing
+	// work, and under consequence_v1 an authenticated non-worker coordinator
+	// for engineering. Legacy contracts keep the operator requirement.
 	var confirmedBy string
 	if err := tx.QueryRowContext(ctx, `SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, event.SubjectID, contract.Version).Scan(&confirmedBy); err != nil {
 		if err == sql.ErrNoRows {
+			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 && workflowPremiseContractIsEngineering(contract) {
+				return workflowClauseFailure(KindMissingEvidence, 5, "workflow premise is not confirmed", "record the coordinator confirmation")
+			}
 			return workflowClauseFailure(KindApprovalRequired, 5, "workflow premise is not confirmed", "request_approval")
 		}
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect premise confirmation", true, "retry once the database is readable", err), 5)
 	}
-	if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
-		return workflowClauseFailure(KindApprovalRequired, 5, "workflow premise confirmation is not operator typed", "request_approval")
+	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, event.SubjectID, confirmedBy); err != nil {
+		return workflowClauseError(err, 5)
 	}
 
 	// Clause 6: the folded evaluator verdict is the authority.  Incomparable,
@@ -366,10 +372,56 @@ type workflowCompletionContractData struct {
 	SpecMandate             []string
 	LawModifies             []string
 	LawBoundaryVersion      int
+	DecisionDomains         []string
+	DecisionDomainsPresent  bool
 	OutcomeKind             string
 	OutcomePayload          string
 	ArchitectureBinding     *WorkflowArchitectureBinding
 	VerificationObligations []WorkflowVerificationObligation
+}
+
+// workflowPremiseConfirmationAuthority holds one stored confirmation to the
+// authority its contract's declared decision fact demands: a verified operator
+// for decision-bearing work, and under consequence_v1 an authenticated
+// non-worker coordinator for engineering. Legacy contracts keep the operator
+// requirement, and a missing new-policy fact fails closed.
+func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, contract workflowCompletionContractData, workID, confirmedBy string) error {
+	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
+			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
+		}
+		return nil
+	}
+	if !contract.DecisionDomainsPresent {
+		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "rebuild projections from the event log")
+	}
+	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: contract.DecisionDomains})
+	if err != nil {
+		return err
+	}
+	if decision.Consent != WorkflowConsentNone {
+		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
+			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
+		}
+		return nil
+	}
+	if err := requireActorClass(ctx, tx, confirmedBy, "agent"); err != nil {
+		return newFailure(KindInvalidOperation, "complete_workflow", "engineering premise confirmation is not coordinator typed", false, "record the coordinator confirmation")
+	}
+	authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, confirmedBy)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if authority == WorkflowWorkerEvaluator {
+		return newFailure(KindInvalidOperation, "complete_workflow", "worker actors cannot hold an engineering premise confirmation", false, "record the coordinator confirmation")
+	}
+	return nil
+}
+
+// workflowPremiseContractIsEngineering reports whether the contract's stored
+// decision fact classifies the work as engineering under consequence_v1.
+func workflowPremiseContractIsEngineering(contract workflowCompletionContractData) bool {
+	return contract.DecisionDomainsPresent && len(contract.DecisionDomains) == 0
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {
@@ -399,7 +451,8 @@ func workflowCompletionContract(ctx context.Context, tx queryer, registry Defini
 		}
 		return result, WorkflowDefinition{}, activeErr
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion); err != nil {
+	var decisionDomains sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains); err != nil {
 		if err == sql.ErrNoRows {
 			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -415,6 +468,12 @@ func workflowCompletionContract(ctx context.Context, tx queryer, registry Defini
 	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
 	if predicateErr != nil || len(result.Predicates) == 0 {
 		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
+	}
+	if decisionDomains.Valid {
+		result.DecisionDomainsPresent = true
+		if json.Unmarshal([]byte(decisionDomains.String), &result.DecisionDomains) != nil {
+			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
+		}
 	}
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
 	result.OutcomePayload = result.Predicates[0].OutcomePayload

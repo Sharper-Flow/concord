@@ -354,54 +354,15 @@ func boundedQuestionText(value string, upper int) string {
 // ValidateWorkflowOperatorSelection verifies the semantic answer before any
 // grant, approval challenge, or mutation authority is consumed.
 func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID string, expectedVersion int64, actionID, selectedChoice, decisionDigest string) error {
-	if actionID != "confirm_premise" {
-		if selectedChoice != "" || decisionDigest != "" {
-			return newFailure(KindInvalidPayload, "workflow_operator_question", "question selection is only valid for confirm_premise", false, "use the declared action payload")
-		}
-		return nil
-	}
-	if selectedChoice == "" {
-		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a selected closed choice", false, "reread the workflow question")
-	}
-	if selectedChoice != "confirm" {
-		recovery := "use the declared revision or cancellation action"
-		return newFailure(KindIllegalLifecycleTransition, "workflow_operator_question", "confirm_premise accepts only the closed confirm choice; revise and stop must use their declared actions", false, recovery)
-	}
-	if !workflowDigestPattern.MatchString(decisionDigest) {
-		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a valid decision_context_digest", false, "reread the workflow question")
-	}
-	question, err := ReadWorkflowOperatorQuestion(ctx, s, workID)
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
-		return err
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open the selection read transaction", true, "retry once the database is readable", err)
 	}
-	if question == nil {
-		// The read path admits a question only after the investigation-artifact
-		// precondition holds, and swallows that refusal to keep reads total. The
-		// requirement is knowable here, so name it: reporting staleness sends the
-		// caller to refresh context that refreshing cannot change.
-		if artifactErr := requireRecordedInvestigationArtifactSnapshot(ctx, s, workID); artifactErr != nil {
-			return artifactErr
-		}
-		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "no operator question is open at the current workflow step", false, "reread the workflow step and its declared actions")
-	}
-	if question.ActionID != actionID {
-		return newFailure(KindStaleRequiresReview, "workflow_operator_question", fmt.Sprintf("the open operator question is for action %s, not %s", question.ActionID, actionID), false, "answer the open question's action")
-	}
-	if question.DecisionContextDigest != decisionDigest {
-		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "decision context digest is stale or forged", false, "refresh_context")
-	}
-	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot re-read workflow version", true, "retry once the database is readable", err)
-	}
-	if version != expectedVersion {
-		conflict, conflictErr := versionConflictForQuery(ctx, s.db, workID, expectedVersion, version)
-		if conflictErr != nil {
-			return conflictErr
-		}
-		return conflict
-	}
-	return nil
+	defer func() { _ = tx.Rollback() }()
+	return validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: workID, ActionID: actionID, SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
+		ExpectedVersion: expectedVersion,
+	})
 }
 
 func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
@@ -416,9 +377,6 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	}
 	if request.SelectedChoice != "confirm" {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_operator_question", "confirm_premise accepts only the closed confirm choice; revise and stop must use their declared actions", false, "use the declared revision or cancellation action")
-	}
-	if !workflowDigestPattern.MatchString(request.DecisionContextDigest) {
-		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a valid decision_context_digest", false, "reread the workflow question")
 	}
 	var currentStep string
 	var workVersion int64
@@ -439,7 +397,8 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
+	var decisionDomains sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &decisionDomains); err != nil {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
@@ -452,6 +411,46 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
 	if err != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "rebuild projections from the event log")
+	}
+	engineering := false
+	if entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		if !decisionDomains.Valid {
+			return newFailure(KindInvalidInput, "workflow_operator_question", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+		}
+		var domains []string
+		if json.Unmarshal([]byte(decisionDomains.String), &domains) != nil {
+			return newFailure(KindInvalidInput, "workflow_operator_question", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+		}
+		decision, decisionErr := ClassifyWorkflowApproval(entry.Definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
+		if decisionErr != nil {
+			return decisionErr
+		}
+		engineering = decision.Consent == WorkflowConsentNone
+	}
+	if engineering {
+		// Engineering: the coordinator records its own confirm choice — no
+		// human digest, no operator question, and the recorded investigation
+		// artifact the question path also demands.
+		if request.DecisionContextDigest != "" {
+			return newFailure(KindInvalidPayload, "workflow_operator_question", "an engineering premise confirmation carries no human decision-context digest", false, "drop the human digest for engineering work")
+		}
+		if artifactErr := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); artifactErr != nil {
+			return artifactErr
+		}
+		if !containsString(workflowStep(entry.Definition, currentStep).Actions, "confirm_premise") {
+			return newFailure(KindStaleRequiresReview, "workflow_operator_question", "confirm_premise is not available at the current workflow step", false, "reread the workflow step and its declared actions")
+		}
+		if workVersion != request.ExpectedVersion {
+			conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, workVersion)
+			if conflictErr != nil {
+				return conflictErr
+			}
+			return conflict
+		}
+		return nil
+	}
+	if !workflowDigestPattern.MatchString(request.DecisionContextDigest) {
+		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a valid decision_context_digest", false, "reread the workflow question")
 	}
 	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")

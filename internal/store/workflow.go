@@ -2444,7 +2444,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			advancesStep = advancesStep && !p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")
 		}
 		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, currentStep, event, p); err != nil {
 				return err
 			}
 		}
@@ -2667,12 +2667,23 @@ func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepI
 	return attemptID, lifecycle, true, nil
 }
 
-func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, beforeSeq int64) error {
-	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, stepID, beforeSeq)
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, stepID string, event Event, p workflowActionCompletedPayload) error {
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, event.SubjectID, stepID, event.Seq)
 	if err != nil {
 		return err
 	}
-	if !held || actionID == "accept_worker_result" {
+	if !held || p.ActionID == "accept_worker_result" {
+		return nil
+	}
+	// A recorded historical completion whose own stored prefix already
+	// satisfied the released hold predicate keeps folding: the recorded
+	// admission answers this hold decision alone and refuses every shape it
+	// cannot prove.
+	recorded, recordedErr := workflowRecordedHoldAdmission(ctx, tx, event, p, definition, stepID)
+	if recordedErr != nil {
+		return recordedErr
+	}
+	if recorded {
 		return nil
 	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")

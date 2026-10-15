@@ -130,6 +130,60 @@ func workflowRecordedCheckpointAdmission(ctx context.Context, tx *sql.Tx, event 
 	return disposed != 0, nil
 }
 
+// workflowRecordedHoldPins is the closed archived-pin set the recorded
+// dispatch-hold admission serves. Live admission never reads it, and it is
+// never widened.
+var workflowRecordedHoldPins = map[recordedCorrectionPin]bool{
+	{"workflow.break_fix", 15, "sha256:dc4b081253f694fdd4383792b762b0b03517fa84256f04219c0a6fa15156162c"}: true,
+}
+
+// workflowRecordedHoldAdmission re-admits, during replay only, a payload-v2
+// confirm_premise completion at the pinned verify step whose stored prefix
+// is compatible with the hold bounds the released predicate enforced: the
+// strictly latest matching-step start precedes the completion and carries
+// its epoch, an actual worker dispatch on the whole work precedes that
+// start, and no actual dispatch falls between the start and the completion.
+// The exact installed producer of any archived payload is unknown, so a
+// successful proof establishes only this recorded compatibility, never the
+// historical attribution of the bytes. Dispatch scope stays the whole work
+// item, exactly as the released predicate bounded it, never one step. Every
+// other shape keeps the fold's refusal, and a query error propagates
+// instead of admitting.
+func workflowRecordedHoldAdmission(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) (bool, error) {
+	if !isWorkflowReplay(ctx) || event.Seq <= 0 || event.replaySourcePayloadVersion != 2 || p.ActionID != "confirm_premise" {
+		return false, nil
+	}
+	pin, err := workflowRecordedInstancePin(ctx, tx, event.SubjectID)
+	if err != nil {
+		return false, err
+	}
+	if !workflowRecordedHoldPins[pin] || BuiltinWorkflowRegistry().Verify(pin.ref, pin.version, pin.digest) != nil {
+		return false, nil
+	}
+	if step := workflowStep(definition, currentStep); step == nil || currentStep != "verify" || p.StepID != currentStep || step.Kind != WorkflowStepHumanCheckpoint {
+		return false, nil
+	}
+	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, event.Seq)
+	if err != nil {
+		return false, err
+	}
+	if !found || startEpoch != p.AttemptEpoch {
+		return false, nil
+	}
+	var olderDispatches int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<?`, event.SubjectID, WorkerDispatched, startSeq).Scan(&olderDispatches); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect recorded worker dispatches")
+	}
+	if olderDispatches == 0 {
+		return false, nil
+	}
+	var newerDispatches int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND seq<?`, event.SubjectID, WorkerDispatched, startSeq, event.Seq).Scan(&newerDispatches); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect recorded worker dispatches")
+	}
+	return newerDispatches == 0, nil
+}
+
 // workflowRecordedRecoveryBindingAdmission re-admits, during replay only, a
 // payload-v2/v3 bind_evidence completion whose own preceding binding satisfied
 // a declared contract requirement, where the outstanding filter refuses it only

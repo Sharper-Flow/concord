@@ -264,9 +264,10 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	// The corrected projection is a record, not a relation: the merged
 	// action creates no relation rows (CD-0198 D2 keeps CD-0156 D5).
 	var relations int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_relations WHERE from_work_id=? OR to_work_id=?`, workID, workID).Scan(&relations); err != nil {
-		t.Log("workflow_relations is not the projection table; relation assertion skipped")
-	} else if relations != 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	if relations != 0 {
 		t.Fatalf("record_diagnosis created %d relation rows, want none", relations)
 	}
 }

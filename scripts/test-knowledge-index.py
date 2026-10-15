@@ -1003,6 +1003,29 @@ def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
     assert errors == [], errors[:5]
 
 
+CORRECTED_DERIVED_RECORD_IDS = frozenset({
+    "CD-0165", "CD-0166", "CD-0167", "CD-0168", "CD-0169", "CD-0170",
+    "CD-0171", "CD-0176", "CD-0177", "CD-0178", "CD-0180", "CD-0188",
+    "CD-0189", "CD-0192", "CD-0195", "CD-0196", "CD-0197", "CD-0198",
+    "CD-0199", "CD-0203", "CD-0204", "CD-0207", "CD-0209",
+})
+
+
+def test_composed_manifest_carries_the_corrected_derived_authorities() -> None:
+    """CD-0159 D7: these records' legislative declarations failed D2 and are derived."""
+    compose_spec = importlib.util.spec_from_file_location(
+        "knowledge_index", Path(__file__).with_name("knowledge_index.py")
+    )
+    knowledge_index = importlib.util.module_from_spec(compose_spec)
+    compose_spec.loader.exec_module(knowledge_index)
+    manifest = knowledge_index.compose_manifest()
+    record_ids = [record["id"] for record in manifest["records"]]
+    by_id = {record["id"]: record for record in manifest["records"]}
+    for record_id in sorted(CORRECTED_DERIVED_RECORD_IDS):
+        assert record_ids.count(record_id) == 1, (record_id, record_ids.count(record_id))
+        assert by_id[record_id]["authority"] == {"tier": "derived"}, (record_id, by_id[record_id]["authority"])
+
+
 def external_record_document(path: str, with_override: bool) -> dict:
     """A v1.3 manifest whose one record lives outside the default tree, with
     or without the operator override head that admits it."""

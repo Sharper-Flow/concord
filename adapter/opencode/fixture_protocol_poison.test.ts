@@ -13,14 +13,29 @@
 // the whole writer chain, remove exactly its allocated root, and leave a
 // concurrent foreign-run sentinel and a same-prefix sibling byte-identical.
 // No model call happens anywhere here.
-import { expect, test } from "bun:test"
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
+import { afterEach, expect, test } from "bun:test"
+import { mkdtemp as rawMkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const OWNER = join(import.meta.dir, "fixture-root-owner.py")
 const CASE_FILE = join(import.meta.dir, "fixture-owner.case.ts")
 const PYTHON = (Bun.which("python3", { PATH: "/usr/bin:/bin" }) ?? Bun.which("python3")) as string
+
+const testDirectories: string[] = []
+const ownedChildren: Array<Bun.Subprocess> = []
+async function mkdtemp(prefix: string): Promise<string> {
+  const directory = await rawMkdtemp(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+afterEach(async () => {
+  await Promise.all(ownedChildren.splice(0).map(async (child) => {
+    child.kill("SIGTERM")
+    await child.exited
+  }))
+  await Promise.all(testDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+})
 
 // The old private key names live on ONLY here, as deliberate negative
 // poison: values that would break the run if any producer or consumer still
@@ -99,6 +114,7 @@ test("nested owned suite runs through TEST_CONCORD_* inputs under poisoned live 
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push(owner)
   const [stdout, stderr, exited] = await Promise.all([
     new Response(owner.stdout).text(),
     new Response(owner.stderr).text(),

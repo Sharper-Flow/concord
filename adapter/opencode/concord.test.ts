@@ -1,5 +1,5 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
@@ -15,6 +15,12 @@ import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+const testDirectories: string[] = []
+async function mkdtemp(prefix: string): Promise<string> {
+  const directory = await createDirectory(prefix)
+  testDirectories.push(directory)
+  return directory
+}
 
 syntheticHostVersionFixture()
 
@@ -69,12 +75,13 @@ beforeEach(() => {
   delete process.env.ZELLIJ_PANE_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
 })
-afterEach(() => {
+afterEach(async () => {
   resetClaimedWorktrees()
   if (outerPaneID === undefined) delete process.env.ZELLIJ_PANE_ID
   else process.env.ZELLIJ_PANE_ID = outerPaneID
   if (outerSelectedProductID === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
   else process.env.CONCORD_SELECTED_PRODUCT_ID = outerSelectedProductID
+  await Promise.all(testDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 

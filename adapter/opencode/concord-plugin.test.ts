@@ -2,7 +2,7 @@
 // dispatch to the next native Task call. Without the registration the window is
 // unreachable and any Task call the model composes runs unbound.
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
-import fs from "node:fs"
+import nodeFs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { configureHostLease } from "./host-lease"
@@ -15,6 +15,13 @@ import { bindCiWatchClient, ciWatchSettled, configureCiWatch, type VerbSpawner }
 import { configureCoreBinary } from "./dispatch"
 import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
 
 syntheticHostVersionFixture()
 
@@ -636,6 +643,7 @@ afterEach(() => {
   bindCiWatchClient(undefined)
   configureCoreBinary(null)
   resetTurnMoveBoundaries()
+  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 
 // The factory claims a host lease at load, which fails against the unstamped

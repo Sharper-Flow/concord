@@ -1,11 +1,18 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { createHash } from "node:crypto"
-import fs from "node:fs"
+import nodeFs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { AdapterContractDefect } from "./adapter-contract-defect"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
 
 beforeEach(() => {
   // Another file's landing tests can arm a claim that leaks into this run;
@@ -16,7 +23,10 @@ beforeEach(() => {
     post: async () => { throw new Error("dispatch does not move the host session") },
   })
 })
-afterEach(() => hostControlPlane().bind(undefined))
+afterEach(() => {
+  hostControlPlane().bind(undefined)
+  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
+})
 
 // The lane dispatcher reaches the Opencode plugin through ToolContext (typed
 // only) and the dispatch worker through dispatchWorker, but the test never

@@ -151,6 +151,37 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if schemawire.NextPowerOfTwo(composed) != maxWorkflowActionPayloadBytes {
 		t.Fatalf("composed declared maxima = %d bytes, whose next power of two is %d; the whole-action budget constant is %d and must stay the derivation's own rounding", composed, schemawire.NextPowerOfTwo(composed), maxWorkflowActionPayloadBytes)
 	}
+	// The research-context packet3 identity rides the same
+	// composition: its work-context closure — the research entries and the
+	// widened group namespace — sits inside the excluded work_context member,
+	// so the packet3 derivation must match the packet2 derivation byte for
+	// byte and the budget constant stays unchanged. No second budget and no
+	// limit growth.
+	packet3Opt := schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			"worker_packet3/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
+			"worker_packet3/inputs/design_record/workflow_design_record/recorded_at":      32,
+			"worker_packet3/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
+		},
+		Excludes: map[string]bool{
+			"worker_packet3/inputs/work_context": true,
+			"worker_packet3/inputs/checkpoint":   true,
+			"worker_packet3/inputs/correction":   true,
+		},
+		FindingRefMax: findingRefMax,
+	}
+	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
+	if err != nil {
+		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
+	}
+	if packet3Parts != packetParts {
+		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d; the research closure rides the unchanged context aggregate", packet3Parts, packetParts)
+	}
+	packet3Composed := packet3Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
+	if packet3Composed != composed {
+		t.Fatalf("the packet3 composition = %d bytes, want the packet2 composition %d", packet3Composed, composed)
+	}
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)
 	}

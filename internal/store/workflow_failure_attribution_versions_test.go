@@ -400,11 +400,37 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
 	}
+	// The research-context packet3 identity derives through the
+	// same excludes: its research closure sits inside the excluded
+	// work_context member, so both identities compose identically and the
+	// retained packet2 evidence stays.
+	packet3Opt := schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			"worker_packet3/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
+			"worker_packet3/inputs/design_record/workflow_design_record/recorded_at":      32,
+			"worker_packet3/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
+		},
+		Excludes: map[string]bool{
+			"worker_packet3/inputs/work_context": true,
+			"worker_packet3/inputs/checkpoint":   true,
+			"worker_packet3/inputs/correction":   true,
+		},
+		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
+	}
+	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
+	if err != nil {
+		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
+	}
+	if packet3Parts != packetParts {
+		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
+	}
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
 			"worker_failure_observation": WorkerFailureAttributionMaxBlockBytes,
 			"worker_packet2":             packetParts + DispatchContextAggregateMaxBytes - 1,
+			"worker_packet3":             packet3Parts + DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
 	}

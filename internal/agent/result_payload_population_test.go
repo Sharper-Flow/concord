@@ -524,6 +524,7 @@ var fixtureStringCandidates = []string{
 	"actor:" + strings.Repeat("0", 64),
 	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
 	"finding:1:0",
+	"research:1:0",
 	"case:conformance",
 	"control:conformance",
 	"owner:conformance",
@@ -711,6 +712,27 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		}
 		t.Fatalf("schema type union %v has no fixture rule", kind)
 	default:
+		// A typeless anyOf union (the retry_worker_packet transport
+		// closure) selects its first non-null arm like oneOf, with the
+		// node's own sibling constraints merged into the arm so the built
+		// value satisfies the union whole. A typed node with an anyOf
+		// sibling keeps walking its own declared shape, so the union never
+		// narrows a typed build.
+		if union, ok := schema["anyOf"].([]any); ok {
+			siblings := maps.Clone(schema)
+			delete(siblings, "anyOf")
+			for _, branch := range union {
+				branchSchema, ok := branch.(map[string]any)
+				if !ok {
+					continue
+				}
+				if branchSchema["type"] == "null" {
+					continue
+				}
+				return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
+			}
+			return nil
+		}
 		t.Fatalf("schema node carries no type at depth %d", depth)
 	}
 	return nil
@@ -811,6 +833,69 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSchemaFixtureUnionArmsRespectSiblingConstraints pins the union rules the
+// fixture builder keeps: a typeless anyOf union selects its first non-null
+// arm without dropping the node's siblings, a typed node with an anyOf sibling
+// still walks its full declared shape, and a result schema that embeds the
+// union builds and validates whole.
+func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
+	defs := payloadSchemaDefs(t)
+	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
+		union := defs["mutation_result"]["properties"].(map[string]any)["retry_worker_packet"].(map[string]any)
+		if _, typed := union["type"]; typed {
+			t.Fatal("retry_worker_packet stopped being a typeless union; this subtest no longer exercises the typeless rule")
+		}
+		arm := schemaFixtureValue(t, union, defs, 0)
+		data, err := json.Marshal(arm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("worker_packet2", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet2: %v", err)
+		}
+	})
+	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {
+		// A sibling minLength on a typeless union binds the arm the builder
+		// selects: the default string candidate is 11 characters, so only a
+		// fixture that merges the sibling into the arm satisfies the union.
+		union := map[string]any{
+			"description": "synthetic transport closure",
+			"minLength":   json.Number("12"),
+			"anyOf": []any{
+				map[string]any{"type": "string"},
+				map[string]any{"type": "null"},
+			},
+		}
+		value, ok := schemaFixtureValue(t, union, defs, 0).(string)
+		if !ok {
+			t.Fatalf("typeless anyOf fixture is not the selected string arm: %#v", value)
+		}
+		if len(value) < 12 {
+			t.Fatalf("typeless anyOf fixture %q ignores the sibling minLength 12", value)
+		}
+	})
+	t.Run("typed_anyOf_sibling_constraints_hold", func(t *testing.T) {
+		value := schemaFixtureValue(t, defs["work_scope"], defs, 0)
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("work_scope", data); err != nil {
+			t.Fatalf("typed anyOf fixture violates the schema's own sibling constraints: %v", err)
+		}
+	})
+	t.Run("mutation_result_with_transport_union_validates", func(t *testing.T) {
+		value := schemaFixtureValue(t, defs["mutation_result"], defs, 0)
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("mutation_result", data); err != nil {
+			t.Fatalf("mutation_result fixture is invalid: %v", err)
+		}
+	})
 }
 
 // readPopulationInputs names the dispatch input each read operation answers

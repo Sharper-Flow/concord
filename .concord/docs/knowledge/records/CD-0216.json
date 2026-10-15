@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d95d73ca0374a1bd3a5066642d26fc01db79314bf50ba85493c6396dcbe9592b",
+  "sha256": "sha256:dc67ea9b99f92949fd7166755a97dd87236a0161958dd05a9987336e95055abf",
   "status": "accepted",
   "summary": "Retains authoring, one research read route, the research capability, and transactional engine-bound reliance. Adds explicit authorized research_retire with dry run, 1-100 versioned candidates, atomic effects and idempotency. Terminal-owner revisions remain reusable, every active pin protects content, and neither publication nor reads retire packs. No Concord legislative contract or live consumer recovery is asserted.",
   "tags": [

@@ -1618,6 +1618,15 @@
             "$ref": "#/$defs/lane_work_context_domain_group"
           }
         },
+        "research_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/lane_work_context_research_finding_view"
+          },
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing."
+        },
         "oracle_receipts": {
           "type": "array",
           "minItems": 0,
@@ -1854,6 +1863,383 @@
         }
       }
     },
+    "lane_work_context_research_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "domain_id"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "description": "Present exactly when the declared Domain is the registry's root Domain; the core validates that pairing at authoring."
+        }
+      },
+      "description": "One closed selected research reference: the exact pack, revision, and finding beside the declared Domain. References only, never research content."
+    },
+    "lane_work_context_research_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "kind",
+        "statement",
+        "confidence",
+        "freshness",
+        "status",
+        "scopes"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "conclusion",
+            "recommendation"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "contradicted",
+            "superseded"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "scopes": {
+          "$ref": "#/$defs/lane_research_scopes",
+          "description": "The finding's own applicability scopes, carried unchanged from the research authority. The Go reader always serializes this member, so the context projection requires it."
+        }
+      },
+      "description": "The native research finding a resolved context entry carries: the research authority's own vocabulary, never mapped to generic worker observations or invented evidence refs."
+    },
+    "lane_research_scopes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "home",
+            "explicit"
+          ]
+        },
+        "product_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "project_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "domain_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "tag_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        }
+      },
+      "description": "The native research scope vocabulary: applicability, never authority. Mode home applies to the owner's home broadly; explicit applies to exactly the declared lists."
+    },
+    "lane_research_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "source_id",
+        "kind",
+        "locator",
+        "title",
+        "publisher_or_author",
+        "accessed_at"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "official_doc",
+            "source_code",
+            "issue",
+            "paper",
+            "web",
+            "local_evidence"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "publisher_or_author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "published_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "accessed_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "description": "The native research source descriptor, carried exactly as the research authority publishes it."
+    },
+    "lane_work_context_research_finding_view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state",
+            "finding",
+            "sources"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/lane_work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "const": "resolved"
+            },
+            "finding": {
+              "$ref": "#/$defs/lane_work_context_research_finding"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/lane_research_source"
+              },
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/lane_work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "missing",
+                "stale",
+                "rebound",
+                "inactive"
+              ],
+              "description": "The typed drift states: an unresolved entry carries references and provenance only, no finding and no sources."
+            }
+          }
+        }
+      ],
+      "description": "One selected research entry of the shared work-context view. Exactly the resolved state carries the native finding and its linked source descriptors; every other state carries the closed selection tuple and provenance only."
+    },
     "lane_work_context_domain_group": {
       "type": "object",
       "additionalProperties": false,
@@ -1885,7 +2271,8 @@
             "type": "string",
             "minLength": 11,
             "maxLength": 64,
-            "pattern": "^finding:[0-9]+:[0-9]+$"
+            "pattern": "^(finding|research):[0-9]+:[0-9]+$",
+            "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list. Generic finding_refs never resolve research."
           }
         },
         "domain_cards": {

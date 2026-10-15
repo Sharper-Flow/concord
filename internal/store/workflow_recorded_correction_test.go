@@ -127,6 +127,51 @@ func archivedCorrectionResolverForProof(definition WorkflowDefinition, currentSt
 	return fallback
 }
 
+// TestRecordedCorrectionCoversFailureAttributionPins derives each failure
+// attribution pin's route through the admission-filtered archived proof and
+// requires both the recorded resolver and the table to honor that
+// derivation, beside the exhaustive all-pin comparison.
+func TestRecordedCorrectionCoversFailureAttributionPins(t *testing.T) {
+	for _, tc := range []struct {
+		ref     string
+		version int64
+	}{
+		{"workflow.break_fix", 28},
+		{"workflow.implementation", 31},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			entry := mustRecordedCorrectionPin(t, tc.ref, tc.version)
+			pin := recordedCorrectionPin{tc.ref, tc.version, entry.Digest}
+			route := recordedCorrectionRoute{}
+			for _, step := range entry.Definition.StepGraph.Steps {
+				archived := archivedCorrectionTargetForProof(entry.Definition, step.ID)
+				if archived == "" {
+					continue
+				}
+				if route.target != "" && route.target != archived {
+					t.Fatalf("one pin has inconsistent archived producers at %s", step.ID)
+				}
+				route.target = archived
+				route.steps = append(route.steps, step.ID)
+			}
+			if route.target == "" {
+				t.Fatalf("%s v%d derives no archived correction route", tc.ref, tc.version)
+			}
+			sort.Strings(route.steps)
+			have, ok := recordedCorrectionRoutes[pin]
+			if !ok || !reflect.DeepEqual(have, route) {
+				t.Fatalf("%s v%d pin %s table row = (%q, %v) present=%v, want derived (%q, %v)", tc.ref, tc.version, pin.digest, have.target, have.steps, ok, route.target, route.steps)
+			}
+			for _, step := range route.steps {
+				got, err := workflowRecordedCorrectionReturnTarget(entry, step)
+				if err != nil || got != route.target {
+					t.Fatalf("%s v%d recorded return at %s = (%q, %v), want (%q, nil)", tc.ref, tc.version, step, got, err, route.target)
+				}
+			}
+		})
+	}
+}
+
 func TestRecordedCorrectionTableMatchesEveryReleasedPinAndStep(t *testing.T) {
 	want := map[recordedCorrectionPin]recordedCorrectionRoute{}
 	excludedArchitectureTargets := 0
@@ -227,7 +272,7 @@ func TestRecordedCorrectionRefusalsAreAttributedAndAtomic(t *testing.T) {
 		version int
 	}{
 		{"missing-step", 3},
-		{"refine", 5},
+		{"refine", eventKindRegistry[WorkflowActionCompleted].CurrentVersion + 1},
 	} {
 		t.Run(fmt.Sprintf("%s-v%d", tc.step, tc.version), func(t *testing.T) {
 			const workID = "recorded-correction-refusal"

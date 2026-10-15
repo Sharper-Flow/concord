@@ -43,6 +43,7 @@ var recordedCorrectionRoutes = map[recordedCorrectionPin]recordedCorrectionRoute
 	{"workflow.break_fix", 25, "sha256:4fc28d8e29996c6062427c007575e24f22196c847a00539be6b93fdc926e0cb7"}:      {"repair", []string{"complete", "delivery", "refine", "verify"}},
 	{"workflow.break_fix", 26, "sha256:5ac84df6cd6c5f2776cff3cb58013b1a927896fe03e4ca9d5ed7ab639a3d6e61"}:      {"repair", []string{"complete", "delivery", "refine", "verify"}},
 	{"workflow.break_fix", 27, "sha256:793d74243860f19b5352394509e3b9caae45dc6aa08b522265294a3a4dea6bcf"}:      {"repair", []string{"complete", "delivery", "refine", "verify"}},
+	{"workflow.break_fix", 28, "sha256:f4d330316fe7ed2a4f9cfd9c9632e84319a266144178cd9fe7f22afce50f984b"}:      {"repair", []string{"complete", "delivery", "refine", "verify"}},
 	{"workflow.implementation", 1, "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155"}:  {"execution", []string{"acceptance", "release"}},
 	{"workflow.implementation", 2, "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"}:  {"execution", []string{"acceptance", "release"}},
 	{"workflow.implementation", 3, "sha256:12ecaeb8b7947387905b0354f131308586635e61a553eba25deb1564179cbcd4"}:  {"execution", []string{"acceptance", "release"}},
@@ -73,6 +74,7 @@ var recordedCorrectionRoutes = map[recordedCorrectionPin]recordedCorrectionRoute
 	{"workflow.implementation", 28, "sha256:d79ab810143286c3b5f4a6bb8401a6471476179fefc956ef4302602b345cdc4d"}: {"execution", []string{"acceptance", "delivery", "refine", "release"}},
 	{"workflow.implementation", 29, "sha256:17f8c7de2fcacb53067b28b18878ef88a9ceae74c2e5950c16ecc732ef9544b7"}: {"execution", []string{"acceptance", "delivery", "refine", "release"}},
 	{"workflow.implementation", 30, "sha256:acbd4af4a3ea441f45302e2e0b3b0fc4993f6e02646abd42e49568e775c934f7"}: {"execution", []string{"acceptance", "delivery", "refine", "release"}},
+	{"workflow.implementation", 31, "sha256:078cfe1c25c21e9ab56ae9d92502294e0d5a03ed2fcfb42b3ad80919a9062936"}: {"execution", []string{"acceptance", "delivery", "refine", "release"}},
 }
 
 func workflowRecordedCorrectionReturnTarget(entry RegisteredDefinition, step string) (string, error) {

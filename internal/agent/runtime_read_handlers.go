@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -376,10 +377,24 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
+	limit := effectiveLimit(in.Limit, in.Page)
+	// A versioned inner projection cursor continues an oversized projection's
+	// page sequence; the version-1 boundary cursor stays the store's window
+	// continuation. Only the original boundary cursor reaches the store read.
+	if projection, ok := decodeContinuityProjectionCursor(inner); ok {
+		if projection.Work != in.WorkID {
+			return coreError(base, "invalid_cursor", "continuity projection cursor does not match the requested work", "restart_query", false), nil
+		}
+		response, err := r.continuityProjectionPage(ctx, base, string(binding), limit, projection, nil)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		return response, nil
+	}
 	// CD-0096 D5: a session that signs its identity re-pins its held
 	// verify leases in the pinned projection. Envelopes without a session
 	// identity keep the work-keyed snapshot the session-boot path renders.
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
 	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
 		continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
 	}
@@ -389,7 +404,9 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	}
 	// One captured snapshot is fitted to the envelope bound: every candidate
 	// is a complete prefix of the same read, measured as the final wire
-	// object with its authenticated cursor and notices.
+	// object with its authenticated cursor and notices. Complete-prefix
+	// reductions name their omissions explicitly; the paged observations read
+	// and the boundary cursor recover everything they drop.
 	requested := len(snapshot.Boundaries)
 	response, size, err := FitContinuity(snapshot, continuityReq, MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (Envelope, int, error) {
 		response, err := r.continuity(base, fitted)
@@ -398,6 +415,12 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 		}
 		if response, err = r.wrapCursor(ctx, response, string(binding), "continuity"); err != nil {
 			return response, 0, err
+		}
+		if len(fitted.Observations) < len(snapshot.Observations) {
+			if len(response.Omissions) >= MaxNotices {
+				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs an observation omission notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
+			}
+			response.Omissions = append(response.Omissions, Notice{Kind: "continuity_observations_reduced", Details: map[string]any{"captured": len(snapshot.Observations), "retained": len(fitted.Observations), "maximum_bytes": MaxResultEnvelopeBytes}})
 		}
 		if len(fitted.Boundaries) < requested {
 			if len(response.Omissions) >= MaxNotices {
@@ -411,10 +434,128 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	if response.Outcome == OutcomeOK && size > MaxResultEnvelopeBytes {
-		return readSizeRefusal(base, size), nil
+	// The inline answer stays whenever the measured final envelope fits the
+	// unchanged cap. Otherwise the original requested projection — the
+	// captured boundary window and observation window, never reduced data —
+	// travels as lossless authenticated pages of its exact canonical
+	// document, and the first page renders the very snapshot this read
+	// captured. A frame-only breach is not caused by the projection and is
+	// refused honestly by the measured-size refusal.
+	if size > MaxResultEnvelopeBytes {
+		return r.continuityProjectionPage(ctx, base, string(binding), limit, continuityProjectionCursor{Version: 2, Work: in.WorkID, BoundaryCursor: inner}, &snapshot)
 	}
 	return response, nil
+}
+
+// continuityProjectionPage renders one page of the canonical continuity
+// document. A non-nil captured snapshot is the exact capture the initial
+// read already made, so its first page renders that capture without a second
+// store read; every continuation passes nil and re-derives the snapshot
+// under the original boundary cursor. The document is re-rendered and its
+// digest is refused before any fragment is emitted when it changed, so a
+// completed page sequence is exactly one projection. Each fragment is the
+// largest whole-code-point prefix that keeps the measured final envelope
+// inside the unchanged cap.
+func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, binding string, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (Envelope, error) {
+	if cursor.Work == "" || (cursor.Digest != "" && !validSHA256Proof(cursor.Digest)) || cursor.NextByteOffset < 0 {
+		return coreError(base, "invalid_cursor", "continuity projection cursor is malformed", "restart_query", false), nil
+	}
+	var snapshot store.ContinuitySnapshot
+	if captured != nil {
+		snapshot = *captured
+	} else {
+		continuityReq := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor}
+		if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
+			continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
+		}
+		read, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
+		if err != nil {
+			return base, err
+		}
+		snapshot = read
+	}
+	doc, digest, err := ContinuityCanonicalDocument(snapshot)
+	if err != nil {
+		return base, err
+	}
+	// The digest is the snapshot binding: it is checked before any fragment
+	// is emitted, so a continuation whose projection changed — including a
+	// changed session-specific lease view the event watermark cannot see —
+	// refuses with no effects.
+	if cursor.Digest != "" && digest != cursor.Digest {
+		return coreError(base, "invalid_cursor", "continuity projection changed since its first page; restart the read", "restart_query", false), nil
+	}
+	offset := int(cursor.NextByteOffset)
+	switch {
+	case offset < 0 || offset > len(doc) || (offset > 0 && offset == len(doc)):
+		return coreError(base, "invalid_cursor", "continuity projection cursor offset is out of range", "restart_query", false), nil
+	case offset > 0 && !utf8.RuneStart(doc[offset]):
+		return coreError(base, "invalid_cursor", "continuity projection cursor offset splits a code point", "restart_query", false), nil
+	}
+	header := continuityProjectionHeaderOf(snapshot)
+	// One freshness instant for the whole page render, so the searched
+	// candidate and the emitted page measure the same bytes.
+	observedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	at := func(n int) (Envelope, int, error) {
+		fragment := string(doc[offset : offset+n])
+		end := offset + n
+		var next any
+		nextCursor := snapshot.NextCursor
+		if end < len(doc) {
+			next = "projection"
+			innerToken, err := json.Marshal(continuityProjectionCursor{Version: 2, Work: cursor.Work, BoundaryCursor: cursor.BoundaryCursor, Digest: digest, NextByteOffset: int64(end)})
+			if err != nil {
+				return base, 0, err
+			}
+			token := string(innerToken)
+			nextCursor = &token
+		} else if nextCursor != nil {
+			// The document ends first; the original boundary-page
+			// continuation resumes exactly where the requested read left it.
+			next = "boundaries"
+		}
+		meta := continuityResultMetaObservedAt(snapshot, nextCursor, observedAt)
+		response, err := r.continuityProjectionEnvelope(base, meta, header, digest, int64(len(doc)), int64(offset), fragment, end == len(doc), next)
+		if err != nil {
+			return response, 0, err
+		}
+		if response, err = r.wrapCursor(ctx, response, binding, "continuity"); err != nil {
+			return response, 0, err
+		}
+		size, err := readEnvelopeSize(response)
+		return response, size, err
+	}
+	// Any whole-code-point candidate renders a schema-admissible page, so a
+	// render error there is a real failure — signing, store, or marshal —
+	// and propagates unchanged instead of counting as doesn't-fit.
+	length, err := continuityFragmentLength(doc, offset, func(n int) (bool, error) {
+		_, size, renderErr := at(n)
+		if renderErr != nil {
+			return false, renderErr
+		}
+		return size <= MaxResultEnvelopeBytes, nil
+	})
+	if err != nil {
+		return base, err
+	}
+	if length == 0 {
+		// No admissible code point fits: the frame alone breaches the cap,
+		// which the projection cannot repair. The honest measured refusal
+		// names the smallest legal page — the offset's first whole code
+		// point, never an empty or mid-rune cut — and a failure from that
+		// render propagates instead of posing as an overflow.
+		first := 1
+		for offset+first < len(doc) && !utf8.RuneStart(doc[offset+first]) {
+			first++
+		}
+		_, size, renderErr := at(first)
+		if renderErr != nil {
+			return base, renderErr
+		}
+		return readSizeRefusal(base, size), nil
+	}
+	response, _, err := at(length)
+	return response, err
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no
@@ -569,24 +710,39 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	// reach is left for the query itself to refuse or degrade by rule.
 	// CD-0200: the demand covers the Product's full registered source set,
 	// so a member Project's source rebuilds on demand too.
-	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil && !in.AllowDegraded {
-		return failureEnvelope(base, err), nil
+	// CD-0159 D6: under allow_degraded a suppressed demand is not silence —
+	// the exact per-source outcome rides the typed Q9 request, and Q9
+	// degrades that source through its owning per-source path. Without
+	// allow_degraded the same error refuses, as before.
+	var demandFailures []store.KnowledgeDemandFailure
+	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		if !in.AllowDegraded {
+			return failureEnvelope(base, err), nil
+		}
+		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
 	}
+	registrationsUnread := false
 	if in.ProductID != "" {
 		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
 		if srcErr != nil && !in.AllowDegraded {
 			return failureEnvelope(base, srcErr), nil
 		}
+		if srcErr != nil {
+			registrationsUnread = true
+		}
 		for _, source := range sources {
 			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
 				continue
 			}
-			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil && !in.AllowDegraded {
-				return failureEnvelope(base, err), nil
+			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
+				if !in.AllowDegraded {
+					return failureEnvelope(base, err), nil
+				}
+				demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, FailureKind: demandFailureKind(err)})
 			}
 		}
 	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
+	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures, RegistrationsUnread: registrationsUnread})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -594,7 +750,30 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
+	response.Omissions = boundedNotices(response.Omissions, knowledgeSourceNotices(q.SourceOmissions))
 	return r.wrapCursor(ctx, response, string(binding), "summary")
+}
+
+func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []Notice {
+	out := make([]Notice, 0, len(omissions))
+	for _, omission := range omissions {
+		details := map[string]any{"project_id": omission.ProjectID, "locator": omission.LocatorID}
+		if omission.Kind == store.KnowledgeSourceDemandFailed {
+			details["cause"] = omission.Cause
+		}
+		out = append(out, Notice{Kind: string(omission.Kind), Details: details})
+	}
+	return out
+}
+
+// demandFailureKind names the existing failure kind a suppressed demand
+// refused with, so the degraded omission carries the cause verbatim.
+func demandFailureKind(err error) string {
+	var failure *store.Failure
+	if errors.As(err, &failure) {
+		return string(failure.Kind)
+	}
+	return "unknown"
 }
 
 func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -606,7 +785,16 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return r.q10(base, q)
+	response, err := r.q10(base, q)
+	if err != nil {
+		return response, err
+	}
+	if authority := q.UnverifiedAuthority; authority != nil {
+		response.Warnings = boundedNotices(response.Warnings, []Notice{{Kind: "legislated_authority_unverified", Details: map[string]any{
+			"law_id": authority.LawID, "work_id": authority.WorkID, "contract_version": authority.ContractVersion,
+		}}})
+	}
+	return response, nil
 }
 
 func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {

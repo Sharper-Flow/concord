@@ -659,8 +659,29 @@ var derivedKnowledgeClearOrder = []string{
 }
 
 func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+	var productID string
+	var designated bool
+	if !manifestMissing {
+		var err error
+		productID, designated, err = resolveKnowledgeSourceRole(ctx, tx, home)
+		if err != nil {
+			return err
+		}
+	}
 	if err := enterFold(ctx, tx); err != nil {
 		return err
+	}
+	// CD-0159 D2/D5: every declared legislative reference in the manifest
+	// resolves before the projection clears, whatever kind carries it. A held
+	// negative refuses here, and the existing rollback preserves the prior
+	// projection; an unknown declared work is unverified, not negative, and
+	// keeps its declared tier.
+	if !manifestMissing {
+		for _, record := range manifest.Records {
+			if _, err := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, record); err != nil {
+				return err
+			}
+		}
 	}
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		// Every scope row carries its own home pair: the same work id can
@@ -685,12 +706,20 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	// by law_relations, domain_relation_governing_laws, law_domain_homes, and
 	// law_domain_applicability; domains by domain_relation_governing_laws,
 	// law_domain_homes, law_domain_applicability, and
-	// domain_architecture_relations; domain_registries by domains. Two lists
-	// that each looked ordered once cleared law_subjects ahead of three of
-	// its referents, which no fixture noticed because none named a governing
-	// law; a populated home then refused every second rebuild.
+	// domain_architecture_relations; domain_registries by domains. The
+	// designated home owns the Product's registry-derived rows; law rows
+	// remain scoped to this home pair, including on a home replacement.
 	for _, table := range derivedKnowledgeClearOrder {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed derived-table list and all values stay parameter-bound.
+		where := "home_project_id=? AND home_locator_id=?"
+		args := []any{home.HomeProjectID, home.HomeLocatorID}
+		if designated {
+			switch table {
+			case "domain_registries", "domains", "domain_architecture_relations", "domain_relation_governing_laws":
+				where = "product_id=?"
+				args = []any{productID}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE "+where, args...); err != nil { //nolint:gosec // table and predicate come from closed literals and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
@@ -1059,9 +1088,54 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		return err
 	}
 	if watermark.Fresh {
+		// A work can become known without Git drift, so a fresh watermark
+		// proves the projection, not the standing of the law it carries. The
+		// legislated-authority admission reruns before the fresh answer.
+		if err := s.verifyFreshKnowledgeAuthority(ctx, home, current); err != nil {
+			return err
+		}
 		return nil
 	}
 	return s.RebuildKnowledgeIndex(ctx, home)
+}
+
+// verifyFreshKnowledgeAuthority reruns the legislated-authority resolver over
+// the manifest at the current head inside one short read transaction. The
+// manifest read and the home-role resolution happen before the transaction
+// opens, so no Git work runs inside it and the transaction's queries all ride
+// the tx handle on the pooled connection. A home whose manifest is missing
+// carries nothing to admit; a manifest read failure is a real error, exactly
+// as the rebuild refuses it.
+func (s *Store) verifyFreshKnowledgeAuthority(ctx context.Context, home KnowledgeHome, commit string) error {
+	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
+	if err != nil {
+		return err
+	}
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
+	if err != nil || missing {
+		return err
+	}
+	legislated := false
+	for _, record := range manifest.Records {
+		if record.Authority.Tier == "legislated" {
+			legislated = true
+			break
+		}
+	}
+	if !legislated {
+		return nil
+	}
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "knowledge_index", "cannot begin the fresh knowledge authority admission", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // a read-only transaction closes by rollback; its queries already returned.
+	for _, record := range manifest.Records {
+		if _, err := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // knowledgeCoverageOmissions takes a queryer so a caller holding an open

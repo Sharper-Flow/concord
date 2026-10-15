@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // TrustedClientRecord is the durable trusted-client projection used by the
@@ -309,6 +310,55 @@ func ConsumeApprovalChallengeTx(ctx context.Context, transaction *Transaction, r
 		return newFailure(KindProjectionConflict, "agent_challenge_consume", "approval challenge consumption lost race", false, "reread the approval challenge")
 	}
 	return nil
+}
+
+// RearmApprovalChallengeTx moves one pending challenge's deadline inside the
+// caller's transaction. Temporal order is decided on parsed RFC3339Nano
+// values, never on stored TEXT order. Only an active, unused, single-use
+// challenge whose persisted deadline still equals oldExpiresAt moves, and
+// only when that deadline is expired (equality with now is expired) and
+// newExpiresAt is strictly after now. The write changes nothing else and
+// creates no consent; a guard mismatch or lost race leaves the row unchanged.
+func RearmApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref string, identity ChallengeIdentity, oldExpiresAt, newExpiresAt, now string) error {
+	const op = "agent_challenge_rearm"
+	oldDeadline, err := parseChallengeDeadline(op, oldExpiresAt)
+	if err != nil {
+		return err
+	}
+	newDeadline, err := parseChallengeDeadline(op, newExpiresAt)
+	if err != nil {
+		return err
+	}
+	atNow, err := parseChallengeDeadline(op, now)
+	if err != nil {
+		return err
+	}
+	if oldDeadline.After(atNow) {
+		return newFailure(KindProjectionConflict, op, "approval challenge deadline is still live", false, "reread the approval challenge")
+	}
+	if !newDeadline.After(atNow) {
+		return newFailure(KindProjectionConflict, op, "re-armed approval challenge deadline is not after now", false, "reread the approval challenge")
+	}
+	tx, err := transactionSQL(transaction, op)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_approval_challenges SET expires_at=? WHERE challenge_ref=? AND client_ref=? AND session_ref=? AND agent_ref=? AND worktree=? AND status='active' AND used_count=0 AND max_uses=1 AND expires_at=?`, newExpiresAt, ref, identity.ClientRef, identity.SessionRef, identity.AgentRef, identity.Worktree, oldExpiresAt)
+	if err != nil {
+		return wrapFailure(KindUnavailable, op, "cannot re-arm approval challenge", true, "retry the approval exchange", err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return newFailure(KindProjectionConflict, op, "approval challenge re-arm lost race", false, "reread the approval challenge")
+	}
+	return nil
+}
+
+func parseChallengeDeadline(op, value string) (time.Time, error) {
+	deadline, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, newFailure(KindInvalidOperation, op, "approval challenge deadline is not an RFC3339 timestamp", false, "supply canonical RFC3339 challenge deadlines")
+	}
+	return deadline, nil
 }
 
 func InsertApprovalTx(ctx context.Context, transaction *Transaction, a ApprovalInsert) error {

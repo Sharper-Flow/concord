@@ -193,6 +193,37 @@ test("malformed host session documents cannot confer unmanaged scope", async () 
   }
 })
 
+test("a managed session's Concord tool call refuses through agent switches and plugin recreation", async () => {
+  // The caller is a child of a managed session — the dispatched-lane shape —
+  // and its selected agent holds a role-allowed name, so only the host
+  // ancestry can refuse it.
+  const fixture = host([session("scope-tool-parent", true), { ...session("scope-tool-managed"), parentID: "scope-tool-parent", agent: "concord-operator" }])
+  const plugin = await fixture.plugin()
+  const execute = async (instance: any, agent: string): Promise<{ output: string }> =>
+    instance.tool.concord_product_view.execute(
+      { request: { operation: "resolve", input: {} } },
+      { sessionID: "scope-tool-managed", messageID: "msg-scope", agent, directory: process.cwd(), worktree: process.cwd(), abort: new AbortController().signal, metadata() {}, ask: async () => {} },
+    )
+  // The role guard passes a role-allowed agent, so this refusal is the
+  // managed-ancestry boundary: unauthorized with effect_state none, before
+  // the core is reached.
+  const first = JSON.parse((await execute(plugin, "concord-operator")).output)
+  expect(first.outcome).toBe("error")
+  expect(first.error.kind).toBe("unauthorized")
+  expect(first.error.adapter_reason).toBe("lane_tool_refusal")
+  expect(first.error.effect_state).toBe("none")
+  // The host session's selected agent is not the boundary: switching it and
+  // recreating the plugin changes neither the scope answer nor the refusal.
+  fixture.sessions.get("scope-tool-managed")!.agent = "build"
+  const restarted = await fixture.plugin()
+  const second = JSON.parse((await execute(restarted, "build")).output)
+  expect(second.outcome).toBe("error")
+  expect(second.error.kind).toBe("unauthorized")
+  expect(second.error.effect_state).toBe("none")
+  expect(fixture.writes).toEqual([])
+  expect(fixture.reads.filter((id) => id === "scope-tool-managed").length).toBeGreaterThan(0)
+})
+
 test("unavailable resume-target scope is not treated as an absent target", async () => {
   const plugin = await ConcordAdapterPlugin({ client: { _client: {
     get: async ({ path }: { path?: Record<string, unknown> }) => path?.id === "scope-caller"

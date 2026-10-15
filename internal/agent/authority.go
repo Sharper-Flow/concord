@@ -802,32 +802,73 @@ func approvalVersionBindings(versions map[string]any) []string {
 	return bindings
 }
 
-// ValidateHostApprovalAssertionTx checks the host assertion's intent, caller,
-// freshness, and challenge bindings before approval consumption in this transaction.
-func (s *Service) ValidateHostApprovalAssertionTx(ctx context.Context, tx *store.Transaction, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (bool, error) {
-	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
-		return false, err
+// challengeLifecycleReason is the pure state check a stored challenge must
+// pass before its decision bindings are read. Lifecycle failures carry the
+// binding diagnostic ahead of every decision check.
+func challengeLifecycleReason(challenge store.ApprovalChallengeRecord, validatedAt time.Time) string {
+	switch {
+	case challenge.Status != "active":
+		return "inactive"
+	case expiryPassed(challenge.ExpiresAt, validatedAt):
+		return "expired"
 	}
-	isChallenge, err := s.validateHostApprovalAssertionIdentityTx(ctx, tx, in, assertion, check)
-	if err != nil {
-		return false, err
-	}
-	return isChallenge, nil
+	return ""
 }
 
-// validateHostApprovalAssertionIdentityTx is the shared host-approval path.
-// The assertion authenticates the invoking trusted client and exact challenge;
-// it carries no human identity. Operator attribution is derived later from
-// the durable consumed approval record.
-func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, tx *store.Transaction, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (bool, error) {
+// challengeDecisionReason is the pure check that a challenge still binds the
+// exact operation, scope, versions, consequence, and host resolution of the
+// checked intent.
+func challengeDecisionReason(challenge store.ApprovalChallengeRecord, check ApprovalCheck, in Invocation) string {
+	storedScope, _ := json.Marshal(check.Scope)
+	storedVersions, _ := json.Marshal(check.Versions)
+	switch {
+	case challenge.OperationDigest != check.OperationDigest:
+		return "operation_digest"
+	case challenge.ScopeJSON != string(storedScope):
+		return "scope"
+	case challenge.VersionJSON != string(storedVersions):
+		return "versions"
+	case challenge.Consequence != check.Consequence:
+		return "consequence"
+	case challenge.HostAssertionDigest != in.HostAssertionDigest:
+		return "host_assertion_digest"
+	}
+	return ""
+}
+
+// challengeBindingReason is the first-failing binding check for a stored
+// challenge at exchange time.
+func challengeBindingReason(challenge store.ApprovalChallengeRecord, check ApprovalCheck, in Invocation, validatedAt time.Time) string {
+	if reason := challengeLifecycleReason(challenge, validatedAt); reason != "" {
+		return reason
+	}
+	return challengeDecisionReason(challenge, check, in)
+}
+
+// hostApprovalReference is the typed outcome of validating one host approval
+// assertion without mutating a row. challenge is nil when the reference
+// names no stored challenge, so the assertion addresses an issued approval.
+// bindingReason is the first failing challenge binding, empty when every
+// binding holds; validatedAt is the core instant the challenge was read at.
+type hostApprovalReference struct {
+	challenge     *store.ApprovalChallengeRecord
+	bindingReason string
+	validatedAt   time.Time
+}
+
+// validateHostApprovalReferenceTx validates the host assertion's exact
+// caller bindings, fresh answer timestamp, canonical scope and versions, and
+// the stored challenge's immutable bindings. It reports the reference kind
+// and deadline state; it does not mutate a row and does not decide a retry.
+func (s *Service) validateHostApprovalReferenceTx(ctx context.Context, tx *store.Transaction, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (*hostApprovalReference, error) {
 	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
-		return false, err
+		return nil, err
 	}
 	if tx == nil {
-		return false, transactionInvalid("agent_validate_host_approval")
+		return nil, transactionInvalid("agent_validate_host_approval")
 	}
 	if assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree {
-		return false, newRuntimeFailure("approval_invalid", "host approval assertion does not match the requested operation or caller", "request_approval", false)
+		return nil, newRuntimeFailure("approval_invalid", "host approval assertion does not match the requested operation or caller", "request_approval", false)
 	}
 	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
 	now, skew := s.now(), s.skew()
@@ -848,54 +889,106 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 		if err == nil {
 			failure.Details["issued_at"] = issued.UTC().Format(time.RFC3339Nano)
 		}
-		return false, failure
+		return nil, failure
 	}
 	wantScope, _ := json.Marshal(approvalScopeBindings(check.Scope))
 	wantVersions, _ := json.Marshal(approvalVersionBindings(check.Versions))
 	assertedScope, _ := json.Marshal(assertion.Scope)
 	assertedVersions, _ := json.Marshal(assertion.Versions)
 	if string(assertedScope) != string(wantScope) || string(assertedVersions) != string(wantVersions) {
-		return false, newRuntimeFailure("approval_invalid", "host approval assertion scope or versions invalid", "request_approval", false)
+		return nil, newRuntimeFailure("approval_invalid", "host approval assertion scope or versions invalid", "request_approval", false)
 	}
-	isChallenge := true
+	reference := &hostApprovalReference{validatedAt: s.now()}
 	challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, assertion.ChallengeRef)
 	if challengeErr == nil {
-		storedScope, _ := json.Marshal(check.Scope)
-		storedVersions, _ := json.Marshal(check.Versions)
-		validatedAt := s.now()
-		reason := ""
-		switch {
-		case challenge.Status != "active":
-			reason = "inactive"
-		case expiryPassed(challenge.ExpiresAt, validatedAt):
-			reason = "expired"
-		case challenge.OperationDigest != check.OperationDigest:
-			reason = "operation_digest"
-		case challenge.ScopeJSON != string(storedScope):
-			reason = "scope"
-		case challenge.VersionJSON != string(storedVersions):
-			reason = "versions"
-		case challenge.Consequence != check.Consequence:
-			reason = "consequence"
-		case challenge.HostAssertionDigest != in.HostAssertionDigest:
-			reason = "host_assertion_digest"
-		}
-		if reason != "" {
-			failure := newRuntimeFailure("approval_invalid", "approval challenge binding invalid: "+reason, "request_approval", false)
-			failure.Details = map[string]any{"boundary": "approval_challenge_binding", "reason": reason, "validated_at": validatedAt.UTC().Format(time.RFC3339Nano)}
-			if expiry, err := time.Parse(time.RFC3339Nano, challenge.ExpiresAt); err == nil {
-				failure.Details["expires_at"] = expiry.UTC().Format(time.RFC3339Nano)
-			}
-			return false, failure
-		}
-	} else if challengeErr != nil {
+		reference.challenge = &challenge
+		reference.bindingReason = challengeBindingReason(challenge, check, in, reference.validatedAt)
+	} else {
 		var failure *store.Failure
 		if !errors.As(challengeErr, &failure) || failure.Kind != store.KindProjectionNotFound {
-			return false, challengeErr
+			return nil, challengeErr
 		}
-		isChallenge = false
 	}
-	return isChallenge, nil
+	return reference, nil
+}
+
+// challengeBindingRefusal is the stable wire refusal for a challenge whose
+// bindings no longer hold. A malformed stored deadline never enters the
+// public diagnostic.
+func challengeBindingRefusal(challenge store.ApprovalChallengeRecord, reason string, validatedAt time.Time) error {
+	failure := newRuntimeFailure("approval_invalid", "approval challenge binding invalid: "+reason, "request_approval", false)
+	failure.Details = map[string]any{"boundary": "approval_challenge_binding", "reason": reason, "validated_at": validatedAt.UTC().Format(time.RFC3339Nano)}
+	if expiry, err := time.Parse(time.RFC3339Nano, challenge.ExpiresAt); err == nil {
+		failure.Details["expires_at"] = expiry.UTC().Format(time.RFC3339Nano)
+	}
+	return failure
+}
+
+// AcceptHostApprovalTx is the sole owner of the host-approved challenge
+// exchange. It validates the fresh host answer and every immutable binding,
+// exchanges one pending challenge, and consumes the derived or issued
+// approval in this transaction. Under the accepted pending-challenge policy
+// (CD-0037 D4) it re-arms an active, unused, expired single-use challenge
+// for its original finite interval once the fresh answer and every decision
+// and caller binding still match, then derives and consumes the approval in
+// the same transaction; any failure rolls the whole exchange back. It
+// returns the consumed approval reference.
+func (s *Service) AcceptHostApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (string, error) {
+	if err := s.authorityReady("agent_host_approval_accept"); err != nil {
+		return "", err
+	}
+	if tx == nil {
+		return "", transactionInvalid("agent_host_approval_accept")
+	}
+	reference, err := s.validateHostApprovalReferenceTx(ctx, tx, in, assertion, check)
+	if err != nil {
+		return "", err
+	}
+	if reference.challenge == nil {
+		// An issued approval reference follows its existing validation and
+		// consumption path; it is never eligible for challenge re-arming.
+		if err := s.ValidateAndConsumeApprovalTx(ctx, tx, check.ApprovalRef, check); err != nil {
+			return "", err
+		}
+		return check.ApprovalRef, nil
+	}
+	challenge := *reference.challenge
+	if reference.bindingReason == "" {
+		return s.consumeChallengeApprovalTx(ctx, tx, host, in, check)
+	}
+	if reference.bindingReason != "expired" || challengeDecisionReason(challenge, check, in) != "" {
+		return "", challengeBindingRefusal(challenge, reference.bindingReason, reference.validatedAt)
+	}
+	// Pending-challenge policy: only an unchanged decision on an active,
+	// unused, single-use challenge with a parseable finite interval within
+	// the creation bound may re-arm. A malformed stored issue time, a
+	// malformed deadline, or an interval outside the creation bound refuses
+	// closed, and the refusal never moves a deadline or consumes authority.
+	issuedAt, issueErr := time.Parse(time.RFC3339Nano, challenge.IssuedAt)
+	expiresAt, expiryErr := time.Parse(time.RFC3339Nano, challenge.ExpiresAt)
+	interval := expiresAt.Sub(issuedAt)
+	if issueErr != nil || expiryErr != nil || interval <= 0 || interval > 24*time.Hour || challenge.UsedCount != 0 || challenge.MaxUses != 1 {
+		return "", challengeBindingRefusal(challenge, "expired", reference.validatedAt)
+	}
+	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
+	now := s.now()
+	if err := store.RearmApprovalChallengeTx(ctx, tx, check.ApprovalRef, identity, challenge.ExpiresAt, now.UTC().Add(interval).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		return "", err
+	}
+	return s.consumeChallengeApprovalTx(ctx, tx, host, in, check)
+}
+
+// consumeChallengeApprovalTx derives the ordinary single-use approval from
+// the still-live challenge and consumes it in this transaction.
+func (s *Service) consumeChallengeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, check ApprovalCheck) (string, error) {
+	approvalRef, err := s.CreateApprovalFromChallengeTx(ctx, tx, host, in, check.ApprovalRef)
+	if err != nil {
+		return "", err
+	}
+	if err := s.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err != nil {
+		return "", err
+	}
+	return approvalRef, nil
 }
 
 // CreateApprovalChallengeTx is the only challenge creation path. Identity and

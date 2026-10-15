@@ -230,9 +230,9 @@ func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit in
 	return p, nil
 }
 
-func readRevisionRowTx(ctx context.Context, tx *sql.Tx, pack string, revision int64) (ResearchRevision, error) {
+func readRevisionRowTx(ctx context.Context, q queryer, pack string, revision int64) (ResearchRevision, error) {
 	r := ResearchRevision{PackID: pack, Revision: revision}
-	err := tx.QueryRowContext(ctx, `SELECT question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions WHERE pack_id=? AND revision=?`, pack, revision).Scan(&r.Question, &r.ScopeIn, &r.ScopeOut, &r.DoneWhen, &r.Method, &r.CreatedAt, &r.Freshness)
+	err := q.QueryRowContext(ctx, `SELECT question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions WHERE pack_id=? AND revision=?`, pack, revision).Scan(&r.Question, &r.ScopeIn, &r.ScopeOut, &r.DoneWhen, &r.Method, &r.CreatedAt, &r.Freshness)
 	if err == sql.ErrNoRows {
 		return r, researchNotFound("research revision does not exist")
 	}
@@ -242,19 +242,19 @@ func readRevisionRowTx(ctx context.Context, tx *sql.Tx, pack string, revision in
 	return r, nil
 }
 
-func readResearchSelectionTx(ctx context.Context, tx *sql.Tx, req ResearchReadRequest) (ResearchPack, error) {
-	p, err := readResearchPackRow(ctx, tx, req.PackID)
+func readResearchSelectionTx(ctx context.Context, q queryer, req ResearchReadRequest) (ResearchPack, error) {
+	p, err := readResearchPackRow(ctx, q, req.PackID)
 	if err != nil {
 		return ResearchPack{}, err
 	}
-	r, err := readRevisionRowTx(ctx, tx, req.PackID, req.Revision)
+	r, err := readRevisionRowTx(ctx, q, req.PackID, req.Revision)
 	if err != nil {
 		return ResearchPack{}, err
 	}
 	if len(req.FindingIDs) == 0 {
-		r.Findings, err = readFindingsTx(ctx, tx, req.PackID, req.Revision, req.Limit)
+		r.Findings, err = readFindingsTx(ctx, q, req.PackID, req.Revision, req.Limit)
 		if err == nil {
-			r.Sources, err = readSourcesTx(ctx, tx, req.PackID, req.Revision, req.Limit)
+			r.Sources, err = readSourcesTx(ctx, q, req.PackID, req.Revision, req.Limit)
 		}
 	} else {
 		if len(req.FindingIDs) > req.Limit {
@@ -263,11 +263,11 @@ func readResearchSelectionTx(ctx context.Context, tx *sql.Tx, req ResearchReadRe
 		sourceIDs := map[string]bool{}
 		linkCount := 0
 		for _, id := range req.FindingIDs {
-			f, readErr := readFindingTx(ctx, tx, req.PackID, req.Revision, id)
+			f, readErr := readFindingTx(ctx, q, req.PackID, req.Revision, id)
 			if readErr != nil {
 				return ResearchPack{}, readErr
 			}
-			rows, readErr := tx.QueryContext(ctx, `SELECT source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=? AND finding_id=? ORDER BY source_id LIMIT ?`, req.PackID, req.Revision, id, req.Limit-linkCount+1)
+			rows, readErr := q.QueryContext(ctx, `SELECT source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=? AND finding_id=? ORDER BY source_id LIMIT ?`, req.PackID, req.Revision, id, req.Limit-linkCount+1)
 			if readErr != nil {
 				return ResearchPack{}, researchUnavailable("cannot read selected provenance", readErr)
 			}
@@ -298,7 +298,7 @@ func readResearchSelectionTx(ctx context.Context, tx *sql.Tx, req ResearchReadRe
 		}
 		sort.Strings(ids)
 		for _, id := range ids {
-			source, readErr := readSourceTx(ctx, tx, req.PackID, req.Revision, id)
+			source, readErr := readSourceTx(ctx, q, req.PackID, req.Revision, id)
 			if readErr != nil {
 				return ResearchPack{}, readErr
 			}
@@ -325,24 +325,24 @@ func readRevisionTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 	return r, err
 }
 
-func readFindingTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, id string) (ResearchFinding, error) {
+func readFindingTx(ctx context.Context, q queryer, pack string, revision int64, id string) (ResearchFinding, error) {
 	var f ResearchFinding
-	err := tx.QueryRowContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, pack, revision, id).Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status, &f.Scopes.Mode)
+	err := q.QueryRowContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, pack, revision, id).Scan(&f.PackID, &f.Revision, &f.FindingID, &f.Kind, &f.Statement, &f.Confidence, &f.Freshness, &f.Status, &f.Scopes.Mode)
 	if err == sql.ErrNoRows {
 		return f, researchNotFound("finding does not exist")
 	}
 	if err != nil {
 		return f, researchUnavailable("cannot read finding", err)
 	}
-	f.Scopes, err = readResearchFindingScopes(ctx, tx, pack, revision, id, f.Scopes.Mode)
+	f.Scopes, err = readResearchFindingScopes(ctx, q, pack, revision, id, f.Scopes.Mode)
 	if err != nil {
 		return f, err
 	}
 	return f, nil
 }
 
-func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, limit int) ([]ResearchFinding, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? ORDER BY finding_id LIMIT ?`, pack, revision, limit+1)
+func readFindingsTx(ctx context.Context, q queryer, pack string, revision int64, limit int) ([]ResearchFinding, error) {
+	rows, err := q.QueryContext(ctx, `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings WHERE pack_id=? AND revision=? ORDER BY finding_id LIMIT ?`, pack, revision, limit+1)
 	if err != nil {
 		return nil, researchUnavailable("cannot read findings", err)
 	}
@@ -363,7 +363,7 @@ func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 	if len(out) > limit {
 		return nil, researchReadBounded("research findings exceed the bounded read limit")
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT finding_id,source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=? ORDER BY finding_id,source_id LIMIT ?`, pack, revision, limit+1)
+	rows, err = q.QueryContext(ctx, `SELECT finding_id,source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=? ORDER BY finding_id,source_id LIMIT ?`, pack, revision, limit+1)
 	if err != nil {
 		return nil, researchUnavailable("cannot read finding sources", err)
 	}
@@ -392,7 +392,7 @@ func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 		return nil, researchUnavailable("cannot read finding sources", err)
 	}
 	for i := range out {
-		out[i].Scopes, err = readResearchFindingScopes(ctx, tx, pack, revision, out[i].FindingID, out[i].Scopes.Mode)
+		out[i].Scopes, err = readResearchFindingScopes(ctx, q, pack, revision, out[i].FindingID, out[i].Scopes.Mode)
 		if err != nil {
 			return nil, err
 		}
@@ -400,10 +400,10 @@ func readFindingsTx(ctx context.Context, tx *sql.Tx, pack string, revision int64
 	return out, nil
 }
 
-func readSourceTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, id string) (ResearchSource, error) {
+func readSourceTx(ctx context.Context, q queryer, pack string, revision int64, id string) (ResearchSource, error) {
 	var s ResearchSource
 	var published sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, pack, revision, id).Scan(&s.PackID, &s.Revision, &s.SourceID, &s.Kind, &s.Locator, &s.Title, &s.PublisherOrAuthor, &published, &s.AccessedAt)
+	err := q.QueryRowContext(ctx, `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, pack, revision, id).Scan(&s.PackID, &s.Revision, &s.SourceID, &s.Kind, &s.Locator, &s.Title, &s.PublisherOrAuthor, &published, &s.AccessedAt)
 	if err == sql.ErrNoRows {
 		return s, researchNotFound("source does not exist")
 	}
@@ -414,8 +414,8 @@ func readSourceTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, 
 	return s, nil
 }
 
-func readSourcesTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, limit int) ([]ResearchSource, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=? ORDER BY source_id LIMIT ?`, pack, revision, limit+1)
+func readSourcesTx(ctx context.Context, q queryer, pack string, revision int64, limit int) ([]ResearchSource, error) {
+	rows, err := q.QueryContext(ctx, `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources WHERE pack_id=? AND revision=? ORDER BY source_id LIMIT ?`, pack, revision, limit+1)
 	if err != nil {
 		return nil, researchUnavailable("cannot read sources", err)
 	}

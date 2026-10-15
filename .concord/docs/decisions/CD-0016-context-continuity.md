@@ -3,6 +3,7 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
+**Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
 
 > **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
@@ -73,19 +74,39 @@ The launcher identity handoff remains unchanged.
 The next version of each built-in definition adds the closed, unapproved
 `record_work_context` action to every step except the delivery gates. The
 action records `workflow.work_context_recorded` with ordered required reading,
-references to earlier findings, and new typed findings. A reading source is a
+references to earlier findings, selected research references, and new typed
+findings. A reading source is a
 repository file pinned by Project, path, and commit OID, or a law revision
 pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these events and from the terminal worker reports that follow them. The reader
+these events, the terminal worker reports that follow them, and exact research
+selections resolved from the research authority. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
 view past these bounds refuses the read and leaves the events unchanged. Each
-finding keeps its source event and ordinal and stays a reported claim.
+event-owned finding keeps its source event and ordinal and stays a reported
+claim. A research entry keeps its selection event and ordinal, exact pack,
+revision, finding identity, native finding fields, and complete linked source
+descriptors. Research entries and event-owned findings share the 32-finding
+bound. A research selection stores references, never corpus content, in events.
 Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
+
+A declaration that selects research refuses if its resulting shared view
+exceeds the bounds. The check runs in the live action transaction after its
+events fold and never during replay. Valid terminal worker reports remain
+retained even when the resulting view exceeds its read bound.
+
+The shared reader reports missing, stale, rebound, or inactive research
+selections as typed entries without content. A required unresolved selection
+refuses dispatch before a worker launches. Optional unresolved selections stay
+visible without content and do not create a required reliance blocker.
+A missing consumer binding cannot establish optional reliance and refuses
+dispatch. Later revisions never replace selected content. Research body or
+selection-state changes participate in the existing full-view equality and
+dispatch revalidation, not a second context watermark or digest.
 
 Amended 2026-10-13 for pre-dispatch reading resolution and the dispatch
 context bound

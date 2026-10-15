@@ -50,6 +50,9 @@ class AgentProjectionTests(unittest.TestCase):
         ids = generator.concord_tool_ids()
         self.assertIn("concord_work_start", ids)
         self.assertIn("concord_work_transition", ids)
+        # The host catalog carries the CI watcher, so the denials must cover
+        # every registered tool.
+        self.assertIn("concord_ci_watch", ids)
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         for tool_id in ids:
             self.assertIn(f"\n  {tool_id}: false\n", projection)
@@ -975,12 +978,59 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             path = ROOT / ".opencode/agents" / f"{agent_id}.md"
             self.assertEqual(path.read_text(encoding="utf-8"), self.projection(agent_id))
 
+    def registered_role_ids(self):
+        names = [profile["id"] for profile in self.profiles["profiles"]]
+        names += [f"concord-{lane['id']}" for lane in self.manifest["lanes"]]
+        names += [f"concord-{utility['id']}" for utility in self.manifest["utilities"]]
+        return names
+
+    def ts_role_map(self):
+        projection = generator.primary_ts_projection(self.profiles, self.manifest)
+        body = projection[projection.index("= {") + 2 : projection.rindex("}") + 1]
+        return json.loads(body.replace(",\n}", "\n}"))
+
     def test_ts_projection_carries_the_denied_concord_tools(self):
-        projection = generator.primary_ts_projection(self.profiles)
+        projection = generator.primary_ts_projection(self.profiles, self.manifest)
         self.assertIn("DO NOT EDIT", projection)
         self.assertIn('"concord-coordinator"', projection)
         self.assertIn('"concord_work_transition"', projection)
-        self.assertIn('"concord-operator": []', projection)
+        # One consumed map: the projection exports exactly one binding, so the
+        # guard cannot read a second, diverging denial source.
+        self.assertEqual(projection.count("export const"), 1)
+
+    def test_ts_projection_covers_exactly_the_registered_roles(self):
+        self.assertEqual(sorted(self.ts_role_map()), sorted(self.registered_role_ids()))
+        self.assertNotIn("concord-repair", self.ts_role_map())
+
+    def test_ts_projection_denies_every_registered_tool_for_every_lane_and_utility(self):
+        catalog = generator.concord_tool_ids()
+        for kind, entries in (("lane", self.manifest["lanes"]), ("utility", self.manifest["utilities"])):
+            for entry in entries:
+                agent = f"concord-{entry['id']}"
+                denied = self.ts_role_map()[agent]
+                self.assertEqual(sorted(denied["tools"]), catalog)
+                # The boundary names the role class; the guard composes the
+                # agent name and the tool in front of it.
+                self.assertIn(kind, denied["boundary"])
+                self.assertIn("no Concord tool access", denied["boundary"])
+
+    def test_ts_projection_keeps_the_profile_entries(self):
+        role = self.ts_role_map()["concord-coordinator"]
+        self.assertEqual(sorted(role["tools"]), sorted(self.profile("concord-coordinator")["denied_concord_tools"]))
+        self.assertIn("repository-local operator", role["boundary"])
+        self.assertEqual(self.ts_role_map()["concord-operator"]["tools"], [])
+
+    def test_lane_and_utility_frontmatter_denials_equal_the_ts_role_map(self):
+        # Host visibility (frontmatter denials) and execution denial (the role
+        # guard's map) must derive from the same registry population, so the
+        # two generated projections must agree tool for tool.
+        ts_map = self.ts_role_map()
+        catalog = generator.concord_tool_ids()
+        for entry in self.manifest["lanes"] + self.manifest["utilities"]:
+            agent = f"concord-{entry['id']}"
+            text = (ROOT / ".opencode/agents" / f"{agent}.md").read_text(encoding="utf-8")
+            denied = sorted(tool for tool in catalog if f"\n  {tool}: false\n" in text)
+            self.assertEqual(denied, sorted(ts_map[agent]["tools"]), f"{agent} frontmatter and role map disagree")
 
     def test_unknown_denied_concord_tool_refuses(self):
         message = self.broken(lambda p: p["profiles"][0]["denied_concord_tools"].append("concord_work_launch"))

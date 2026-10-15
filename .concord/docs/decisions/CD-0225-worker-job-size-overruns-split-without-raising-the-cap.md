@@ -1,11 +1,11 @@
 # CD-0225: Worker-job size overruns split without raising the cap
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** Production-size bounds on editing jobs, result measurement, split lineage, and acceptance.
-- **Amends on acceptance:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D4 for size-bound jobs and split debt; [CD-0137](CD-0137-iterative-correction-preserves-result-disposition.md) D1 for the replaced-overrun disposition; [CD-0164](CD-0164-correction-attempt-counting-population.md) D1-D2 and D4 for overrun accounting; and [CD-0148](CD-0148-approved-fresh-worker-retries.md) for split progress.
+- **Amends:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D4 for size-bound jobs and split debt; [CD-0137](CD-0137-iterative-correction-preserves-result-disposition.md) D1 for the replaced-overrun disposition; [CD-0164](CD-0164-correction-attempt-counting-population.md) D1-D2 and D4 for overrun accounting; and [CD-0148](CD-0148-approved-fresh-worker-retries.md) for split progress.
 - **Preserves:** [CD-0017](CD-0017-typed-workers-and-model-routing.md) D4, [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md), CD-0164's every-dispatch count and three-attempt threshold, and [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md).
-- **Approval:** None. This draft authorizes no implementation or law promotion.
+- **Approval:** The operator accepted this record as written on 2026-10-15. Implementation requires a separate assignment.
 
 ## Context
 

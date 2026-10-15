@@ -1,12 +1,12 @@
 # CD-0227: A required direct-caller repair joins the approved job
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** A bounded direct-caller repair inside an editing job's existing parent authority.
-- **Amends on acceptance:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D2 and [CD-0220](CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) D2, by admitting the conditional caller scope recorded below.
+- **Amends:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D2 and [CD-0220](CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) D2, by admitting the conditional caller scope recorded below.
 - **Preserves:** [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md), [CD-0017](CD-0017-typed-workers-and-model-routing.md) D4, [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D5-D7, and contract supersession's existing authority.
 - **Dependency:** Accept [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md) before or with this decision. Caller-capable definitions require its size and supplemental-classification mechanisms.
-- **Approval:** None. This draft authorizes no implementation or law promotion.
+- **Approval:** The operator accepted this record as written on 2026-10-15. Implementation requires a separate assignment.
 
 ## Context
 

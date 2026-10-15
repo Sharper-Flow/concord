@@ -1,11 +1,11 @@
 # CD-0226: Review findings carry fixes with cross-family checks
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** Suggested fixes in ranked findings, correction provenance, and independent review of applied fixes.
-- **Amends on acceptance:** [CD-0197](CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md) D1-D5, [CD-0017](CD-0017-typed-workers-and-model-routing.md) D6, [CD-0044](CD-0044-worker-evidence-caller-authentication.md) D1 and D4 for classification evidence only, and [CD-0058](CD-0058-no-model-routing.md) D2 for the family evidence and mandatory scope below.
+- **Amends:** [CD-0197](CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md) D1-D5, [CD-0017](CD-0017-typed-workers-and-model-routing.md) D6, [CD-0044](CD-0044-worker-evidence-caller-authentication.md) D1 and D4 for classification evidence only, and [CD-0058](CD-0058-no-model-routing.md) D2 for the family evidence and mandatory scope below.
 - **Preserves:** [CD-0043](CD-0043-host-owned-lane-methodology.md), CD-0044 D2-D3 and D5-D6, [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md), [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) accepted-delivery review anchoring, [CD-0206](CD-0206-an-accepted-no-ship-review-opens-the-settling-review-obligation.md), [CD-0220](CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md), and host-owned model selection under CD-0058 D1 and D3-D5.
-- **Approval:** None. This draft authorizes no implementation or law promotion.
+- **Approval:** The operator accepted this record as written on 2026-10-15. Implementation requires a separate assignment.
 
 ## Context
 

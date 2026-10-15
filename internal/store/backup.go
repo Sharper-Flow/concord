@@ -141,6 +141,21 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot acquire a SQLite connection", true, "retry once the database is readable", err)
 	}
+	tx, err := beginReadTx(ctx, conn)
+	if err != nil {
+		_ = conn.Close()
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot pin a backup source snapshot", true, "retry once the database is readable", err)
+	}
+	// A deferred BEGIN pins no snapshot; consume one read through the
+	// transaction so the copy observes one source state instead of restarting
+	// between batches.
+	var schemaObjects int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema`).Scan(&schemaObjects); err != nil {
+		pinErr := wrapFailure(KindUnavailable, "backup", "cannot pin the backup source snapshot", true, "retry once the database is readable", err)
+		_ = tx.Rollback()
+		_ = conn.Close()
+		return manifest, pinErr
+	}
 	backupErr := conn.Raw(func(raw any) error {
 		driverConn, ok := raw.(backupper)
 		if !ok {
@@ -187,6 +202,12 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		}
 		return nil
 	})
+	// Exit Raw before releasing the snapshot: a rollback during the copy
+	// would reset the source pager and restart the backup's progress. The
+	// rollback can report sql.ErrTxDone after a context cancellation.
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) && backupErr == nil {
+		backupErr = wrapFailure(KindUnavailable, "backup", "cannot release the backup source snapshot", true, "retry once the database is readable", err)
+	}
 	_ = conn.Close()
 	if backupErr != nil {
 		_ = os.Remove(destination)

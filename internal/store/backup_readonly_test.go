@@ -260,6 +260,9 @@ func TestSourceReaderProbeDetectsPinnedReader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Release the snapshot even when a probe step below fails the test, so
+	// the deferred connection close cannot outlive an open transaction.
+	defer func() { _ = tx.Rollback() }()
 	var events int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
 		t.Fatal(err)
@@ -272,6 +275,154 @@ func TestSourceReaderProbeDetectsPinnedReader(t *testing.T) {
 	}
 	if sourceReaderBlocksCheckpoint(t, source) {
 		t.Fatal("probe reported a retained reader after rollback released the source")
+	}
+}
+
+// TestBackupDatabaseReadOnlyWALBounded holds the backup path to the same
+// source-snapshot contract as the restore path: BackupDatabase from a
+// WAL-mode 0444 source larger than one batch must complete within a
+// two-second context, with or without pre-existing read-only sidecars, and a
+// failure must clean the snapshot and manifest. The child-process bound
+// mirrors the restore regression because synchronous driver calls ignore the
+// caller context.
+func TestBackupDatabaseReadOnlyWALBounded(t *testing.T) {
+	const childModeEnv = "TEST_CONCORD_BACKUP_WAL_MODE"
+	mode := os.Getenv(childModeEnv)
+	if mode == "" {
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"0444", "0444-sidecars"} {
+			t.Run(mode, func(t *testing.T) {
+				// Raw driver calls need a process bound if they ignore the context.
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestBackupDatabaseReadOnlyWALBounded$", "-test.v", "-test.timeout=10s")
+				cmd.Env = append(os.Environ(), childModeEnv+"="+mode)
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("backup of WAL source mode %s: %v (process context: %v)\n%s", mode, err, ctx.Err(), output)
+				}
+				t.Logf("%s", output)
+			})
+		}
+		return
+	}
+
+	fixture := copyTestDatabase(t)
+	ctx := context.Background()
+	manifest, err := verifyBackupFile(ctx, fixture, CurrentSchemaVersion(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := copyClosedTestDatabase(t, fixture)
+	header, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(header) < 32 || header[18] != 2 || header[19] != 2 {
+		t.Fatal("source fixture is not a WAL-mode database")
+	}
+	if pages := binary.BigEndian.Uint32(header[28:32]); pages <= uint32(backupStepPages) {
+		t.Fatalf("source has %d pages, need more than %d to exercise incremental backup", pages, backupStepPages)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(source + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("source%s must be absent before backup: %v", suffix, err)
+		}
+	}
+	if err := os.Chmod(source, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if mode == "0444-sidecars" {
+		// Recreate the restore setup: the read-only verification open leaves
+		// mode-0444 sidecars behind, so the backup meets a source whose WAL
+		// index was already opened read-only rather than a fresh read.
+		if _, err := verifyBackupFile(ctx, source, CurrentSchemaVersion(), nil); err != nil {
+			t.Fatal(err)
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if info, err := os.Stat(source + suffix); err != nil || info.Mode().Perm() != 0o444 {
+				t.Fatalf("source%s must exist with mode 0444: info=%v err=%v", suffix, info, err)
+			}
+		}
+	}
+
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	backupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	got, err := BackupDatabase(backupCtx, source, destination)
+	// Source identity holds in either outcome.
+	if after, statErr := fileSHA256(source); statErr != nil || after != manifest.DBChecksum {
+		t.Fatalf("source checksum after backup = %q (err=%v), want %q", after, statErr, manifest.DBChecksum)
+	}
+	if info, statErr := os.Stat(source); statErr != nil || info.Mode().Perm() != 0o444 {
+		t.Fatalf("source mode changed during backup: info=%v err=%v", info, statErr)
+	}
+	if err != nil {
+		// A failed backup leaves neither the snapshot nor its manifest.
+		if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed backup destination must be absent: %v", statErr)
+		}
+		if _, statErr := os.Stat(manifestPath(destination)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed backup manifest must be absent: %v", statErr)
+		}
+		t.Fatalf("backup source mode 0444 (%s): %v", mode, err)
+	}
+	// A completed backup must pass the backup verb's verification rules.
+	verified, err := VerifyBackup(ctx, destination)
+	if err != nil {
+		t.Fatalf("verify backup destination: %v", err)
+	}
+	if verified.DBChecksum != got.DBChecksum || verified.SchemaVersion != got.SchemaVersion || verified.EventWatermark != got.EventWatermark || verified.SnapshotID != got.SnapshotID {
+		t.Fatalf("verified manifest = %+v, original = %+v", verified, got)
+	}
+}
+
+// TestInterruptedBackupAfterInitReleasesSourceSnapshot proves cancellation
+// during the active copy lifetime: the initialization seam cancels the
+// caller context once the operation exists, the typed interruption returns,
+// the partial snapshot and manifest are cleaned, and the pinned source
+// transaction releases the store's connection before the store serves
+// another read.
+func TestInterruptedBackupAfterInitReleasesSourceSnapshot(t *testing.T) {
+	s := openTemp(t)
+	defer s.Close()
+	destination := filepath.Join(t.TempDir(), "interrupted-active.db")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	ctx = context.WithValue(ctx, backupStartedContextKey{}, func() {
+		close(started)
+		cancel()
+	})
+	_, err := Backup(ctx, s, destination)
+	select {
+	case <-started:
+	default:
+		t.Fatal("backup initialization never ran; the cancellation did not come from the active copy")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnavailable || failure.Detail != "online backup was interrupted" {
+		t.Fatalf("interrupted Backup() error = %v, want the typed interruption", err)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("interrupted snapshot stat error = %v", statErr)
+	}
+	if _, statErr := os.Stat(manifestPath(destination)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("interrupted manifest stat error = %v", statErr)
+	}
+	// The pinned source transaction released the store connection: the
+	// sensitive probe must find no retained WAL reader on the store file.
+	if sourceReaderBlocksCheckpoint(t, s.Path()) {
+		t.Fatal("backup left a source reader behind on the store database")
+	}
+	// The store still serves reads on its pool.
+	var events int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+		t.Fatalf("store read after interrupted backup: %v", err)
 	}
 }
 

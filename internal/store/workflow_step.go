@@ -56,7 +56,7 @@ func workflowDeclaredStep(definition WorkflowDefinition, stepID string) (string,
 
 // pinnedWorkflowDefinitionTx reads the definition an instance is pinned to and
 // verifies the pin against the registry.
-func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, workID string) (RegisteredDefinition, error) {
+func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
 	var pin WorkflowDefinitionPin
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
@@ -64,7 +64,7 @@ func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, workID string) 
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_step", "cannot read the pinned workflow definition", true, "retry once the database is readable", err)
 	}
-	return VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), pin)
+	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
 // pinWorkflowInstanceTx records the definition an instance follows and places
@@ -142,8 +142,8 @@ func workflowSelectingActorTx(ctx context.Context, q queryer, workID string) (Wo
 // started. An instance sitting on its contract step is planned rather than
 // running, and that step is derived from the definition rather than named by
 // a literal that only two of the seven families would match.
-func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID, actorRef, executionModel string, at time.Time) error {
-	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, workID)
+func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID, stepID, actorRef, executionModel string, at time.Time) error {
+	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}
@@ -195,8 +195,8 @@ func advanceWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, step
 // resetWorkflowInstanceToContractStepTx returns an instance to its
 // definition's contract step after a contract is superseded without a
 // successor.
-func resetWorkflowInstanceToContractStepTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, workID)
+func resetWorkflowInstanceToContractStepTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
+	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}
@@ -235,8 +235,8 @@ func workflowCompletedInstanceActionImmutable(state, actionID, lifecycle string)
 // supersession folded at the pinned complete step, and reopens the instance so
 // the successor contract runs under the unchanged pinned definition. Any other
 // current step or shape leaves the instance unchanged.
-func returnWorkflowInstanceFromCompleteStepTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, workID)
+func returnWorkflowInstanceFromCompleteStepTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
+	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}

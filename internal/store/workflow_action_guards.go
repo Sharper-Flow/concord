@@ -1791,7 +1791,7 @@ func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bo
 	return false
 }
 
-func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, definition WorkflowDefinition) ([]Event, error) {
+func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, scope *foldScope, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, definition WorkflowDefinition) ([]Event, error) {
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return nil, err
@@ -1853,7 +1853,7 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		if _, err := appendEvent(ctx, tx, event, true); err != nil {
 			return nil, err
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return nil, err
 		}
 	}
@@ -1905,12 +1905,12 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		if _, err := appendEvent(ctx, tx, event, true); err != nil {
 			return result, err
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return result, err
 		}
 	}
 	request.ExpectedVersion += int64(len(prefixEvents))
-	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, request, actor, payload, entry.Definition)
+	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, scope, request, actor, payload, entry.Definition)
 	if bindingErr != nil {
 		return result, bindingErr
 	}

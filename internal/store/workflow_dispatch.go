@@ -247,6 +247,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return result, err
+	}
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return result, err
@@ -902,7 +905,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_verdict":
 		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence, envelopeEvidenceRefs)
 	case "confirm_premise":
-		return workflowConfirmPremiseEvents(ctx, tx, request, actor, fields, eventID, expected)
+		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":
 		return workflowLinkSuccessorEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "declare_impact":

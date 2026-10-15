@@ -659,12 +659,11 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 	return events, nil
 }
 
-func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
-	if err != nil {
-		return nil, err
-	}
-	return workflowConfirmPremiseEventsForDefinition(ctx, tx, registered.Definition, request, actor, fields, eventID, expected)
+// workflowConfirmPremiseEvents consumes the dispatch's verified entry: the
+// confirmed definition is the one the transaction's fold scope resolved, so
+// the confirmation never resolves a second contract source.
+func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	return workflowConfirmPremiseEventsForDefinition(ctx, tx, definition, request, actor, fields, eventID, expected)
 }
 
 // workflowConfirmPremiseEventsForDefinition is the transactional seam that
@@ -738,7 +737,7 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 			if err := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); err != nil {
 				return nil, err
 			}
-			if err := requireAcceptanceDeliverables(ctx, tx, request.WorkID); err != nil {
+			if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
 				return nil, err
 			}
 			return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": actor, "confirmation_authority": "coordinator"})}, nil
@@ -758,7 +757,7 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 	// instead of letting the workflow walk itself into an uncompletable
 	// state. The verdict check mirrors foldWorkflowCompleted's actor
 	// comparison requirement.
-	if err := requireAcceptanceDeliverables(ctx, tx, request.WorkID); err != nil {
+	if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
 		return nil, err
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": operatorRef, "confirmation_authority": "operator"})}, nil

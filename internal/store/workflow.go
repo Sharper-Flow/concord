@@ -88,6 +88,14 @@ func workflowRegistration[T workflowPayload](currentVersion int, upcasters map[i
 	return registerEventKind[T](currentVersion, 1, upcasters, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
 }
 
+// workflowScopedRegistration registers a workflow event kind whose fold reads
+// the transaction's verified definition source from the fold scope, so one
+// caller-selected registry carries selection, contract, action, confirmation,
+// and terminal folds.
+func workflowScopedRegistration[T workflowPayload](currentVersion int, upcasters map[int]Upcaster, fold scopedProjectionMutation) EventKindRegistration {
+	return registerScopedEventKind[T](currentVersion, 1, upcasters, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
+}
+
 type workflowDefinitionSelectedPayload struct {
 	WorkflowVersionFields
 	Ref      string `json:"ref"`
@@ -899,7 +907,7 @@ func workflowDigest(value string) bool {
 	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
 
-func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	if !isWorkflowReplay(ctx) {
 		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
 			return err
@@ -917,7 +925,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
-	registered, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
+	registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
 	if err != nil {
 		return err
 	}
@@ -1027,7 +1035,7 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 	return nil
 }
 
-func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowContractApprovedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1103,7 +1111,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 			return newFailure(KindInvalidPayload, "fold_event", "current law-aware contract approval is missing law revision pins", false, "capture one current Git law hash for every mandated law ID")
 		}
 	}
-	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if definitionErr != nil {
 		return definitionErr
 	}
@@ -1129,14 +1137,11 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	}
 	// The generic outcome union is only syntax.  Meaning is pinned by the
 	// selected definition and must be checked before the immutable contract is
-	// written.
-	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
-	if err != nil {
-		return err
-	}
-	for _, entry := range p.OutcomePredicates {
-		predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
-		if err != nil || string(predicate.Kind) != entry.OutcomeKind {
+	// written; the fold already holds the verified entry, so it resolves the
+	// pin once.
+	for _, approved := range p.OutcomePredicates {
+		predicate, decodeErr := DecodeWorkflowPredicate(approved.OutcomePayload)
+		if decodeErr != nil || string(predicate.Kind) != approved.OutcomeKind {
 			return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
 		}
 		if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
@@ -1159,7 +1164,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if p.DecisionDomains != nil {
 		decisionDomains = workflowJSON(p.DecisionDomains)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest,decision_domains) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest, decisionDomains)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest,decision_domains) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest, decisionDomains)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1197,7 +1202,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 // authorization a duplicate-projection recovery owes, and one active row per
 // named predecessor. It returns the sorted predecessor versions the fold
 // supersedes.
-func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload) ([]int64, error) {
+func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, p workflowContractSupersededPayload) ([]int64, error) {
 	predecessors := p.PredecessorContractVersions
 	if len(predecessors) == 0 && p.PreviousContractVersion > 0 {
 		predecessors = []int64{p.PreviousContractVersion}
@@ -1229,7 +1234,7 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
 	}
 	if activeCount > 1 && !isWorkflowReplay(ctx) {
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
 		if definitionErr != nil {
 			return nil, definitionErr
 		}
@@ -1268,7 +1273,7 @@ func requireWorkflowDuplicateRecoveryApprovalTx(ctx context.Context, tx *sql.Tx,
 	}, contractRecoveryApprovalSubject)
 }
 
-func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowContractSupersededPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1279,7 +1284,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, event, p)
+	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, scopeDefinitionRegistry(scope), event, p)
 	if err != nil {
 		return err
 	}
@@ -1288,7 +1293,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if p.SuccessorContract.ContractVersion != p.NewContractVersion {
 			return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
 		}
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 		if definitionErr != nil {
 			return definitionErr
 		}
@@ -1346,11 +1351,11 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		} else {
 			successorEvent.replaySourcePayloadVersion = 0
 		}
-		if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent); err != nil {
+		if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent, scope); err != nil {
 			return err
 		}
 	} else {
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 		if definitionErr != nil {
 			return definitionErr
 		}
@@ -1400,12 +1405,12 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if p.SuccessorContract != nil {
-		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event, p.SuccessorContract); err != nil {
+		if err := foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.SuccessorContract); err != nil {
 			return err
 		}
 	}
 	if p.SuccessorContract == nil {
-		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, event.SubjectID); err != nil {
+		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
 	}
@@ -1423,16 +1428,23 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
 }
 
-// foldCompleteStepContractCorrectionTx keeps the route marker, historical
-// replay, and admission checks together before it returns the pinned instance
-// to its external-effect step. The caller holds the fold transaction.
+// foldCompleteStepContractCorrectionTx resolves the builtin registry for
+// direct callers. The core keeps the route marker, historical replay, and
+// admission checks together before it returns the pinned instance to its
+// external-effect step, and the scoped supersession fold carries the
+// transaction's registry to the same core. The caller holds the fold
+// transaction.
 func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	return foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, successor)
+}
+
+func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, successor *workflowContractApprovedPayload) error {
 	workID := event.SubjectID
 	var foldStep, foldState string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&foldStep, &foldState); err != nil {
 		return workflowProjectionError(err, "cannot read the workflow step for the supersession route check")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}
@@ -1472,7 +1484,7 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event
 	if !available {
 		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "rebuild the workflow projection from the event log")
 	}
-	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, workID)
+	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
 }
 
 func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64) error {
@@ -1734,7 +1746,7 @@ func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) err
 	return nil
 }
 
-func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionStartedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1748,7 +1760,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := ValidateWorkflowActorModel(p.ExecutionModel); err != nil {
 		return newFailure(KindInvalidPayload, "fold_event", "action_started has an invalid readback model identity", false, "supply a bounded readback model identity")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
 		return err
 	}
@@ -1788,7 +1800,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
+	if err := startWorkflowInstanceStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
@@ -1832,7 +1844,7 @@ func workflowStepExecutorRefusal(ctx context.Context, tx *sql.Tx, workID, verdic
 	return newFailure(KindUnauthorized, operation, "executing actor cannot evaluate its own delivery", false, "record the verdict through an agent that executed no step of this work item")
 }
 
-func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCheckpointedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1849,7 +1861,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" && p.StepKind != "human_checkpoint" {
 		return newFailure(KindInvalidPayload, "fold_event", "checkpoint step kind is not closed", false, "use a closed workflow step kind")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
 		return err
 	}
@@ -1931,14 +1943,21 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow checkpoint")
 	}
-	if err := foldWorkflowDecisionRecord(ctx, tx, event, p.CheckpointPayload); err != nil {
+	if err := foldWorkflowDecisionRecordForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.CheckpointPayload); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	return err
 }
 
+// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
+// the scoped checkpoint fold carries the transaction's registry to the same
+// core.
 func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
+	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
+}
+
+func foldWorkflowDecisionRecordForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, raw json.RawMessage) error {
 	// The checkpoint envelope carries the action's declared payload under
 	// "fields". A stored event from before that envelope carries the same
 	// record at the top level or under "checkpoint", so all three are read and
@@ -1990,7 +2009,7 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 	}
 	declaredBounds := false
 	if checkpoint.Fields != nil {
-		entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
 		if err != nil {
 			return err
 		}
@@ -2434,7 +2453,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 	return nil
 }
 
-func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -2478,7 +2497,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	var entry RegisteredDefinition
 	var currentStep string
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
 		return err
 	}
@@ -2590,7 +2609,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		nextStep = workflowNextStep(entry.Definition, currentStep)
 		if p.ActionID == "confirm_premise" {
 			var nextErr error
-			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID)
+			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID, scopeDefinitionRegistry(scope))
 			if nextErr != nil {
 				return nextErr
 			}
@@ -3280,7 +3299,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 	return ""
 }
 
-func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string) (string, error) {
+func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, registry DefinitionRegistry) (string, error) {
 	step := workflowStep(definition, current)
 	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
 		return workflowNextStep(definition, current), nil
@@ -3302,7 +3321,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if contractCount == 0 {
 		return workflowNextStep(definition, current), nil
 	}
-	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	contract, _, err := workflowCompletionContract(ctx, tx, registry, workID)
 	if err != nil {
 		return "", err
 	}
@@ -3323,7 +3342,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	return workflowNextStep(definition, current), nil
 }
 
-func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionFailedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -3337,7 +3356,7 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if !TypedErrorKindAllowed(p.FailureKind) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_failed failure kind is not closed", false, "use a TS7 typed error kind")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
 		return err
 	}
@@ -3535,7 +3554,7 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
-func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowPremiseConfirmedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -3546,7 +3565,7 @@ func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event) 
 	if p.ContractVersion <= 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "premise confirmation has invalid contract version", false, "supply a positive contract version")
 	}
-	registered, registeredErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	registered, registeredErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if registeredErr != nil {
 		return registeredErr
 	}
@@ -4152,7 +4171,7 @@ func foldWorkflowConditionCancelled(ctx context.Context, tx *sql.Tx, event Event
 	}
 	return nil
 }
-func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -4165,13 +4184,14 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
-	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
+	if err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "fold_event"); err != nil {
+	if err := workflowCompletionCallerAuthority(ctx, tx, entry.Definition, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {

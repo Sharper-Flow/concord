@@ -477,7 +477,7 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 	if action, _ := workflowOperatorQuestionAction(definition, state.Step); action != "confirm_premise" {
 		return nil
 	}
-	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
+	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, definition, workID); deliverablesErr != nil {
 		// A typed refusal is the confirmation's answer; only an
 		// unreadable projection fails the fold.
 		var failure *Failure

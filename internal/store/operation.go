@@ -215,7 +215,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.project_handoff_recorded":           registerEventKind[projectHandoffRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
 	"work.project_handoff_consumed":           registerEventKind[projectHandoffConsumedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
 	"work.session_claim_landed":               registerEventKind[sessionClaimLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil),
-	"work.transitioned":                       registerEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
+	"work.transitioned":                       registerScopedEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
 	"work.reopened":                           registerEventKind[workReopenedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopened, nil),
 	"work.reopened_from_superseded":           registerEventKind[workReopenedFromSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopenedFromSuperseded, nil),
@@ -249,21 +249,21 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](6, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4, 5: upcastWorkerDispatchedV5}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](7, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4, 5: upcastWorkerCompletedV5, 6: upcastWorkerCompletedV6}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](4, 1, map[int]Upcaster{1: upcastWorkerFailedV1, 2: upcastWorkerFailedV2, 3: upcastWorkerFailedV3}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
-	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
-	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](5, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3, 4: upcastWorkflowContractApprovedV4}, foldWorkflowContractApproved),
+	WorkflowDefinitionSelected:                workflowScopedRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
+	WorkflowContractApproved:                  workflowScopedRegistration[workflowContractApprovedPayload](5, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3, 4: upcastWorkflowContractApprovedV4}, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](1, nil, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](1, 1, nil, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
-	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](4, map[int]Upcaster{1: upcastWorkflowContractSupersededV1, 2: upcastWorkflowContractSupersededV2, 3: upcastWorkflowContractSupersededV3}, foldWorkflowContractSuperseded),
+	WorkflowContractSuperseded:                workflowScopedRegistration[workflowContractSupersededPayload](4, map[int]Upcaster{1: upcastWorkflowContractSupersededV1, 2: upcastWorkflowContractSupersededV2, 3: upcastWorkflowContractSupersededV3}, foldWorkflowContractSuperseded),
 	WorkflowCandidateSetRevised:               workflowRegistration[workflowCandidateSetRevisedPayload](1, nil, foldWorkflowCandidateSetRevised),
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
-	WorkflowActionStarted:                     workflowRegistration[workflowActionStartedPayload](1, nil, foldWorkflowActionStarted),
-	WorkflowActionCheckpointed:                workflowRegistration[workflowActionCheckpointedPayload](1, nil, foldWorkflowActionCheckpointed),
-	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](5, map[int]Upcaster{1: upcastWorkflowActionCompletedV1, 2: upcastWorkflowActionCompletedV2, 3: upcastWorkflowActionCompletedV3, 4: upcastWorkflowActionCompletedV4}, foldWorkflowActionCompleted),
-	WorkflowActionFailed:                      workflowRegistration[workflowActionFailedPayload](1, nil, foldWorkflowActionFailed),
+	WorkflowActionStarted:                     workflowScopedRegistration[workflowActionStartedPayload](1, nil, foldWorkflowActionStarted),
+	WorkflowActionCheckpointed:                workflowScopedRegistration[workflowActionCheckpointedPayload](1, nil, foldWorkflowActionCheckpointed),
+	WorkflowActionCompleted:                   workflowScopedRegistration[workflowActionCompletedPayload](5, map[int]Upcaster{1: upcastWorkflowActionCompletedV1, 2: upcastWorkflowActionCompletedV2, 3: upcastWorkflowActionCompletedV3, 4: upcastWorkflowActionCompletedV4}, foldWorkflowActionCompleted),
+	WorkflowActionFailed:                      workflowScopedRegistration[workflowActionFailedPayload](1, nil, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, nil, foldWorkflowEvidenceBound),
 	WorkflowStalenessObserved:                 registerEventKind[workflowStalenessObservedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkflowStalenessObserved, validateWorkflowStalenessObservedPayload),
 	WorkflowVerdictRecorded:                   workflowRegistration[workflowVerdictRecordedPayload](2, map[int]Upcaster{1: upcastWorkflowVerdictRecordedV1}, foldWorkflowVerdictRecorded),
-	WorkflowPremiseConfirmed:                  workflowRegistration[workflowPremiseConfirmedPayload](2, map[int]Upcaster{1: upcastWorkflowPremiseConfirmedV1}, foldWorkflowPremiseConfirmed),
+	WorkflowPremiseConfirmed:                  workflowScopedRegistration[workflowPremiseConfirmedPayload](2, map[int]Upcaster{1: upcastWorkflowPremiseConfirmedV1}, foldWorkflowPremiseConfirmed),
 	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](2, map[int]Upcaster{1: upcastWorkflowSuccessorLinkedV1}, foldWorkflowSuccessorLinked),
 	WorkflowImpactDeclared:                    workflowRegistration[workflowImpactDeclaredPayload](1, nil, foldWorkflowImpactDeclared),
 	WorkflowImpactNoticeRecorded:              workflowRegistration[workflowImpactNoticeRecordedPayload](2, map[int]Upcaster{1: upcastWorkflowImpactNoticeRecordedV1}, foldWorkflowImpactNoticeRecorded),
@@ -278,7 +278,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, nil, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),
-	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
+	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
 	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, nil, foldOutsideRepairDispositionSet),
 	WorkflowOutsideRepairReconciled:           registerScopedEventKind[workflowOutsideRepairReconcilePayload](1, 1, nil, EventAppendAuthorityWorkflow, foldOutsideRepairReconciled, validateWorkflowPayload[workflowOutsideRepairReconcilePayload]),
 	WorkflowOutsideRepairResumed:              workflowRegistration[workflowOutsideRepairResumePayload](1, nil, foldOutsideRepairResumed),
@@ -439,6 +439,17 @@ func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation O
 // fold scope its region owns; enter and close stay paired inside.
 func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope) (ApplyOperationResult, error) {
 	return applyOperationTx(ctx, tx, operation, scope, true)
+}
+
+// applyWorkflowOperationTxWithRegistry appends and folds one workflow
+// operation with the caller's definition registry bound to the scope before
+// any write. The binding refuses a scope from another transaction and a
+// conflicting second registry on one scope.
+func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) (ApplyOperationResult, error) {
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return ApplyOperationResult{}, err
+	}
+	return applyWorkflowOperationTx(ctx, tx, operation, scope)
 }
 
 func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, workflowAuthority bool) (ApplyOperationResult, error) {

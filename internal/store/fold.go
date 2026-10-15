@@ -18,6 +18,46 @@ type foldScope struct {
 	// Only the validated outside-repair reconciliation fold grants this exact
 	// event permission to complete held work. It is local to that fold call.
 	outsideRepairLifecycleEvent *Event
+	// registry is the definition source the transaction's workflow folds
+	// resolve pinned definitions through. A nil registry selects the builtin
+	// registry; a caller-selected registry is bound before any write and is
+	// never silently widened with a builtin retry.
+	registry DefinitionRegistry
+}
+
+// bindRegistry binds the caller's definition registry to this scope before
+// any write. The scope must belong to the transaction that binds it, and one
+// scope carries one registry for its whole lifetime: a second binding with a
+// different registry refuses instead of mixing definition sources inside one
+// transaction.
+func (s *foldScope) bindRegistry(tx *sql.Tx, registry DefinitionRegistry) error {
+	if s == nil {
+		return newFailure(KindInvariantViolation, "fold", "fold scope is required", false, "open the fold scope with beginFold")
+	}
+	if s.tx != tx {
+		return newFailure(KindInvariantViolation, "fold", "fold scope belongs to another transaction", false, "open the fold scope on the transaction that folds")
+	}
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	if s.registry == nil {
+		s.registry = registry
+		return nil
+	}
+	if s.registry != registry {
+		return newFailure(KindInvariantViolation, "fold", "fold scope is already bound to another definition registry", false, "reuse the transaction's bound definition registry")
+	}
+	return nil
+}
+
+// scopeDefinitionRegistry is the one registry the transaction's workflow
+// folds resolve pinned definitions through. A builtin entry selects builtins;
+// a caller-selected registry never retries a missing pin against builtins.
+func scopeDefinitionRegistry(scope *foldScope) DefinitionRegistry {
+	if scope == nil || scope.registry == nil {
+		return BuiltinWorkflowRegistry()
+	}
+	return scope.registry
 }
 
 func (s *foldScope) permitsOutsideRepairLifecycle(tx *sql.Tx, event Event, lifecycle string) bool {

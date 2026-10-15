@@ -123,6 +123,89 @@ func TestResearchSelectedReadIsExactAndComplete(t *testing.T) {
 	}
 }
 
+func TestResearchSelectedReadQueryerServesPendingWriteTx(t *testing.T) {
+	s := openTemp(t)
+	seedResearchWork(t, s, "read-owner")
+	p := createSimplePack(t, s, "read-queryer", "read-owner")
+	ctx := context.Background()
+	if _, err := s.db.Exec(`INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at) VALUES(?,1,'s1','web','https://example.com','Source','Example','2026-10-10T00:00:00Z')`, p.PackID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,1,'f00','observation','committed','high','current','active','home')`, p.PackID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,1,'f00','s1')`, p.PackID); err != nil {
+		t.Fatal(err)
+	}
+	committed := ResearchReadRequest{PackID: p.PackID, Revision: 1, FindingIDs: []string{"f00"}, Limit: 10}
+	fromDB, err := readResearchSelectionTx(ctx, s.db, committed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rtx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromReadTx, readErr := readResearchSelectionTx(ctx, rtx, committed)
+	if err := rtx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !reflect.DeepEqual(fromDB, fromReadTx) {
+		t.Fatalf("read-tx context diverged from DB context: %+v vs %+v", fromReadTx, fromDB)
+	}
+	if len(fromDB.Revisions) != 1 || fromDB.Revisions[0].Findings[0].FindingID != "f00" || !reflect.DeepEqual(fromDB.Revisions[0].Findings[0].SourceIDs, []string{"s1"}) || len(fromDB.Revisions[0].Sources) != 1 || fromDB.Revisions[0].Sources[0].SourceID != "s1" {
+		t.Fatalf("committed selection read: %+v", fromDB)
+	}
+
+	wtx, err := beginWriteTx(ctx, s.db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := ResearchReadRequest{PackID: p.PackID, Revision: 2, FindingIDs: []string{"fu"}, Limit: 10}
+	if _, err := wtx.Exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,2,'pending','{}','{}','{}','docs','2026-10-14T00:00:00Z','current')`, p.PackID); err != nil {
+		_ = wtx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := wtx.Exec(`INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at) VALUES(?,2,'su','web','https://example.com/pending','Pending','Example','2026-10-14T00:00:00Z')`, p.PackID); err != nil {
+		_ = wtx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := wtx.Exec(`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,2,'fu','observation','uncommitted','high','current','active','home')`, p.PackID); err != nil {
+		_ = wtx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := wtx.Exec(`INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,2,'fu','su')`, p.PackID); err != nil {
+		_ = wtx.Rollback()
+		t.Fatal(err)
+	}
+	fromWriteTx, err := readResearchSelectionTx(ctx, wtx, pending)
+	if err != nil {
+		_ = wtx.Rollback()
+		t.Fatal(err)
+	}
+	if err := wtx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fromWriteTx.Revisions) != 1 || fromWriteTx.Revisions[0].Revision != 2 || fromWriteTx.Revisions[0].Findings[0].FindingID != "fu" || !reflect.DeepEqual(fromWriteTx.Revisions[0].Findings[0].SourceIDs, []string{"su"}) || len(fromWriteTx.Revisions[0].Sources) != 1 || fromWriteTx.Revisions[0].Sources[0].SourceID != "su" {
+		t.Fatalf("pending-write selection read: %+v", fromWriteTx)
+	}
+	if _, err := readResearchSelectionTx(ctx, s.db, pending); err == nil {
+		t.Fatal("rolled-back revision stayed readable")
+	} else {
+		assertFailureKind(t, err, KindProjectionNotFound)
+	}
+	after, err := readResearchSelectionTx(ctx, s.db, committed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fromDB, after) {
+		t.Fatalf("rollback disturbed the committed selection: %+v vs %+v", after, fromDB)
+	}
+}
+
 func TestResearchOwnerDescriptorsDoNotExpandContent(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "read-owner", "other-owner")

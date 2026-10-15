@@ -1058,14 +1058,33 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
 
 def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     """The packet owns the shared native preparation projection; results add
-    only the fields the store producer publishes, never caller observations."""
+    only the fields the store producer publishes, never caller observations.
+    The canonical packet also owns the selected-research projection (CON-911):
+    the shared view's research member and its closed defs project from the
+    lane contract, so the public read view and the frozen view3 anchor the
+    same schema content instead of independently copied runtime policy."""
     aliases = {
         "lane_native_oracle_stream": "native_oracle_stream",
         "lane_native_oracle_file": "native_oracle_file",
         "lane_native_oracle_test_name": "native_oracle_test_name",
         "lane_native_oracle_preparation": "native_oracle_preparation",
         "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
+        "lane_work_context_research_selection": "work_context_research_selection",
+        "lane_work_context_research_finding": "work_context_research_finding",
+        "lane_work_context_research_finding_view": "work_context_research_finding_view",
+        "lane_research_scopes": "research_scopes",
+        "lane_research_source": "research_source",
     }
+    # The lane-local research defs the payloads document does not author: the
+    # canonical lane contract owns their bytes and the projection copies them
+    # under the shared payload names. lane_research_scopes and
+    # lane_research_source only remap references; the payloads document's own
+    # research defs stay the published tool-surface owner.
+    projected_research_defs = (
+        "lane_work_context_research_selection",
+        "lane_work_context_research_finding",
+        "lane_work_context_research_finding_view",
+    )
 
     def remap(node):
         if isinstance(node, list):
@@ -1081,10 +1100,14 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         return result
 
     for source, target in aliases.items():
-        if source.startswith("lane_native_"):
+        if source.startswith("lane_native_") or source in projected_research_defs:
             defs[target] = remap(packet_defs[source])
     for name in ("subject_commit", "oracle_preparations"):
         defs["work_context_view"]["properties"][name] = remap(packet_defs["lane_work_context_view"]["properties"][name])
+    research = packet_defs["lane_work_context_view"]["properties"].get("research_findings")
+    if not isinstance(research, dict):
+        fail("the canonical lane work-context view carries no research_findings member")
+    defs["work_context_view"]["properties"]["research_findings"] = remap(research)
     defs["work_context_view"]["properties"].pop("candidate_subject", None)
     receipt = defs["worker_oracle_receipt"]
     receipt["properties"].pop("candidate_subject", None)

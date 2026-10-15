@@ -3183,7 +3183,7 @@
           "maxItems": 32,
           "items": {
             "type": "string",
-            "pattern": "^finding:[0-9]+:[0-9]+$"
+            "pattern": "^(finding|research):[0-9]+:[0-9]+$"
           }
         }
       }
@@ -3251,6 +3251,15 @@
             "$ref": "#/$defs/native_oracle_preparation"
           },
           "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
+        },
+        "research_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_research_finding_view"
+          },
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing."
         }
       }
     },
@@ -15133,7 +15142,7 @@
               "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "worker_packet": {
-              "$ref": "#/$defs/worker_packet2"
+              "$ref": "#/$defs/worker_packet3"
             }
           },
           "required": [
@@ -16718,6 +16727,14 @@
               },
               "minItems": 0,
               "maxItems": 16
+            },
+            "research_finding_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/work_context_research_selection"
+              },
+              "minItems": 0,
+              "maxItems": 32
             }
           }
         }
@@ -21796,6 +21813,478 @@
           "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
         }
       }
+    },
+    "work_context_domain_group3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_id",
+        "required_reading_ordinals",
+        "finding_ids"
+      ],
+      "properties": {
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "required_reading_ordinals": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "finding_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^(finding|research):[0-9]+:[0-9]+$",
+            "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list."
+          }
+        }
+      }
+    },
+    "work_context_view3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "properties": {
+        "source_event_frontier": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn."
+        },
+        "required_reading": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_finding_view"
+          }
+        },
+        "research_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_research_finding_view"
+          },
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing."
+        },
+        "domain_groups": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group3"
+          }
+        },
+        "oracle_receipts": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
+        },
+        "subject_commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once."
+        },
+        "oracle_preparations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/native_oracle_preparation"
+          },
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
+        }
+      }
+    },
+    "worker_packet3": {
+      "description": "The research-context packet identity the CON-911 promoted definitions record and replay. It mirrors $defs/worker_packet2 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' work_context member anchored at the research-enabled work_context_view3 — so the frozen decoder carries it beside the byte-exact packet2 closure, and the research entries ride the unchanged context aggregate the budgets already measure. The retained packet2 pins replay exactly the closure they recorded and refuse the research-bearing packets the packet3 declaration admits.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
+      "properties": {
+        "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The coordinated research extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
+          "type": "string",
+          "enum": [
+            "2.0"
+          ]
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
+            "report_protocol": {
+              "type": "string",
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity."
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
+            },
+            "context": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 16384,
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
+            },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view3",
+              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
+            "constraints": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            }
+          },
+          "required": [
+            "task",
+            "binding"
+          ]
+        }
+      }
+    },
+    "work_context_research_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "domain_id"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "description": "Present exactly when the declared Domain is the registry's root Domain; the core validates that pairing at authoring."
+        }
+      },
+      "description": "One closed selected research reference: the exact pack, revision, and finding beside the declared Domain. References only, never research content."
+    },
+    "work_context_research_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "kind",
+        "statement",
+        "confidence",
+        "freshness",
+        "status",
+        "scopes"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "conclusion",
+            "recommendation"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "contradicted",
+            "superseded"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "scopes": {
+          "$ref": "#/$defs/research_scopes",
+          "description": "The finding's own applicability scopes, carried unchanged from the research authority. The Go reader always serializes this member, so the context projection requires it."
+        }
+      },
+      "description": "The native research finding a resolved context entry carries: the research authority's own vocabulary, never mapped to generic worker observations or invented evidence refs."
+    },
+    "work_context_research_finding_view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state",
+            "finding",
+            "sources"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "const": "resolved"
+            },
+            "finding": {
+              "$ref": "#/$defs/work_context_research_finding"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/research_source"
+              },
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "missing",
+                "stale",
+                "rebound",
+                "inactive"
+              ],
+              "description": "The typed drift states: an unresolved entry carries references and provenance only, no finding and no sources."
+            }
+          }
+        }
+      ],
+      "description": "One selected research entry of the shared work-context view. Exactly the resolved state carries the native finding and its linked source descriptors; every other state carries the closed selection tuple and provenance only."
     }
   }
 }

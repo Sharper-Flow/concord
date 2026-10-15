@@ -392,7 +392,7 @@ func TestFrozenWorkerPacketBaselineStaysByteExact(t *testing.T) {
 	// resolves, so the versioned identity replays exactly the shape it
 	// records, transitively.
 	liveDefs := deepCopyJSONDocument(t, payloadschema.Document())["$defs"].(map[string]any)
-	for _, name := range []string{"worker_packet2", "work_context_view2", "work_context_domain_group2"} {
+	for _, name := range []string{"worker_packet2", "work_context_view2", "work_context_domain_group2", "worker_packet3", "work_context_view3", "work_context_domain_group3"} {
 		versioned, ok := defs[name].(map[string]any)
 		if !ok {
 			t.Fatalf("the frozen decoder carries no versioned %s definition", name)
@@ -407,6 +407,9 @@ func TestFrozenWorkerPacketBaselineStaysByteExact(t *testing.T) {
 	}
 	if ref := defs["worker_packet2"].(map[string]any)["properties"].(map[string]any)["inputs"].(map[string]any)["properties"].(map[string]any)["work_context"].(map[string]any)["$ref"]; ref != "#/$defs/work_context_view2" {
 		t.Fatalf("the frozen worker_packet2 anchors %q, want the versioned work_context_view2", ref)
+	}
+	if ref := defs["worker_packet3"].(map[string]any)["properties"].(map[string]any)["inputs"].(map[string]any)["properties"].(map[string]any)["work_context"].(map[string]any)["$ref"]; ref != "#/$defs/work_context_view3" {
+		t.Fatalf("the frozen worker_packet3 anchors %q, want the research-enabled work_context_view3", ref)
 	}
 	// The versioned identity carries no retired conditional: its
 	// schema_version is the 2.0 identity alone, so the 1.0 worker_job branch
@@ -610,5 +613,184 @@ func TestPacket2WorkContextClosureParityAcrossLiveAndReplay(t *testing.T) {
 	historicRetained := wrap(fullWorkContextPacket2("1.1", navigationGroup))
 	if err := validateWorkflowActionPayloadForReplay(retained.Definition, "dispatch_worker", historicRetained); err != nil {
 		t.Errorf("replay worker_packet refused the released navigation-bearing history: %v", err)
+	}
+}
+
+// researchContextDeclarationPayload builds a record_work_context payload
+// with the given research selection entries beside an otherwise empty
+// declaration. plain skips the member entirely: the retained heads' own
+// recorded shape never carried it, and their closed payloads refuse the
+// member name itself, whatever its value.
+func researchContextDeclarationPayload(selections string) json.RawMessage {
+	if selections == "" {
+		return json.RawMessage(`{"required_reading":[],"finding_refs":[],"context_findings":[]}`)
+	}
+	return json.RawMessage(`{"required_reading":[],"finding_refs":[],"context_findings":[],"research_finding_refs":` + selections + `}`)
+}
+
+// fullResearchContextPacket3 builds one packet3 whose work-context view
+// carries a resolved research entry and a group whose id namespace mixes the
+// generic and research view ids, so the nested research closure — not the
+// packet root alone — decides the verdict.
+func fullResearchContextPacket3() json.RawMessage {
+	view := map[string]any{
+		"source_event_frontier": 9,
+		"required_reading":      []map[string]any{},
+		"findings":              []map[string]any{},
+		"domain_groups": []map[string]any{{
+			"domain_id":                 "registry:root",
+			"required_reading_ordinals": []int{},
+			"finding_ids":               []string{"research:9:0"},
+		}},
+		"research_findings": []map[string]any{{
+			"selection": map[string]any{
+				"pack_id": "pack-packet3-closure", "revision": 1,
+				"finding_id": "f-packet3-closure", "domain_id": "registry:root",
+			},
+			"view_id":            "research:9:0",
+			"selection_event_id": "event:packet3-closure",
+			"selection_event_seq": 9,
+			"ordinal":             0,
+			"required":            true,
+			"state":               "resolved",
+			"finding": map[string]any{
+				"pack_id": "pack-packet3-closure", "revision": 1,
+				"finding_id": "f-packet3-closure", "kind": "observation",
+				"statement": "the packet3 research closure carries the selected finding",
+				"confidence": "high", "freshness": "current", "status": "active",
+				"scopes": map[string]any{"mode": "home"},
+			},
+			"sources": []map[string]any{},
+		}},
+	}
+	packet := map[string]any{
+		"schema_version": "2.0", "attempt_id": "attempt-packet3-closure",
+		"lane_id": "implement", "lane_version": 1,
+		"lane_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"work_id":     "work-packet3-closure", "step_id": "execution",
+		"inputs": map[string]any{
+			"task": "the bounded packet3 closure task",
+			"binding": map[string]any{
+				"objective_source": "contract_premise", "work_version": 1,
+				"contract_version": 1, "assigned_result": "changed_files",
+			},
+			"report_protocol": "concord-worker-result-v1",
+			"work_context":    view,
+		},
+	}
+	raw, err := json.Marshal(packet)
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+// TestResearchContextHeadsDeclareSelectionAndPacket3Closure is the S4
+// publication witness: the promoted heads (implementation v32, break_fix v29,
+// research v19) append the optional research_finding_refs action input to
+// record_work_context and anchor dispatch_worker's packet at the frozen
+// worker_packet3 closure, while the retained v31/v28/v18 pins keep the
+// packet2 closure and structurally refuse the selection field — the same
+// recorded payload replays under its own pin and refuses under the research
+// closure, and a research-bearing packet is admitted only through packet3.
+func TestResearchContextHeadsDeclareSelectionAndPacket3Closure(t *testing.T) {
+	type family struct {
+		ref             string
+		headVersion     int64
+		retainedVersion int64
+	}
+	for _, fam := range []family{
+		{"workflow.implementation", 32, 31},
+		{"workflow.break_fix", 29, 28},
+		{"workflow.research", 19, 18},
+	} {
+		head, ok := BuiltinWorkflowRegistry().Lookup(fam.ref, fam.headVersion)
+		if !ok {
+			t.Fatalf("%s v%d is not registered", fam.ref, fam.headVersion)
+		}
+		retained, ok := BuiltinWorkflowRegistry().Lookup(fam.ref, fam.retainedVersion)
+		if !ok {
+			t.Fatalf("%s v%d is not registered", fam.ref, fam.retainedVersion)
+		}
+		if got := dispatchPacketSchemaRef(t, head.Definition); got != "worker_packet3" {
+			t.Fatalf("%s v%d dispatch packet schema ref = %q, want the research-context worker_packet3", fam.ref, fam.headVersion, got)
+		}
+		if got := dispatchPacketSchemaRef(t, retained.Definition); got != "worker_packet2" {
+			t.Fatalf("%s v%d dispatch packet schema ref = %q, want the retained worker_packet2", fam.ref, fam.retainedVersion, got)
+		}
+		selectionField := func(definition WorkflowDefinition) *WorkflowPayloadField {
+			for _, action := range definition.ActionDefinitions {
+				if action.ID != "record_work_context" {
+					continue
+				}
+				for index := range action.Payload.Fields {
+					if action.Payload.Fields[index].Name == "research_finding_refs" {
+						return &action.Payload.Fields[index]
+					}
+				}
+			}
+			return nil
+		}
+		declared := selectionField(head.Definition)
+		if declared == nil {
+			t.Fatalf("%s v%d record_work_context declares no research_finding_refs field", fam.ref, fam.headVersion)
+		}
+		if declared.Required || declared.ValueType != PayloadArray || declared.ItemRef != "work_context_research_selection" {
+			t.Fatalf("%s v%d research_finding_refs declaration = %+v, want an optional array of work_context_research_selection", fam.ref, fam.headVersion, declared)
+		}
+		if declared.MinItems == nil || *declared.MinItems != 0 || declared.MaxItems == nil || *declared.MaxItems != WorkContextFindingRefsMax {
+			t.Fatalf("%s v%d research_finding_refs bounds = %+v, want 0..%d", fam.ref, fam.headVersion, declared, WorkContextFindingRefsMax)
+		}
+		if selectionField(retained.Definition) != nil {
+			t.Fatalf("%s v%d record_work_context must keep its closed payload without the selection field", fam.ref, fam.retainedVersion)
+		}
+		// Replay parity: the retained pin replays its own recorded
+		// declaration shape and refuses the selection the new heads author;
+		// the promoted head replays both the plain and the selection
+		// declaration it ships.
+		plain := researchContextDeclarationPayload("")
+		selected := researchContextDeclarationPayload(`[{"pack_id":"pack-packet3-closure","revision":1,"finding_id":"f-packet3-closure","domain_id":"registry:root"}]`)
+		if err := validateWorkflowActionPayloadForReplay(retained.Definition, "record_work_context", plain); err != nil {
+			t.Errorf("%s v%d replay refused its own plain declaration: %v", fam.ref, fam.retainedVersion, err)
+		}
+		if err := validateWorkflowActionPayloadForReplay(retained.Definition, "record_work_context", selected); err == nil {
+			t.Errorf("%s v%d replay admitted the research selection its closed payload never declared", fam.ref, fam.retainedVersion)
+		}
+		if err := validateWorkflowActionPayloadForReplay(head.Definition, "record_work_context", selected); err != nil {
+			t.Errorf("%s v%d replay refused the research selection it declares: %v", fam.ref, fam.headVersion, err)
+		}
+		// Transport parity: a research-bearing packet is admitted live and on
+		// replay only through the packet3 closure; the retained packet2 pin
+		// refuses it structurally.
+		researchPacket := json.RawMessage(`{"attempt_id":"attempt-packet3-closure","worker_packet":` + string(fullResearchContextPacket3()) + `}`)
+		if err := validateWorkflowActionPayloadForReplay(head.Definition, "dispatch_worker", researchPacket); err != nil {
+			t.Errorf("%s v%d replay refused the research-bearing packet3: %v", fam.ref, fam.headVersion, err)
+		}
+		if err := validateWorkflowActionPayloadForReplay(retained.Definition, "dispatch_worker", researchPacket); err == nil {
+			t.Errorf("%s v%d replay admitted a research-bearing packet through the frozen packet2 closure", fam.ref, fam.retainedVersion)
+		}
+	}
+	// The frozen closure resolves transitively: the new view anchors the
+	// research-enabled group, and the old frozen group keeps the generic-only
+	// id pattern. The byte-equality loop above proves the frozen identities
+	// equal the published shapes, so the live gates decide the same verdicts.
+	frozenDefs := deepCopyJSONDocument(t, payloadschema.HistoricalDocument())["$defs"].(map[string]any)
+	group3, ok := frozenDefs["work_context_domain_group3"].(map[string]any)
+	if !ok {
+		t.Fatal("the frozen decoder carries no work_context_domain_group3 definition")
+	}
+	pattern, _ := group3["properties"].(map[string]any)["finding_ids"].(map[string]any)["items"].(map[string]any)["pattern"].(string)
+	if pattern != "^(finding|research):[0-9]+:[0-9]+$" {
+		t.Fatalf("the frozen group3 id pattern = %q, want the closed finding|research namespace", pattern)
+	}
+	for _, name := range []string{"work_context_domain_group", "work_context_domain_group2"} {
+		old, ok := frozenDefs[name].(map[string]any)
+		if !ok {
+			t.Fatalf("the frozen decoder lost %s", name)
+		}
+		oldPattern, _ := old["properties"].(map[string]any)["finding_ids"].(map[string]any)["items"].(map[string]any)["pattern"].(string)
+		if oldPattern != "^finding:[0-9]+:[0-9]+$" {
+			t.Fatalf("the frozen %s id pattern = %q, want the unchanged generic-only namespace", name, oldPattern)
+		}
 	}
 }

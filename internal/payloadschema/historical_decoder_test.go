@@ -252,6 +252,19 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"worker_failure_observation":      "CON-787: the producer observation the failure-attribution pins' failure_attribution correction input declares",
 	"worker_failure_host_observation": "CON-787: the typed host event observation a worker_failure_observation host_event source carries",
 	"worker_failure_source":           "CON-787: the typed source citation a worker_failure_observation carries",
+	// The research-context closure the promoted heads declare (CON-911:
+	// implementation v32, break_fix v29, research v19): the packet3 identity
+	// and the research-enabled view, group, and selection definitions ride
+	// the unchanged context aggregate, and every frozen packet2/view2/group2
+	// definition stays byte-exact beside them.
+	"worker_packet3":                    "CON-911: the research-context packet identity the promoted implementation v32, break_fix v29, and research v19 dispatch payloads declare",
+	"work_context_view3":                "the research-enabled work-context view worker_packet3 anchors, resolving the research-enabled group",
+	"work_context_domain_group3":        "the research-enabled domain group: the group id namespace admits the research view ids beside the generic finding ids",
+	"work_context_research_selection":   "CON-911: the closed selection tuple the promoted record_work_context payloads declare and every research view entry carries",
+	"work_context_research_finding_view": "CON-911: the closed resolved/unresolved research entry the view3 work_context carries",
+	"work_context_research_finding":     "CON-911: the native research finding the resolved entries carry, with the always-serialized applicability scopes",
+	"research_scopes":                   "CON-911: the applicability scopes the context research finding carries",
+	"research_source":                   "CON-911: the native source descriptor the resolved research entries cite",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

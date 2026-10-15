@@ -27,7 +27,23 @@ function refusalReason(toolID: string, agent: unknown): string | null {
   return `${toolID} is refused for ${agent}: ${role.boundary}; the call records nothing`
 }
 
-export function guardPrimaryRole<T extends { execute: (args: any, context: any) => Promise<any> }>(toolID: string, definition: T): T {
+// The wrapper runs the original tool unchanged and forwards its arguments and
+// result, so the guarded type keeps the wrapped execute contract and adds the
+// one field the guard reads: the host execution context agent. The host may
+// omit agent, and the runtime already refuses a step with no identity, so the
+// guarded context accepts agent as optional unknown.
+export type GuardedPrimaryTool<T extends { execute: (args: any, context: any) => Promise<any> }> = Omit<T, "execute"> & {
+  execute: (
+    args: Parameters<T["execute"]>[0],
+    context: Parameters<T["execute"]>[1] & { agent?: unknown },
+  ) => Promise<Awaited<ReturnType<T["execute"]>>>
+}
+
+export type GuardedPrimaryTools<T extends Record<string, { execute: (args: any, context: any) => Promise<any> }>> = {
+  [K in keyof T]: GuardedPrimaryTool<T[K]>
+}
+
+export function guardPrimaryRole<T extends { execute: (args: any, context: any) => Promise<any> }>(toolID: string, definition: T): GuardedPrimaryTool<T> {
   return {
     ...definition,
     execute: async (args: any, context: any) => {
@@ -38,8 +54,8 @@ export function guardPrimaryRole<T extends { execute: (args: any, context: any) 
   }
 }
 
-export function guardPrimaryRoles<T extends Record<string, { execute: (args: any, context: any) => Promise<any> }>>(tools: T): T {
+export function guardPrimaryRoles<T extends Record<string, { execute: (args: any, context: any) => Promise<any> }>>(tools: T): GuardedPrimaryTools<T> {
   const guarded: Record<string, unknown> = {}
   for (const [toolID, definition] of Object.entries(tools)) guarded[toolID] = guardPrimaryRole(toolID, definition)
-  return guarded as T
+  return guarded as GuardedPrimaryTools<T>
 }

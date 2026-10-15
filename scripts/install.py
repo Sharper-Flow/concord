@@ -1744,6 +1744,63 @@ def command_status(command: str) -> str | None:
     return shutil.which(command)
 
 
+# The >= 2.38.0 Git floor for architecture-capable native integration. The
+# accepted `git --version` report shape and the signed 64-bit bound on every
+# numeric component mirror the runtime parser in
+# internal/store/worker_integration_git_version.go.
+GIT_VERSION_FLOOR = (2, 38)
+GIT_VERSION_PROBE_TIMEOUT = 5
+GIT_VERSION_REPORT_RE = re.compile(
+    r"^git version ([0-9]+)\.([0-9]+)(?:\.([0-9]+)(?:\.[A-Za-z0-9][A-Za-z0-9.-]*| \([A-Za-z0-9 .-]+\))?)?$"
+)
+GIT_VERSION_MAX_NUMBER = 2**63 - 1
+GIT_VERSION_MAX_DIGITS = len(str(GIT_VERSION_MAX_NUMBER))
+
+
+def _git_version_number(text: str) -> int:
+    """The value of one report component, bounded before int(): CPython
+    refuses int() past 4300 digits, and leading zeros do not change the
+    value, as in the Go parser's overflow check."""
+    digits = text.lstrip("0")
+    if len(digits) > GIT_VERSION_MAX_DIGITS:
+        raise InstallerError("git --version output is not a Git version report")
+    return int(digits or "0")
+
+
+def require_git_version() -> str:
+    """Probe the host Git version and return its complete reported identity.
+
+    Refuses a missing git command, a failing or hanging probe, a report the
+    runtime parser's shape rejects (including an overflowing numeric
+    component), and any Git below the integration floor.
+    """
+    git = command_status("git")
+    if git is None:
+        raise InstallerError("missing command git; the >= 2.38.0 Git integration floor cannot be verified")
+    try:
+        result = subprocess.run([git, "--version"], capture_output=True, text=True, timeout=GIT_VERSION_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired as error:
+        raise InstallerError("the git --version probe exceeded its five-second deadline") from error
+    except (OSError, UnicodeDecodeError) as error:
+        raise InstallerError(f"cannot probe the host Git version: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise InstallerError(f"command failed: git --version: {detail}")
+    report = result.stdout[:-1] if result.stdout.endswith("\n") else result.stdout
+    match = GIT_VERSION_REPORT_RE.fullmatch(report)
+    if match is None:
+        raise InstallerError("git --version output is not a Git version report")
+    for part in match.groups():
+        if part is not None and _git_version_number(part) > GIT_VERSION_MAX_NUMBER:
+            raise InstallerError("git --version output is not a Git version report")
+    version = report[len("git version "):]
+    if (_git_version_number(match.group(1)), _git_version_number(match.group(2))) < GIT_VERSION_FLOOR:
+        raise InstallerError(
+            f"host Git {version} does not meet the >= 2.38.0 integration floor; install Git 2.38.0 or newer"
+        )
+    return version
+
+
 def secret_service_status() -> tuple[bool, str]:
     busctl = command_status("busctl")
     if busctl:
@@ -2125,7 +2182,6 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     if machine not in {"x86_64", "amd64"}:
         failures.append(f"architecture is {platform.machine()}; Linux amd64 is required")
     for command, consequence in (
-        ("git", "host resolution will not work without Git"),
         ("opencode", "the global Concord custom tool cannot be used without OpenCode"),
         ("secret-tool", "worker evidence signing fails closed because Concord cannot read the client signing key"),
         ("gnome-keyring-daemon", "the Secret Service provider holding the client signing key is missing"),
@@ -2135,6 +2191,10 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     ):
         if command_status(command) is None:
             failures.append(f"missing command {command}; {consequence}")
+    try:
+        require_git_version()
+    except InstallerError as error:
+        failures.append(str(error))
     service_ok, service_reason = secret_service_status()
     if not service_ok:
         failures.append(f"Secret Service unavailable: {service_reason}; worker evidence signing will not work")

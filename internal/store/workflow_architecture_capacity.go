@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -150,6 +152,35 @@ type ArchitectureCapacityMeasurement struct {
 	SlotBytes       map[architectureCapacitySlot]int
 }
 
+// architectureMemberSpan is the one canonical member charging mechanism: a
+// present member's exact wire contribution is its key, quotes, colon, value
+// bytes, and the trailing comma every present member carries except the
+// lexicographically last.
+func architectureMemberSpan(key string, value json.RawMessage, trailingComma bool) int {
+	span := len(key) + 3 + len(value)
+	if trailingComma {
+		span++
+	}
+	return span
+}
+
+// architectureChargeSlotSpans charges the sorted present members through
+// architectureMemberSpan and sums each slot's spans. A member outside the
+// slot map contributes no slot bytes.
+func architectureChargeSlotSpans(inputKeys []string, slots map[string]architectureCapacitySlot, inputs map[string]json.RawMessage) (map[architectureCapacitySlot]int, int) {
+	sort.Strings(inputKeys)
+	slotBytes := make(map[architectureCapacitySlot]int, len(architectureCapacitySlotsInOrder))
+	total := 0
+	for i, key := range inputKeys {
+		if slot, ok := slots[key]; ok {
+			span := architectureMemberSpan(key, inputs[key], i < len(inputKeys)-1)
+			slotBytes[slot] += span
+			total += span
+		}
+	}
+	return slotBytes, total
+}
+
 // assembleArchitecturePacket canonicalizes the present members, marshals
 // the canonical packet object at the real member locations, and charges
 // each slot its member spans: key, colon, quotes, value bytes, and the
@@ -207,18 +238,7 @@ func assembleArchitecturePacket(profile ArchitectureCapacityProfile, members map
 	if inputsErr != nil || packetErr != nil {
 		return nil, 0, nil, architectureCapacityFailure(KindInvariantViolation, "the packet3 projection cannot be measured", "repair the packet members")
 	}
-	slotBytes := make(map[architectureCapacitySlot]int, len(architectureCapacitySlotsInOrder))
-	total := 0
-	for i, key := range inputKeys {
-		span := len(key) + 3 + len(inputs[key])
-		if i < len(inputKeys)-1 {
-			span++
-		}
-		if slot, ok := slots[key]; ok {
-			slotBytes[slot] += span
-			total += span
-		}
-	}
+	slotBytes, total := architectureChargeSlotSpans(inputKeys, slots, inputs)
 	return packet, len(packet) - total, slotBytes, nil
 }
 
@@ -396,4 +416,169 @@ func ArchitectureLawContextDigest(raw json.RawMessage) (string, error) {
 	}
 	sum := sha256.Sum256(canonical)
 	return fmt.Sprintf("%x", sum), nil
+}
+
+// The event-sourced capacity invariant: after one operation's events fold and
+// before the same transaction commits, every affected work item whose latest
+// retained architecture projection declares an allocation must hold its
+// actual current member projections inside that allocation. The check reads
+// post-fold state through the raw typed readers only, never re-enters
+// workflow admission, and touches no work the operation did not affect.
+
+// validateArchitectureCapacityInvariantsTx validates post-fold capacity for
+// every work item the operation's events carry. Identification is by the
+// work-item subject alone, never by event-kind prefix: worker.job_recorded
+// and worker.completed are work subjects too. One whole multi-event
+// operation validates its final state, not intermediate events, so an
+// intermediate over-allocation that a later event in the same operation
+// replaces is admitted.
+func validateArchitectureCapacityInvariantsTx(ctx context.Context, tx *sql.Tx, operation Operation) error {
+	seen := make(map[string]bool, len(operation.Events))
+	affected := make([]string, 0, len(operation.Events))
+	for _, event := range operation.Events {
+		if event.SubjectType != SubjectWorkItem || seen[event.SubjectID] {
+			continue
+		}
+		seen[event.SubjectID] = true
+		affected = append(affected, event.SubjectID)
+	}
+	for _, workID := range affected {
+		if err := validateArchitectureCapacityAffectedWorkTx(ctx, tx, workID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// architectureCapacityProfileForWorkTx reads the capacity profile from the
+// latest retained architecture projection row. Contract supersession hides
+// the current design but retains its row, so an invalidated design can
+// neither turn the allocation off nor free its reserves to a successor. A
+// work with no retained architecture row is a legacy pin and the model stays
+// inactive. A retained row that cannot decode or cannot build a profile
+// refuses instead of measuring as zero.
+func architectureCapacityProfileForWorkTx(ctx context.Context, tx *sql.Tx, workID string) (ArchitectureCapacityProfile, bool, error) {
+	var architecture string
+	err := tx.QueryRowContext(ctx, `SELECT architecture FROM workflow_design_records WHERE work_id=? AND architecture IS NOT NULL ORDER BY work_version DESC LIMIT 1`, workID).Scan(&architecture)
+	if err == sql.ErrNoRows {
+		return ArchitectureCapacityProfile{}, false, nil
+	}
+	if err != nil {
+		return ArchitectureCapacityProfile{}, false, workflowProjectionError(err, "cannot read the retained architecture allocation")
+	}
+	decoded, err := decodeWorkflowDesignArchitecture([]byte(architecture))
+	if err != nil {
+		return ArchitectureCapacityProfile{}, false, err
+	}
+	profile, err := NewArchitectureCapacityProfile(decoded.Capacity)
+	if err != nil {
+		return ArchitectureCapacityProfile{}, false, err
+	}
+	return profile, true, nil
+}
+
+// architectureCapacityCurrentMembersTx projects the work's actual current
+// slot members through the owning raw typed readers. The records, context,
+// checkpoint, objective, and outcome-predicate projections are the exact
+// packet projections the retry and dispatch admissions read; the correction
+// context reads unfiltered by step, so its member measures the widest open
+// record any dispatch could carry. A design hidden by contract supersession
+// leaves its member genuinely absent; an unknown or malformed member refuses
+// and never measures as zero. The law context comes from the existing law
+// reader, which qualifies its file locators against the knowledge home on
+// disk — it is reused, not reinterpreted, and is not SQL-only.
+func architectureCapacityCurrentMembersTx(ctx context.Context, tx *sql.Tx, workID string) (map[string]json.RawMessage, error) {
+	inputs := map[string]any{}
+	if err := retryPacketRecordsTx(ctx, tx, workID, inputs); err != nil {
+		return nil, err
+	}
+	if err := retryPacketWorkContextTx(ctx, tx, workID, inputs); err != nil {
+		return nil, err
+	}
+	if err := retryPacketCheckpointTx(ctx, tx, workID, inputs); err != nil {
+		return nil, err
+	}
+	correction, err := workflowCorrectionContext(ctx, tx, workID, "")
+	if err != nil {
+		return nil, err
+	}
+	if correction != nil {
+		inputs["correction"] = correction
+	}
+	if err := retryPacketOutcomePredicatesTx(ctx, tx, workID, inputs); err != nil {
+		return nil, err
+	}
+	objective, _, _, err := retryPacketObjectiveTx(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
+	members := make(map[string]json.RawMessage, len(architectureCapacitySlotForMember))
+	for name, value := range inputs {
+		if value == nil {
+			continue
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, architectureCapacityFailure(KindInvariantViolation,
+				"the "+name+" projection cannot be serialized for capacity measurement", "repair the member's owning record")
+		}
+		members[name] = raw
+	}
+	task, err := json.Marshal(objective)
+	if err != nil {
+		return nil, architectureCapacityFailure(KindInvariantViolation,
+			"the task projection cannot be serialized for capacity measurement", "repair the recorded premise or question")
+	}
+	members["task"] = task
+	return members, nil
+}
+
+// validateArchitectureCapacityAffectedWorkTx rejects the first slot the
+// work's actual current projections over-allocate. Every recorded worker-job
+// revision must fit the worker_job slot on its own — never only the ready
+// ones and never a stripped projection — so capacity is satisfiable when a
+// revision becomes dispatchable, not discovered at dispatch. The worker_job
+// member is the lexicographically last packet input, so its span carries no
+// trailing comma; every other present member charges the comma the next
+// dispatch reserves beside it.
+func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	profile, found, err := architectureCapacityProfileForWorkTx(ctx, tx, workID)
+	if err != nil || !found {
+		return err
+	}
+	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	slotBytes := make(map[architectureCapacitySlot]int, len(architectureCapacitySlotsInOrder))
+	for key, value := range members {
+		slot, _, known := architectureCapacityClassifyMember(key)
+		if !known || slot == "" {
+			return architectureCapacityFailure(KindInvariantViolation,
+				fmt.Sprintf("capacity member %q is outside the closed slot inventory of work %s", key, workID),
+				"measure only the closed packet3 members at their declared slots")
+		}
+		slotBytes[slot] += architectureMemberSpan(key, value, true)
+	}
+	views, err := readWorkerJobRevisions(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	for _, view := range views {
+		raw, err := json.Marshal(packetJobFromView(view))
+		if err != nil {
+			return architectureCapacityFailure(KindInvariantViolation,
+				"a worker-job projection cannot be serialized for capacity measurement of work "+workID,
+				"repair the recorded job revision")
+		}
+		if span := architectureMemberSpan("worker_job", raw, false); span > slotBytes[architectureSlotWorkerJob] {
+			slotBytes[architectureSlotWorkerJob] = span
+		}
+	}
+	for _, slot := range architectureCapacitySlotsInOrder {
+		if measured := slotBytes[slot]; measured > profile.Reserve(slot) {
+			return architectureCapacityOverage("slot "+string(slot)+" of work "+workID, measured, profile.Reserve(slot))
+		}
+	}
+	return nil
 }

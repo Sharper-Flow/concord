@@ -533,6 +533,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
+	if err := validateArchitectureCapacityInvariantsTx(ctx, tx, operation); err != nil {
+		return output, err
+	}
 	if err := scope.close(ctx); err != nil {
 		return output, err
 	}
@@ -641,6 +644,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		return output, rollback(err)
 	}
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx.Tx); err != nil {
+		return output, rollback(err)
+	}
+	if err := validateArchitectureCapacityInvariantsTx(ctx, tx.Tx, operation); err != nil {
 		return output, rollback(err)
 	}
 	output.Impact, err = membershipImpact(ctx, tx.Tx, operation)

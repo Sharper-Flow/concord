@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
@@ -1797,12 +1800,241 @@ func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.Continuit
 	return out, size, err
 }
 
-func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {
+// ContinuityCanonicalDocument renders the exact canonical JSON document of
+// one captured continuity snapshot: the single public ContinuityPayload
+// rendering, serialized once, with no wall-clock or read-time member — the
+// envelope's freshness rides the envelope metadata, never this document. The
+// returned digest binds the exact bytes, so a completed page sequence is one
+// projection. The canonical document is the authority; the bounded view of
+// its bytes stays separate.
+func ContinuityCanonicalDocument(snapshot store.ContinuitySnapshot) ([]byte, string, error) {
+	doc, err := json.Marshal(ContinuityPayload(snapshot))
+	if err != nil {
+		return nil, "", err
+	}
+	sum := sha256.Sum256(doc)
+	return doc, "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// ContinuityProjectionReference renders the closed projection reference for
+// one captured continuity snapshot: the identity header, the canonical
+// document's exact digest and byte length, the explicit omitted-projection
+// status, and the canonical initial continuity read pointer at the read's
+// default boundary window of 20. It carries no
+// projection member and no fragment, claims no complete contract, question,
+// intent set, or evidence, and changes no reading obligation; the
+// authenticated page stream reconstruction precedes use, and a later read
+// may describe newer state or a different session's held leases than this
+// captured snapshot.
+func ContinuityProjectionReference(snapshot store.ContinuitySnapshot) (map[string]any, error) {
+	doc, digest, err := ContinuityCanonicalDocument(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	header := continuityProjectionHeaderOf(snapshot)
+	reference := map[string]any{
+		"work_id":            header.WorkID,
+		"workflow_instance":  header.WorkflowInstance,
+		"workflow_step":      header.WorkflowStep,
+		"watermark":          header.Watermark,
+		"digest":             digest,
+		"total_bytes":        len(doc),
+		"projection_omitted": true,
+		// Limit 20 is the read's default boundary window, not the boot
+		// capture's window: boot captures its snapshot at limit 1
+		// (cmd/concord/session.go), the digest field describes exactly that
+		// captured document, and the later read this pointer starts is
+		// separate — it can describe newer state or a different session's
+		// held leases than the captured snapshot.
+		"read_pointer": map[string]any{"tool": "concord_work_trace", "operation": "continuity", "input": map[string]any{"work_id": header.WorkID, "page": map[string]any{"cursor": nil, "limit": 20}}},
+	}
+	if header.WorkVersion != nil {
+		reference["work_version"] = *header.WorkVersion
+	}
+	return reference, nil
+}
+
+// continuityResultMeta builds the continuity result metadata both the inline
+// answer and every projection page carry: one source watermark, ordering
+// keys, and the continuation the envelope cursor authenticates.
+func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store.ResultMeta {
+	return continuityResultMetaObservedAt(snapshot, next, time.Now().UTC().Format(time.RFC3339Nano))
+}
+
+// continuityResultMetaObservedAt is continuityResultMeta with the freshness
+// instant fixed by the caller. The projection pager pins one instant per page
+// render so the fragment-length search and the final emission measure
+// byte-identical envelopes: RFC3339Nano trims trailing zeros, so a fresh
+// instant per candidate would move the measured size by a few bytes and
+// strand the emit at one byte over the cap.
+func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
 	watermark := int64(0)
 	if strings.HasPrefix(snapshot.Watermark, "seq:") {
 		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
 	}
-	meta := store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: snapshot.NextCursor, Omissions: []string{}, Warnings: []string{}}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
+}
+
+// continuityProjectionHeader is the small closed identity header every page
+// of one oversized projection repeats: exact scalar work, step, instance,
+// and watermark identities, never an abbreviated projection member. The
+// boot projection reference renders the same header.
+type continuityProjectionHeader struct {
+	WorkID           string
+	WorkVersion      *int64
+	WorkflowInstance string
+	WorkflowStep     *string
+	Watermark        string
+}
+
+func continuityProjectionHeaderOf(snapshot store.ContinuitySnapshot) continuityProjectionHeader {
+	header := continuityProjectionHeader{WorkID: snapshot.WorkID, WorkflowInstance: snapshot.WorkflowInstance, Watermark: snapshot.Watermark}
+	if snapshot.WorkPin != nil {
+		version := snapshot.WorkPin.Version
+		header.WorkVersion = &version
+	}
+	if snapshot.WorkflowStep != "" {
+		step := snapshot.WorkflowStep
+		header.WorkflowStep = &step
+	}
+	return header
+}
+
+// continuityProjectionCursor is the versioned inner continuation cursor of
+// one paged projection: it binds the work, the original boundary-window
+// cursor the document was captured under, the complete document's digest,
+// and the next byte offset. It travels only inside the existing signed
+// envelope cursor, so there is no second signature scheme; the digest alone
+// binds the snapshot, because a different session's held verify leases
+// change the document even when the event watermark does not (CD-0096 D5).
+// Offsets are the document's own byte positions — no unrelated boundary-row
+// cap bounds them.
+type continuityProjectionCursor struct {
+	Version        int    `json:"v"`
+	Work           string `json:"work"`
+	BoundaryCursor string `json:"boundary_cursor"`
+	Digest         string `json:"digest"`
+	NextByteOffset int64  `json:"next_byte_offset"`
+}
+
+// decodeContinuityProjectionCursor decodes the versioned inner cursor at the
+// agent boundary. Only a complete, well-shaped version-2 cursor decodes;
+// anything else — including the version-1 boundary cursor, which is base64
+// and never begins with JSON's opening brace — falls through to the existing
+// boundary handling and its own refusal family.
+func decodeContinuityProjectionCursor(inner string) (continuityProjectionCursor, bool) {
+	var cursor continuityProjectionCursor
+	if json.Unmarshal([]byte(inner), &cursor) != nil {
+		return continuityProjectionCursor{}, false
+	}
+	if cursor.Version != 2 || cursor.Work == "" || !validSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
+		return continuityProjectionCursor{}, false
+	}
+	return cursor, true
+}
+
+// continuityProjectionResult builds one page's closed result object: the
+// identity header, the exact byte page of the canonical document, and the
+// continuation kind. The fragment is not independently parseable JSON and is
+// not a summary; reconstruction precedes use.
+func (r runtime) continuityProjectionResult(header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) map[string]any {
+	result := map[string]any{
+		"work_id":           header.WorkID,
+		"workflow_instance": header.WorkflowInstance,
+		"workflow_step":     header.WorkflowStep,
+		"watermark":         header.Watermark,
+		"projection_page": map[string]any{
+			"encoding":          "json-utf8",
+			"digest":            digest,
+			"total_bytes":       totalBytes,
+			"offset":            offset,
+			"data":              fragment,
+			"document_complete": documentComplete,
+		},
+		"next_kind": nextKind,
+	}
+	if header.WorkVersion != nil {
+		result["work_version"] = *header.WorkVersion
+	}
+	return result
+}
+
+// continuityProjectionEnvelope renders one projection page's result envelope.
+// The explicit omission notice states the transport's remaining bytes; it
+// means incomplete transport, never missing durable data or weakened
+// authority.
+func (r runtime) continuityProjectionEnvelope(base Envelope, meta store.ResultMeta, header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) (Envelope, error) {
+	envelope, err := r.resultEnvelope(base, meta, r.scope(meta), r.continuityProjectionResult(header, digest, totalBytes, offset, fragment, documentComplete, nextKind))
+	if err != nil {
+		return envelope, err
+	}
+	if len(envelope.Omissions) >= MaxNotices {
+		return envelope, errors.New("continuity projection page exhausted its omission budget")
+	}
+	envelope.Omissions = append(envelope.Omissions, Notice{Kind: "continuity_projection_paged", Details: map[string]any{"total_bytes": totalBytes, "offset": offset, "fragment_bytes": int64(len(fragment)), "remaining_bytes": totalBytes - offset - int64(len(fragment)), "document_complete": documentComplete}})
+	return envelope, nil
+}
+
+// continuityFragmentLength returns the largest whole-code-point cut of
+// doc[offset:] whose rendering fit accepts, so every page carries the
+// largest fragment the measured final envelope admits, never merely one
+// that fits. The complete remainder is rendered first: it is the largest
+// candidate, and its final wire object drops the long projection
+// continuation cursor, so it can fit when no shorter incomplete candidate
+// does. Incomplete candidates are then searched only at whole-code-point
+// boundaries: a mid-rune cut serializes its partial suffix as replacement
+// characters, so arbitrary byte lengths cost more than the aligned cut
+// below them, a plain byte search can prune the true maximum, and alignment
+// restores the monotone rendered cost the search needs. A snap to zero is
+// below the first admissible code point, never a failed fit: the search
+// advances past it without rendering, and fit is never called for an empty
+// cut. The snap walks back at most three bytes, so no rune index of the
+// document is ever built. The first render error stops the search and
+// propagates unchanged — a real failure must reach the caller as itself,
+// never as a size verdict. Zero with no error means no admissible code
+// point fits, and the caller refuses the frame breach honestly instead of
+// hiding it.
+func continuityFragmentLength(doc []byte, offset int, fit func(length int) (bool, error)) (int, error) {
+	remaining := len(doc) - offset
+	if remaining == 0 {
+		return 0, nil
+	}
+	fits, err := fit(remaining)
+	if err != nil {
+		return 0, err
+	}
+	if fits {
+		return remaining, nil
+	}
+	low, high, best := 1, remaining-1, 0
+	for low <= high {
+		mid := (low + high) / 2
+		cut := mid
+		for cut > 0 && !utf8.RuneStart(doc[offset+cut]) {
+			cut--
+		}
+		if cut == 0 {
+			// Below the first admissible code point: every shorter candidate
+			// snaps to zero too, so the lower half holds no renderable cut.
+			low = mid + 1
+			continue
+		}
+		fits, err := fit(cut)
+		if err != nil {
+			return 0, err
+		}
+		if fits {
+			best = cut
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return best, nil
+}
+
+func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {
+	meta := continuityResultMeta(snapshot, snapshot.NextCursor)
 	return r.resultEnvelope(base, meta, r.scope(meta), ContinuityPayload(snapshot))
 }
 

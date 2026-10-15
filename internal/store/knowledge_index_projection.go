@@ -659,6 +659,15 @@ var derivedKnowledgeClearOrder = []string{
 }
 
 func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+	var productID string
+	var designated bool
+	if !manifestMissing {
+		var err error
+		productID, designated, err = resolveKnowledgeSourceRole(ctx, tx, home)
+		if err != nil {
+			return err
+		}
+	}
 	if err := enterFold(ctx, tx); err != nil {
 		return err
 	}
@@ -697,12 +706,20 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	// by law_relations, domain_relation_governing_laws, law_domain_homes, and
 	// law_domain_applicability; domains by domain_relation_governing_laws,
 	// law_domain_homes, law_domain_applicability, and
-	// domain_architecture_relations; domain_registries by domains. Two lists
-	// that each looked ordered once cleared law_subjects ahead of three of
-	// its referents, which no fixture noticed because none named a governing
-	// law; a populated home then refused every second rebuild.
+	// domain_architecture_relations; domain_registries by domains. The
+	// designated home owns the Product's registry-derived rows; law rows
+	// remain scoped to this home pair, including on a home replacement.
 	for _, table := range derivedKnowledgeClearOrder {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed derived-table list and all values stay parameter-bound.
+		where := "home_project_id=? AND home_locator_id=?"
+		args := []any{home.HomeProjectID, home.HomeLocatorID}
+		if designated {
+			switch table {
+			case "domain_registries", "domains", "domain_architecture_relations", "domain_relation_governing_laws":
+				where = "product_id=?"
+				args = []any{productID}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE "+where, args...); err != nil { //nolint:gosec // table and predicate come from closed literals and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}

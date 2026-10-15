@@ -1807,6 +1807,15 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		}
 	}
 	if !admitted {
+		// The recorded admission is the denial alternative only: the
+		// disposer fence stays the rule, and a stored prefix that proves the
+		// archived executor-equality policy re-admits its recorded writer.
+		admitted, err = workflowRecordedCheckpointAdmission(ctx, tx, event, p, entry.Definition, currentStep, executionActor)
+		if err != nil {
+			return err
+		}
+	}
+	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -2332,6 +2341,17 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 					return nil
 				}
 			}
+		}
+		// The recorded admission is the declared-requirement alternative
+		// only: the outstanding filter stays the rule, and a mapped archived
+		// completion whose own binding satisfied a declared requirement
+		// re-admits its recorded eligibility.
+		recorded, recordedErr := workflowRecordedRecoveryBindingAdmission(ctx, tx, event, p, entry.Definition, currentStep, binding)
+		if recordedErr != nil {
+			return recordedErr
+		}
+		if recorded {
+			return nil
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
@@ -3955,7 +3975,11 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
+	// The completion fold sees the intact log during replay: a skipped
+	// verdict fold leaves its row in the log, so the read stops before this
+	// event and a later evaluator's verdict never satisfies this
+	// completion's evaluator-equality rule.
+	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
 	if err != nil {
 		return err
 	}

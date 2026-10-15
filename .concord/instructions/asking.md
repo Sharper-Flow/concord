@@ -19,6 +19,12 @@ Do not ask for permission to continue work already agreed, do not ask the
 operator to choose between things you have not investigated, and do not ask for
 a fact you can look up. Investigate first, then ask about the genuine fork.
 
+When a standing rule or approved plan already settles a case, apply it. Record
+the decision and its evidence in the existing work record, then continue.
+Escalate a change to law, design, or another agent's work.
+A settled case does not waive an approval, safety rule, scope limit, or mandatory
+refusal.
+
 When a decision is reversible and the cost of being wrong is small, choose and
 say what you chose. When it is not, ask.
 

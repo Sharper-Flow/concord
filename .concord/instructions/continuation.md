@@ -8,6 +8,13 @@ Do not end a turn to report progress. An update is not a decision, and a summary
 of finished steps does not need a reply. Continue until an operator decision is
 required, a boundary refuses, or the agreed end state is reached.
 
+Context size alone does not justify a stop, handoff, or restart. Preserve work
+on disk as it proceeds, through commits, checkpoints, reports, and logs. After
+a context boundary, read the work's durable records, including any assignment
+and the latest progress report, before acting.
+A summary does not replace durable records or carry authority, approval, law,
+workflow position, or evidence.
+
 A wait is not a stop. When an external check must finish before the next action,
 delegate the wait and act on the result in the same pass. A passed check is not a
 decision point.

@@ -423,9 +423,14 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), true, nil
 	}
 	// The replay acknowledges the original authority, not only its observation
-	// count. Required approvals and persisted durability bindings select FULL;
-	// workflow actions and native claims carry their own durable boundaries.
-	durable := op.Approval == ApprovalClass("required") || op.ID == "concord_work_transition.workflow_action" || op.ID == "concord_work_transition.worktree_claim" || op.ID == "concord_work_relate.client_policy_grant_request" || r.Tool == "concord_work_compact"
+	// count. The operation's declared replay baseline and the persisted
+	// durability binding select FULL; historical conditional records keep
+	// their legacy fallback below.
+	declaredDurability, durabilityErr := mutationDurabilityFor(op)
+	if durabilityErr != nil {
+		return coreError(base, "invariant_violation", durabilityErr.Error(), "contact_operator", false), true, nil
+	}
+	durable := declaredDurability.replay
 	if rawDurability, present := authorizedScope["durable_commit"]; present {
 		committedDurably, valid := rawDurability.(bool)
 		if !valid {
@@ -1392,6 +1397,10 @@ type mutationPlan struct {
 	// effect embeds it in the store request; the store validates the receipt
 	// shape again inside the fold.
 	outsideEvidence *store.OutsideRepairEvidence
+	// plannedInitialDurability is the optional initial-durability fact a
+	// planner raises from its own consequence branch. Consent metadata never
+	// feeds it; nil leaves the operation's declared baseline in force.
+	plannedInitialDurability *bool
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -1401,6 +1410,12 @@ func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan 
 		consequence:      string(op.Consequence),
 		requiresApproval: op.Approval == ApprovalClass("required"),
 	}
+}
+
+// declareInitialDurability records the executor's initial-durability fact.
+// Only the operation's actual consequence branch supplies it.
+func (plan *mutationPlan) declareInitialDurability(durable bool) {
+	plan.plannedInitialDurability = &durable
 }
 
 // planCapture plans concord_work_define.capture.
@@ -1463,6 +1478,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		// recovery the agent had nothing to act on.
 		plan.requiresApproval = true
 		plan.governingConflict = missing
+		plan.declareInitialDurability(true)
 	}
 	productIDs := make([]string, 0, len(productsByProject))
 	seenProducts := make(map[string]struct{})
@@ -1482,6 +1498,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
 				plan.requiresApproval = true
+				plan.declareInitialDurability(true)
 			}
 		}
 	}
@@ -1649,7 +1666,9 @@ func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, dig
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = in.Target == "completed" || in.Target == "cancelled"
+	terminalTarget := in.Target == "completed" || in.Target == "cancelled"
+	plan.requiresApproval = terminalTarget
+	plan.declareInitialDurability(terminalTarget)
 	if in.Target == "completed" {
 		plan.evidenceRefs = append([]EvidenceRef{}, in.Evidence...)
 	}
@@ -2798,9 +2817,11 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	}
 	if !store.IsTerminalLifecycle(lifecycle) {
 		plan.requiresApproval = true
+		plan.declareInitialDurability(true)
 	}
 	if in.Destructive {
 		plan.requiresApproval = true
+		plan.declareInitialDurability(true)
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -3398,6 +3419,7 @@ func (r runtime) planSetMemberships(_ context.Context, base Envelope, raw []byte
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = true
+	plan.declareInitialDurability(true)
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = membershipIDs(in.Memberships)
@@ -3842,6 +3864,7 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = in.ResolutionKind != "depends_on"
+	plan.declareInitialDurability(in.ResolutionKind != "depends_on")
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
 	plan.versions["from_contract"] = in.FromContractVersion
@@ -4013,7 +4036,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.plannedInitialDurability, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -4669,13 +4692,28 @@ func mutationApprovalFailure(base Envelope, err error) Envelope {
 	return failureEnvelope(base, err)
 }
 
-func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, plannedInitialDurability *bool, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
 	// A native finalize defers the idempotency record until the committed
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
 	var deferredInsert *store.MutationIdempotencyInsert
+	// Durability resolves before any effect: the operation's declaration is
+	// the baseline, a planner fact replaces it, and a missing or unknown
+	// declaration is an invariant failure, never an ordinary write.
+	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	if !registered {
+		return Envelope{}, newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+	}
+	declaredDurability, durabilityErr := mutationDurabilityFor(contractOp)
+	if durabilityErr != nil {
+		return Envelope{}, newRuntimeFailure("invariant_violation", durabilityErr.Error(), "contact_operator", false)
+	}
+	durable := declaredDurability.initial
+	if plannedInitialDurability != nil {
+		durable = *plannedInitialDurability
+	}
 	// The host probes before this mutation's transaction opens (CD-0195 D2);
 	// the authorization inside matches the probed host with SQL only.
 	host, hostErr := r.probeInvocationHost(ctx)
@@ -4683,14 +4721,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		return Envelope{}, hostErr
 	}
 	baseApprovalRequirement := requiresApproval
-	// A worktree claim binds SQL authority to an already-created native tree,
-	// including the no-approval path and its exact replay.
-	durable := requiresApproval || (r.Tool == "concord_work_transition" && r.Operation == "worktree_claim")
 	mutation := func(tx *store.Transaction) error {
-		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
-		if !registered {
-			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
-		}
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -4704,7 +4735,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return err
 		}
 		requiresApproval = baseApprovalRequirement || crossProduct
-		if requiresApproval && !durable {
+		if crossProduct && !durable {
 			// SQL-only scope discovery runs before any effect or challenge.
 			// Reopen under FULL and revalidate scope before issuing authority.
 			return errApprovalDurabilityRequired

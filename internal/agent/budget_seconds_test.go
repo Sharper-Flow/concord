@@ -136,9 +136,9 @@ func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
 
 func TestApplyBudgetRetiresTheBudgetObject(t *testing.T) {
 	t.Parallel()
-	// CD-0038 amendment (2026-10-02): the agent-facing budget object is
-	// retired. Closed input validation refuses it before applyBudget runs, so
-	// the seconds field is the only budget this parser can see.
+	// The agent-facing budget object is retired. Closed input validation
+	// refuses it before applyBudget runs, so the seconds field is the only
+	// budget this parser can see.
 	ctx, cancel, budget, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"budget":{"max_bytes":1,"max_items":1},"requested_budget_seconds":2}`))
 	defer cancel()
 	if failure != nil {

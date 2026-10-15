@@ -208,10 +208,10 @@ func TestBuildFitsObservationWindowToPacketBound(t *testing.T) {
 // readSchemaSizePredicates builds count synthetic exists predicates at the
 // published read shape's size: each outcome_payload is the exact JSON text
 // of a real exists object — kind, surface, and one hundred bounded subject
-// strings — as a contract read carries it. This is a read-schema-size
-// fixture, not an admission run: no workflow write path sees these records,
-// and the agent continuity liveness witness already proves the shape
-// reachable. It holds only that each payload fits the published read bound.
+// strings — as a contract read carries it. This serializer fixture tests
+// read shape and size, not admission: no workflow write path sees these
+// records, and none of its bounds claims admission reachability. It holds
+// only that each payload fits the published read bound.
 func readSchemaSizePredicates(count int) []store.WorkflowReadPredicate {
 	subjects := make([]string, 100)
 	for j := range subjects {
@@ -336,8 +336,8 @@ func TestBuildReferencesOversizedFixedProjection(t *testing.T) {
 }
 
 // TestBuildKeepsMidBandPacketInline holds the measured-cap inline rule: a
-// complete boot packet measuring above the payload schema's 32,768-byte
-// bound but inside the boot packet's own cap stays typed and inline, so no
+// complete boot packet above 32 KiB and below the boot packet's own cap
+// stays typed and inline, with no bound claimed between the two, so no
 // smaller fixed payload budget can silently replace the measured cap.
 func TestBuildKeepsMidBandPacketInline(t *testing.T) {
 	snapshot := testSnapshot()

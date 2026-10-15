@@ -400,7 +400,7 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
 	}
-	// The research-context packet3 identity (CON-911) derives through the
+	// The research-context packet3 identity derives through the
 	// same excludes: its research closure sits inside the excluded
 	// work_context member, so both identities compose identically and the
 	// retained packet2 evidence stays.

@@ -992,7 +992,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
         # The canonical heads anchor dispatch at the research-context
-        # worker_packet3 closure in every family (CON-911), so the three
+        # worker_packet3 closure in every family, so the three
         # families' identical pairs dedupe to one variant whose public
         # override stays the lane identity alone.
         action = self.action("dispatch_worker")
@@ -2530,7 +2530,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
 
 class ResearchContextProjectionTests(unittest.TestCase):
-    """CON-911: the selected-research projection is canonical, not copied.
+    """The selected-research projection is canonical, not copied.
 
     The lane packet contract owns the research member and its closed defs;
     the payloads document projects them under the shared names through

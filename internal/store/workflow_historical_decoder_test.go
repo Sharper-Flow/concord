@@ -317,9 +317,9 @@ func deepCopyJSONDocument(t *testing.T, document map[string]any) map[string]any 
 // record_alignment declares the combinations; implementation v14 first
 // carried it, so a retained pin and the current head run the same corpus.
 func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
-	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 31)
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 32)
 	if !ok {
-		t.Fatal("implementation v31 is not registered")
+		t.Fatal("implementation v32 is not registered")
 	}
 	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 14)
 	if !ok {
@@ -647,8 +647,8 @@ func fullResearchContextPacket3() json.RawMessage {
 				"pack_id": "pack-packet3-closure", "revision": 1,
 				"finding_id": "f-packet3-closure", "domain_id": "registry:root",
 			},
-			"view_id":            "research:9:0",
-			"selection_event_id": "event:packet3-closure",
+			"view_id":             "research:9:0",
+			"selection_event_id":  "event:packet3-closure",
 			"selection_event_seq": 9,
 			"ordinal":             0,
 			"required":            true,
@@ -656,7 +656,7 @@ func fullResearchContextPacket3() json.RawMessage {
 			"finding": map[string]any{
 				"pack_id": "pack-packet3-closure", "revision": 1,
 				"finding_id": "f-packet3-closure", "kind": "observation",
-				"statement": "the packet3 research closure carries the selected finding",
+				"statement":  "the packet3 research closure carries the selected finding",
 				"confidence": "high", "freshness": "current", "status": "active",
 				"scopes": map[string]any{"mode": "home"},
 			},

@@ -2,7 +2,7 @@ package store
 
 import "slices"
 
-// The CON-911 research-context publication heads. Each builder promotes its
+// The research-context publication heads. Each builder promotes its
 // family one version past the failure-attribution head: the restated fields
 // are the definition's own registry content, so every earlier version keeps
 // the payload and digest it shipped, and the shared policy table stays

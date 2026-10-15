@@ -1059,7 +1059,7 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
 def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     """The packet owns the shared native preparation projection; results add
     only the fields the store producer publishes, never caller observations.
-    The canonical packet also owns the selected-research projection (CON-911):
+    The canonical packet also owns the selected-research projection:
     the shared view's research member and its closed defs project from the
     lane contract, so the public read view and the frozen view3 anchor the
     same schema content instead of independently copied runtime policy."""

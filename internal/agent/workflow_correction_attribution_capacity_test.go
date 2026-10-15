@@ -68,7 +68,7 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
 	}
-	// The research-context packet3 identity (CON-911) rides the same
+	// The research-context packet3 identity rides the same
 	// composition: its research closure sits inside the excluded work_context
 	// member, so the promoted heads' dispatch identity derives identically
 	// and the retained packet2 evidence stays.

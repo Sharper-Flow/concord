@@ -96,7 +96,7 @@ import (
 // policy table stays byte-identical, so every released version above keeps
 // its digest. workflowFailureAttributionActive gates the semantics the
 // parent wiring consumes.
-// The research-context heads (CON-911): implementation 32,
+// The research-context heads: implementation 32,
 // break_fix 29, and research 19 append the optional research_finding_refs
 // action input to record_work_context and anchor dispatch_worker's packet at
 // the frozen worker_packet3 closure. The restated fields are the promoted
@@ -440,10 +440,10 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          28,
-		"workflow.implementation":     31,
+		"workflow.break_fix":          29,
+		"workflow.implementation":     32,
 		"workflow.generic_one_off":    16,
-		"workflow.research":           18,
+		"workflow.research":           19,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,

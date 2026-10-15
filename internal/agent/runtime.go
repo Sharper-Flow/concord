@@ -615,8 +615,8 @@ func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transa
 // owner once. No identity is dropped: an unresolvable one keeps its typed
 // absence refusal at the owner lookup.
 func combinedResearchPackIDs(bindings []researchBindingInput, selectedPacks []string) []string {
-	seen := make(map[string]bool, len(bindings)+len(selectedPacks))
-	ids := make([]string, 0, len(bindings)+len(selectedPacks))
+	seen := make(map[string]bool)
+	ids := make([]string, 0)
 	for _, binding := range bindings {
 		if !seen[binding.PackID] {
 			seen[binding.PackID] = true

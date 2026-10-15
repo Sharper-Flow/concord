@@ -151,7 +151,7 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if schemawire.NextPowerOfTwo(composed) != maxWorkflowActionPayloadBytes {
 		t.Fatalf("composed declared maxima = %d bytes, whose next power of two is %d; the whole-action budget constant is %d and must stay the derivation's own rounding", composed, schemawire.NextPowerOfTwo(composed), maxWorkflowActionPayloadBytes)
 	}
-	// The research-context packet3 identity (CON-911) rides the same
+	// The research-context packet3 identity rides the same
 	// composition: its work-context closure — the research entries and the
 	// widened group namespace — sits inside the excluded work_context member,
 	// so the packet3 derivation must match the packet2 derivation byte for

@@ -959,7 +959,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 			t.Fatal(err)
 		}
 	}
-	// The research-bearing declaration (CON-911): one bound A-owned pack
+	// The research-bearing declaration: one bound A-owned pack
 	// whose selected finding links one source descriptor. The selected
 	// research rides the same oversized projection pages the generic members
 	// build, so the continuation contract proves research bytes join
@@ -1031,7 +1031,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	}, nil, fixedTime(), nil, func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
-			Actor:         store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
+			Actor:                store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: "continuation-research-declaration",
 			OperationID: "continuation-research-op", PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "continuation-research-key",
 			RequestID: "continuation-research-request", AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
@@ -1365,7 +1365,7 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	}
 }
 
-// TestContinuityProjectionCarriesSelectedResearch holds the CON-911 research
+// TestContinuityProjectionCarriesSelectedResearch holds the selected research
 // bytes to the projection-page transport on the shared oversized fixture:
 // the joined document carries the resolved research entry with its complete
 // linked source descriptor at both pinned anchors, and a required research

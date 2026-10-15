@@ -764,7 +764,7 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v18-complete",
 		},
-		// The CON-911 research-context heads: the same six live journeys run
+		// The research-context heads: the same six live journeys run
 		// at the promoted v32/v29/v19 pins, whose declared route tables the
 		// promotion appended unchanged.
 		{
@@ -976,7 +976,7 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: the six live
-	// canonical journeys run at the current CON-911 heads (v32/v29/v19), the
+	// canonical journeys run at the current heads (v32/v29/v19), the
 	// retained-family released pins plus every retained predecessor-head row
 	// (v31/v28/v18 now among them) as recorded history, and the 32
 	// retired-family rows as archived-refusal coverage.
@@ -1959,7 +1959,7 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v28-complete-supersede",
 		},
-		// The CON-911 research-context heads republish the same
+		// The research-context heads republish the same
 		// complete-step supersede routes; their journeys follow the same
 		// local-accept + record_delivery integration the CD-0218 authors do.
 		{

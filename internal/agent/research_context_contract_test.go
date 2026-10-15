@@ -9,8 +9,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Public publication contract for selected research (CON-911 S4). The S3
-// owner proved the transaction callback in isolation; this owner proves the
+// Public publication contract for selected research. This test proves the
 // promoted heads publish the selection path end to end: a byte-oriented
 // Invoke on the authoritative workflow_action route, at the live
 // implementation head whose closed payload declares research_finding_refs,

@@ -59,7 +59,14 @@ The canonical read is `concord_work_trace.continuity`, added in surface 2.3.0
 while retaining 2.1/2.2 negotiation and replay. It returns a closed continuity
 snapshot with the derived pinned projection, latest checkpoint, authenticated
 cursor history, one source watermark, monotonic boundary count, and explicit
-typed restart availability. The launcher identity handoff remains unchanged.
+typed restart availability. An oversized projection travels as lossless,
+authenticated JSON-fragment pages, never as an authority-bearing summary.
+Each page binds one complete projection digest and states its remaining bytes
+and continuation. The read refuses a continuation whose projection changed, so
+a completed page sequence is one projection. A consumer joins every page before
+it uses the projection's authority. The required content and pre-write reading
+obligations remain unchanged.
+The launcher identity handoff remains unchanged.
 
 ## Work context
 

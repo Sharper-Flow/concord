@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-594a2d0975ddd269b80f9626",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-28T00:00:00Z",
   "doc_contract_profile": "current",

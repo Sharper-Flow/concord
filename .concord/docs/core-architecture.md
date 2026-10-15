@@ -28,10 +28,6 @@ The binary holds no Linear credential and makes no Linear API call. See
 [`CD-0213`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) and
 [`managed-development-authority.md`](./managed-development-authority.md).
 
-An earlier private pre-public durability proposal is superseded. Its useful
-single-authoritative-log lesson carries forward, but Temporal is not adopted;
-CD-0002 is the first public retained authority decision.
-
 ---
 
 ## How to read this

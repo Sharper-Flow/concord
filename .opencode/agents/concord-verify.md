@@ -4,6 +4,7 @@ mode: all
 hidden: true
 tools:
   task: false
+  concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false

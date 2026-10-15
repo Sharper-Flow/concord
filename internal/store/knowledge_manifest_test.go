@@ -31,7 +31,7 @@ func tierlessManifestBytes(t *testing.T, schemaVersion string) []byte {
 		Records: []KnowledgeRecord{{
 			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-legacy.md", Status: "accepted",
 			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
 			SHA256: "sha256:" + strings.Repeat("a", 64),
@@ -97,7 +97,7 @@ func TestParseKeepsADeclaredTierAtSchema12(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := value["records"].([]any)
-	records[0].(map[string]any)["authority"] = map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+	records[0].(map[string]any)["authority"] = map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
 	declared, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func profileManifestBytes(t *testing.T, profile string) []byte {
 		Records: []KnowledgeRecord{{
 			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-legacy.md", Status: "accepted",
 			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
 			SHA256: "sha256:" + strings.Repeat("a", 64),
@@ -224,7 +224,7 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 
 func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("valid 1.2 manifest rejected: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 
 func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":".concord/docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":".concord/docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("superseded law with home and empty applicability rejected: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {
 		}
 		authority := KnowledgeAuthority{Tier: "derived"}
 		if kind == "constitution" || kind == "decision" {
-			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
 		}
 		record := KnowledgeRecord{ID: id, Kind: kind, Path: recordPath, Status: status, Date: "2026-08-10T00:00:00Z", Title: id, Summary: "summary", Tags: []string{}, Authority: authority, Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, SHA256: "sha256:" + strings.Repeat("a", 64)}
 		if status == "accepted" && manifestLawBearingKinds[kind] {

@@ -971,6 +971,35 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
                     print((schema_probe.stderr or schema_probe.stdout).strip(), file=sys.stderr)
                     print("adapter host schema probe failed", file=sys.stderr)
                     return schema_probe.returncode
+                # Opt-in real-host permission-merge evidence. The portable probe
+                # above never requires the installed host; when this variable
+                # names a binary (or "1" to resolve one from PATH or
+                # OPENCODE_BIN), the probe additionally resolves every generated
+                # role's permissions through `debug agent` in an isolated temp
+                # fixture and fails on a missing deny or a drifted resolution.
+                merge_binary = os.environ.get("CONCORD_HOST_MERGE_PROBE")
+                if merge_binary:
+                    command = [bun, "run", "src/host_schema_probe.ts", "--host-merge", str(ROOT / ".opencode/agents"), str(Path(out) / "host-merge-summary.json")]
+                    if merge_binary != "1": command.append(merge_binary)
+                    # Every host command inside the probe carries its own
+                    # 30-second spawn timeout; this parent-level bound only
+                    # stops the whole mode from hanging without output.
+                    try:
+                        merge_probe = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=600)
+                    except subprocess.TimeoutExpired as expired:
+                        captured = expired.stderr or expired.stdout or ""
+                        if isinstance(captured, bytes): captured = captured.decode(errors="replace")
+                        print(captured.strip(), file=sys.stderr)
+                        print("adapter host permission-merge probe exceeded its 600s parent bound and was stopped", file=sys.stderr)
+                        return 124
+                    if merge_probe.returncode:
+                        print((merge_probe.stderr or merge_probe.stdout).strip(), file=sys.stderr)
+                        print("adapter host permission-merge probe failed", file=sys.stderr)
+                        return merge_probe.returncode
+                    merge_out = os.environ.get("CONCORD_HOST_MERGE_OUT")
+                    if merge_out:
+                        shutil.copyfile(Path(out) / "host-merge-summary.json", merge_out)
+                        print(f"host permission-merge summary written to {merge_out}")
                 typecheck = subprocess.run([bun, "x", f"typescript@{pin['typescript']}", "-p", "tsconfig.json"], cwd=workspace, capture_output=True, text=True)
                 reconcile_diagnostics(typecheck.stdout + typecheck.stderr, pin["allowances"], pin_findings, typecheck.returncode)
                 if pin_findings:

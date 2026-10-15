@@ -4,8 +4,11 @@
 - **Date:** 2026-09-20
 - **Scope:** The standing of a Product law record, and the approval cost of
   revising one
-- **Approval:** The operator approved the contract for `work-c089308b507cfac61f7dd228`
-  on 2026-09-20, then accepted D1 to D5 below on the same date.
+- **Approval:** The Snowball coordinator approved this law change on
+  2026-10-14 under the operator's delegation.
+- **Original approval:** The operator approved the contract for
+  `work-c089308b507cfac61f7dd228` on 2026-09-20, then accepted D1 to D5
+  below on the same date.
 - **Related:** CD-0006, CD-0036, CD-0041, and `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
@@ -168,6 +171,15 @@ CI checks what the checkout can prove: work-ID form, contract-version
 form, and membership of any D5 vehicle claim in the closed cohort.
 Repository review remains the approval boundary for outside-workflow
 edits. CI does not claim to resolve a contract unavailable to the checkout.
+
+### D7. A correction preserves the historical approval facts
+
+An unsupported legislative declaration is corrected to `derived` when
+the held contract evidence fails D2. The correction removes
+`legislated_by` and `contract_version`. It does not rewrite a contract,
+erase a recorded operator approval, or change the law's substantive scope.
+A missing work alone is not held negative evidence and does not authorize
+this correction. Promotion still requires D2. The D5 cohort stays closed.
 
 ## Consequences
 

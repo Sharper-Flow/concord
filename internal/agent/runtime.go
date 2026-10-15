@@ -587,26 +587,63 @@ func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind Operatio
 
 // authorizeWorkflowActionTx authorizes the caller inside the action
 // transaction, then authorizes the owner of every declared research binding
-// under that grant, before the action writes a binding or an idempotency
-// receipt. A retained pin with no new declaration is not rechecked.
-func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput) error {
+// and every explicitly selected research pack (CD-0216 D2) under that grant,
+// before the action writes a binding, a selection, or an idempotency
+// receipt. A retained pin or retained selection with no new declaration is
+// not rechecked.
+func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput, selectedPacks []string) error {
 	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 	if err != nil {
 		return err
 	}
-	ids := make([]string, 0, len(bindings))
-	for _, binding := range bindings {
-		ids = append(ids, binding.PackID)
-	}
+	ids := combinedResearchPackIDs(bindings, selectedPacks)
 	owners, err := store.ResearchPackOwnerWorkIDsTx(ctx, tx, ids)
 	if err != nil {
 		return err
 	}
+	owners = dedupeStrings(owners)
 	scopes, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
 	if err != nil {
 		return err
 	}
 	return validateWorkReferenceScope(r.Envelope, grant, OperationMutation, owners, scopes)
+}
+
+// combinedResearchPackIDs merges the declared binding packs and the
+// explicitly selected packs into one deduplicated identity list, first-seen
+// order kept, so a pack both bound and selected on one action resolves its
+// owner once. No identity is dropped: an unresolvable one keeps its typed
+// absence refusal at the owner lookup.
+func combinedResearchPackIDs(bindings []researchBindingInput, selectedPacks []string) []string {
+	seen := make(map[string]bool, len(bindings)+len(selectedPacks))
+	ids := make([]string, 0, len(bindings)+len(selectedPacks))
+	for _, binding := range bindings {
+		if !seen[binding.PackID] {
+			seen[binding.PackID] = true
+			ids = append(ids, binding.PackID)
+		}
+	}
+	for _, packID := range selectedPacks {
+		if !seen[packID] {
+			seen[packID] = true
+			ids = append(ids, packID)
+		}
+	}
+	return ids
+}
+
+// dedupeStrings keeps the first occurrence of every value, order preserved.
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	kept := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		kept = append(kept, value)
+	}
+	return kept
 }
 
 type mutationWorkIdentity struct {

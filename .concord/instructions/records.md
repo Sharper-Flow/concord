@@ -10,6 +10,12 @@ identifier, or the error text. "The validator rejected the change" sends nobody
 anywhere. Name the validator and quote what it printed, and the reader goes
 straight to it.
 
+Give delegated work durable context. Keep standing rules in the files that own
+them, and link those files instead of repeating their rules in an assignment.
+Put the task identity, scope, and stop conditions in the assignment. A delegation
+prompt names the agent's role and points to that assignment instead of restating
+it. Move added context into its owning file rather than expanding the prompt.
+
 A pull request body names the planning record it serves. Give the issue key or
 the work identifier, so a reader who arrives from the repository reaches the
 planning record without the conversation that produced the change.

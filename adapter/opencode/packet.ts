@@ -1,4 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
+import { createHash } from "node:crypto"
 import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCheckpoint, type AgentLanePacketCorrection, type AgentLanePacketDesignRecord, type AgentLanePacketLawContext, type AgentLanePacketOutcomePredicate, type AgentLanePacketProposalRecord, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob, type AgentLanePacketWorkRecord } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
@@ -206,6 +207,142 @@ async function readOperation(
   return { result: response.result }
 }
 
+const projectionDigestPattern = /^sha256:[0-9a-f]{64}$/
+const projectionBytes = new TextEncoder()
+const projectionText = new TextDecoder("utf-8", { fatal: true })
+
+// fragmentIsWellFormed reports whether decoded page text carries no unpaired
+// surrogate. The core cuts pages at whole code points of valid UTF-8, so one
+// could only arrive from a broken transport, and TextEncoder would silently
+// replace it with U+FFFD and corrupt the byte accounting; the page refuses
+// instead of joining replaced bytes.
+function fragmentIsWellFormed(text: string): boolean {
+  for (const codePoint of text) {
+    const unit = codePoint.codePointAt(0) ?? 0
+    if (codePoint.length === 1 && unit >= 0xd800 && unit <= 0xdfff) return false
+  }
+  return true
+}
+
+// readContinuityProjection is the one continuity reader both production
+// consumers share: the packet builder below and lane_dispatch's dispatch
+// anchors (CD-0016 as amended). The read answers either the typed inline
+// snapshot or the closed projection-page transport, and a page cannot carry
+// complete authority, so this helper joins every page of one projection
+// digest before it returns anything its callers may use. It returns the
+// reconstructed inline result and the first envelope's resolved_scope, so
+// the dispatch caller keeps its ambient-Product logic. Both consumers read
+// the operation themselves; the helper adds no cache and no second
+// authority route.
+//
+// Pages are exact UTF-8 byte fragments of one canonical JSON document. The
+// helper checks each page's closed metadata — encoding, digest, total,
+// offset, fragment, completion — holds the digest and total byte length
+// constant across the sequence, requires contiguous strictly advancing
+// offsets, refuses a lonely surrogate, verifies the joined bytes against
+// the digest, and parses the reconstructed document exactly once, requiring
+// its work identity and pinned member. The closed payload schema itself
+// stays with its owning transport validation. Every page advances at least
+// one byte against the declared total, so the traversal is finite; the read
+// stops at document_complete and never follows the boundary-history cursor.
+// Any malformed, changed, or broken page — including a read that throws —
+// is the typed transport failure: never a partial projection, never a
+// retry.
+export interface ContinuityProjectionRead {
+  result: Record<string, unknown> & { pinned: Record<string, unknown> }
+  resolvedScope: Record<string, unknown> | undefined
+  failure?: undefined
+}
+
+// One validated continuity response: the envelope record's result payload,
+// its continuation cursor, and its resolved scope, each validated before the
+// read returns.
+type ContinuityPageRead =
+  | { result: Record<string, unknown>; nextCursor: unknown; resolvedScope: Record<string, unknown> | undefined; failure?: undefined }
+  | { result?: undefined; nextCursor?: undefined; resolvedScope?: undefined; failure: AgentLanePacketFailure }
+
+export async function readContinuityProjection(workId: string, deps: AgentLanePacketDeps): Promise<ContinuityProjectionRead | { result?: undefined; resolvedScope?: undefined; failure: AgentLanePacketFailure }> {
+  const read = async (cursor: unknown): Promise<ContinuityPageRead> => {
+    let response: unknown
+    try {
+      response = await deps.invoke("concord_work_trace", { operation: "continuity", input: { work_id: workId, page: { cursor, limit: 1 } } }, deps.context)
+    } catch (error) {
+      return failure("transport_failure", `concord_work_trace.continuity threw: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (!isRecord(response)) return failure("transport_failure", "concord_work_trace.continuity returned no envelope")
+    if (response.outcome !== "ok") {
+      const error = isRecord(response.error) ? String(response.error.kind) : "no_error_detail"
+      return failure("transport_failure", `concord_work_trace.continuity returned outcome ${String(response.outcome)} (${error})`)
+    }
+    if (!isRecord(response.result)) return failure("transport_failure", "concord_work_trace.continuity returned no result payload")
+    return { result: response.result, nextCursor: response.next_cursor, resolvedScope: isRecord(response.resolved_scope) ? response.resolved_scope : undefined }
+  }
+  const first = await read(null)
+  if (first.failure) return first
+  if (isRecord(first.result.pinned)) return { result: first.result as ContinuityProjectionRead["result"], resolvedScope: first.resolvedScope }
+  let digest: string | null = null
+  let totalBytes = 0
+  let nextOffset = 0
+  const fragments: Uint8Array[] = []
+  let receivedBytes = 0
+  let current: ContinuityPageRead = first
+  for (;;) {
+    if (current.failure) return current
+    const result = current.result
+    if (result.work_id !== workId) return failure("transport_failure", `concord_work_trace.continuity projection page names work ${String(result.work_id)} instead of ${workId}`)
+    const page = result.projection_page
+    if (!isRecord(page)) return failure("transport_failure", `concord_work_trace.continuity returned neither pinned continuity nor a projection page for ${workId}`)
+    if (page.encoding !== "json-utf8") return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} declares encoding ${JSON.stringify(page.encoding)} instead of json-utf8`)
+    const pageDigest = typeof page.digest === "string" ? page.digest : ""
+    if (!projectionDigestPattern.test(pageDigest)) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a malformed projection digest`)
+    if (typeof page.total_bytes !== "number" || !Number.isSafeInteger(page.total_bytes) || page.total_bytes < 1) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a malformed projection total_bytes`)
+    if (typeof page.offset !== "number" || !Number.isSafeInteger(page.offset) || page.offset < 0) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a malformed projection offset`)
+    if (typeof page.data !== "string" || page.data.length === 0) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries an empty or malformed projection fragment`)
+    if (typeof page.document_complete !== "boolean") return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a malformed document_complete flag`)
+    if (digest === null) {
+      digest = pageDigest
+      totalBytes = page.total_bytes
+    } else if (pageDigest !== digest) {
+      return failure("transport_failure", `concord_work_trace.continuity projection pages for ${workId} changed their digest from ${digest} to ${pageDigest}`)
+    } else if (page.total_bytes !== totalBytes) {
+      return failure("transport_failure", `concord_work_trace.continuity projection pages for ${workId} changed their total from ${totalBytes} to ${String(page.total_bytes)} bytes`)
+    }
+    if (!fragmentIsWellFormed(page.data)) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a fragment with a lonely surrogate at offset ${String(page.offset)}`)
+    const fragment = projectionBytes.encode(page.data)
+    if (fragment.length === 0) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries a fragment that encodes no bytes`)
+    if (page.offset !== nextOffset) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} carries offset ${String(page.offset)} where the contiguous next offset is ${nextOffset}; a page is missing, duplicated, reordered, or gapped`)
+    if (nextOffset + fragment.length > totalBytes) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} exceeds the declared projection total of ${totalBytes} bytes`)
+    if (page.document_complete && nextOffset + fragment.length !== totalBytes) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} declares the document complete at ${nextOffset + fragment.length} of ${totalBytes} bytes`)
+    if (!page.document_complete && nextOffset + fragment.length === totalBytes) return failure("transport_failure", `concord_work_trace.continuity projection page for ${workId} covers the whole document but declares it incomplete`)
+    fragments.push(fragment)
+    receivedBytes += fragment.length
+    nextOffset += fragment.length
+    if (page.document_complete) break
+    if (result.next_kind !== "projection") return failure("transport_failure", `concord_work_trace.continuity projection for ${workId} is incomplete but names continuation ${JSON.stringify(result.next_kind)} instead of projection`)
+    if (typeof current.nextCursor !== "string" || current.nextCursor.length === 0) return failure("transport_failure", `concord_work_trace.continuity returned no continuation cursor for the incomplete projection of ${workId}`)
+    current = await read(current.nextCursor)
+  }
+  if (receivedBytes !== totalBytes) return failure("transport_failure", `concord_work_trace.continuity reconstruction for ${workId} carries ${receivedBytes} of the declared ${totalBytes} bytes`)
+  const document = new Uint8Array(receivedBytes)
+  let written = 0
+  for (const fragment of fragments) {
+    document.set(fragment, written)
+    written += fragment.length
+  }
+  const joined = `sha256:${createHash("sha256").update(document).digest("hex")}`
+  if (joined !== digest) return failure("transport_failure", `concord_work_trace.continuity reconstruction for ${workId} carries digest ${joined} against the pages' ${digest}`)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(projectionText.decode(document))
+  } catch (error) {
+    return failure("transport_failure", `concord_work_trace.continuity reconstruction for ${workId} is not the valid UTF-8 JSON document its pages declared (${error instanceof Error ? error.message : String(error)})`)
+  }
+  if (!isRecord(parsed)) return failure("transport_failure", `concord_work_trace.continuity reconstruction for ${workId} is not a JSON object`)
+  if (parsed.work_id !== workId) return failure("transport_failure", `concord_work_trace.continuity reconstruction for ${workId} names work ${String(parsed.work_id)}`)
+  if (!isRecord(parsed.pinned)) return failure("transport_failure", `concord_work_trace.continuity returned no pinned continuity for ${workId}`)
+  return { result: parsed as ContinuityProjectionRead["result"], resolvedScope: first.resolvedScope }
+}
+
 // buildAgentLanePacket projects durable Concord state into the closed
 // agent-lane-packet.v1 input triple. It reads the work item narrative from
 // concord_work_browse.scope and the pinned workflow contract and step from
@@ -254,12 +391,12 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const valueStatement = typeof work.value_statement === "string" ? work.value_statement : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
-  const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
+  // The shared continuity reader reconstructs an oversized projection from
+  // its lossless pages before any pinned field is read below (CD-0016 as
+  // amended).
+  const continuity = await readContinuityProjection(request.workId, deps)
   if (continuity.failure) return continuity
   const pinned = continuity.result.pinned
-  if (!isRecord(pinned)) {
-    return failure("transport_failure", `concord_work_trace.continuity returned no pinned continuity for ${request.workId}`)
-  }
   if (pinned.workflow_instance === "absent") {
     return failure("workflow_absent", `work ${request.workId} holds no workflow instance; a lane packet needs a workflow step`)
   }

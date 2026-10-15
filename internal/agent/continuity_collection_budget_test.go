@@ -354,7 +354,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 // through the fold-guard direct-seeding route the envelope-budget fixtures
 // already use for fold-guarded state; the store's own ready predicate decides
 // readiness at read time.
-func continuityReadyJobEvent(t *testing.T, ctx context.Context, s *store.Store, index int) {
+func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
 	t.Helper()
 	jobID := fmt.Sprintf("job:liveness-%d", index)
 	var contractVersion int64
@@ -457,7 +457,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	// the packet's inputs.worker_job shape. The ready scan carries no SQL
 	// page limit, so the paged document must carry the whole set.
 	for i := 1; i <= 3; i++ {
-		continuityReadyJobEvent(t, ctx, s, i)
+		continuityReadyJobEvent(t, s, i)
 	}
 	// Forty admitted observations grow the windowed collection. Their
 	// ampersands cost six serialized bytes each, so even the first window
@@ -943,7 +943,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 		"context_findings": findings,
 	})
 	for i := 1; i <= 2; i++ {
-		continuityReadyJobEvent(t, ctx, s, i)
+		continuityReadyJobEvent(t, s, i)
 	}
 	for i := range 8 {
 		observation, _ := json.Marshal(map[string]any{
@@ -1256,18 +1256,12 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	if size > MaxResultEnvelopeBytes {
 		t.Fatalf("the maximal page envelope measured %d bytes against the unchanged %d-byte cap", size, MaxResultEnvelopeBytes)
 	}
-	pageResult, err := r.continuityProjectionResult(header, digest, math.MaxInt64, 0, fragment, false, any("projection"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	pageResult := r.continuityProjectionResult(header, digest, math.MaxInt64, 0, fragment, false, any("projection"))
 	resultBytes, err := json.Marshal(pageResult)
 	if err != nil {
 		t.Fatal(err)
 	}
-	frameless, err := r.continuityProjectionResult(header, digest, math.MaxInt64, 0, "", false, any("projection"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	frameless := r.continuityProjectionResult(header, digest, math.MaxInt64, 0, "", false, any("projection"))
 	delete(frameless["projection_page"].(map[string]any), "data")
 	headerBytes, err := json.Marshal(frameless)
 	if err != nil {

@@ -1819,8 +1819,8 @@ func ContinuityCanonicalDocument(snapshot store.ContinuitySnapshot) ([]byte, str
 // ContinuityProjectionReference renders the closed projection reference for
 // one captured continuity snapshot: the identity header, the canonical
 // document's exact digest and byte length, the explicit omitted-projection
-// status, and the canonical initial continuity read pointer whose limit
-// matches the boot snapshot's initial boundary window. It carries no
+// status, and the canonical initial continuity read pointer at the read's
+// default boundary window of 20. It carries no
 // projection member and no fragment, claims no complete contract, question,
 // intent set, or evidence, and changes no reading obligation; the
 // authenticated page stream reconstruction precedes use, and a later read
@@ -1840,9 +1840,12 @@ func ContinuityProjectionReference(snapshot store.ContinuitySnapshot) (map[strin
 		"digest":             digest,
 		"total_bytes":        len(doc),
 		"projection_omitted": true,
-		// Limit 20 is the boot snapshot's initial boundary window: the
-		// continuity read answers a zero limit with the same page, so the
-		// pointer names the read the boot projection was captured under.
+		// Limit 20 is the read's default boundary window, not the boot
+		// capture's window: boot captures its snapshot at limit 1
+		// (cmd/concord/session.go), the digest field describes exactly that
+		// captured document, and the later read this pointer starts is
+		// separate — it can describe newer state or a different session's
+		// held leases than the captured snapshot.
 		"read_pointer": map[string]any{"tool": "concord_work_trace", "operation": "continuity", "input": map[string]any{"work_id": header.WorkID, "page": map[string]any{"cursor": nil, "limit": 20}}},
 	}
 	if header.WorkVersion != nil {
@@ -1934,7 +1937,7 @@ func decodeContinuityProjectionCursor(inner string) (continuityProjectionCursor,
 // identity header, the exact byte page of the canonical document, and the
 // continuation kind. The fragment is not independently parseable JSON and is
 // not a summary; reconstruction precedes use.
-func (r runtime) continuityProjectionResult(header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) (map[string]any, error) {
+func (r runtime) continuityProjectionResult(header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) map[string]any {
 	result := map[string]any{
 		"work_id":           header.WorkID,
 		"workflow_instance": header.WorkflowInstance,
@@ -1953,7 +1956,7 @@ func (r runtime) continuityProjectionResult(header continuityProjectionHeader, d
 	if header.WorkVersion != nil {
 		result["work_version"] = *header.WorkVersion
 	}
-	return result, nil
+	return result
 }
 
 // continuityProjectionEnvelope renders one projection page's result envelope.
@@ -1961,11 +1964,7 @@ func (r runtime) continuityProjectionResult(header continuityProjectionHeader, d
 // means incomplete transport, never missing durable data or weakened
 // authority.
 func (r runtime) continuityProjectionEnvelope(base Envelope, meta store.ResultMeta, header continuityProjectionHeader, digest string, totalBytes, offset int64, fragment string, documentComplete bool, nextKind any) (Envelope, error) {
-	result, err := r.continuityProjectionResult(header, digest, totalBytes, offset, fragment, documentComplete, nextKind)
-	if err != nil {
-		return base, err
-	}
-	envelope, err := r.resultEnvelope(base, meta, r.scope(meta), result)
+	envelope, err := r.resultEnvelope(base, meta, r.scope(meta), r.continuityProjectionResult(header, digest, totalBytes, offset, fragment, documentComplete, nextKind))
 	if err != nil {
 		return envelope, err
 	}

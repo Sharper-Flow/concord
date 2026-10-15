@@ -177,8 +177,9 @@ func TestArchitectureNativeCapacityOrdinaryRefusalWithholdsAuthority(t *testing.
 // nativeCapacityDemoteJob records a later not-ready revision of one fixture
 // job, so exactly one ready job remains and the context projection selects
 // its preparation receipt.
-func nativeCapacityDemoteJob(t *testing.T, f *nativeOracleFixture, jobID string) {
+func nativeCapacityDemoteJob(t *testing.T, f *nativeOracleFixture) {
 	t.Helper()
+	const jobID = "job:b"
 	b := f.bundle
 	b.Control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
 	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
@@ -198,7 +199,7 @@ func nativeCapacityDemoteJob(t *testing.T, f *nativeOracleFixture, jobID string)
 
 func TestArchitectureNativeCapacityPreparationReceiptAddsContext(t *testing.T) {
 	f := newNativeOracleFixture(t)
-	nativeCapacityDemoteJob(t, f, "job:b")
+	nativeCapacityDemoteJob(t, f)
 	// The single-ready work now projects the preparation receipt; the design
 	// with an adequate reserve is admitted over it.
 	nativeCapacityRecordDesign(t, f.s, f.work, 8192)
@@ -216,7 +217,7 @@ func TestArchitectureNativeCapacityPreparationReceiptAddsContext(t *testing.T) {
 
 func TestArchitectureNativeCapacityExecutePublishesWithinAllocation(t *testing.T) {
 	f := newNativeOracleFixture(t)
-	nativeCapacityDemoteJob(t, f, "job:b")
+	nativeCapacityDemoteJob(t, f)
 	nativeCapacityRecordDesign(t, f.s, f.work, 8192)
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("execute", &f.a))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 {
@@ -236,7 +237,7 @@ func TestArchitectureNativeCapacityExecutePublishesWithinAllocation(t *testing.T
 
 func TestArchitectureNativeCapacityOverBudgetWithholdsReadinessAndAuthority(t *testing.T) {
 	f := newNativeOracleFixture(t)
-	nativeCapacityDemoteJob(t, f, "job:b")
+	nativeCapacityDemoteJob(t, f)
 	// Reclaim the entry so the current subject leaves the projection, pin
 	// the reserve to exactly the preparations-only member, then restore it:
 	// the restored subject over-allocates the slot before any release runs.
@@ -324,7 +325,7 @@ func TestArchitectureNativeCapacityOverBudgetWithholdsReadinessAndAuthority(t *t
 
 func TestArchitectureNativeCapacityMeasurementHoldsAtRelease(t *testing.T) {
 	f := newNativeOracleFixture(t)
-	nativeCapacityDemoteJob(t, f, "job:b")
+	nativeCapacityDemoteJob(t, f)
 	nativeCapacityRecordDesign(t, f.s, f.work, 8192)
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("race", &f.a))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" {

@@ -150,8 +150,8 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Start in-flight work with every current projection present, then
-	// roll back the verify-lease watermark step. Migrate reapplies that step
-	// while the work remains open.
+	// roll back the migration sequence's current tail. Migrate reapplies
+	// that step while the work remains open.
 	for _, migration := range migrations {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
@@ -171,13 +171,16 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	const pendingVersion = 127
+	// The witness is the schema's current tail, not a named step. Its objects
+	// must leave with its manifest row, and this rollback is updated beside
+	// the tail migration.
+	pendingVersion := migrations[len(migrations)-1].Version
 	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, pendingVersion); err != nil {
 		t.Fatalf("cannot remove migration %d from the manifest: %v", pendingVersion, err)
 	}
-	// The selected schema step's objects must leave with its manifest row
-	// before the test reapplies that step while work remains open.
-	if _, err := db.ExecContext(ctx, `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
+	// The tail owns the design projection's architecture triple. The digest
+	// drops first because its column carries the triple's shape constraint.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE workflow_design_records DROP COLUMN digest; ALTER TABLE workflow_design_records DROP COLUMN revision; ALTER TABLE workflow_design_records DROP COLUMN architecture`); err != nil {
 		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", pendingVersion, err)
 	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)

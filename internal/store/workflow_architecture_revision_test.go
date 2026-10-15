@@ -116,7 +116,7 @@ func seedArchitectureRevisionFixture(t *testing.T, workID string, plan *Workflow
 		workflowActionCompletedFixture("revision-proposal-"+workID, workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("revision-discovery-"+workID, workID, ownerRef, 5, "discovery", "record_discovery"),
 	}
-	version := int64(6)
+	var version int64
 	if withDesign {
 		events = append(events, projectionDesignEvent(t, workID, "revision-design-"+workID, 6, "first", plan))
 		events = append(events, workflowActionCompletedFixture("revision-design-step-"+workID, workID, ownerRef, 7, "design", "record_design"))
@@ -161,9 +161,9 @@ func revisionReplacementRaw(t *testing.T, choice string, plan *WorkflowDesignArc
 }
 
 // revisionActionPayload builds the revise_design action payload with the
-// valid bounded evidence set.
-func revisionActionPayload(t *testing.T, expectedRevision int64, reason string, designRaw json.RawMessage) json.RawMessage {
-	return revisionActionPayloadEvidence(t, expectedRevision, reason, designRaw, revisionEvidence)
+// bounded reason constant and the valid evidence set.
+func revisionActionPayload(t *testing.T, expectedRevision int64, designRaw json.RawMessage) json.RawMessage {
+	return revisionActionPayloadEvidence(t, expectedRevision, revisionReason, designRaw, revisionEvidence)
 }
 
 // revisionEvidence is the bounded evidence set a valid revision call carries.
@@ -374,7 +374,7 @@ func TestArchitectureRevision(t *testing.T) {
 			t.Fatalf("seeded state = %+v, want execution at revision 1 with one contract and no attempts", before)
 		}
 		replacement := plan
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "second", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "second", &replacement))
 		if err := runReviseDesignAction(t, fixture, workID, payload, "revision-hold-op"); err != nil {
 			t.Fatalf("revision refused: %v", err)
 		}
@@ -413,7 +413,7 @@ func TestArchitectureRevision(t *testing.T) {
 		fixture := seedArchitectureRevisionFixture(t, "revision-stale", &plan, true, true)
 		const workID = "revision-stale"
 		before := readRevisionWorkState(t, fixture.store, workID)
-		payload := revisionActionPayload(t, 2, revisionReason, revisionReplacementRaw(t, "stale", &plan))
+		payload := revisionActionPayload(t, 2, revisionReplacementRaw(t, "stale", &plan))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-stale-op")
 		requireRevisionRefusal(t, err, KindStaleContext, "no longer current")
 		if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -428,7 +428,7 @@ func TestArchitectureRevision(t *testing.T) {
 		if state := readRevisionWorkState(t, fixture.store, workID); state.step != "planning" || state.contracts != 0 {
 			t.Fatalf("seeded state = %+v, want planning without a contract", state)
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "unapproved", &plan))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "unapproved", &plan))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-nocontract-op")
 		requireRevisionRefusal(t, err, KindInvariantViolation, "approved workflow contract is missing")
 	})
@@ -437,7 +437,7 @@ func TestArchitectureRevision(t *testing.T) {
 		legacy := projectionArchitecture()
 		fixture := seedArchitectureRevisionFixture(t, "revision-nodesign", nil, true, false)
 		const workID = "revision-nodesign"
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "legacy", &legacy))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "legacy", &legacy))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-nodesign-op")
 		requireRevisionRefusal(t, err, KindInvalidPayload, "requires an existing typed design")
 	})
@@ -449,7 +449,7 @@ func TestArchitectureRevision(t *testing.T) {
 		if state := readRevisionWorkState(t, fixture.store, workID); state.revision != -1 {
 			t.Fatalf("legacy design revision = %d, want no derived revision", state.revision)
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "legacy", &legacy))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "legacy", &legacy))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-noarch-op")
 		requireRevisionRefusal(t, err, KindInvalidPayload, "requires the recorded architecture")
 	})
@@ -474,7 +474,7 @@ func TestArchitectureRevision(t *testing.T) {
 		if before.openAttempts != 1 {
 			t.Fatalf("seeded attempts = %d, want one in-flight attempt", before.openAttempts)
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "live", &plan))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "live", &plan))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-attempt-op")
 		requireRevisionRefusal(t, err, KindIllegalLifecycleTransition, "terminal")
 		if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -508,7 +508,7 @@ func TestArchitectureRevision(t *testing.T) {
 				before := readRevisionWorkState(t, fixture.store, workID)
 				replacement := plan
 				testCase.change(&replacement)
-				payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "envelope", &replacement))
+				payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "envelope", &replacement))
 				err := runReviseDesignAction(t, fixture, workID, payload, "revision-envelope-op")
 				requireRevisionRefusal(t, err, KindInvalidPayload, "approved envelope")
 				if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -526,7 +526,7 @@ func TestArchitectureRevision(t *testing.T) {
 			replacement := plan
 			replacement.Capacity.TaskPremise -= 256
 			replacement.Capacity.OutcomePredicates += 256
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "realloc", &replacement))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "realloc", &replacement))
 			if err := runReviseDesignAction(t, fixture, workID, payload, "revision-capacity-op"); err != nil {
 				t.Fatalf("same-total reallocation refused: %v", err)
 			}
@@ -541,7 +541,7 @@ func TestArchitectureRevision(t *testing.T) {
 			before := readRevisionWorkState(t, fixture.store, workID)
 			replacement := plan
 			replacement.Capacity.TaskPremise -= 256
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "shrink", &replacement))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "shrink", &replacement))
 			err := runReviseDesignAction(t, fixture, workID, payload, "revision-captop-op")
 			requireRevisionRefusal(t, err, KindInvalidPayload, "capacity")
 			if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -585,7 +585,7 @@ func TestArchitectureRevision(t *testing.T) {
 				before := readRevisionWorkState(t, fixture.store, workID)
 				replacement := plan
 				testCase.change(&replacement)
-				payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "bound", &replacement))
+				payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "bound", &replacement))
 				err := runReviseDesignAction(t, fixture, workID, payload, "revision-bound-op")
 				requireRevisionRefusal(t, err, KindInvalidPayload, testCase.text)
 				if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -600,7 +600,7 @@ func TestArchitectureRevision(t *testing.T) {
 			seedDispatchedJobBindingFixture(t, fixture.store, workID, "bound-append", 1, fixture.digest, "value-slice")
 			replacement := plan
 			replacement.Slices = append(replacement.Slices, revisionAppendedSlice())
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "append", &replacement))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "append", &replacement))
 			if err := runReviseDesignAction(t, fixture, workID, payload, "revision-append-op"); err != nil {
 				t.Fatalf("suffix append refused: %v", err)
 			}
@@ -618,7 +618,7 @@ func TestArchitectureRevision(t *testing.T) {
 			appended.Ordinal = 0
 			appended.SliceID = "suffix-slice-early"
 			replacement.Slices = append(replacement.Slices, appended)
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "early", &replacement))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "early", &replacement))
 			err := runReviseDesignAction(t, fixture, workID, payload, "revision-suffix-op")
 			requireRevisionRefusal(t, err, KindInvalidPayload, "unstarted suffix")
 		})
@@ -627,7 +627,7 @@ func TestArchitectureRevision(t *testing.T) {
 			fixture := seedArchitectureRevisionFixture(t, "revision-unknown", &plan, true, true)
 			const workID = "revision-unknown"
 			seedDispatchedJobBindingFixture(t, fixture.store, workID, "bound-unknown", 1, fixture.digest, "slice:never-planned")
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "unknown", &plan))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "unknown", &plan))
 			err := runReviseDesignAction(t, fixture, workID, payload, "revision-unknown-op")
 			requireRevisionRefusal(t, err, KindInvariantViolation, "unknown slice")
 		})
@@ -642,7 +642,7 @@ func TestArchitectureRevision(t *testing.T) {
 					replacement.Slices[i].EndState = "rewritten while the binding points beyond the current revision"
 				}
 			}
-			payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "future", &replacement))
+			payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "future", &replacement))
 			if err := runReviseDesignAction(t, fixture, workID, payload, "revision-future-op"); err != nil {
 				t.Fatalf("a binding beyond the current revision must not bound it: %v", err)
 			}
@@ -675,7 +675,7 @@ func TestArchitectureRevision(t *testing.T) {
 				replacement.Slices[i].MaxChangedLines = 300
 			}
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "unstarted", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "unstarted", &replacement))
 		if err := runReviseDesignAction(t, fixture, workID, payload, "revision-undispatched-op"); err != nil {
 			t.Fatalf("a recorded but never-dispatched job must not start its slice; the unstarted suffix stays revisable: %v", err)
 		}
@@ -699,7 +699,7 @@ func TestArchitectureRevision(t *testing.T) {
 				replacement.Slices[i].EndState = "a renamed dispatched obligation"
 			}
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "dispatched", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "dispatched", &replacement))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-dispatched-op")
 		requireRevisionRefusal(t, err, KindInvalidPayload, "bound by dispatched work")
 		if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -720,7 +720,7 @@ func TestArchitectureRevision(t *testing.T) {
 				replacement.Slices[i].MaxChangedLines = 900
 			}
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "completed", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "completed", &replacement))
 		err := runReviseDesignAction(t, fixture, workID, payload, "revision-completed-op")
 		requireRevisionRefusal(t, err, KindInvalidPayload, "bound by dispatched work")
 		if after := readRevisionWorkState(t, fixture.store, workID); after != before {
@@ -744,7 +744,7 @@ func TestArchitectureRevision(t *testing.T) {
 		appended := revisionAppendedSlice()
 		appended.EndState = "a replanned suffix the undispatched revision-2 binding names"
 		replacement.Slices = append(replacement.Slices, appended)
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "revjoin", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "revjoin", &replacement))
 		if err := runReviseDesignAction(t, fixture, workID, payload, "revision-revjoin-op"); err != nil {
 			t.Fatalf("an undispatched revision-2 binding must not freeze the suffix slice: %v", err)
 		}
@@ -757,7 +757,7 @@ func TestArchitectureRevision(t *testing.T) {
 		plan := projectionArchitecture()
 		fixture := seedArchitectureRevisionFixture(t, "revision-evidence", &plan, true, true)
 		const workID = "revision-evidence"
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "evidence", &plan))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "evidence", &plan))
 		if err := runReviseDesignAction(t, fixture, workID, payload, "revision-evidence-valid-op"); err != nil {
 			t.Fatalf("a bounded evidence set must revise: %v", err)
 		}
@@ -852,7 +852,7 @@ func TestArchitectureRevision(t *testing.T) {
 				replacement.Slices[i].EndState = "the value tests pass with the replanned end state"
 			}
 		}
-		payload := revisionActionPayload(t, 1, revisionReason, revisionReplacementRaw(t, "prospective", &replacement))
+		payload := revisionActionPayload(t, 1, revisionReplacementRaw(t, "prospective", &replacement))
 		if err := runReviseDesignAction(t, fixture, workID, payload, "revision-prospective-op"); err != nil {
 			t.Fatalf("an undispatched prospective job must not block the revision: %v", err)
 		}

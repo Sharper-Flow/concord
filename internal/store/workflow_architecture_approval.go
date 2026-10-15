@@ -190,7 +190,7 @@ var workflowContractApprovedMembers = workflowTypedPayloadJSONNames(reflect.Type
 
 func workflowTypedPayloadJSONNames(typ reflect.Type) map[string]bool {
 	names := map[string]bool{}
-	for typ.Kind() == reflect.Ptr {
+	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	for i := 0; i < typ.NumField(); i++ {

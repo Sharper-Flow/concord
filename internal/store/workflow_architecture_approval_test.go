@@ -81,7 +81,8 @@ func approvalBindingMalformedDefinition(t *testing.T, ref string, malformed func
 		fields := make([]WorkflowPayloadField, 0, len(shape.ActionDefinitions[i].Payload.Fields)+1)
 		fields = append(fields, shape.ActionDefinitions[i].Payload.Fields...)
 		declared, closed := malformed(WorkflowPayloadField{Name: "design_binding", ValueType: PayloadObject, Required: true})
-		shape.ActionDefinitions[i].Payload.Fields = append(fields, declared...)
+		fields = append(fields, declared...)
+		shape.ActionDefinitions[i].Payload.Fields = fields
 		shape.ActionDefinitions[i].Payload.Closed = closed
 	}
 	registered, err := BuiltinWorkflowRegistry().Register(shape)
@@ -1006,7 +1007,7 @@ func TestArchitectureApprovalBinding(t *testing.T) {
 		over := strings.Repeat("p", 4087)
 		before := readApprovalBindingState(t, fixture.store, workID)
 		err := runApprovalBindingAction(t, fixture, workID, approvalBindingPayload(t, over, map[string]any{"revision": fixture.revision, "digest": fixture.digest}))
-		capacityWritesRefusal(t, err, "task")
+		_ = capacityWritesRefusal(t, err, "task")
 		requireApprovalBindingUnchanged(t, fixture.store, workID, before)
 		if err := runApprovalBindingAction(t, fixture, workID, approvalBindingPayload(t, "deliver the bounded bound change", map[string]any{"revision": fixture.revision, "digest": fixture.digest})); err != nil {
 			t.Fatalf("the bounded approval within the declared slot must commit: %v", err)

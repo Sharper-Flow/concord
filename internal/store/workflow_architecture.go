@@ -167,9 +167,9 @@ func decodeWorkflowDesignArchitecture(data []byte) (WorkflowDesignArchitecture, 
 // valid UTF-8 within its byte bound. Quotes, control bytes, and HTML stay
 // data; the canonical bound measures their escaped serialized form, so no
 // check here may refuse them.
-func designArchitectureBoundedText(value, label string, max int) error {
-	if len(value) < 1 || len(value) > max {
-		return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture %s must be between 1 and %d bytes", label, max), "bound the "+label)
+func designArchitectureBoundedText(value, label string, maxBytes int) error {
+	if len(value) < 1 || len(value) > maxBytes {
+		return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture %s must be between 1 and %d bytes", label, maxBytes), "bound the "+label)
 	}
 	if !utf8.ValidString(value) {
 		return designArchitectureFailure(KindInvalidPayload, "architecture "+label+" must be valid UTF-8", "repair the encoding instead of letting JSON replace bytes")
@@ -177,17 +177,17 @@ func designArchitectureBoundedText(value, label string, max int) error {
 	return nil
 }
 
-func designArchitectureCount(count, min, bound int, label, remedy string) error {
-	if count < min || count > bound {
-		return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture carries %d %s; %d to %d are declared", count, label, min, bound), remedy)
+func designArchitectureCount(count, minCount, bound int, label, remedy string) error {
+	if count < minCount || count > bound {
+		return designArchitectureFailure(KindInvalidPayload, fmt.Sprintf("architecture carries %d %s; %d to %d are declared", count, label, minCount, bound), remedy)
 	}
 	return nil
 }
 
 // designArchitectureSection proves one section's count and unique bounded
 // identities, returning the identity index.
-func designArchitectureSection[T any](entries []T, min, bound int, label string, ident func(T) string) (map[string]bool, error) {
-	if err := designArchitectureCount(len(entries), min, bound, label, "declare the section within its bounds"); err != nil {
+func designArchitectureSection[T any](entries []T, minCount, bound int, label string, ident func(T) string) (map[string]bool, error) {
+	if err := designArchitectureCount(len(entries), minCount, bound, label, "declare the section within its bounds"); err != nil {
 		return nil, err
 	}
 	index := make(map[string]bool, len(entries))

@@ -390,7 +390,7 @@ func TestArchitectureProjection(t *testing.T) {
 			{"nulled", true},
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
-				assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 2, forge(testCase.name, testCase.withArchitectureKey)), KindInvalidPayload)
+				_ = assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 2, forge(testCase.name, testCase.withArchitectureKey)), KindInvalidPayload)
 			})
 		}
 		if version := projectionWorkVersion(t, s, workID); version != 2 {
@@ -430,7 +430,7 @@ func TestArchitectureProjection(t *testing.T) {
 			{"approved", "approved", `true`},
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
-				assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 2, forgeField(testCase.name, testCase.field, testCase.value)), KindInvalidPayload)
+				_ = assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 2, forgeField(testCase.name, testCase.field, testCase.value)), KindInvalidPayload)
 			})
 		}
 		if version := projectionWorkVersion(t, s, workID); version != 2 {
@@ -475,7 +475,7 @@ func TestArchitectureProjection(t *testing.T) {
 			"decisions": projectionDesignContent("future").Decisions, "touched_refs": []string{"src/projection.go"},
 		})
 		unsupported.PayloadVersion = 3
-		assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 3, unsupported), KindUnsupportedPayloadVersion)
+		_ = assertProjectionRefusal(t, applyProjectionEvents(t, s, workID, 3, unsupported), KindUnsupportedPayloadVersion)
 	})
 
 	t.Run("malformed architecture refuses with no durable effect", func(t *testing.T) {

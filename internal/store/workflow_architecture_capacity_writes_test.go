@@ -117,7 +117,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		s := capacityWritesWitnessStore(t, workID)
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		err := applyProjectionEvents(t, s, workID, version, capacityWritesOverApproachEvent(t, workID, "capw-design-over-event", version))
-		capacityWritesRefusal(t, err, "design_record")
+		_ = capacityWritesRefusal(t, err, "design_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 	})
 
@@ -129,7 +129,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		fitting := projectionDesignEvent(t, workID, "capw-atomic-fit", 4, "fitting", &plan)
 		// The first event alone refuses.
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
-		capacityWritesRefusal(t, applyProjectionEvents(t, s, workID, version, over), "design_record")
+		_ = capacityWritesRefusal(t, applyProjectionEvents(t, s, workID, version, over), "design_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 		// The same over event followed by a fitting design in one operation
 		// commits: the operation's final state fits its allocation.
@@ -151,7 +151,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		intent := capacityWritesIntentEvent(t, workID, version, strings.Repeat("t", 4100))
 		err := ApplyOperation(ctx, s, Operation{Events: []Event{intent}, ExpectedVersions: workVersion(workID, version)})
-		capacityWritesRefusal(t, err, "work_record")
+		_ = capacityWritesRefusal(t, err, "work_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 		// A bounded revision commits and lands its recorded task.
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{capacityWritesIntentEvent(t, workID, version, "a bounded task")}, ExpectedVersions: workVersion(workID, version)}); err != nil {
@@ -188,7 +188,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		}
 		payload["problem"] = strings.Repeat("p", 600)
 		over.Payload = mustJSONValue(payload)
-		capacityWritesRefusal(t, applyProjectionEvents(t, s, workID, version, over), "proposal_record")
+		_ = capacityWritesRefusal(t, applyProjectionEvents(t, s, workID, version, over), "proposal_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 		if err := applyProjectionEvents(t, s, workID, version, proposalEvent("capw-proposal-fit", workID, version, nil)); err != nil {
 			t.Fatalf("bounded proposal refused: %v", err)
@@ -198,9 +198,9 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 	t.Run("contract approval over premise refuses with zero effects", func(t *testing.T) {
 		const workID = "capw-contract"
 		s := capacityWritesWitnessStore(t, workID)
-		capacityWritesApproveContract(t, s, workID, 3, strings.Repeat("premise ", 512), false)
+		_ = capacityWritesApproveContract(t, s, workID, strings.Repeat("premise ", 512), false)
 		// The bounded premise approves and the contract row exists.
-		capacityWritesApproveContract(t, s, workID, 3, "deliver the bounded change", true)
+		_ = capacityWritesApproveContract(t, s, workID, "deliver the bounded change", true)
 		var active int
 		if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
 			t.Fatal(err)
@@ -235,13 +235,13 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 					t.Fatalf("task member span for a %d-byte premise = %d, want %d", testCase.decodedLen, taskSpan, testCase.wantSpan)
 				}
 				if !testCase.wantCommit {
-					err := capacityWritesApproveContract(t, s, workID, 3, premise, false)
+					err := capacityWritesApproveContract(t, s, workID, premise, false)
 					if !strings.Contains(err.Error(), "4097") || !strings.Contains(err.Error(), "4096") {
 						t.Fatalf("boundary refusal lacks the required 4097 and allowed 4096 counts: %v", err)
 					}
 					return
 				}
-				capacityWritesApproveContract(t, s, workID, 3, premise, true)
+				_ = capacityWritesApproveContract(t, s, workID, premise, true)
 			})
 		}
 	})
@@ -255,7 +255,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		// admission passes through the same fold and the same invariant.
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		err := applyProjectionEvents(t, s, workID, version, capacityWritesOverApproachEvent(t, workID, "capw-first-design-over", version))
-		capacityWritesRefusal(t, err, "design_record")
+		_ = capacityWritesRefusal(t, err, "design_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 		if got := projectionDesignRowCount(t, s, workID); got != 0 {
 			t.Fatalf("the refused first design left %d rows", got)
@@ -299,7 +299,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 				}
 				err := runIssue933OperatorAction(t, s, workID, "supersede_contract", json.RawMessage(successor), owner, operator)
 				if !testCase.want {
-					capacityWritesRefusal(t, err, "task")
+					_ = capacityWritesRefusal(t, err, "task")
 					capacityWritesZeroEffects(t, s, workID, versionBefore, eventsBefore, rowsBefore)
 					var operationsAfter int64
 					if err := s.db.QueryRow(`SELECT count(*) FROM durable_operations WHERE work_id=?`, workID).Scan(&operationsAfter); err != nil {
@@ -327,7 +327,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 	t.Run("retained allocation survives design invalidation", func(t *testing.T) {
 		const workID = "capw-invalidate"
 		s := capacityWritesWitnessStore(t, workID)
-		capacityWritesApproveContract(t, s, workID, 3, "deliver the bounded change", true)
+		_ = capacityWritesApproveContract(t, s, workID, "deliver the bounded change", true)
 		actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
 		version := projectionWorkVersion(t, s, workID)
 		supersede := workflowEventWithActor("capw-supersede", WorkflowContractSuperseded, workID, actorRef, map[string]any{
@@ -353,7 +353,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		intent := capacityWritesIntentEvent(t, workID, version, strings.Repeat("t", 4100))
 		intentErr := ApplyOperation(ctx, s, Operation{Events: []Event{intent}, ExpectedVersions: workVersion(workID, version)})
-		capacityWritesRefusal(t, intentErr, "work_record")
+		_ = capacityWritesRefusal(t, intentErr, "work_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 	})
 
@@ -384,7 +384,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 			"unresolved_refs": unresolved, "ready": false,
 		}
 		if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, over); err != nil {
-			capacityWritesRefusal(t, err, "worker_job")
+			_ = capacityWritesRefusal(t, err, "worker_job")
 		} else {
 			t.Fatal("the over-allocated job recording was accepted")
 		}
@@ -434,7 +434,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		over := checkpoint(strings.Repeat("h", 4000), strings.Repeat("d", 4000), strings.Repeat("s", 4000))
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{over}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-			capacityWritesRefusal(t, err, "work_context")
+			_ = capacityWritesRefusal(t, err, "work_context")
 		} else {
 			t.Fatal("the over-sized checkpoint was accepted")
 		}
@@ -471,7 +471,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 			"finding_refs":     []string{},
 			"context_findings": overFindings,
 		}); err != nil {
-			capacityWritesRefusal(t, err, "work_context")
+			_ = capacityWritesRefusal(t, err, "work_context")
 		} else {
 			t.Fatal("the over-sized declaration was accepted")
 		}
@@ -513,7 +513,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		over := workerFailedContextFindingsEvent(workID, "capw-terminal-failed-over", "capw-terminal-dispatch-over", model, WorkerFailureWorkerError, overFindings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{over}}); err != nil {
-			capacityWritesRefusal(t, err, "work_context")
+			_ = capacityWritesRefusal(t, err, "work_context")
 		} else {
 			t.Fatal("the over-sized terminal findings were accepted")
 		}
@@ -571,7 +571,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 				rowsBefore := int64(projectionDesignRowCount(t, s, workID))
 				err := runIssue933OperatorAction(t, s, workID, "request_correction", json.RawMessage(correction), owner, operator)
 				if !testCase.want {
-					capacityWritesRefusal(t, err, "work_context")
+					_ = capacityWritesRefusal(t, err, "work_context")
 					capacityWritesZeroEffects(t, s, workID, versionBefore, eventsBefore, rowsBefore)
 					return
 				}
@@ -668,7 +668,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		intent := capacityWritesIntentEvent(t, workID, version, strings.Repeat("t", 4100))
 		err := ApplyOperation(ctx, s, Operation{Events: []Event{intent}, ExpectedVersions: workVersion(workID, version)})
-		capacityWritesRefusal(t, err, "work_record")
+		_ = capacityWritesRefusal(t, err, "work_record")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 	})
 
@@ -711,8 +711,9 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 // one direct operation: actor, definition, and the approval whose premise the
 // caller owns. expectCommit asserts the operation's outcome; a refusal must
 // leave the whole operation rolled back.
-func capacityWritesApproveContract(t *testing.T, s *Store, workID string, expected int64, premise string, expectCommit bool) error {
+func capacityWritesApproveContract(t *testing.T, s *Store, workID string, premise string, expectCommit bool) error {
 	t.Helper()
+	expected := int64(3)
 	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
 	events := []Event{
 		workflowEventWithActor("capw-contract-actor-"+workID, WorkflowActorRecorded, workID, actorRef, map[string]any{
@@ -738,7 +739,7 @@ func capacityWritesApproveContract(t *testing.T, s *Store, workID string, expect
 	version, eventsBefore, rowsBefore := capacityWritesSnapshot(t, s, workID)
 	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: workVersion(workID, expected)})
 	if !expectCommit {
-		capacityWritesRefusal(t, err, "task")
+		_ = capacityWritesRefusal(t, err, "task")
 		capacityWritesZeroEffects(t, s, workID, version, eventsBefore, rowsBefore)
 		return err
 	}

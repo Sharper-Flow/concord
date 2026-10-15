@@ -3,6 +3,7 @@ package sessionboot
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -201,5 +202,177 @@ func TestBuildFitsObservationWindowToPacketBound(t *testing.T) {
 	}
 	if packet.Continuity.Total != 40 || packet.Continuity.Read.Operation != "observations" || packet.Continuity.Read.Input["work_id"] != "work-1" {
 		t.Fatalf("window lost its total or read pointer: %+v", packet.Continuity)
+	}
+}
+
+// readSchemaSizePredicates builds count synthetic exists predicates at the
+// published read shape's size: each outcome_payload is the exact JSON text
+// of a real exists object — kind, surface, and one hundred bounded subject
+// strings — as a contract read carries it. This is a read-schema-size
+// fixture, not an admission run: no workflow write path sees these records,
+// and the agent continuity liveness witness already proves the shape
+// reachable. It holds only that each payload fits the published read bound.
+func readSchemaSizePredicates(count int) []store.WorkflowReadPredicate {
+	subjects := make([]string, 100)
+	for j := range subjects {
+		subjects[j] = fmt.Sprintf("subject:%s%03d", strings.Repeat("s", 116), j)
+	}
+	predicates := make([]store.WorkflowReadPredicate, count)
+	for i := range predicates {
+		payload, err := json.Marshal(map[string]any{
+			"kind": "exists", "surface": fmt.Sprintf("fixture:surface-%d", i), "subjects": subjects,
+		})
+		if err != nil {
+			panic(err)
+		}
+		predicates[i] = store.WorkflowReadPredicate{
+			PredicateID:    fmt.Sprintf("predicate:overflow-%d", i),
+			Ordinal:        i,
+			OutcomeKind:    "exists",
+			OutcomePayload: string(payload),
+		}
+	}
+	return predicates
+}
+
+// schemaSizeContract builds the synthetic contract a schema-size fixture
+// rides: minimal required members, with the always-marshaling law members
+// set to their empty schema-valid values.
+func schemaSizeContract(predicates []store.WorkflowReadPredicate) *store.WorkflowReadContract {
+	return &store.WorkflowReadContract{
+		Version: 2, Premise: "the premise", OutcomePredicates: predicates,
+		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
+		SpecMandate: []string{"law-1"}, LawModifies: []string{},
+		LawRevisions: []store.WorkflowLawRevision{}, RigorClass: "prototype_internal",
+		ChangesProductTruth: true,
+	}
+}
+
+// TestBuildReferencesOversizedFixedProjection holds boot to the CD-0090 D6
+// reference branch: a snapshot whose fixed projection cannot fit the packet's
+// own cap travels as the closed projection reference of the original captured
+// snapshot — exact work, digest, and byte length, the canonical initial
+// continuity read, no projection member, and no timestamp or signature — and
+// two builds of one snapshot have identical bytes.
+func TestBuildReferencesOversizedFixedProjection(t *testing.T) {
+	snapshot := testSnapshot()
+	snapshot.WorkflowInstance = store.WorkflowInstancePresent
+	snapshot.Contract = schemaSizeContract(readSchemaSizePredicates(8))
+	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
+	// The fixture is shape-valid against the published read schema, so size
+	// is the only reason the projection cannot ride inline: the reference
+	// branch must not hide an unrelated shape invalidity.
+	if err := agent.ValidatePayloadSchema("continuity_snapshot", full); err != nil {
+		t.Fatalf("oversized fixture is not a schema-valid continuity snapshot: %v", err)
+	}
+	// The bound is the session boot packet's own cap, and the fixture's fixed
+	// projection, which no complete-prefix reduction can shrink, alone
+	// overflows it.
+	if len(full) <= MaxBootPacketBytes {
+		t.Fatalf("fixture does not overflow the packet: %d bytes", len(full))
+	}
+	raw, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatalf("oversized fixed projection refused instead of referenced: %v", err)
+	}
+	if err := Validate(raw); err != nil {
+		t.Fatalf("reference packet rejected: %v", err)
+	}
+	if len(raw) > MaxBootPacketBytes {
+		t.Fatalf("reference packet measured %d bytes against the %d-byte cap", len(raw), MaxBootPacketBytes)
+	}
+	again, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, again) {
+		t.Fatal("two boot builds of one snapshot differ in bytes")
+	}
+	var packet struct {
+		Continuity map[string]any `json:"continuity"`
+	}
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	reference := packet.Continuity
+	want, err := agent.ContinuityProjectionReference(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBytes, _ := json.Marshal(want)
+	gotBytes, _ := json.Marshal(reference)
+	if string(gotBytes) != string(wantBytes) {
+		t.Fatalf("continuity = %s\nwant the shared reference %s", gotBytes, wantBytes)
+	}
+	if reference["work_id"] != "work-1" || reference["workflow_instance"] != store.WorkflowInstancePresent || reference["workflow_step"] != "planning" {
+		t.Fatalf("reference header = %#v", reference)
+	}
+	doc, digest, err := agent.ContinuityCanonicalDocument(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reference["digest"] != digest {
+		t.Fatalf("reference digest %v, want %s", reference["digest"], digest)
+	}
+	total, ok := reference["total_bytes"].(float64)
+	if !ok || int(total) != len(doc) {
+		t.Fatalf("reference total_bytes %v, want %d", reference["total_bytes"], len(doc))
+	}
+	if reference["projection_omitted"] != true {
+		t.Fatal("the reference must state its omitted projection exactly")
+	}
+	pointer, _ := reference["read_pointer"].(map[string]any)
+	input, _ := pointer["input"].(map[string]any)
+	page, _ := input["page"].(map[string]any)
+	limit, _ := page["limit"].(float64)
+	if pointer["tool"] != "concord_work_trace" || pointer["operation"] != "continuity" || input["work_id"] != "work-1" || page["cursor"] != nil || limit != 20 {
+		t.Fatalf("read pointer is not the canonical initial continuity read: %+v", pointer)
+	}
+	for _, member := range []string{"pinned", "projection_page", "observations", "freshness", "signature"} {
+		if _, present := reference[member]; present {
+			t.Fatalf("the boot reference carries the member %q", member)
+		}
+	}
+}
+
+// TestBuildKeepsMidBandPacketInline holds the measured-cap inline rule: a
+// complete boot packet measuring above the payload schema's 32,768-byte
+// bound but inside the boot packet's own cap stays typed and inline, so no
+// smaller fixed payload budget can silently replace the measured cap.
+func TestBuildKeepsMidBandPacketInline(t *testing.T) {
+	snapshot := testSnapshot()
+	snapshot.WorkflowInstance = store.WorkflowInstancePresent
+	snapshot.Contract = schemaSizeContract(readSchemaSizePredicates(3))
+	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
+	if len(full) <= 32768 || len(full) > MaxBootPacketBytes {
+		t.Fatalf("fixture measured %d bytes, want inside the (32768, %d] inline band", len(full), MaxBootPacketBytes)
+	}
+	raw, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(raw); err != nil {
+		t.Fatalf("mid-band packet rejected: %v", err)
+	}
+	var packet struct {
+		Continuity map[string]any `json:"continuity"`
+	}
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	if _, referenced := packet.Continuity["projection_omitted"]; referenced {
+		t.Fatal("mid-band packet carried the projection reference")
+	}
+	got, _ := json.Marshal(packet.Continuity)
+	// ContinuityPayload marshals nested structs in field order, while the
+	// packet's continuity round-trips through JSON as sorted maps, so the
+	// comparison normalizes both through one decode before the byte check.
+	var want any
+	if err := json.Unmarshal(full, &want); err != nil {
+		t.Fatal(err)
+	}
+	normalized, _ := json.Marshal(want)
+	if string(got) != string(normalized) {
+		t.Fatalf("mid-band packet did not stay inline\n got: %s\nwant: %s", got, normalized)
 	}
 }

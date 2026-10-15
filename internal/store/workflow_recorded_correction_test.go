@@ -137,7 +137,9 @@ func TestRecordedCorrectionCoversFailureAttributionPins(t *testing.T) {
 		version int64
 	}{
 		{"workflow.break_fix", 28},
+		{"workflow.break_fix", 29},
 		{"workflow.implementation", 31},
+		{"workflow.implementation", 32},
 	} {
 		t.Run(tc.ref, func(t *testing.T) {
 			entry := mustRecordedCorrectionPin(t, tc.ref, tc.version)

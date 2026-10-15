@@ -1,0 +1,618 @@
+{
+  "schema": "knowledge-authority-defaults.v1",
+  "application_sha": "fe69821f724bc8d40ec2730c9fd390bd80f1f527",
+  "vehicle": {
+    "work_id": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "members": [
+    {
+      "record_id": "CD-0002",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0003",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0005",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0006",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0007",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0008",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0009",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0010",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0011",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0012",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0013",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0014",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0015",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0016",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0017",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0018",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0019",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0020",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0021",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0022",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0023",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0024",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0025",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0026",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0027",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0028",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0029",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0030",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0031",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0033",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0034",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0035",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0036",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0037",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0038",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0039",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0040",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0041",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0042",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0043",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0044",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0045",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0046",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0047",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0048",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0049",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0050",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0051",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0052",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0053",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0054",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0055",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0056",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0057",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0058",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0059",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0060",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0061",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0062",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0063",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0064",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0065",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0066",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0067",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0068",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0069",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0070",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0071",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0072",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0073",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0074",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0075",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0076",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0077",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0078",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0079",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0080",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0081",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0082",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0083",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0084",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0085",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0086",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0087",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0088",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0089",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0090",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0091",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0092",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0093",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0094",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0095",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0096",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0097",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0098",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0102",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0103",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0104",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0105",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0106",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0108",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0109",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0110",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0111",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0112",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0113",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0114",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0115",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0116",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0117",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0118",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0119",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0120",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0121",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0122",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0124",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0128",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0129",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0130",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0132",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0133",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0134",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0137",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0138",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0139",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0140",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0142",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0143",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0144",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0145",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0146",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0147",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0148",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0149",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0150",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0151",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0152",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0153",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0154",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0155",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0156",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0157",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0158",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0159",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0160",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0161",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0162",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0163",
+      "kind": "decision"
+    },
+    {
+      "record_id": "CD-0164",
+      "kind": "decision"
+    },
+    {
+      "record_id": "knowledge-formalization-procedure",
+      "kind": "constitution"
+    },
+    {
+      "record_id": "priorities",
+      "kind": "constitution"
+    },
+    {
+      "record_id": "provenance",
+      "kind": "constitution"
+    }
+  ]
+}

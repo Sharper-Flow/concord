@@ -3867,6 +3867,234 @@
         }
       }
     },
+    "continuity_projection_page": {
+      "description": "CD-0016 as amended: the closed lossless transport for one oversized continuity projection. The identity header repeats exact scalar work, step, instance, and watermark identities only. One page never carries complete authority: a consumer joins every page of one projection digest before it uses the projection, and reconstruction precedes use.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "workflow_instance",
+        "workflow_step",
+        "watermark",
+        "projection_page",
+        "next_kind"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_version": {
+          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "workflow_instance": {
+          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
+          "type": "string",
+          "enum": [
+            "present",
+            "absent"
+          ]
+        },
+        "workflow_step": {
+          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "watermark": {
+          "description": "The exact source watermark of the captured projection.",
+          "$ref": "#/$defs/id"
+        },
+        "projection_page": {
+          "description": "The exact byte page of one canonical continuity JSON document. encoding is fixed; digest is the SHA-256 of the complete canonical document; total_bytes is the document's exact UTF-8 byte length; offset is this fragment's starting byte; data carries the exact UTF-8 fragment text. data is not independently parseable JSON and is not a summary: a fragment cannot carry complete authority. Concatenate the decoded fragment strings by byte offset, check total length and digest, then parse the reconstructed document exactly once; reconstruction precedes use, and no consumer inspects partial contract, question, intent, or context data.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "digest",
+            "total_bytes",
+            "offset",
+            "data",
+            "document_complete"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "json-utf8"
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "total_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "data": {
+              "description": "The exact UTF-8 fragment text of the canonical document at offset. Each page carries at least one whole code point and fills the real remaining envelope capacity; no fixed fragment cap bounds it.",
+              "type": "string",
+              "minLength": 1
+            },
+            "document_complete": {
+              "type": "boolean"
+            }
+          }
+        },
+        "next_kind": {
+          "description": "The continuation the authenticated envelope next_cursor resumes: \"projection\" continues this document's next page, \"boundaries\" resumes the original boundary-page continuation, null ends the read.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "projection",
+            "boundaries",
+            null
+          ]
+        }
+      }
+    },
+    "continuity_read_result": {
+      "description": "The concord_work_trace.continuity result: the complete typed inline snapshot when the measured final envelope fits the unchanged 51,200-byte limit, or the closed lossless projection-page transport when the fixed projection does not fit. The root property list only names the keys the two closed branches own; each branch carries the full constraints and exactly one branch must match. A page cannot carry complete authority; a consumer joins the page sequence and reconstructs the document before use.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_id": {},
+        "pinned": {},
+        "boundaries": {},
+        "typed_availability": {},
+        "observations": {},
+        "observations_total": {},
+        "observations_read": {},
+        "pending_messages": {},
+        "work_version": {},
+        "workflow_instance": {},
+        "workflow_step": {},
+        "watermark": {},
+        "projection_page": {},
+        "next_kind": {}
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/continuity_snapshot"
+        },
+        {
+          "$ref": "#/$defs/continuity_projection_page"
+        }
+      ]
+    },
+    "continuity_boot_projection_reference": {
+      "description": "CD-0090 D6: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state or a different session's held leases than this captured snapshot.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "workflow_instance",
+        "workflow_step",
+        "watermark",
+        "digest",
+        "total_bytes",
+        "projection_omitted",
+        "read_pointer"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_version": {
+          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "workflow_instance": {
+          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
+          "type": "string",
+          "enum": [
+            "present",
+            "absent"
+          ]
+        },
+        "workflow_step": {
+          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "watermark": {
+          "description": "The exact source watermark of the captured projection.",
+          "$ref": "#/$defs/id"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "projection_omitted": {
+          "description": "Exact omitted-projection status: the boot packet carries no projection body and no fragment, and claims no complete contract, question, intent set, or evidence.",
+          "const": true
+        },
+        "read_pointer": {
+          "description": "The canonical initial concord_work_trace.continuity read that starts a separate authenticated projection stream for this projection. The captured boot digest describes the boot snapshot; it is not a promise that later read bytes match.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "continuity"
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "work_id",
+                "page"
+              ],
+              "properties": {
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "page": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "cursor",
+                    "limit"
+                  ],
+                  "properties": {
+                    "cursor": {
+                      "description": "The initial null cursor.",
+                      "const": null
+                    },
+                    "limit": {
+                      "description": "The continuity read's default boundary window.",
+                      "const": 20
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "work_trace_relations_input": {
       "type": "object",
       "additionalProperties": false,
@@ -8909,7 +9137,15 @@
           "$ref": "#/$defs/id"
         },
         "continuity": {
-          "$ref": "#/$defs/continuity_snapshot"
+          "description": "The boot continuity: the complete typed inline snapshot when the measured boot packet fits its unchanged 65,536-byte cap, or the closed projection reference when the projection is oversized. The reference omits the projection body and names the canonical read that reconstructs it; reconstruction precedes use.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_snapshot"
+            },
+            {
+              "$ref": "#/$defs/continuity_boot_projection_reference"
+            }
+          ]
         }
       }
     },

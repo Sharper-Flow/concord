@@ -318,7 +318,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "read_pointer": {
           "additionalProperties": false,
-          "description": "The canonical initial concord_work_trace.continuity read that starts the authenticated page stream for this projection.",
+          "description": "The canonical initial concord_work_trace.continuity read that starts a separate authenticated projection stream for this projection. The captured boot digest describes the boot snapshot; it is not a promise that later read bytes match.",
           "properties": {
             "input": {
               "additionalProperties": false,
@@ -332,7 +332,7 @@ const GeneratedPayloadSchemaDocument = `{
                     },
                     "limit": {
                       "const": 20,
-                      "description": "The boot snapshot's initial boundary window."
+                      "description": "The continuity read's default boundary window."
                     }
                   },
                   "required": [

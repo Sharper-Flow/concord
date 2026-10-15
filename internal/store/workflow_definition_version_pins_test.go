@@ -96,6 +96,13 @@ import (
 // policy table stays byte-identical, so every released version above keeps
 // its digest. workflowFailureAttributionActive gates the semantics the
 // parent wiring consumes.
+// The research-context heads: implementation 32,
+// break_fix 29, and research 19 append the optional research_finding_refs
+// action input to record_work_context and anchor dispatch_worker's packet at
+// the frozen worker_packet3 closure. The restated fields are the promoted
+// definitions' own registry content, so every earlier version keeps the
+// payload and digest it shipped, and the shared policy table stays
+// byte-identical.
 // The complete-step correction trigger ships in the same tables (CD-0172
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
@@ -244,6 +251,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "31"}:     "sha256:078cfe1c25c21e9ab56ae9d92502294e0d5a03ed2fcfb42b3ad80919a9062936",
 	{"workflow.break_fix", "28"}:          "sha256:f4d330316fe7ed2a4f9cfd9c9632e84319a266144178cd9fe7f22afce50f984b",
 	{"workflow.research", "18"}:           "sha256:f9922e4c9a689fc952a4ffa27a5bcde4cf181ebc75512db0a201dc1705a1fec7",
+	{"workflow.implementation", "32"}:     "sha256:96e8b3f6bb0f5e157132512f476354e30f59e981e6b183135b3a371aa52831ff",
+	{"workflow.break_fix", "29"}:          "sha256:48671ba822356e8d97ecdb1025252621ce23fe5dd5faf441f451531873c5fec3",
+	{"workflow.research", "19"}:           "sha256:35209c6f6d321a3c663a265be940ef52e9911e9d9c195e4b1851aa81d89e2ec5",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -255,9 +265,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		implementationFailureAttributionV31(),
-		breakFixFailureAttributionV28(),
-		researchFailureAttributionV18(),
+		implementationResearchContextV32(),
+		breakFixResearchContextV29(),
+		researchResearchContextV19(),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -430,10 +440,10 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          28,
-		"workflow.implementation":     31,
+		"workflow.break_fix":          29,
+		"workflow.implementation":     32,
 		"workflow.generic_one_off":    16,
-		"workflow.research":           18,
+		"workflow.research":           19,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,

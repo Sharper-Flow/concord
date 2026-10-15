@@ -353,10 +353,86 @@ export interface NativeOracleTargetPreparation extends NativeOraclePreparationCo
 
 export type NativeOraclePreparation = NativeOracleGoPreparation | NativeOracleTargetPreparation
 
+// The selected research mirror mirrors $defs/lane_work_context_research_* of
+// contracts/agent-lane-packet.schema.json: the closed selection tuple, the
+// native finding with its always-serialized applicability scopes, the linked
+// source descriptor, and the resolved/unresolved entry branches. Exactly the
+// resolved state carries the native finding and its linked sources; every
+// other state carries the selection and provenance only. The closed packet
+// schema owns the bounds; the builder never re-derives or filters the
+// entries, because the core refuses a dispatch whose bytes differ from the
+// current view.
+export interface AgentLanePacketWorkContextResearchSelection {
+  pack_id: string
+  revision: number
+  finding_id: string
+  domain_id: string
+  product_wide_rationale?: string
+}
+
+export interface AgentLanePacketWorkContextResearchScopes {
+  mode: "home" | "explicit"
+  product_ids?: string[]
+  project_ids?: string[]
+  domain_ids?: string[]
+  tag_ids?: string[]
+}
+
+export interface AgentLanePacketWorkContextResearchFinding {
+  pack_id: string
+  revision: number
+  finding_id: string
+  kind: "observation" | "inference" | "hypothesis" | "conclusion" | "recommendation"
+  statement: string
+  confidence: "low" | "medium" | "high"
+  freshness: "current" | "stale" | "unknown"
+  status: "active" | "contradicted" | "superseded"
+  source_ids?: string[]
+  scopes: AgentLanePacketWorkContextResearchScopes
+}
+
+export interface AgentLanePacketWorkContextResearchSource {
+  pack_id: string
+  revision: number
+  source_id: string
+  kind: "official_doc" | "source_code" | "issue" | "paper" | "web" | "local_evidence"
+  locator: string
+  title: string
+  publisher_or_author: string
+  published_at?: string
+  accessed_at: string
+}
+
+interface AgentLanePacketWorkContextResearchEntry {
+  selection: AgentLanePacketWorkContextResearchSelection
+  view_id: string
+  selection_event_id: string
+  selection_event_seq: number
+  ordinal: number
+  required: boolean
+}
+
+export interface AgentLanePacketWorkContextResearchEntryResolved extends AgentLanePacketWorkContextResearchEntry {
+  state: "resolved"
+  finding: AgentLanePacketWorkContextResearchFinding
+  sources: AgentLanePacketWorkContextResearchSource[]
+}
+
+export interface AgentLanePacketWorkContextResearchEntryUnresolved extends AgentLanePacketWorkContextResearchEntry {
+  state: "missing" | "stale" | "rebound" | "inactive"
+}
+
+export type AgentLanePacketWorkContextResearchFindingView =
+  | AgentLanePacketWorkContextResearchEntryResolved
+  | AgentLanePacketWorkContextResearchEntryUnresolved
+
 export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
   findings: AgentLanePacketWorkContextFindingView[]
+  // The selected research entries the latest declaration anchor resolved, in
+  // authored order; omitted when the declaration selects nothing.
+  research_findings?: AgentLanePacketWorkContextResearchFindingView[]
   domain_groups: {
     domain_id: string
     required_reading_ordinals: number[]

@@ -109,6 +109,7 @@ type workflowContractApprovedPayload struct {
 	LawModifies         []string                           `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
+	DesignBinding       *workflowDesignBinding             `json:"design_binding,omitempty"`
 	SelfRepair          *WorkflowSelfRepair                `json:"self_repair,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
@@ -1069,6 +1070,9 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	// written.
 	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
 	if err != nil {
+		return err
+	}
+	if err := validateWorkflowContractDesignBindingTx(ctx, tx, event, registered.Definition, p, contractFields["design_binding"]); err != nil {
 		return err
 	}
 	for _, entry := range p.OutcomePredicates {
@@ -3716,6 +3720,21 @@ func upcastWorkflowContractApprovedV3(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 4
+	return event, nil
+}
+
+func upcastWorkflowContractApprovedV4(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v4 payload is not a JSON object", false, "repair the stored workflow contract")
+	}
+	// The binding member is outside every historical closed shape: the
+	// upcast refuses it, null included, so no stored approval can acquire a
+	// binding on replay, and every older version chains through this step.
+	if _, present := fields["design_binding"]; present {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v4 cannot carry design_binding", false, "record the binding-bearing approval at payload version 5")
+	}
+	event.PayloadVersion = 5
 	return event, nil
 }
 

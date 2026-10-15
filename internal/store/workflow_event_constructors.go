@@ -289,8 +289,28 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
+	// The pinned closed declaration is the only capability source: a pin
+	// that declares design_binding binds the current canonical complete
+	// design identity and emits the binding-bearing payload; every other
+	// pin keeps the released approval shape and emits no binding.
+	payloadVersion := 4
+	if workflowApproveContractDeclaresDesignBinding(definition) {
+		binding, bindingParseErr := parseWorkflowDesignBinding(workflowFieldRaw(fields, "design_binding"), "workflow_action")
+		if bindingParseErr != nil {
+			return nil, bindingParseErr
+		}
+		current, currentErr := workflowCurrentDesignBindingTx(ctx, tx, request.WorkID, "workflow_action")
+		if currentErr != nil {
+			return nil, currentErr
+		}
+		if err := workflowCompareDesignBinding(binding, current, "workflow_action"); err != nil {
+			return nil, err
+		}
+		contract["design_binding"] = binding
+		payloadVersion = 5
+	}
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = 4
+	approvalEvent.PayloadVersion = payloadVersion
 	return []Event{approvalEvent}, nil
 }
 

@@ -12,7 +12,7 @@ import (
 func lawTestRecord(id, kind, status, path string, relations ...KnowledgeRelation) KnowledgeRecord {
 	authority := KnowledgeAuthority{Tier: "derived"}
 	if kind == "constitution" || kind == "decision" {
-		authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+		authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
 	}
 	return KnowledgeRecord{
 		ID: id, Kind: kind, Path: path, Status: status, Date: "2026-08-11T00:00:00Z",

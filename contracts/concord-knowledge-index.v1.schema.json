@@ -99,7 +99,9 @@
           ]
         },
         "legislated_by": {
-          "$ref": "#/$defs/id"
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^work-[0-9a-f]{8,64}$"
         },
         "contract_version": {
           "type": "integer",

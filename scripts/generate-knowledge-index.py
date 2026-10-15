@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import knowledge_authority_defaults  # noqa: E402
 import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -411,12 +412,32 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
 AUTHORITY_TIERS = {"legislated", "derived"}
 AUTHORITY_FIELDS = {"tier", "legislated_by", "contract_version"}
 
+# The committed cohort asset is loaded once per process. A load
+# failure is reported per validated record rather than silently dropping the
+# vehicle-membership rule; the reference grammar still applies either way.
+_AUTHORITY_DEFAULTS: knowledge_authority_defaults.AuthorityDefaults | None = None
+_AUTHORITY_DEFAULTS_ERROR: str | None = None
+
+
+def _authority_defaults() -> tuple[knowledge_authority_defaults.AuthorityDefaults | None, str | None]:
+    global _AUTHORITY_DEFAULTS, _AUTHORITY_DEFAULTS_ERROR
+    if _AUTHORITY_DEFAULTS is None and _AUTHORITY_DEFAULTS_ERROR is None:
+        try:
+            _AUTHORITY_DEFAULTS = knowledge_authority_defaults.load()
+        except knowledge_authority_defaults.AuthorityDefaultsError as exc:
+            _AUTHORITY_DEFAULTS_ERROR = str(exc)
+    return _AUTHORITY_DEFAULTS, _AUTHORITY_DEFAULTS_ERROR
+
 
 def validate_authority(record: dict[str, object], prefix: str, findings: list[str]) -> None:
     """CD-0159 D3: a record carries its standing beside its lifecycle.
 
     The same rule check-knowledge-index.py enforces over the composed
     manifest, applied where the shards are validated before composition.
+    A declared reference must name a work item, and a vehicle claim
+    must name a frozen member of the committed legislated-by-default cohort
+    at its exact version; any other work-shaped reference waits for the
+    runtime resolver.
     """
     authority = record["authority"]
     if not isinstance(authority, dict) or set(authority) - AUTHORITY_FIELDS or authority.get("tier") not in AUTHORITY_TIERS:
@@ -424,8 +445,19 @@ def validate_authority(record: dict[str, object], prefix: str, findings: list[st
         return
     if authority["tier"] == "legislated":
         version = authority.get("contract_version")
-        if not clean_text(authority.get("legislated_by"), 256) or not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        by = authority.get("legislated_by")
+        if not clean_text(by, 256) or not isinstance(version, int) or isinstance(version, bool) or version < 1:
             findings.append(f"{prefix}: a legislated record requires clean legislated_by and a positive contract_version")
+        elif not knowledge_authority_defaults.WORK_ID_PATTERN.fullmatch(by):
+            findings.append(f"{prefix}: legislated_by must be a work- prefixed id of 8-64 hex characters")
+        else:
+            defaults, error = _authority_defaults()
+            if error is not None:
+                findings.append(f"{prefix}: knowledge authority defaults: {error}")
+            elif by == defaults.vehicle_work_id:
+                membership = defaults.vehicle_membership_error(record.get("id"), record.get("kind"), version)
+                if membership:
+                    findings.append(f"{prefix}: {membership}")
     elif "legislated_by" in authority or "contract_version" in authority:
         findings.append(f"{prefix}: a derived record carries no legislative fields")
 

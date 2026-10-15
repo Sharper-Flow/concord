@@ -13,11 +13,8 @@ import (
 
 // Every ok envelope is validated in MarshalJSON, and only there. The
 // in-process dispatch helpers return the struct and never marshal it, so a
-// read can pass every test and fail on every real call. Two did: the
-// knowledge resolution read emitted a notice kind built from a 40-hex commit and
-// realistic home identifiers, 92 bytes against a 64-byte bound, and the
-// Domain reads carried a fabricated zero freshness. This test dispatches
-// each read against a real fixture and marshals what it would send.
+// read can pass struct-level tests while its wire answer fails validation.
+// Each read dispatches against a real fixture and marshals its wire answer.
 func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -38,6 +35,11 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 		}
 		if _, err := json.Marshal(resp); err != nil {
 			t.Fatalf("%s.%s does not marshal: %v", tc.tool, tc.op, err)
+		}
+		if tc.op == "resolve_note" {
+			assertKnowledgeNotice(t, resp.Warnings, "legislated_authority_unverified", map[string]any{
+				"law_id": "knowledge-decision", "work_id": demandHomeWork, "contract_version": int64(1),
+			})
 		}
 		for _, notice := range append(resp.Omissions, resp.Warnings...) {
 			if len(notice.Kind) > 64 {

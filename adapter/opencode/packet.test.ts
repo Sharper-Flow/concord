@@ -2,7 +2,7 @@ import { test, expect, mock } from "bun:test"
 import { createHash } from "node:crypto"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -371,12 +371,12 @@ test("a work context projects verbatim into the packet", async () => {
   expect(validateAgentLanePacket(packet)).toBe(true)
 })
 
-// CON-911: the selected research entries ride the same verbatim copy. The
-// adapter copies the work pin's view; no parallel research fetch, special
-// packet input, or adapter selection policy exists, and the generated packet
-// schema admits the research member and the research view ids in the group
-// id namespace.
-const RESEARCH_FINDING = {
+// The selected research entries ride the same verbatim copy. The adapter
+// copies the work pin's view; no parallel research fetch, special packet
+// input, or adapter selection policy exists, and the generated packet schema
+// admits the research member and the research view ids in the group id
+// namespace.
+const RESEARCH_FINDING: AgentLanePacketWorkContextResearchEntryResolved = {
   selection: { pack_id: "pack-packet-copy", revision: 1, finding_id: "f-packet-copy", domain_id: "child-alpha" },
   view_id: "research:19:0",
   selection_event_id: "record_work_context-work-335-11:semantic",
@@ -426,28 +426,29 @@ test("selected research projects verbatim into the packet through the work pin c
   expect(built.failure).toBeUndefined()
   const packet = built.packet!
   expect(packet.inputs.work_context).toEqual(RESEARCH_CONTEXT)
-  expect((packet.inputs.work_context as Record<string, unknown>).research_findings).toEqual([RESEARCH_FINDING])
+  expect(packet.inputs.work_context!.research_findings).toEqual([RESEARCH_FINDING])
   expect(validateAgentLanePacket(packet)).toBe(true)
 })
 
 test("closed research entry branches decide the packet verdict", async () => {
   const built = await build(defaultScript())
   const base = built.packet!
-  const withResearch = (entry: unknown) =>
-    validateAgentLanePacket({ ...base, inputs: { ...base.inputs, work_context: { ...RESEARCH_CONTEXT, research_findings: [entry] } } as any })
+  const withResearch = (entry: AgentLanePacketWorkContextResearchFindingView) =>
+    validateAgentLanePacket({ ...base, inputs: { ...base.inputs, work_context: { ...RESEARCH_CONTEXT, research_findings: [entry] } } })
   // A typed unresolved entry carries references and provenance only; the
   // resolved entry carries the native finding and its linked sources; a
   // resolved-state entry without its body refuses, and an unresolved-state
   // entry carrying a body refuses. The body members are omitted from the
   // object, not set to undefined: absent and undefined are the same absence
-  // on the wire.
+  // on the wire. The two refusing packets are deliberately invalid, so only
+  // they carry the test-only cast past the mirror's closed branches.
   const { finding: _finding, sources: _sources, ...provenanceOnly } = RESEARCH_FINDING
-  const unresolved = { ...provenanceOnly, state: "missing" }
-  const withoutBody = { ...provenanceOnly }
+  const unresolved: AgentLanePacketWorkContextResearchEntryUnresolved = { ...provenanceOnly, state: "missing" }
+  const withoutBody = { ...provenanceOnly } as any
   expect(withResearch(unresolved)).toBe(true)
   expect(withResearch(RESEARCH_FINDING)).toBe(true)
   expect(withResearch(withoutBody)).toBe(false)
-  expect(withResearch({ ...unresolved, finding: RESEARCH_FINDING.finding, sources: RESEARCH_FINDING.sources })).toBe(false)
+  expect(withResearch({ ...unresolved, finding: RESEARCH_FINDING.finding, sources: RESEARCH_FINDING.sources } as any)).toBe(false)
 })
 
 test("a card-bearing work context refuses the current card-free packet", async () => {
@@ -1517,7 +1518,7 @@ const PAGED_CONTEXT_FINDING = {
 }
 const PAGED_WORK_CONTEXT = {
   ...WORK_CONTEXT,
-  // CON-911: the paged projection carries the selected research bytes too,
+  // The paged projection carries the selected research bytes too,
   // so the paged-join assertions prove the research entry and its group view
   // id survive reconstruction verbatim.
   research_findings: [

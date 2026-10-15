@@ -2514,7 +2514,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		nextStep = workflowNextStep(entry.Definition, currentStep)
 		if p.ActionID == "confirm_premise" {
 			var nextErr error
-			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID)
+			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID, event.Seq)
 			if nextErr != nil {
 				return nextErr
 			}
@@ -3210,7 +3210,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 	return ""
 }
 
-func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string) (string, error) {
+func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, beforeSeq int64) (string, error) {
 	step := workflowStep(definition, current)
 	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
 		return workflowNextStep(definition, current), nil
@@ -3236,7 +3236,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if err != nil {
 		return "", err
 	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, tx, workID, contract.Version, beforeSeq)
 	if err != nil {
 		return "", err
 	}

@@ -2,9 +2,10 @@ import { afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { bindCiWatchClient, ciWatchSettled, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, type VerbSpawner } from "./ci-watch"
+import { bindCiWatchClient, ciWatchSettled, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, validateCiWatchArgs, type CiWatchArgs, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import ConcordAdapterPlugin from "./concord-plugin"
+import { hostToolSchemas } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { hostControlPlane } from "./move-session"
 
@@ -269,6 +270,100 @@ test("malformed arguments are refused before a verb child spawns", async () => {
     const refused = result(await concord_ci_watch.execute(args, context))
     expect(refused.status).toBe("refused")
   }
+})
+
+// The CI watch contract lives in the host tool catalog, so the runtime
+// validator and the published contract must share one set of bounds. The
+// validator reads its limits and keys from that owning schema; this test
+// pins the agreement so neither side can drift.
+test("watcher contract preserves shared runtime bounds", () => {
+  const contract = hostToolSchemas.concord_ci_watch as Record<string, any>
+  expect(contract).toBeObject()
+  expect(contract.type).toBe("object")
+  expect(contract.additionalProperties).toBe(false)
+  expect(contract.required).toEqual(["repo", "selector"])
+  expect(Object.keys(contract.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(contract.properties.repo).toMatchObject({
+    type: "string",
+    minLength: 3,
+    maxLength: 256,
+    pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
+  })
+  expect(contract.properties.selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
+  expect(contract.properties.selector.properties.kind).toMatchObject({ type: "string", enum: ["pr", "sha", "run"] })
+  expect(contract.properties.selector.properties.value).toMatchObject({ type: "string", minLength: 1, maxLength: 64 })
+  expect(contract.properties.mode).toMatchObject({ type: "string", enum: ["checks", "merge"] })
+  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 1800 })
+  // The execution validator enforces the published enums at runtime, not
+  // only in the schema document.
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "branch", value: "main" } })).toBeString()
+  expect(validateCiWatchArgs({ ...watchArgs, mode: "poll" })).toBeString()
+  // The execution validator enforces the published integer time-budget
+  // boundaries: exactly 0..1800 after the numeric normalization.
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: 0 })).toBeObject()
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: 1800 })).toBeObject()
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: "900" })).toBeObject()
+  for (const budget of [-1, 1801, 1.5, "abc", "18.5"]) {
+    expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: budget }), String(budget)).toBeString()
+  }
+  // Only repo and selector are required, on the schema and at execution.
+  expect(validateCiWatchArgs({ repo: "owner/name" })).toBeString()
+  expect(validateCiWatchArgs({ selector: { kind: "pr", value: "12" } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr" } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { value: "12" } })).toBeString()
+})
+
+test("the published repo bound of 256 characters is enforced at execution", () => {
+  const repo256 = `${"a".repeat(127)}/${"b".repeat(128)}`
+  const repo257 = `${"a".repeat(128)}/${"b".repeat(128)}`
+  expect(repo256.length).toBe(256)
+  expect(repo257.length).toBe(257)
+  expect(validateCiWatchArgs({ repo: repo256, selector: { kind: "pr", value: "12" } })).toBeObject()
+  expect(validateCiWatchArgs({ repo: repo257, selector: { kind: "pr", value: "12" } })).toBeString()
+})
+
+test("the published selector value bound of 64 characters is enforced at execution", () => {
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "run", value: "1".repeat(64) } })).toBeObject()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "run", value: "1".repeat(65) } })).toBeString()
+})
+
+test("arguments carrying unexpected top-level keys are refused", () => {
+  const refused = validateCiWatchArgs({ ...watchArgs, unexpected: true })
+  expect(refused).toBeString()
+  expect(String(refused)).toContain("unexpected")
+})
+
+test("selectors carrying unexpected keys are refused", () => {
+  const refused = validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr", value: "12", extra: "x" } })
+  expect(refused).toBeString()
+  expect(String(refused)).toContain("selector")
+})
+
+test("supported argument normalizations hold under the published contract", async () => {
+  // The Code Mode request wrapper unwraps before validation.
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const wrapped = result(await concord_ci_watch.execute({ request: { ...watchArgs } }, context))
+  expect(wrapped.status).toBe("started")
+  await ciWatchSettled(String(wrapped.watch_id))
+  // The numeric budget normalization accepts a digit string.
+  const normalized = validateCiWatchArgs({ ...watchArgs, time_seconds_max: "600" })
+  expect(normalized).toBeObject()
+  expect((normalized as CiWatchArgs).time_seconds_max).toBe(600)
+  // The closed-key check runs after the normalizations, so a key that
+  // survives them is still refused.
+  const unknownAfterNormalize = validateCiWatchArgs({ ...watchArgs, time_seconds_max: "600", unexpected: true })
+  expect(unknownAfterNormalize).toBeString()
+  expect(String(unknownAfterNormalize)).toContain("unexpected")
+  // The per-kind semantic checks are runtime-only: the contract bounds a
+  // selector value's length, never its shape.
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "sha", value: "z".repeat(40) } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr", value: "1x" } })).toBeString()
 })
 
 test("the watch returns at once, carries one state file across slices, and prompts only after the terminal slice", async () => {

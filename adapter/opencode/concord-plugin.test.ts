@@ -60,10 +60,21 @@ test("ci watch publishes only repo and selector as required through the host def
   const hook = Reflect.get(plugin, "tool.definition")
   if (typeof hook === "function") await hook({ toolID: "concord_ci_watch" }, output)
   const published = JSON.parse(JSON.stringify(output.jsonSchema))
+  expect(published).toEqual(hostToolSchemas.concord_ci_watch)
   expect(published.required).toEqual(["repo", "selector"])
   expect(published.additionalProperties).toBe(false)
   expect(Object.keys(published.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
   expect(output.description).toBe(plugin.tool.concord_ci_watch.description)
+})
+
+test("the plugin registration set equals the complete host tool catalog", async () => {
+  // Every registered tool must be a catalog member, so the generated lane
+  // and utility denials derived from the catalog can never miss a new
+  // registration.
+  const plugin = await ConcordAdapterPlugin()
+  const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
+  expect(catalog.length).toBe(11)
+  expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 
 // The text-part channel. The work-state reporter queues operator-facing

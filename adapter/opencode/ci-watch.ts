@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto"
 import fs from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
+import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { concordBinaryPath } from "./dispatch"
 import { hostControlPlane, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type PluginClientHost, type RouteResult } from "./move-session"
 
@@ -232,42 +233,19 @@ function sleep(ms: number): Promise<void> {
 
 // --- Tool surface ---
 
-const CI_WATCH_DESCRIPTION =
-  "Start watching GitHub CI and return at once: the concord ci-wait verb runs as a plugin-owned child with zero model " +
-  "turns, and this session receives the terminal JSON report as a message when the wait ends. Pass repo (owner/name), " +
-  "one selector (kind pr, sha, or run with its value), and optionally mode (checks or merge) and time_seconds_max."
+// The watcher's description and parameter schema are authored in the host
+// tool catalog (contracts/host-tool-surface.v1.json) and projected into the
+// generated contracts beside work start, so the published document and the
+// runtime bounds have exactly one source. The per-kind semantic checks stay
+// in this module: the contract bounds a selector value's length, never its
+// shape.
+const ciWatchContract = hostToolSchemas.concord_ci_watch
 
-// OpenCode treats each key of a tool's args record as one argument field and
-// publishes it as a property of the tool's object schema. A root JSON Schema
-// here would publish its own keywords as argument fields instead, so each
-// entry below is one field's schema and the closed validation in
-// validateCiWatchArgs stays the boundary.
-const ciWatchArgsSchema = {
-  repo: {
-    type: "string",
-    description: "GitHub repository as owner/name.",
-    pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
-    minLength: 3,
-    maxLength: 256,
-  },
-  selector: {
-    type: "object",
-    description: "One CI selector: kind pr, sha, or run, with its value.",
-    additionalProperties: false,
-    required: ["kind", "value"],
-    properties: {
-      kind: { type: "string", enum: ["pr", "sha", "run"] },
-      value: { type: "string", minLength: 1, maxLength: 64 },
-    },
-  },
-  mode: { type: "string", description: "Wait mode: checks (default) or merge.", enum: ["checks", "merge"] },
-  time_seconds_max: {
-    type: "integer",
-    description: "Maximum wait budget in seconds; the default is 1800.",
-    minimum: 0,
-    maximum: 1800,
-  },
-} as const
+const ciWatchRepoSchema = ciWatchContract.properties.repo
+const ciWatchSelectorSchema = ciWatchContract.properties.selector
+const ciWatchModeSchema = ciWatchContract.properties.mode
+const ciWatchBudgetSchema = ciWatchContract.properties.time_seconds_max
+const repoPattern = new RegExp(ciWatchRepoSchema.pattern)
 
 const CI_WATCH_BOUNDARY =
   "Concord worker lanes hold no Concord tool access; the CI watcher is a coordinator surface"
@@ -286,7 +264,7 @@ function unwrapArgs(args: unknown): unknown {
   return args
 }
 
-function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
+export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   if (args === null || typeof args !== "object" || Array.isArray(args)) return "the request body must be a JSON object"
   const record = { ...(args as Record<string, unknown>) }
   // The Code Mode bridge can deliver a nested argument as its serialized JSON
@@ -307,31 +285,56 @@ function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   if (typeof record.time_seconds_max === "string" && /^[0-9]+$/.test(record.time_seconds_max)) {
     record.time_seconds_max = Number(record.time_seconds_max)
   }
-  if (typeof record.repo !== "string" || !/^[A-Za-z0-9][A-Za-z0-9.-]*\/[A-Za-z0-9][A-Za-z0-9.-]*$/.test(record.repo)) {
+  // The published argument surface is closed: the contract's properties are
+  // the only top-level fields, enforced after the normalizations above.
+  const allowedKeys = Object.keys(ciWatchContract.properties)
+  const unexpectedKeys = Object.keys(record).filter((key) => !allowedKeys.includes(key))
+  if (unexpectedKeys.length > 0) {
+    return `unexpected argument(s) ${unexpectedKeys.map((key) => JSON.stringify(key)).join(", ")}; the request admits only ${allowedKeys.join(", ")}`
+  }
+  if (typeof record.repo !== "string" || !repoPattern.test(record.repo)) {
     return "repo is required as owner/name"
+  }
+  if (record.repo.length < ciWatchRepoSchema.minLength || record.repo.length > ciWatchRepoSchema.maxLength) {
+    return `repo must be ${ciWatchRepoSchema.minLength} to ${ciWatchRepoSchema.maxLength} characters`
   }
   const selector = record.selector
   if (selector === null || typeof selector !== "object" || Array.isArray(selector)) {
     return "selector is required with kind pr, sha, or run and its value"
   }
   const { kind, value } = selector as Record<string, unknown>
-  if (kind !== "pr" && kind !== "sha" && kind !== "run") return "selector.kind must be one of pr, sha, or run"
-  if (typeof value !== "string" || value.length === 0) return "selector.value is required"
-  if (kind === "pr" && !/^[0-9]+$/.test(value)) return "a pr selector value must be a pull request number"
-  if (kind === "sha" && !/^[0-9a-f]{40}$/.test(value)) return "a sha selector value must be a 40-character commit SHA"
-  if (kind === "run" && !/^[0-9]+$/.test(value)) return "a run selector value must be a run id"
-  if (record.mode !== undefined && record.mode !== "checks" && record.mode !== "merge") {
-    return "mode must be checks or merge"
+  const allowedSelectorKeys = Object.keys(ciWatchSelectorSchema.properties)
+  const unexpectedSelectorKeys = Object.keys(selector as Record<string, unknown>).filter((key) => !allowedSelectorKeys.includes(key))
+  if (unexpectedSelectorKeys.length > 0) {
+    return `unexpected selector field(s) ${unexpectedSelectorKeys.map((key) => JSON.stringify(key)).join(", ")}; the selector admits only ${allowedSelectorKeys.join(", ")}`
+  }
+  // The matched literal is the generated enum's own member type, so the
+  // validated kind narrows structurally instead of through a cast.
+  const matchedKind = ciWatchSelectorSchema.properties.kind.enum.find((candidate) => candidate === kind)
+  if (matchedKind === undefined) {
+    return `selector.kind must be one of ${ciWatchSelectorSchema.properties.kind.enum.join(", ")}`
+  }
+  if (typeof value !== "string" || value.length < ciWatchSelectorSchema.properties.value.minLength) {
+    return "selector.value is required"
+  }
+  if (value.length > ciWatchSelectorSchema.properties.value.maxLength) {
+    return `selector.value must be at most ${ciWatchSelectorSchema.properties.value.maxLength} characters`
+  }
+  if (matchedKind === "pr" && !/^[0-9]+$/.test(value)) return "a pr selector value must be a pull request number"
+  if (matchedKind === "sha" && !/^[0-9a-f]{40}$/.test(value)) return "a sha selector value must be a 40-character commit SHA"
+  if (matchedKind === "run" && !/^[0-9]+$/.test(value)) return "a run selector value must be a run id"
+  if (record.mode !== undefined && !ciWatchModeSchema.enum.some((candidate) => candidate === record.mode)) {
+    return `mode must be ${ciWatchModeSchema.enum.join(" or ")}`
   }
   if (record.time_seconds_max !== undefined) {
     const budget = record.time_seconds_max
-    if (typeof budget !== "number" || !Number.isInteger(budget) || budget < 0 || budget > 1800) {
-      return "time_seconds_max must be an integer between 0 and 1800"
+    if (typeof budget !== "number" || !Number.isInteger(budget) || budget < ciWatchBudgetSchema.minimum || budget > ciWatchBudgetSchema.maximum) {
+      return `time_seconds_max must be an integer between ${ciWatchBudgetSchema.minimum} and ${ciWatchBudgetSchema.maximum}`
     }
   }
   return {
     repo: record.repo,
-    selector: { kind, value },
+    selector: { kind: matchedKind, value },
     ...(record.mode === undefined ? {} : { mode: record.mode as "checks" | "merge" }),
     ...(record.time_seconds_max === undefined ? {} : { time_seconds_max: record.time_seconds_max as number }),
   }
@@ -402,31 +405,26 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
 // export is not a tool shape.
 export function ciWatchTool(): {
   description: string
-  args: typeof ciWatchArgsSchema
+  args: typeof ciWatchContract.properties
   execute: (args: unknown, context: { sessionID: string; abort?: AbortSignal }) => Promise<{ title: string; output: string }>
 } {
   return {
-    description: CI_WATCH_DESCRIPTION,
-    args: ciWatchArgsSchema,
+    description: hostToolDescriptions.concord_ci_watch,
+    args: ciWatchContract.properties,
     execute: (args, context) => executeConcordCiWatch(args, context),
   }
 }
 
 // The host's per-field conversion marks every args entry required, but mode
-// and time_seconds_max are optional. The definition hook republishes the view
-// with only repo and selector required; validateCiWatchArgs stays the runtime
-// boundary.
+// and time_seconds_max are optional. The definition hook republishes the
+// contract's own document, which requires only repo and selector;
+// validateCiWatchArgs stays the runtime boundary.
 export async function publishCiWatchDefinition(
   input: { toolID: string },
   output: { description: string; parameters: unknown; jsonSchema?: unknown },
 ): Promise<void> {
   if (input.toolID !== "concord_ci_watch") return
-  output.jsonSchema = {
-    type: "object",
-    properties: JSON.parse(JSON.stringify(ciWatchArgsSchema)),
-    required: ["repo", "selector"],
-    additionalProperties: false,
-  }
+  output.jsonSchema = JSON.parse(JSON.stringify(ciWatchContract))
 }
 
 async function executeConcordCiWatch(

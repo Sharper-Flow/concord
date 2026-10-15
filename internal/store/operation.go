@@ -274,7 +274,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowContextBoundaryCrossed:            workflowRegistration[workflowContextBoundaryCrossedPayload](1, nil, foldWorkflowContextBoundaryCrossed),
 	WorkflowWorkContextRecorded:               workflowRegistration[workflowWorkContextRecordedPayload](1, nil, foldWorkflowWorkContextRecorded),
 	WorkflowProposalRecorded:                  workflowRegistration[workflowProposalRecordedPayload](1, nil, foldWorkflowProposalRecorded),
-	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, nil, foldWorkflowDesignRecorded),
+	WorkflowDesignRecorded:                    registerEventKind[workflowDesignRecordedPayload](2, 1, map[int]Upcaster{1: upcastWorkflowDesignRecordedV1}, EventAppendAuthorityWorkflow, foldWorkflowDesignRecorded, validateWorkflowDesignRecordedPayload),
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, nil, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),

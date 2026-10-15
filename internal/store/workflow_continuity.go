@@ -50,6 +50,14 @@ type WorkflowDesignRecord struct {
 	Decisions   []WorkflowDesignDecision `json:"decisions"`
 	TouchedRefs []string                 `json:"touched_refs"`
 	RecordedAt  string                   `json:"recorded_at"`
+	// Architecture, Revision, and Digest are present only on an
+	// architecture-bearing design. A legacy design omits all three members
+	// entirely, never projects empty values, and the revision derives
+	// monotonic per work while the digest covers the canonical design
+	// content without its timestamp or actor.
+	Architecture *WorkflowDesignArchitecture `json:"architecture,omitempty"`
+	Revision     *int64                      `json:"revision,omitempty"`
+	Digest       string                      `json:"digest,omitempty"`
 }
 
 type WorkflowProposalRecord struct {

@@ -1993,10 +1993,31 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := validateWorkflowDesignContentForReplay(p.workflowDesignContent); err != nil {
 		return err
 	}
+	// The architecture projection derives inside the fold from pure
+	// transaction state: membership from the work's projected Projects, the
+	// revision from the retained design rows, the digest from the content. A
+	// v1-sourced design inserts NULL in all three columns and projects as it
+	// always did; the registration validator admits an architecture-absent
+	// design only from that source.
+	var architectureValue, revisionValue, digestValue any
+	if p.Architecture != nil {
+		projects, err := workflowDesignMemberProjectsTx(ctx, tx, event.SubjectID)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkflowDesignArchitecture(*p.Architecture, func(project string) bool { return projects[project] }); err != nil {
+			return err
+		}
+		revision, digest, err := workflowDesignArchitectureProjectionTx(ctx, tx, event.SubjectID, p.workflowDesignContent)
+		if err != nil {
+			return err
+		}
+		architectureValue, revisionValue, digestValue = workflowJSON(p.Architecture), revision, digest
+	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,architecture,revision,digest,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), architectureValue, revisionValue, digestValue, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow design")
 }
 

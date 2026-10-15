@@ -881,6 +881,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "record_design":
 		return workflowDesignRecordEvents(definition, request, actor, raw, eventID, expected)
+	case "revise_design":
+		return workflowReviseDesignEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_proposal":
 		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":

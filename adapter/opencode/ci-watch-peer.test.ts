@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test"
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -44,6 +44,10 @@ function unknown(result: PeerRead, gap?: string) {
   expect(result.coverage).toBe("unknown")
   if (gap) expect(result.gaps).toContain(gap)
 }
+beforeEach(() => {
+  configureCiWatch({ reset: true })
+  delete globals[KEY]
+})
 afterEach(() => {
   configureCiWatch({ reset: true })
   configureCoreBinary(null)

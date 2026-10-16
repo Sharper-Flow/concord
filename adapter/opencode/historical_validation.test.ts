@@ -1,14 +1,11 @@
+// Imports must exist in the baseline pinned by scripts/test-workflow-history.py.
 import { afterAll, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCiWatch } from "./ci-watch"
 import { payloadSchemas } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
 
-afterAll(() => {
-  configureHostLease({ reset: true })
-  configureCiWatch({ reset: true })
-})
+afterAll(() => configureHostLease({ reset: true }))
 
 function repro(name: string, message: string): never {
   console.error(JSON.stringify({ historical_repro: name, message }))

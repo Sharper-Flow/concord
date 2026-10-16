@@ -966,6 +966,10 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 			advances = job == nil
 		}
 		if failure := workflowRejectionAdvanceFailure(true, "accept_worker_result", advances); failure != nil {
+			// The review refusal takes precedence when both obligations refuse.
+			if err := guardPostRejectionReviewGate(g); err != nil {
+				return err
+			}
 			return failure
 		}
 	}

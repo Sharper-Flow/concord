@@ -18,6 +18,21 @@ func sliceDiffFailure(detail, recovery string) error {
 	return newFailure(KindInvalidPayload, "worker_slice_diff", detail, false, recovery)
 }
 
+// sliceDiffReason classifies the measured slice's scope and budget refusals with errors.Is.
+type sliceDiffReason string
+
+const (
+	sliceDiffReasonScope  sliceDiffReason = "scope"
+	sliceDiffReasonBudget sliceDiffReason = "budget"
+)
+
+func (r sliceDiffReason) Error() string { return string(r) }
+
+// sliceDiffPolicyFailure returns the typed Failure carrying reason as its cause.
+func sliceDiffPolicyFailure(reason sliceDiffReason, detail, recovery string) error {
+	return wrapFailure(KindInvalidPayload, "worker_slice_diff", detail, false, recovery, reason)
+}
+
 const (
 	sliceDiffModeNull       = "000000"
 	sliceDiffModeRegular    = "100644"
@@ -122,7 +137,7 @@ func measureSliceDiff(in sliceDiffInput) (sliceDiffResult, error) {
 		result.Paths = append(result.Paths, counts)
 	}
 	if result.TotalLines > in.Limit {
-		return sliceDiffResult{}, sliceDiffFailure(fmt.Sprintf("slice measures %d changed lines above its declared limit %d", result.TotalLines, in.Limit), "declare a limit that covers the measured cost or reduce the diff")
+		return sliceDiffResult{}, sliceDiffPolicyFailure(sliceDiffReasonBudget, fmt.Sprintf("slice measures %d changed lines above its declared limit %d", result.TotalLines, in.Limit), "declare a limit that covers the measured cost or reduce the diff")
 	}
 	return result, nil
 }
@@ -148,14 +163,14 @@ func indexSliceDiffRoles(in sliceDiffInput) (map[string]string, error) {
 
 func measureSliceDiffPath(in sliceDiffInput, status string, record sliceNumstatRecord, roleByPath map[string]string, sliceFiles, unchanged map[string]bool, path string) (slicePathCounts, error) {
 	if !sliceFiles[path] {
-		return slicePathCounts{}, sliceDiffFailure(fmt.Sprintf("changed path %q is outside the slice's declared files", path), "measure the slice whose declared files cover every changed path")
+		return slicePathCounts{}, sliceDiffPolicyFailure(sliceDiffReasonScope, fmt.Sprintf("changed path %q is outside the slice's declared files", path), "measure the slice whose declared files cover every changed path")
 	}
 	if unchanged[path] {
-		return slicePathCounts{}, sliceDiffFailure(fmt.Sprintf("changed path %q is declared unchanged but the diff carries it", path), "remove the path from unchanged_files or correct the measured range")
+		return slicePathCounts{}, sliceDiffPolicyFailure(sliceDiffReasonScope, fmt.Sprintf("changed path %q is declared unchanged but the diff carries it", path), "remove the path from unchanged_files or correct the measured range")
 	}
 	role, ok := roleByPath[path]
 	if !ok {
-		return slicePathCounts{}, sliceDiffFailure(fmt.Sprintf("changed path %q carries no approved file-map role for project %q", path, in.ProjectID), "add the path to the approved file map with its role")
+		return slicePathCounts{}, sliceDiffPolicyFailure(sliceDiffReasonScope, fmt.Sprintf("changed path %q carries no approved file-map role for project %q", path, in.ProjectID), "add the path to the approved file map with its role")
 	}
 	counts := slicePathCounts{Path: path, Role: role, Additions: record.additions, Deletions: record.deletions}
 	if record.binary {

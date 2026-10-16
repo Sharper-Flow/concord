@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // integrationConflictStage is one native conflict record: the exact path
@@ -126,10 +127,27 @@ func parseIntegrationMergeTree(exitCode int, output []byte) (integrationMergeTre
 	return integrationMergeTreeResult{TreeOID: tree, Conflicted: exitCode == 1, Conflicts: records}, nil
 }
 
+const integrationConflictPathRecovery = "supply conflict paths exactly as merge-tree --write-tree -z writes them"
+
+// integrationConflictRecordPath applies the narrower automatic-record policy:
+// valid UTF-8 and POSIX containment. Glob spellings, control bytes, and tmp
+// segments stay, because the bytes are Git's own conflict record.
+func integrationConflictRecordPath(path string) error {
+	if !utf8.ValidString(path) {
+		return integrationMergeTreeFailure(fmt.Sprintf("merge-tree conflict path %q is not a valid UTF-8 path", path), integrationConflictPathRecovery)
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return integrationMergeTreeFailure(fmt.Sprintf("merge-tree conflict path %q is not a normalized relative path", path), integrationConflictPathRecovery)
+		}
+	}
+	return nil
+}
+
 // parseIntegrationConflictRecord validates one
 // "%06o <oid> <stage>\t<exact-path>" record: the exact single-space field
 // grammar, the closed mode and stage sets, a nonzero record OID sharing
-// the tree's hash width, and the exact path vocabulary.
+// the tree's hash width, and the automatic-record path policy.
 func parseIntegrationConflictRecord(token string, oidWidth int) (integrationConflictStage, error) {
 	header, path, ok := strings.Cut(token, "\t")
 	if !ok {
@@ -158,7 +176,7 @@ func parseIntegrationConflictRecord(token string, oidWidth int) (integrationConf
 	if err != nil {
 		return integrationConflictStage{}, err
 	}
-	if err := sliceDiffVocabulary(path); err != nil {
+	if err := integrationConflictRecordPath(path); err != nil {
 		return integrationConflictStage{}, err
 	}
 	return integrationConflictStage{Path: path, Mode: mode, OID: oid, Stage: stage}, nil

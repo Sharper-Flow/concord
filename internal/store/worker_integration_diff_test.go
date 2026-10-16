@@ -499,7 +499,7 @@ func TestIntegrationResolutionDiff(t *testing.T) {
 		})
 	})
 
-	t.Run("merge_tree applies the exact path vocabulary", func(t *testing.T) {
+	t.Run("merge_tree applies the automatic-record path policy", func(t *testing.T) {
 		oid := integrationRecordOIDFor(integrationTreeOID40)
 		output := func(path string) []byte {
 			return integrationMergeTreeOutput(integrationTreeOID40, integrationMergeTreeRecord("100644", oid, "1", path))
@@ -516,33 +516,26 @@ func TestIntegrationResolutionDiff(t *testing.T) {
 			assertIntegrationMergeTreeRefusal(t, got, err, "UTF-8")
 		})
 
-		t.Run("tab in a path refuses with the bytes intact", func(t *testing.T) {
+		t.Run("tab in a path stays exact", func(t *testing.T) {
+			// The automatic-record policy carries Git's own bytes: the tab
+			// survives inside the record without a split or normalization.
 			tabPath := "dir\tfile.go"
 			got, err := parseIntegrationMergeTree(1, output(tabPath))
-			assertIntegrationMergeTreeRefusal(t, got, err, "control")
-			// The refusal quotes the path with %q, so the escaped form proves
-			// the complete path survived parsing without a split at the
-			// control byte and without normalization into acceptance.
-			if !strings.Contains(err.Error(), fmt.Sprintf("%q", tabPath)) {
-				t.Fatalf("refusal %v does not carry the quoted full path %q; the parser split the path", err, fmt.Sprintf("%q", tabPath))
-			}
+			assertIntegrationMergeTreeValid(t, got, err, integrationTreeOID40, true, []integrationConflictStage{{Path: tabPath, Mode: "100644", OID: oid, Stage: 1}})
 		})
 
-		t.Run("newline in a path refuses with the bytes intact", func(t *testing.T) {
+		t.Run("newline in a path stays exact", func(t *testing.T) {
+			// NUL framing alone delimits records: the newline arrives inside
+			// the path token, never acting as a record or field separator.
 			newlinePath := "dir\nfile.go"
 			got, err := parseIntegrationMergeTree(1, output(newlinePath))
-			assertIntegrationMergeTreeRefusal(t, got, err, "control")
-			// NUL framing alone delimits records: the newline must arrive
-			// inside the path token and refuse as a control byte, never act
-			// as a record or field separator.
-			if !strings.Contains(err.Error(), fmt.Sprintf("%q", newlinePath)) {
-				t.Fatalf("refusal %v does not carry the quoted full path %q; the parser split the path", err, fmt.Sprintf("%q", newlinePath))
-			}
+			assertIntegrationMergeTreeValid(t, got, err, integrationTreeOID40, true, []integrationConflictStage{{Path: newlinePath, Mode: "100644", OID: oid, Stage: 1}})
 		})
 
-		t.Run("delete byte in a path refuses", func(t *testing.T) {
-			got, err := parseIntegrationMergeTree(1, output("internal/store/x\x7fy.go"))
-			assertIntegrationMergeTreeRefusal(t, got, err, "control")
+		t.Run("delete byte in a path stays exact", func(t *testing.T) {
+			const delPath = "internal/store/x\x7fy.go"
+			got, err := parseIntegrationMergeTree(1, output(delPath))
+			assertIntegrationMergeTreeValid(t, got, err, integrationTreeOID40, true, []integrationConflictStage{{Path: delPath, Mode: "100644", OID: oid, Stage: 1}})
 		})
 
 		t.Run("unsafe path shapes refuse", func(t *testing.T) {
@@ -556,14 +549,30 @@ func TestIntegrationResolutionDiff(t *testing.T) {
 				{"trailing separator", "internal/store/", "normalized"},
 				{"empty segment", "internal//store.go", "normalized"},
 				{"self segment", "internal/./store.go", "normalized"},
-				{"glob spelling", "internal/*.go", "glob"},
-				{"bracket glob", "internal/store/[ab].go", "glob"},
-				{"tmp first segment", "tmp/scratch.go", "tmp"},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
 					got, err := parseIntegrationMergeTree(1, output(tc.path))
 					assertIntegrationMergeTreeRefusal(t, got, err, tc.marker)
+				})
+			}
+		})
+
+		t.Run("glob and tmp spellings stay exact", func(t *testing.T) {
+			// The architecture glob vocabulary and the work-context tmp rule
+			// do not apply to Git's own conflict records.
+			cases := []struct {
+				name string
+				path string
+			}{
+				{"star glob", "internal/*.go"},
+				{"bracket glob", "internal/store/[ab].go"},
+				{"tmp first segment", "tmp/scratch.go"},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					got, err := parseIntegrationMergeTree(1, output(tc.path))
+					assertIntegrationMergeTreeValid(t, got, err, integrationTreeOID40, true, []integrationConflictStage{{Path: tc.path, Mode: "100644", OID: oid, Stage: 1}})
 				})
 			}
 		})

@@ -556,7 +556,7 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if step.Kind == WorkflowStepHumanCheckpoint {
 		return containsString(step.Actions, "confirm_premise")
 	}
-	return step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker")
+	return containsString(step.Actions, "dispatch_worker")
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete

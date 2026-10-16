@@ -5,6 +5,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { manifestDigest } from "./generated-contracts"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary, dispatchWorker, type AgentLanePacket } from "./dispatch"
 import { configureConcordAdapter } from "./concord"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -62,6 +63,7 @@ afterEach(() => {
   resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   configureConcordAdapter({ reset: true })
+  configureCiWatch({ reset: true })
   for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 

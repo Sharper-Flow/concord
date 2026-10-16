@@ -360,6 +360,13 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 				return nativeUnavailable("pytest witnesses must name pinned harness Python test files")
 			}
 		}
+		argv, err := (&nativeTargetOraclePlan{Recipe: m}).prepareCommand(c)
+		if err != nil {
+			return err
+		}
+		if err := validateWorktreeVerifyCommand(argv); err != nil {
+			return oracleFailure(KindLimitExceeded, "pytest recipe collection exceeds command bounds: "+err.Error(), "declare fewer or shorter Python harness file paths")
+		}
 	case nativeTargetRunnerCheck:
 		if len(m.Checks) < 1 || len(m.Checks) > 16 {
 			return nativeUnavailable("check recipes must declare one to sixteen checks")

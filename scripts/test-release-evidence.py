@@ -148,6 +148,27 @@ class CIWorkflowDriftTests(unittest.TestCase):
         self.assertIn("group", concurrency)
         self.assertIn("cancel-in-progress", concurrency)
 
+    def test_tooling_checkout_clones_full_history_for_the_lane_generator(self) -> None:
+        # scripts/generate-agent-lanes.py walks committed manifest history and
+        # refuses a shallow clone, so verify-tooling must check out with
+        # fetch-depth: 0 like its verify-contracts sibling.
+        steps = jobs(load_workflow(CI_WORKFLOW))["verify-tooling"].get("steps")
+        self.assertIsInstance(steps, list)
+        checkouts = [
+            step for step in steps if isinstance(step, dict) and "actions/checkout" in str(step.get("uses", ""))
+        ]
+        self.assertEqual(len(checkouts), 1, "verify-tooling must keep exactly one actions/checkout step")
+        with_block = checkouts[0].get("with")
+        self.assertIsInstance(with_block, dict)
+        fetch_depth = with_block.get("fetch-depth")
+        self.assertEqual(
+            fetch_depth,
+            0,
+            "verify-tooling's checkout must set fetch-depth: 0; the lane generator requires a full Git checkout",
+        )
+        self.assertIs(type(fetch_depth), int, "fetch-depth must parse as a YAML integer")
+        self.assertIs(with_block.get("persist-credentials"), False)
+
 
 class ReleaseWorkflowDriftTests(unittest.TestCase):
     def test_release_starts_only_on_a_push_to_main(self) -> None:

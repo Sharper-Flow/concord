@@ -1318,17 +1318,15 @@ func TestBackupAndRestoreRoundTripViaCLI(t *testing.T) {
 	}
 	restoreDestination := filepath.Join(restoreParent, "concord.db")
 	runRestoreRaw := runCLIJSON(t, []string{"restore"}, map[string]any{"source": destination, "destination": restoreDestination})
-	var restoreManifest struct {
-		SchemaVersion  int    `json:"schema_version"`
-		SnapshotID     string `json:"snapshot_id"`
-		BinaryVersion  string `json:"binary_version"`
-		IntegrityCheck string `json:"integrity_check"`
+	var restoreReport store.RestoreReport
+	if err := json.Unmarshal(runRestoreRaw, &restoreReport); err != nil {
+		t.Fatalf("restore response is not an inventory report: %v; raw=%s", err, runRestoreRaw)
 	}
-	if err := json.Unmarshal(runRestoreRaw, &restoreManifest); err != nil {
-		t.Fatalf("restore response is not a manifest: %v; raw=%s", err, runRestoreRaw)
+	if restoreReport.SourceSnapshot.SnapshotID != backupManifest.SnapshotID || restoreReport.SourceSnapshot.IntegrityCheck != "ok" || restoreReport.SourceSnapshot.SchemaVersion != backupManifest.SchemaVersion {
+		t.Fatalf("restore source inventory = %+v, want snapshot matching backup", restoreReport.SourceSnapshot)
 	}
-	if restoreManifest.SnapshotID != backupManifest.SnapshotID || restoreManifest.IntegrityCheck != "ok" {
-		t.Fatalf("restore manifest = %+v, want snapshot matching backup", restoreManifest)
+	if restoreReport.RestoredDatabase.SchemaVersion != store.CurrentSchemaVersion() || restoreReport.RestoredDatabase.DBChecksum == "" || restoreReport.RestoredDatabase.EventWatermark != restoreReport.SourceSnapshot.EventWatermark {
+		t.Fatalf("restored database inventory = %+v, want the verified destination", restoreReport.RestoredDatabase)
 	}
 	if _, err := os.Stat(restoreDestination); err != nil {
 		t.Fatalf("restore destination file is missing: %v", err)

@@ -54,11 +54,33 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 	version.Value = "v-test"
 	t.Cleanup(func() { version.Value = previous })
 	path, root := cliStoreRoot(t)
-	pendingBreakingStore(t, path, false)
+	pendingBreakingStore(t, path, true)
+	backup := snapshotDatabase
+	t.Cleanup(func() { snapshotDatabase = backup })
+	snapshotDatabase = func(ctx context.Context, source, destination string) (store.BackupManifest, error) {
+		manifest, err := backup(ctx, source, destination)
+		if err != nil {
+			return manifest, err
+		}
+		// The rollback snapshot must be restorable. A source-only collision
+		// after verification exercises a later live migration failure.
+		db, err := sql.Open("sqlite", "file:"+source)
+		if err != nil {
+			return manifest, err
+		}
+		_, err = db.ExecContext(ctx, `ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT NOT NULL DEFAULT ''`)
+		if closeErr := db.Close(); err == nil {
+			err = closeErr
+		}
+		return manifest, err
+	}
 
 	code, _, errOut := runUpgradeStdin(t, `{}`)
 	if code != 1 {
 		t.Fatalf("a colliding migration must fail the upgrade: %d %s", code, errOut)
+	}
+	if !strings.Contains(errOut, "duplicate column name: native_plan_json") {
+		t.Fatalf("the verified snapshot must precede the source-only migration collision: %s", errOut)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "backups"))
 	if err != nil {

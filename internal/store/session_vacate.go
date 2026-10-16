@@ -147,7 +147,7 @@ func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	// vacate-landing verb records, so a refused host move, a destination
 	// mismatch, or an unreadable landing leaves every occupancy row standing.
 	if event.replaySourcePayloadVersion == 1 {
-		return releaseSessionWorktreeOccupancyTx(ctx, tx, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
+		return releaseSessionWorktreeOccupancyTx(ctx, tx, event, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
 	}
 	return nil
 }

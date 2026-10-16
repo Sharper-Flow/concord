@@ -167,8 +167,8 @@ These are not shipped features or release-date commitments:
 
 - **Bounded implementation jobs.** Give each job an explicit production-size
   limit and require oversized work to split instead of raising the limit.
-- **Cross-model review of suggested fixes.** Carry proposed patches with review
-  findings, then have another model family check the corrections.
+- **Review of suggested fixes.** Carry proposed patches with review findings.
+  A separate reviewer checks the corrections. Each install chooses reviewer models.
 - **Release-history compatibility.** Expand release gates to exercise event-log
   restore and rebuild across earlier released binaries and candidate releases.
 

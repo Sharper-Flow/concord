@@ -17,10 +17,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0017"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0044"
     },
     {
@@ -36,13 +32,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:edf8bfce7ee26ea5d569ded68f14850d48632fcd485f27eff3b25beea06272d0",
+  "sha256": "sha256:e598f098027a63bcdaa450333382d87447a8f7af68c5eaaa0dff4e096d940bb4",
   "status": "accepted",
-  "summary": "Blocking review findings carry bounded repair dispositions. Applied fixes require review from another model family before closure or delivery, with authenticated host classification evidence and no Concord model routing.",
+  "summary": "Blocking review findings carry bounded repair dispositions. Applied fixes require actor-distinct review before closure or delivery. Authenticated family evidence supports reported comparisons, never admission gates. Each install owns model choice in host configuration.",
   "tags": [
     "agent-lanes",
     "review",
     "worker-evidence"
   ],
-  "title": "Review findings carry fixes with cross-family checks"
+  "title": "Review findings carry fixes with family evidence"
 }

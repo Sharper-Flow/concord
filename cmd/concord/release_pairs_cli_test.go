@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	cryptorand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -18,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/hostlease"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -642,13 +639,6 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 const cutoverBaselineTag = "v13.4.0"
 const cutoverBaselineSchema = 122
 
-// The research-context pair's baseline is the newest release below the
-// promoted research-context workflow heads. Both cores define the same
-// schema, so the pair isolates the registry-head delta, and every baseline
-// refusal below is the unsupported-head refusal, never a schema-floor
-// refusal.
-const researchPairBaselineTag = "v14.4.7"
-
 // cutoverEvidenceQueries fingerprints the living evidence a cutover must
 // carry across the breaking floor: the original event log with its actors,
 // the active research consumer, the claimed worktree with its live session
@@ -743,6 +733,23 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 // log rows, not only projections.
 func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
 	t.Helper()
+	sessionStart, err := hostlease.ProcessStart(sessionPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := hostlease.List(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baselineBinary string
+	for _, lease := range leases {
+		if lease.PID == sessionPID {
+			baselineBinary = lease.CoreBinary
+		}
+	}
+	if baselineBinary == "" {
+		t.Fatal("the synthetic baseline session must identify its core")
+	}
 	db := mustOpenCutoverStore(t, path)
 	tx, err := db.Begin()
 	if err != nil {
@@ -756,37 +763,48 @@ func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
 		}
 	}
 	exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1)`)
-	exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
-		VALUES('cutover-product','Cutover product','prototype','operator_only',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z');
-		INSERT INTO projects(id,display_name,version,created_at,updated_at)
-		VALUES('project','Cutover project',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES('cutover-product','project','primary')`)
-	exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
-		('cutover-owner','research','cutover research owner','in_progress',0,1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z'),
-		('cutover-consumer','research','cutover living consumer','in_progress',0,1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES('cutover-owner','project','primary'),('cutover-consumer','project','primary')`)
 	exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at)
 		VALUES('pack-cutover-living','cutover-owner',1,'current',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z')`)
 	exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at)
 		VALUES('pack-cutover-living',1,'does the cutover preserve living evidence?','[]','[]','[]','synthetic cutover witness','2026-10-12T00:00:00Z')`)
 	exec(`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at)
 		VALUES('pack-cutover-living',1,'cutover-consumer','decision_basis',1,'2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at)
-		VALUES('set-cutover','project','op-cutover-claim','simplify/cutover-living','1f2e3d4c5b6a79887766554433221100ffeeddccb','/srv/cutover-living-worktree','cutover-repo','active','2026-10-12T00:01:00Z')`)
-	exec(fmt.Sprintf(`INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity)
-		VALUES('set-cutover:project:op-cutover-claim','ses-cutover-living','2026-10-12T00:01:00Z',%d,NULL,1)`, sessionPID))
-	exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at)
-		VALUES('cutover-consumer','attempt-cutover-living-1','implement',1,'sha256:` + strings.Repeat("a", 64) + `','implementation','synthetic/cutover-worker','1.0','1.0','completed','','','2026-10-12T00:02:00Z','2026-10-12T00:10:00Z',NULL)`)
 	exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
+		('cutover-product-created','product.created','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
+			'{"display_name":"Cutover product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}'),
+		('cutover-project-created','project.created','project','project','operator','2026-10-12T00:00:00Z',1,
+			'{"display_name":"Cutover project"}'),
+		('cutover-product-membership','product_project.added','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
+			'{"product_id":"cutover-product","project_id":"project","role":"primary","reason":"operator bootstrap","expected_version":1,"resulting_version":2}'),
+		('cutover-owner-created','work.created','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',2,
+			'{"work_kind":"research","title":"cutover research owner","priority":0}'),
+		('cutover-owner-membership','work.memberships_replaced','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
+		('cutover-owner-started','work.transitioned','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
 		('cutover-work-created','work.created','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',2,
-			'{"work_kind":"research","title":"cutover living consumer","priority":1}'),
+			'{"work_kind":"research","title":"cutover living consumer","priority":0}'),
+		('cutover-consumer-membership','work.memberships_replaced','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
+		('cutover-consumer-started','work.transitioned','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
+		('op-cutover-claim:worktree-created','work.worktree_created','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
+			'{"expected_version":3,"resulting_version":4,"set_id":"wts:cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","branch":"simplify/cutover-living","base_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb","path":"/srv/cutover-living-worktree","repository_id":"cutover-repo","occupant_session_ref":"ses-cutover-living","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `,"git_facts":{"branch":"simplify/cutover-living","head_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb"}}'),
 		('cutover-consumer:session-claim-landed:ses-cutover-living:1','work.session_claim_landed','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
-			'{"work_id":"cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","session_ref":"ses-cutover-living","source_directories":[],"landed_directory":"/srv/cutover-living-worktree","host_pid":` + fmt.Sprint(sessionPID) + `}'),
+			'{"work_id":"cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","session_ref":"ses-cutover-living","source_directories":[],"landed_directory":"/srv/cutover-living-worktree","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `}'),
+		('cutover-attempt-dispatched','worker.dispatched','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:02:00Z',3,
+			'{"attempt_id":"attempt-cutover-living-1","lane_id":"implement","lane_version":1,"lane_digest":"sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc","capability_class":"implementation","readback_model":"synthetic/cutover-worker","packet_schema_version":"1.0","report_schema_version":"1.0","packet_digest":"sha256:` + strings.Repeat("0", 64) + `","host_provenance":{"digest":"sha256:` + strings.Repeat("0", 64) + `","sources":[{"kind":"unenumerated"}]}}'),
 		('cutover-attempt-completed','worker.completed','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:10:00Z',1,
 			'{"attempt_id":"attempt-cutover-living-1","readback_model":"synthetic/cutover-worker","report_schema_version":"1.0"}')`)
-	exec(`DELETE FROM fold_guard`)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Materialize fold-owned rows with the released core; research stays direct authority.
+	if code, out, errText := runRelease(t, baselineBinary, path, "recover-fold-guard", `{}`); code != 0 {
+		t.Fatalf("materialize the released fixture history: %d %s %s", code, out, errText)
 	}
 }
 
@@ -909,8 +927,8 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	sessionPID := session.command.Process.Pid
 	seedCutoverLivingEvidence(t, path, sessionPID)
 	want := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["domain_events"]) != 3 {
-		t.Fatalf("seeded event log = %d rows, want the three living-evidence events", len(want["domain_events"]))
+	if len(want["domain_events"]) != 13 {
+		t.Fatalf("seeded event log = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["domain_events"]))
 	}
 	if len(want["active_research_consumers"]) != 1 ||
 		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {
@@ -1098,536 +1116,6 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		t.Fatal("the baseline core's floor refusal changed the migrated store")
 	}
 	assertPreserved(t)
-}
-
-// The research-context pair runs on one synthetic Product, Project, and
-// pack-owner work item; the fixture directory is a label the pair's fixed
-// project resolver answers with, never a path either binary probes.
-const pairFixtureDirectory = "/srv/research-pair-fixture"
-
-const pairProductID = "pair-product"
-const pairProjectID = "pair-project"
-const pairOwnerID = "pair-research-owner"
-const pairPackID = "pair-evidence-pack"
-const pairPrincipalRef = "principal/pair-operator"
-const pairClientRef = "client/pair-author"
-const pairAgentRef = "agent/pair-author"
-const pairRootDomainID = "pair-root"
-const pairChildDomainID = "pair-child"
-const pairSelectedFindingID = "pair-finding-selected"
-
-// researchPairEvidenceQueries fingerprints the living evidence the
-// research-context pair must carry across the promoted workflow heads: the
-// original event bytes, the work rows, the complete sourced-research
-// authority with its citations, the consuming selection pin, the promoted
-// workflow pin, and the Domain registry the selection named. Every query
-// names only columns that exist identically at the baseline and candidate
-// schemas.
-var researchPairEvidenceQueries = []struct {
-	name  string
-	query string
-}{
-	{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
-	{"work_items", `SELECT id,kind,title,lifecycle,priority,version FROM work_items ORDER BY id`},
-	{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
-	{"research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
-	{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
-	{"research_sources", `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at FROM active_research_sources ORDER BY pack_id,revision,source_id`},
-	{"research_citations", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
-	{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,revision,consumer_work_id`},
-	{"workflow_instances", `SELECT work_id,definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances ORDER BY work_id`},
-	{"domain_registries", `SELECT product_id,root_domain_id,content_hash FROM domain_registries ORDER BY product_id`},
-	{"domains", `SELECT product_id,domain_id,parent_domain_id,status,registry_content_hash FROM domains ORDER BY product_id,domain_id`},
-}
-
-// captureResearchPairEvidence reads every paired population as opaque row
-// strings, fixed by each query's ORDER BY, so equal stores produce equal
-// fingerprints.
-func captureResearchPairEvidence(t *testing.T, db *sql.DB) map[string][]string {
-	t.Helper()
-	return captureEvidenceRows(t, db, researchPairEvidenceQueries)
-}
-
-// assertResearchPairEvidenceEqual fails when one pair stage changed a
-// fingerprinted population.
-func assertResearchPairEvidenceEqual(t *testing.T, stage string, got, want map[string][]string) {
-	t.Helper()
-	for _, evidence := range researchPairEvidenceQueries {
-		if strings.Join(got[evidence.name], "\x1e") != strings.Join(want[evidence.name], "\x1e") {
-			t.Fatalf("%s changed %s evidence:\ngot\n%s\nwant\n%s", stage, evidence.name, strings.Join(got[evidence.name], "\n"), strings.Join(want[evidence.name], "\n"))
-		}
-	}
-}
-
-// seedResearchPairIdentity authors the Product, its Project, the membership,
-// and the pack-owner work item through the ordinary event append both
-// releases' folds share at this schema.
-func seedResearchPairIdentity(t *testing.T, s *store.Store) {
-	t.Helper()
-	observedAt := time.Unix(1, 0).UTC()
-	events := []store.Event{
-		{EventID: "pair-product-created", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: pairProductID, Actor: "operator", OccurredAt: observedAt, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Pair product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pair-project-created", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: pairProjectID, Actor: "operator", OccurredAt: observedAt, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Pair project"}`)},
-		{EventID: "pair-product-project", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: pairProductID, Actor: "operator", OccurredAt: observedAt, PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"` + pairProductID + `","project_id":"` + pairProjectID + `","role":"primary","reason":"pair fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "pair-owner-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: pairOwnerID, Actor: "operator", OccurredAt: observedAt, PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"research","title":"Pair research owner","priority":1}`)},
-		{EventID: "pair-owner-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: pairOwnerID, Actor: "operator", OccurredAt: observedAt, PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"` + pairProjectID + `","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{
-		store.VersionRef(store.SubjectProduct, pairProductID): 0,
-		store.VersionRef(store.SubjectProject, pairProjectID): 0,
-		store.VersionRef(store.SubjectWorkItem, pairOwnerID):  0,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// seedResearchPairDomainRegistry installs the Domain registry fixture rows
-// the selection's declared Domain resolves against, under the same fold
-// guard the projection's own writers hold.
-func seedResearchPairDomainRegistry(t *testing.T, s *store.Store) {
-	t.Helper()
-	registryHash := "sha256:" + strings.Repeat("7", 64)
-	tx, err := s.DatabaseForTesting().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	exec := func(query string, args ...any) {
-		t.Helper()
-		if _, err := tx.Exec(query, args...); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1)`)
-	exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'pair-fixture')`,
-		pairProductID, pairProjectID, "pair-locator", pairProductID, pairRootDomainID, registryHash)
-	exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,NULL,'current',?,'pair-fixture')`,
-		pairProjectID, "pair-locator", pairProductID, pairRootDomainID, "Pair root", "The pair fixture's root Domain", registryHash)
-	exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,'current',?,'pair-fixture')`,
-		pairProjectID, "pair-locator", pairProductID, pairChildDomainID, "Pair child", "The pair fixture's child Domain", pairRootDomainID, registryHash)
-	exec(`DELETE FROM fold_guard`)
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// seedResearchPairPack authors the sourced-research fixture pack through the
-// owning research mutations: revision one carries the selected finding with
-// its linked source beside an unselected sibling, and the newer revision two
-// carries its own finding and source as the exact-selection negative
-// controls.
-func seedResearchPairPack(t *testing.T, s *store.Store) {
-	t.Helper()
-	ctx := context.Background()
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: pairPrincipalRef, Tool: "release-pair-seed", OperationKind: "research_mutation", IdempotencyKey: key}
-	}
-	packVersion := func() int64 {
-		t.Helper()
-		var version int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pairPackID).Scan(&version); err != nil {
-			t.Fatal(err)
-		}
-		return version
-	}
-	revision := func(question string) store.ResearchRevisionInput {
-		return store.ResearchRevisionInput{Question: question, ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "release pair comparison"}
-	}
-	if _, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{Identity: identity("pair-pack-create"), PackID: pairPackID, OwnerWorkID: pairOwnerID, Revision: revision("Does the pair preserve the selected sourced research?")}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{Identity: identity("pair-source-selected"), PackID: pairPackID, ExpectedVersion: packVersion(), Source: store.ResearchSource{
-		SourceID: "pair-source-selected", Kind: store.SourceCode, Locator: "internal/store/work_context_research.go", Title: "The selected revision's source descriptor", PublisherOrAuthor: "Synthetic Author", AccessedAt: "2026-10-14T00:00:00Z",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{Identity: identity("pair-finding-selected"), PackID: pairPackID, ExpectedVersion: packVersion(), Finding: store.ResearchFinding{
-		PackID: pairPackID, FindingID: pairSelectedFindingID, Kind: store.FindingInference, Statement: "The selected revision's finding resolves beside its linked source.",
-		Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}, SourceIDs: []string{"pair-source-selected"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{Identity: identity("pair-finding-sibling"), PackID: pairPackID, ExpectedVersion: packVersion(), Finding: store.ResearchFinding{
-		PackID: pairPackID, FindingID: "pair-finding-sibling", Kind: store.FindingObservation, Statement: "The unselected sibling finding never enters the shared view.",
-		Confidence: store.ConfidenceMedium, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AppendResearchRevision(ctx, store.AppendResearchRevisionRequest{Identity: identity("pair-revision-2"), PackID: pairPackID, ExpectedVersion: packVersion(), Revision: revision("Does the newer revision own the route?")}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{Identity: identity("pair-source-newer"), PackID: pairPackID, ExpectedVersion: packVersion(), Source: store.ResearchSource{
-		SourceID: "pair-source-newer", Kind: store.SourceIssue, Locator: "https://example.invalid/pair/newer", Title: "The newer revision's source descriptor", PublisherOrAuthor: "Synthetic Author", AccessedAt: "2026-10-15T00:00:00Z",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{Identity: identity("pair-finding-newer"), PackID: pairPackID, ExpectedVersion: packVersion(), Finding: store.ResearchFinding{
-		PackID: pairPackID, FindingID: "pair-finding-newer", Kind: store.FindingConclusion, Statement: "The newer revision's finding stays out of the exact selection.",
-		Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}, SourceIDs: []string{"pair-source-newer"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// authorResearchPairSelection captures the consuming work item through the
-// public capture admission, which pins the registered research-context head,
-// then authors the selection through the admitted record_work_context
-// action: the same-action research binding first, then the closed selection
-// tuple. No constructor mirror and no unsupported pinned definition authors
-// the event.
-func authorResearchPairSelection(t *testing.T, s *store.Store) string {
-	t.Helper()
-	ctx := context.Background()
-	scopeVersion, _, err := s.ScopeVersion(ctx, pairProjectID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := agent.NewService(s)
-	service.ProjectHostProber = func(context.Context, string, string) (store.ResolvedProjectHost, error) {
-		return store.ResolvedProjectHost{Canonical: pairFixtureDirectory, Host: store.HostRepository{CanonicalPath: pairFixtureDirectory}}, nil
-	}
-	service.ProjectHostMatcher = func(context.Context, *store.Transaction, store.ResolvedProjectHost) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: pairProjectID}, nil
-	}
-	publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.RegisterTrustedClient(ctx, agent.ClientRegistration{
-		ClientRef: pairClientRef, KeyID: "pair-author-key", PublicKey: publicKey,
-		Policy: agent.TrustedClientPolicy{
-			PrincipalRef: pairPrincipalRef,
-			Capabilities: []agent.Capability{"product_read", "work_define", "work_transition", "research"},
-			ProductScope: []string{pairProductID}, ProjectScope: []string{pairProjectID}, AgentScope: []string{pairAgentRef},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	envelope := agent.CallEnvelope{
-		SchemaVersion: "1.0", RequestID: "pair-author", ClientRef: pairClientRef, PrincipalRef: pairPrincipalRef,
-		SessionRef: "session/pair-author", AgentRef: pairAgentRef, Directory: pairFixtureDirectory, Worktree: pairFixtureDirectory,
-		AmbientProjectID: pairProjectID, SelectedProductID: pairProductID, ScopeVersion: scopeVersion, ManifestDigest: agent.ManifestDigest,
-	}
-	dispatch := func(tool, operation string, input map[string]any) agent.Envelope {
-		t.Helper()
-		raw, err := json.Marshal(input)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := agent.Dispatch(ctx, s, service, agent.InvokeRequest{Tool: tool, Operation: operation, Input: raw}, envelope)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if response.Outcome != agent.OutcomeOK || response.Error != nil {
-			t.Fatalf("%s %s refused: %+v", tool, operation, response.Error)
-		}
-		return response
-	}
-	changed := func(response agent.Envelope, entityKind string) (string, int64) {
-		t.Helper()
-		if response.ChangedRefs == nil {
-			t.Fatalf("%s %s changed no entity", response.Tool, response.Operation)
-		}
-		for _, ref := range *response.ChangedRefs {
-			if ref.EntityKind != entityKind {
-				continue
-			}
-			version, err := strconv.ParseInt(ref.Version, 10, 64)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return ref.ID, version
-		}
-		t.Fatalf("%s %s changed no %s ref: %+v", response.Tool, response.Operation, entityKind, *response.ChangedRefs)
-		return "", 0
-	}
-	captured := dispatch("concord_work_define", "capture", map[string]any{
-		"title": "Pair research consumer", "value_statement": "Consume the selected sourced research finding.",
-		"kind": "bug", "task": "Author the pair's research selection.", "project_ids": []string{pairProjectID}, "workflow_type_ref": "workflow.break_fix",
-		"defect_intake": map[string]any{
-			"failure_shape": "pair-consumer", "reproduction": "Author a research selection on the promoted workflow head.", "searched": "the synthetic pair store", "related_defect_ids": []string{},
-		},
-		"idempotency_key": "pair-consumer-capture",
-	})
-	workID, version := changed(captured, "work_item")
-	dispatch("concord_work_transition", "workflow_action", map[string]any{
-		"work_id": workID, "expected_version": version, "action_id": "record_work_context",
-		"fields": map[string]any{
-			"finding_refs": []string{}, "context_findings": []map[string]any{},
-			"research_finding_refs": []map[string]any{{"pack_id": pairPackID, "revision": 1, "finding_id": pairSelectedFindingID, "domain_id": pairChildDomainID}},
-		},
-		"research_bindings": []map[string]any{{"pack_id": pairPackID, "revision": 1, "use_role": "context", "required": true}},
-		"idempotency_key":   "pair-research-context",
-	})
-	return workID
-}
-
-// readResearchPairView reads the work's continuity snapshot and returns the
-// current shared view's research entries beside the serialized view bytes.
-func readResearchPairView(t *testing.T, s *store.Store, workID string) ([]store.WorkContextResearchFindingView, []byte) {
-	t.Helper()
-	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.WorkContext == nil {
-		t.Fatal("the continuity snapshot carries no work context view")
-	}
-	raw, err := json.Marshal(snapshot.WorkContext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return snapshot.WorkContext.ResearchFindings, raw
-}
-
-// assertResearchPairSelection asserts the integrated receipt: exactly the
-// selected revision-one finding resolves with its native fields and full
-// linked source descriptor, while the unselected sibling and the newer
-// revision stay out of the view entirely.
-func assertResearchPairSelection(t *testing.T, entries []store.WorkContextResearchFindingView, raw []byte) {
-	t.Helper()
-	if len(entries) != 1 {
-		t.Fatalf("the shared view carries %d research entries, want exactly the selection", len(entries))
-	}
-	entry := entries[0]
-	if entry.Selection.PackID != pairPackID || entry.Selection.Revision != 1 || entry.Selection.FindingID != pairSelectedFindingID || entry.Selection.DomainID != pairChildDomainID {
-		t.Fatalf("the shared view names the wrong selection: %+v", entry.Selection)
-	}
-	if !entry.Required || entry.State != store.WorkContextResearchStateResolved || entry.Ordinal != 0 || entry.SelectionEventID == "" || entry.SelectionEventSeq == 0 {
-		t.Fatalf("the selected entry must be the required resolved ordinal zero of its declaration event: %+v", entry)
-	}
-	finding := entry.Finding
-	if finding == nil {
-		t.Fatal("the resolved entry carries no finding")
-	}
-	if finding.Revision != 1 || finding.Kind != store.FindingInference || finding.Confidence != store.ConfidenceHigh ||
-		finding.Freshness != store.ResearchCurrent || finding.Status != store.FindingActive ||
-		finding.Statement != "The selected revision's finding resolves beside its linked source." ||
-		strings.Join(finding.SourceIDs, ",") != "pair-source-selected" || finding.Scopes.Mode != "home" {
-		t.Fatalf("the resolved entry lost the native finding's exact fields: %+v", finding)
-	}
-	if entry.Sources == nil || len(*entry.Sources) != 1 {
-		t.Fatalf("the resolved entry must carry exactly its linked source descriptor: %+v", entry.Sources)
-	}
-	source := (*entry.Sources)[0]
-	if source.SourceID != "pair-source-selected" || source.Revision != 1 || source.Kind != store.SourceCode ||
-		source.Locator != "internal/store/work_context_research.go" || source.Title != "The selected revision's source descriptor" ||
-		source.PublisherOrAuthor != "Synthetic Author" || source.AccessedAt != "2026-10-14T00:00:00Z" {
-		t.Fatalf("the resolved entry lost the linked source descriptor's exact fields: %+v", source)
-	}
-	for _, withheld := range []string{"pair-finding-sibling", "The unselected sibling finding", "pair-finding-newer", "The newer revision's finding", "pair-source-newer"} {
-		if strings.Contains(string(raw), withheld) {
-			t.Fatalf("the shared view leaked the %q control: %s", withheld, raw)
-		}
-	}
-}
-
-// TestResearchContextPostCutoverPairPreservesEvidence exercises the
-// research-context pair on one disposable store: the newest release below
-// the promoted workflow heads initializes the store and operates its
-// sourced-research fixtures, the candidate upgrades it with no new migration
-// and authors a selection on the promoted head through the admitted capture
-// and record_work_context route, and the baseline refuses that unsupported
-// head with zero mutation. The shared view is the integrated receipt: the
-// exact revision-one finding with its native fields and full linked source
-// descriptor, never the sibling or newer-revision controls. Backup and
-// restore preservation stays with the backup witness.
-func TestResearchContextPostCutoverPairPreservesEvidence(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the released baseline and checked-out candidate cores")
-	}
-	root := t.TempDir()
-	dataRoot := filepath.Join(root, "data", "concord")
-	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dataRoot, "concord.db")
-	baselineVersion := "v0.0.0-con911-pair-baseline"
-	candidateVersion := "v0.0.0-con911-pair-candidate"
-	baselineSource := extractReleasedSource(t, researchPairBaselineTag)
-	t.Logf("binary sources: baseline=%s candidate=checked-out source", researchPairBaselineTag)
-	baseline := buildCoreFrom(t, baselineSource, baselineVersion)
-	candidate := buildCoreFrom(t, repoSourceDir(t), candidateVersion)
-	baselineBinary := filepath.Join(installReleaseTree(t, dataRoot, baselineVersion, baseline, true), "bin", "concord")
-	candidateBinary := filepath.Join(installReleaseTree(t, dataRoot, candidateVersion, candidate, true), "bin", "concord")
-
-	// Both cores define the same schema: the promotion moved workflow
-	// registry heads, not migrations, so no floor refusal can shadow the
-	// unsupported-head refusal below.
-	candidateSchema := store.CurrentSchemaVersion()
-	baselineDescriptor := coreDescriptor(t, baselineBinary)
-	if baselineDescriptor["version"] != baselineVersion || baselineDescriptor["schema_version"] != float64(candidateSchema) {
-		t.Fatalf("the baseline core must define the candidate's exact schema: %+v", baselineDescriptor)
-	}
-	candidateDescriptor := coreDescriptor(t, candidateBinary)
-	if candidateDescriptor["version"] != candidateVersion || candidateDescriptor["schema_version"] != float64(candidateSchema) ||
-		candidateDescriptor["manifest_digest"] == baselineDescriptor["manifest_digest"] {
-		t.Fatalf("the candidate core must identify its own distinct build and contract: %+v", candidateDescriptor)
-	}
-
-	// The baseline core initializes the disposable store; the pair carries
-	// no breaking migration, so no maintenance boundary opens.
-	code, out, errText := runRelease(t, baselineBinary, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the baseline core must initialize its store: %d %s %s", code, out, errText)
-	}
-	var initialized struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal([]byte(out), &initialized); err != nil {
-		t.Fatalf("the baseline upgrade report is not JSON: %v: %s", err, out)
-	}
-	if initialized.SchemaVersion != candidateSchema {
-		t.Fatalf("the baseline store's schema = %d, want %d", initialized.SchemaVersion, candidateSchema)
-	}
-
-	// The seeded fixture state is the population every later stage must
-	// preserve: authored through the owning mutations, never through a
-	// mirror of their rows.
-	seeded, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedResearchPairIdentity(t, seeded)
-	// The Domain registry's home pair references a Project locator row, so
-	// the locator enters through its own owning mutation first. The owning
-	// admission resolves a canonical path on disk, so the fixture directory
-	// is real; nothing later probes it.
-	pairRepo := filepath.Join(root, "pair-repo")
-	if err := os.MkdirAll(pairRepo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := seeded.AddProjectLocator(context.Background(), pairProjectID, store.ProjectLocator{
-		ID: "pair-locator", ProjectID: pairProjectID, Kind: store.LocatorCanonicalPath, Value: pairRepo,
-	}, 1); err != nil {
-		t.Fatal(err)
-	}
-	seedResearchPairDomainRegistry(t, seeded)
-	seedResearchPairPack(t, seeded)
-	if err := seeded.Close(); err != nil {
-		t.Fatal(err)
-	}
-	want := captureResearchPairEvidence(t, mustOpenCutoverStore(t, path))
-	// An append carries the prior revision's findings, sources, scopes, and
-	// citations into the successor, and a restated brief degrades the copied
-	// freshness to unknown. The exact-selection control therefore reads: the
-	// selected finding resolves from its assessed revision one, never from
-	// the degraded successor copy beside it.
-	if len(want["research_findings"]) != 5 || len(want["research_sources"]) != 3 || len(want["research_citations"]) != 3 {
-		t.Fatalf("seeded sourced research = findings %d sources %d citations %d, want five findings, three sources, and three citations", len(want["research_findings"]), len(want["research_sources"]), len(want["research_citations"]))
-	}
-	copiedDB := mustOpenCutoverStore(t, path)
-	var copiedFreshness string
-	if err := copiedDB.QueryRow(`SELECT freshness FROM active_research_findings WHERE pack_id=? AND revision=2 AND finding_id=?`, pairPackID, pairSelectedFindingID).Scan(&copiedFreshness); err != nil {
-		t.Fatal(err)
-	}
-	if copiedFreshness != "unknown" {
-		t.Fatalf("the restated successor's copied finding freshness = %q, want unknown", copiedFreshness)
-	}
-
-	// The baseline still operates the seeded store it owns.
-	code, out, errText = runRelease(t, baselineBinary, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the baseline core must operate the seeded store: %d %s %s", code, out, errText)
-	}
-	var noop struct {
-		SchemaVersion int   `json:"schema_version"`
-		Applied       []int `json:"applied"`
-	}
-	if err := json.Unmarshal([]byte(out), &noop); err != nil || noop.SchemaVersion != candidateSchema || len(noop.Applied) != 0 {
-		t.Fatalf("the baseline's seeded-store no-op must apply nothing: %+v %v %s", noop, err, out)
-	}
-	assertResearchPairEvidenceEqual(t, "the baseline's seeded-store no-op", captureResearchPairEvidence(t, mustOpenCutoverStore(t, path)), want)
-
-	// The candidate opens and upgrades the seeded store without a new
-	// migration and changes no fingerprinted population.
-	code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the candidate must operate the baseline store: %d %s %s", code, out, errText)
-	}
-	if err := json.Unmarshal([]byte(out), &noop); err != nil || noop.SchemaVersion != candidateSchema || len(noop.Applied) != 0 {
-		t.Fatalf("the candidate's upgrade must apply nothing: %+v %v %s", noop, err, out)
-	}
-	assertResearchPairEvidenceEqual(t, "the candidate's no-op upgrade", captureResearchPairEvidence(t, mustOpenCutoverStore(t, path)), want)
-
-	// The candidate authors the selection on the promoted head through the
-	// owning admission, and the instance pin names exactly the registered
-	// head the capture selected.
-	authored, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	workID := authorResearchPairSelection(t, authored)
-	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var pinnedRef string
-	var pinnedVersion int64
-	var pinnedDigest string
-	if err := authored.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef, &pinnedVersion, &pinnedDigest); err != nil {
-		t.Fatal(err)
-	}
-	if pinnedRef != registered.Definition.Ref || pinnedVersion != registered.Definition.Version || pinnedDigest != registered.Digest {
-		t.Fatalf("the capture pinned %s version %d digest %s, want the registered head %s version %d digest %s", pinnedRef, pinnedVersion, pinnedDigest, registered.Definition.Ref, registered.Definition.Version, registered.Digest)
-	}
-	entries, viewRaw := readResearchPairView(t, authored, workID)
-	assertResearchPairSelection(t, entries, viewRaw)
-	if err := authored.Close(); err != nil {
-		t.Fatal(err)
-	}
-	authoredFingerprint := captureResearchPairEvidence(t, mustOpenCutoverStore(t, path))
-	assertAuthored := func(t *testing.T) {
-		t.Helper()
-		assertResearchPairEvidenceEqual(t, "the later binary stage", captureResearchPairEvidence(t, mustOpenCutoverStore(t, path)), authoredFingerprint)
-	}
-
-	// The candidate reopens the store, and the selection survives unchanged.
-	code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the candidate must reopen its store: %d %s %s", code, out, errText)
-	}
-	if err := json.Unmarshal([]byte(out), &noop); err != nil || noop.SchemaVersion != candidateSchema || len(noop.Applied) != 0 {
-		t.Fatalf("the candidate's reopen must apply nothing: %+v %v %s", noop, err, out)
-	}
-	assertAuthored(t)
-	reopened, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reopenedEntries, reopenedRaw := readResearchPairView(t, reopened, workID)
-	assertResearchPairSelection(t, reopenedEntries, reopenedRaw)
-	if string(reopenedRaw) != string(viewRaw) {
-		t.Fatalf("the reopened view drifted:\nbefore:\n%s\nafter:\n%s", viewRaw, reopenedRaw)
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	// The baseline refuses the unsupported workflow head before any effect:
-	// no migration, no rewritten row, and no requirement that the old
-	// binary understand the newly promoted head or its digest.
-	migrationSnapshot := releaseMigrationSnapshot(t, path)
-	code, out, errText = runRelease(t, baselineBinary, path, "upgrade", `{}`)
-	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, "binary compatibility refused") ||
-		!strings.Contains(errText, fmt.Sprintf("workflow definition %s version %d is not registered by this binary", registered.Definition.Ref, registered.Definition.Version)) {
-		t.Fatalf("the baseline core must refuse the unsupported head without effect: %d %s %s", code, out, errText)
-	}
-	if after := releaseMigrationSnapshot(t, path); after != migrationSnapshot {
-		t.Fatal("the baseline's unsupported-head refusal rewrote the store")
-	}
-	assertAuthored(t)
-
-	// The refusal left the store operable by the release that owns the head.
-	code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the candidate must operate the store after the refusal: %d %s %s", code, out, errText)
-	}
-	if err := json.Unmarshal([]byte(out), &noop); err != nil || noop.SchemaVersion != candidateSchema || len(noop.Applied) != 0 {
-		t.Fatalf("the candidate's post-refusal no-op must apply nothing: %+v %v %s", noop, err, out)
-	}
-	assertAuthored(t)
 }
 
 // stampAdapterRuntime copies one source tree's adapter runtime into a

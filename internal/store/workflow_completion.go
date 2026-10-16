@@ -1107,9 +1107,20 @@ func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind stri
 	return false, nil
 }
 
+// latestWorkflowVerdict keeps the unbounded latest-history read every live
+// caller uses; the bounded variant serves replay folds that see the intact
+// log.
 func latestWorkflowVerdict(ctx context.Context, tx queryer, workID string) (*workflowVerdictRecordedPayload, error) {
+	return latestWorkflowVerdictBefore(ctx, tx, workID, 0)
+}
+
+// latestWorkflowVerdictBefore is the single verdict-history query owner.
+// beforeSeq bounds the read for a replay fold: 0 keeps the unbounded
+// latest-history semantics, and a fold passes its own sequence so a verdict
+// recorded after it never enters the fold's decision.
+func latestWorkflowVerdictBefore(ctx context.Context, tx queryer, workID string, beforeSeq int64) (*workflowVerdictRecordedPayload, error) {
 	var raw []byte
-	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

@@ -36,9 +36,21 @@ inputs. The backup command uses SQLite's Online Backup API; copying a live `.db`
 or WAL is forbidden.
 
 Each candidate snapshot passes `integrity_check`, `foreign_key_check`, and `quick_check`
-before promotion. Git restores pass `git fsck --full`. A backup manifest records schema
+before promotion. A disposable restore copy also passes supported forward migrations,
+event replay, and restore verification before promotion of the snapshot and its manifest.
+This rule includes pre-upgrade and pre-repair snapshots. A failure prevents the guarded
+mutation. Verification never changes the source database or the retained snapshot.
+Git restores pass `git fsck --full`. A backup manifest records schema
 version, snapshot ID, creation time, DB checksum, and git repository commit IDs. It is
 an inventory, not a third authority.
+Restore results distinguish source-snapshot inventory from the verified restored database
+inventory after migration and replay. Neither inventory is authority.
+
+Recovery compares pre-rebuild worktree occupancy with the occupancy reproduced
+from retained events under PM3. A pre-rebuild row that replay cannot reproduce
+causes a typed refusal naming its worktree and session. Recovery promotion
+refuses, the rebuild rolls back, and the source database, retained snapshot, and
+prior live state remain unchanged. Existing occupancy is evidence, not authority.
 
 ## 2. Restore protocol
 
@@ -136,6 +148,10 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
   When verification runs
   Then the snapshot is quarantined and never promoted.
 
+- Given a candidate snapshot whose retained events cannot replay
+  When backup or a pre-mutation snapshot runs
+  Then no snapshot manifest is promoted and the guarded mutation does not start.
+
 - Given a restore into an existing database
   When it runs
   Then it restores through a clean staging directory, verifies, and promotes
@@ -160,10 +176,16 @@ typed exemption naming the backup test that proves the guarantee. The checker
 - Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`
   (`internal/store/backup_test.go`).
 - Criterion 4 is proved by
+  `TestBackupRefusesUnreplayableLogAndDiscardsSnapshot`
+  (`internal/store/backup_test.go`),
+  `TestHistoricalPayloadUpgradeSnapshotQualification`, and
+  `TestHistoricalPayloadRepairSnapshotQualification`
+  (`cmd/concord/historical_backup_cli_test.go`).
+- Criterion 5 is proved by
   `TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase`,
   `TestRestoreBackupRefusesExistingDestinationUntouched`, and
   `TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent`
   (`internal/store/backup_test.go`).
-- Criterion 5 is proved by `TestBackupVerifyTamperAndOlderSchemaRejection`
+- Criterion 6 is proved by `TestBackupVerifyTamperAndOlderSchemaRejection`
   (`internal/store/fence_test.go`). Section 6 records the reopen criteria
   for each guarantee.

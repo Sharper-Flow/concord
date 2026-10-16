@@ -1505,7 +1505,7 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	if err != nil {
 		return err
 	}
-	if verified.SchemaVersion != manifest.SchemaVersion || verified.EventWatermark != manifest.EventWatermark {
+	if verified.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || verified.RestoredDatabase.EventWatermark != manifest.EventWatermark {
 		return fmt.Errorf("restored manifest = %+v, want schema=%d watermark=%d", verified, manifest.SchemaVersion, manifest.EventWatermark)
 	}
 	if got, err := maxEventSeqAtPath(ctx, restoredPath); err != nil || got != manifest.EventWatermark {

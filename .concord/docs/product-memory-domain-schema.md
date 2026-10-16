@@ -86,6 +86,24 @@ design.
 - Event payloads carry `payload_version`; rebuild must handle every accepted event
   version through explicit upcasters when shapes evolve. This concretizes—without
   fully resolving—CD-0002's migration question.
+- When released shapes share a payload version, replay strictly recognizes the
+  recorded schema before upcasting. Historical recognition does not admit new writes
+  under an obsolete schema and never changes retained event bytes.
+  A released shape that no supported migration carried forward is not replayable;
+  replay refuses it as unrecognized.
+- Replay preserves the effects of supported released writers, including when
+  their payload schemas are identical. Different effects require an authoritative
+  discriminator retained with the event or its preceding authority.
+  A definition pin identifies immutable content, not a writer era.
+- Without such a discriminator, correction replay may use a finite compatibility
+  table keyed by the verified definition pin and recorded source step.
+  A writer rule applies to a key only where that writer's admission accepted
+  a correction at that key.
+  Every supported writer rule applicable to a shared key must yield the same
+  target. An unrecognized or conflicting key refuses replay.
+  The historical graph walk may prove table entries but must not run during replay.
+  Historical interpretation never admits obsolete live operations or changes
+  retained event bytes.
 
 The generic event header is not a domain-relation table. PM3 therefore requires
 referential integrity for typed domain edges, but does not choose a universal
@@ -107,6 +125,44 @@ This shape is validated by Fossil's generic ticket-change artifacts plus
 reconstructable typed ticket projections. Bugzilla's mutable `bugs` + activity-log
 shape is useful audit evidence but does not satisfy Concord's stronger I3/I5
 rebuild requirement.
+
+### 3.1b Historical worktree occupancy replay
+
+Worktree occupancy is a projection. Rebuild clears occupancy with worktree
+entries and derives it only from retained events. Existing occupancy rows are
+comparison evidence, not an independent recovery authority.
+
+Migrations 89 and 104 carried occupancy that no retained occupancy-producing
+payload recorded. For a historical release, the governing creation is the latest
+preceding `work.worktree_created` with the same `claim_op_id`.
+Only the presence of its `occupant_session_ref` member distinguishes recorded
+occupancy from a claim whose creation did not record occupancy.
+An empty member is present. A missing creation grants no exception.
+The marker comes only from retained creation bytes, never from a caller field.
+Live creation payloads always emit this member, including an empty value.
+
+During replay of supported v1 occupancy releases, an absent target is a no-op
+only when the governing creation lacks that member and the following bounds hold:
+
+- The claim has at most one distinct unrecorded released session, as determined
+  from retained events. A second different unrecorded session refuses replay.
+- A scalar release refuses when rebuilt occupancy records a different session
+  for that worktree. Repeating the same absent scalar release remains a no-op.
+- A row-set release refuses a repeated release of the same absent session.
+
+Strict recognition covers scalar and row-set schemas, each with and without
+`claim_incarnation`. The same creation marker and bounds govern a recorded v1
+session vacate when its release path encounters an unrecorded session.
+All other release refusals remain in force. Live admission and live writes do
+not use this exception.
+
+Replay never invents an occupancy row, session identity, process identity, or
+liveness observation to satisfy a release. Activity, dates, sequence thresholds,
+identifier formats, and prose do not identify a historical occupancy era.
+For a claim whose log never recorded an occupant, this bounded exception cannot
+detect corruption of the unrecorded occupant identity.
+An existing occupancy row that replay cannot reproduce causes a typed refusal
+naming its worktree and session. The rebuild rolls back without changing the store.
 
 ### 3.2 No typed-log explosion
 

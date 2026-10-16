@@ -198,6 +198,13 @@ this one function. The folded state the admission model carries
 (`RecoveryRoutes`) is the same slice the runtime reads, so the recorded
 move and the admitted intent cannot disagree about the return.
 
+The route-reader requirement governs live correction admission and live effects.
+Historical `request_correction` completions may use PM3's finite compatibility
+table to preserve a supported released writer's recorded return.
+This exception changes no declared or quarantined live route.
+Runtime replay must not infer a target through a graph walk, work-kind heuristic,
+or correction prose.
+
 ### D4. The producer rule names the artifact-producing mechanism
 
 A route target is a producer when at least one of the following holds:

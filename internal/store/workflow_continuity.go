@@ -144,13 +144,10 @@ type ContinuitySnapshot struct {
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
 	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
-	// WorkContext carries the current work-context view the tx-scoped
-	// reader assembles (CON-887): the latest declaration anchor's required
-	// reading, the active findings, and the Domain grouping. Nil when the
-	// work holds no declaration and no terminal-report findings; a current
-	// view past its bounds leaves this absent and the dedicated context
-	// read owns the explicit refusal.
-	WorkContext *WorkContextView `json:"work_context,omitempty"`
+	// WorkContext and WorkContextUnavailable carry the shared projection.
+	// The outside-repair early exit does not evaluate either field.
+	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
+	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 	// OutsideRepairDisposition names the work's outside-repair disposition
 	// when one is recorded. The store keeps the typed evidence the boundary
 	// authenticated and refuses every managed workflow move while the
@@ -310,19 +307,11 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if err := continuityReadTrailingTx(ctx, tx, req.Work, &out); err != nil {
 		return out, err
 	}
-	// CON-887: the current work-context view rides the pinned projection
-	// when records or findings exist. The overflow refusal leaves the field
-	// absent — session boot must not strand on a work-wide bound the
-	// dedicated context read and dispatch admission own.
-	view, viewErr := readWorkContextView(ctx, tx, req.Work)
+	view, unavailable, viewErr := readWorkContextProjection(ctx, tx, req.Work)
 	if viewErr != nil {
-		var limit *Failure
-		if !failureAs(viewErr, &limit) || limit.Kind != KindLimitExceeded {
-			return out, viewErr
-		}
-		view = nil
+		return out, viewErr
 	}
-	out.WorkContext = view
+	out.WorkContext, out.WorkContextUnavailable = view, unavailable
 	return out, nil
 }
 

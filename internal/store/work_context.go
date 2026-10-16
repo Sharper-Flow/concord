@@ -848,6 +848,44 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	return &view, nil
 }
 
+// WorkContextUnavailable is the typed marker a compound read serves instead
+// of a view when the strict reader refuses the work-wide context on a bound.
+type WorkContextUnavailable struct {
+	Reason string `json:"reason"`
+}
+
+// readWorkContextProjection reads the strict work-context view exactly once
+// through the caller's queryer and classifies its one closed refusal: a
+// compound read must not strand on a work-wide bound, while the dedicated
+// context read and dispatch admission keep the strict refusal.
+func readWorkContextProjection(ctx context.Context, q queryer, workID string) (*WorkContextView, *WorkContextUnavailable, error) {
+	view, err := readWorkContextView(ctx, q, workID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindLimitExceeded {
+			return nil, &WorkContextUnavailable{Reason: string(KindLimitExceeded)}, nil
+		}
+		return nil, nil, err
+	}
+	return view, nil, nil
+}
+
+// checkWorkContextDeclarationTx is the one live post-append declaration
+// check: it runs in the action transaction just after the action's events
+// append and fold, and reads the resulting shared view through the caller's
+// transaction. Any appended work-context declaration carries the read
+// obligation, and any reader refusal rolls the whole action back. Replay
+// folds and terminal reports never run it.
+func checkWorkContextDeclarationTx(ctx context.Context, tx *sql.Tx, workID string, events []Event) error {
+	for _, event := range events {
+		if event.Kind == WorkflowWorkContextRecorded {
+			_, err := readWorkContextView(ctx, tx, workID)
+			return err
+		}
+	}
+	return nil
+}
+
 // assembleWorkContextDomainGroups partitions the view's readings and
 // findings by Domain, in the approved contract's affected-Domain order.
 // Domains the affected order does not name sort after it by identity. The

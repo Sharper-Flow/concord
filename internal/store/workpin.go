@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strconv"
 )
 
@@ -56,12 +55,11 @@ type WorkPin struct {
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
 	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
-	// WorkContext carries the tx-scoped reader's current work-context view
-	// (CON-887): the exact bytes a dispatch packet must consume. It stays
-	// nil when the work holds no declaration and no terminal-report
-	// findings, and a view past its bounds leaves it nil rather than
-	// failing the pin — the dispatch admission owns that refusal.
-	WorkContext *WorkContextView `json:"work_context,omitempty"`
+	// WorkContext carries the strict reader's exact view for dispatch.
+	// WorkContextUnavailable distinguishes an over-bound view from absence.
+	// The partial recovery pin does not evaluate either field.
+	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
+	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 	// VerifiedCriteria carries the approved contract predicates and their latest
 	// verdict kinds only after a workflow reaches completed.
 	VerifiedCriteria []WorkPinVerifiedCriterion `json:"verified_criteria,omitempty"`
@@ -233,26 +231,11 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	return pin, nil
 }
 
-// workPinReadWorkContextTx seats the current work-context view on the pin
-// through the same tx-scoped reader the continuity projection and the
-// dispatch packet admission share, so a packet built from the pin and the
-// admission check that compares it read identical bytes. The read inherits
-// the caller's transaction through the queryer interface: the pooled single
-// connection never sees a nested store call. A view past its bounds omits
-// the member instead of failing the pin; every other reader error
-// propagates.
+// workPinReadWorkContextTx uses the caller's transaction, never the pooled connection.
 func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	view, err := readWorkContextView(ctx, tx, workID)
-	if err != nil {
-		var failure *Failure
-		if errors.As(err, &failure) && failure.Kind == KindLimitExceeded {
-			pin.WorkContext = nil
-			return nil
-		}
-		return err
-	}
-	pin.WorkContext = view
-	return nil
+	view, unavailable, err := readWorkContextProjection(ctx, tx, workID)
+	pin.WorkContext, pin.WorkContextUnavailable = view, unavailable
+	return err
 }
 
 // workPinOutsideRepairDispositionTx populates the pin's outside-repair

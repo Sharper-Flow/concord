@@ -150,7 +150,7 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 		}
 		// The production post-append view check, invoked exactly where the
 		// live action route invokes it.
-		return checkWorkContextResearchDeclarationTx(ctx, rawTx, f.workID, events)
+		return checkWorkContextDeclarationTx(ctx, rawTx, f.workID, events)
 	})
 }
 
@@ -1618,10 +1618,8 @@ func mandatoryOverflowRefs(t *testing.T, f workContextFixture) []string {
 }
 
 // seedMandatoryResearchOverflow drives the current view past the 64 KiB
-// whole-view bound with declaration-origin generic findings alone. The
-// over-bound population is reducible optional context: a later declaration
-// can drop or replace these findings, so the overflow is never attributable
-// to evidence a declaration cannot reduce.
+// whole-view byte bound with an already-admitted historical declaration
+// whose 32 heavy findings are optional context a later declaration can drop or replace.
 func seedMandatoryResearchOverflow(t *testing.T, f workContextFixture, key string) ResearchPack {
 	t.Helper()
 	pack := seedResearchContextPack(t, f, key)
@@ -1663,9 +1661,9 @@ func seedMandatoryResearchOverflow(t *testing.T, f workContextFixture, key strin
 			refs = append(refs, fmt.Sprintf("finding:%d:%d", seq, ordinal))
 		}
 	}
-	if err := f.recordWorkContext(t, map[string]any{"finding_refs": refs, "context_findings": []map[string]any{}}); err != nil {
-		t.Fatalf("mandatory overflow selection declaration refused: %v", err)
-	}
+	// The final over-bound selection rides the historical fold route on the
+	// pinned workflow identity, never as a live action.
+	recordHistoricalWorkContext(t, f, map[string]any{"finding_refs": refs, "context_findings": []map[string]any{}})
 	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 	if err == nil {
 		t.Fatalf("the optional overflow fixture view measures under the bound: %+v", view)

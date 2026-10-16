@@ -397,6 +397,11 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const continuity = await readContinuityProjection(request.workId, deps)
   if (continuity.failure) return continuity
   const pinned = continuity.result.pinned
+  const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
+  // Never construct a packet after either context projection refused its view.
+  if (Object.hasOwn(pinned, "work_context_unavailable") || (workPin !== null && Object.hasOwn(workPin, "work_context_unavailable"))) {
+    return failure("packet_refused", `work ${request.workId} pinned continuity carries the closed work_context_unavailable marker (limit_exceeded), so the pinned work context is unavailable and no packet can be projected from it`)
+  }
   if (pinned.workflow_instance === "absent") {
     return failure("workflow_absent", `work ${request.workId} holds no workflow instance; a lane packet needs a workflow step`)
   }
@@ -475,14 +480,13 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     ...(recordedTask.length > 0 ? { task: recordedTask } : {}),
     ...(narrative.length > 0 ? { narrative } : {}),
   }
-  const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
-  // CON-887: the pin's work-context view rides the packet verbatim. The core
+  // The pin's work-context view rides the packet verbatim. The core
   // refuses a dispatch whose inputs.work_context differs from the current
   // view byte-for-byte, so any re-derivation, filtering, or truncation here
   // would strand the dispatch; the closed packet schema owns the bounds.
   const workContextValue = workPin && isRecord(workPin.work_context) ? (workPin.work_context as unknown as AgentLanePacketWorkContext) : undefined
-  // CON-883: the pinned projection's latest context checkpoint rides the
+  // The pinned projection's latest context checkpoint rides the
   // packet verbatim. The core refuses a dispatch whose inputs.checkpoint
   // differs from the latest checkpoint byte-for-byte, so the builder never
   // re-derives or filters the coordinator directions it carries. The

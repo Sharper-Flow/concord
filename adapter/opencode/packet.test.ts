@@ -321,7 +321,7 @@ test("a correction past the attempt limit still projects into the packet", async
   expect(built.packet!.inputs.correction!.escalated).toBe(true)
 })
 
-// CON-887: the pin's work-context view rides the packet verbatim. The core
+// The pin's work-context view rides the packet verbatim. The core
 // refuses a dispatch whose inputs.work_context differs from the current view
 // byte-for-byte, so any re-derivation here would strand the dispatch.
 const WORK_CONTEXT: AgentLanePacketWorkContext = {
@@ -369,6 +369,38 @@ test("a work context projects verbatim into the packet", async () => {
   const packet = built.packet!
   expect(packet.inputs.work_context).toEqual(WORK_CONTEXT)
   expect(validateAgentLanePacket(packet)).toBe(true)
+})
+
+// The core records a work-context unavailability marker in place of the view,
+// never beside a work_context member, at either carrier the builder reads: the
+// pinned snapshot or the embedded work pin. A packet projected past the marker
+// would dispatch without the view the core's byte-for-byte comparison demands,
+// so the builder must refuse before it emits one.
+const WORK_CONTEXT_UNAVAILABLE = { reason: "limit_exceeded" }
+const withSnapshotMarker = (envelope: any) => {
+  envelope.result.pinned.work_context_unavailable = WORK_CONTEXT_UNAVAILABLE
+  return envelope
+}
+
+test.each([
+  ["embedded pin marker only", () => continuityEnvelope(pinnedContract(), null, { work_context_unavailable: WORK_CONTEXT_UNAVAILABLE })],
+  ["snapshot marker, no pin", () => withSnapshotMarker(continuityEnvelope())],
+  ["snapshot marker beside partial pin {}", () => withSnapshotMarker(continuityEnvelope(pinnedContract(), null, {}))],
+  ["both marker locations", () => withSnapshotMarker(continuityEnvelope(pinnedContract(), null, { work_context_unavailable: WORK_CONTEXT_UNAVAILABLE }))],
+] as [string, () => Record<string, unknown>][])("an unavailable work context marker (%s) refuses the packet", async (_label, continuity) => {
+  const invoke = scriptedInvoke({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuity(),
+  })
+  const result = await buildAgentLanePacket(
+    { workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" } as any,
+    { context: contextFor(), invoke: invoke as any },
+  )
+  expect(result.failure?.kind).toBe("packet_refused")
+  expect(result.failure?.message).toContain("work_context_unavailable")
+  expect(result.failure?.message).toContain("limit_exceeded")
+  expect(result.packet).toBeUndefined()
+  expect(invoke.seen()).toEqual(["concord_work_browse.scope", "concord_work_trace.continuity"])
 })
 
 // The selected research entries ride the same verbatim copy. The adapter

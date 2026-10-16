@@ -91,6 +91,101 @@ func TestBuildRejectsProductMismatch(t *testing.T) {
 	}
 }
 
+// TestBuildWithUnavailableWorkContext boots a snapshot whose strict
+// work-context read refused on a bound: the typed marker rides both pinned
+// locations, neither carries the available view, two builds of one snapshot
+// have identical bytes, and the packet's continuity stays the canonical
+// CD-0016 projection for that snapshot.
+func TestBuildWithUnavailableWorkContext(t *testing.T) {
+	snapshot := testSnapshot()
+	version := int64(1)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	obligations := []string{}
+	// A minimal ordinary managed pin: the required members, the conditional
+	// definition identity the no-disposition branch requires, and the typed
+	// marker instead of a view.
+	snapshot.WorkPin = &store.WorkPin{
+		WorkID:                    "work-1",
+		Title:                     "fixture",
+		LinearIssueKey:            "CON-0000",
+		ProjectID:                 "project-1",
+		ProjectDisplayName:        "fixture",
+		Version:                   1,
+		Lifecycle:                 "in_progress",
+		CancelledInstanceCloses:   0,
+		WorkflowType:              "workflow.break_fix",
+		Step:                      "planning",
+		Watermark:                 "seq:42",
+		WorkflowDefinitionVersion: &version,
+		WorkflowDefinitionDigest:  &digest,
+		Obligations:               &obligations,
+		NextValidIntents:          []store.WorkPinIntent{},
+		DrivingSessions:           []store.WorkPinDrivingSession{},
+		WorkContextUnavailable:    &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)},
+	}
+	snapshot.WorkContextUnavailable = &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)}
+	raw, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatalf("unavailable-context boot packet refused: %v", err)
+	}
+	if err := Validate(raw); err != nil {
+		t.Fatalf("unavailable-context packet rejected: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	continuity := decoded["continuity"].(map[string]any)
+	pinned := continuity["pinned"].(map[string]any)
+	marker, ok := pinned["work_context_unavailable"].(map[string]any)
+	if !ok || marker["reason"] != string(store.KindLimitExceeded) {
+		t.Fatalf("pinned marker = %#v, want the exact %s reason", pinned["work_context_unavailable"], store.KindLimitExceeded)
+	}
+	if _, present := pinned["work_context"]; present {
+		t.Fatal("the boot packet carried the available view beside the pinned marker")
+	}
+	pinValue, ok := pinned["work_pin"].(map[string]any)
+	if !ok {
+		t.Fatalf("pinned work_pin type = %T", pinned["work_pin"])
+	}
+	pinMarker, ok := pinValue["work_context_unavailable"].(map[string]any)
+	if !ok || pinMarker["reason"] != string(store.KindLimitExceeded) {
+		t.Fatalf("embedded pin marker = %#v, want the exact %s reason", pinValue["work_context_unavailable"], store.KindLimitExceeded)
+	}
+	if _, present := pinValue["work_context"]; present {
+		t.Fatal("the embedded pin carried the available view beside its marker")
+	}
+	again, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, again) {
+		t.Fatal("two boot builds of one unavailable-context snapshot differ in bytes")
+	}
+	got, err := json.Marshal(continuity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := json.Marshal(agent.ContinuityPayload(snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ContinuityPayload marshals nested structs in field order, while the
+	// packet's continuity round-trips through JSON as sorted maps, so the
+	// comparison normalizes both through one decode before the byte check.
+	var normalized any
+	if err := json.Unmarshal(canonical, &normalized); err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("continuity mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
 // TestBuildStatesWorkflowAbsenceForInstanceLessWork holds the typed absence
 // the boot packet states for an imported work item: the packet validates and
 // names the workflow absence instead of carrying a fabricated step.

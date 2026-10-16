@@ -711,6 +711,7 @@ func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 		if counts.Failing > 0 {
 			report.Status = "failure"
 			report.Failures = failures
+			report.RunURL = failures[0].URL
 		} else {
 			report.Status = "success"
 		}

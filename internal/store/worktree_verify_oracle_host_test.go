@@ -914,17 +914,17 @@ func TestNativeTargetAxisVenvRecordGate(t *testing.T) {
 }
 
 // TestNativeTargetAxisVenvRecordGateNested pins RECORD path ownership for a
-// nested vendored distribution: rows resolve against the .dist-info parent,
-// the unhashed self-row uses that parent's base, and every integrity
-// refusal survives, while a global site-packages base or a vendor fence
-// fails the fixture.
+// vendored nested distribution: the only inventory is the top-level
+// site-packages/*.dist-info/RECORD, and it enumerates and hashes the vendored
+// payload, METADATA, and RECORD as package data, so every integrity refusal
+// is exercised against rows of the top-level RECORD.
 func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 	venv := t.TempDir()
 	site := filepath.Join(venv, "lib", "python3.13", "site-packages")
 	nestedInfo := filepath.Join(site, "vendor", "tinyfix-1.0.dist-info")
 	outerInfo := filepath.Join(site, "tinyfix-outer-1.0.dist-info")
 	payloadPath := filepath.Join(site, "vendor", "tinyfix", "__init__.py")
-	for _, dir := range []string{nestedInfo, filepath.Dir(payloadPath), outerInfo, filepath.Join(site, "tinyfix"), filepath.Join(site, "sibling"), filepath.Join(venv, "bin")} {
+	for _, dir := range []string{nestedInfo, filepath.Dir(payloadPath), outerInfo} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -934,7 +934,7 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 		return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
 	}
 	payload, metadata := []byte("VALUE = 7\n"), []byte("Name: tinyfix\nVersion: 1.0\n")
-	aux, sentinel := []byte("AUX = 1\n"), []byte("outside\n")
+	sentinel := []byte("outside\n")
 	write := func(path string, body []byte) {
 		t.Helper()
 		if err := os.WriteFile(path, body, 0600); err != nil {
@@ -943,46 +943,30 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 	}
 	write(payloadPath, payload)
 	write(filepath.Join(nestedInfo, "METADATA"), metadata)
-	write(filepath.Join(site, "sibling", "aux.py"), aux)
-	// A conflicting top-level payload: a global site-packages base would
-	// hash this decoy instead of the nested payload and fail the fixture.
-	write(filepath.Join(site, "tinyfix", "__init__.py"), []byte("VALUE = decoy\n"))
 	// Exists outside the venv so the escape case refuses on containment,
 	// not on a missing file.
 	write(filepath.Join(venv, "..", "outside-sentinel.txt"), sentinel)
-	var nestedRecord []byte
-	writeNested := func(rows string) {
-		nestedRecord = []byte(rows)
-		write(filepath.Join(nestedInfo, "RECORD"), nestedRecord)
-	}
-	// The outer inventory only hashes the nested RECORD and is rehashed
-	// after every RECORD mutation, so the outer row never masks the
-	// nested refusal under test.
-	writeOuter := func(inventoryNested bool) {
-		rows := ""
-		if inventoryNested {
-			rows += "vendor/tinyfix-1.0.dist-info/RECORD," + sha(nestedRecord) + "," + itoaForTest(len(nestedRecord)) + "\n"
-		}
-		write(filepath.Join(outerInfo, "RECORD"), []byte(rows+"tinyfix-outer-1.0.dist-info/RECORD,,\n"))
-	}
-	// reset installs rows; empty rows removes the nested RECORD entirely.
+	// The vendored RECORD is package data: its relative inventory rows stay
+	// verbatim but are never resolved as an inventory.
+	nestedRecord := "tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
+		"tinyfix-1.0.dist-info/RECORD,,\n"
+	write(filepath.Join(nestedInfo, "RECORD"), []byte(nestedRecord))
+	// reset installs outer rows; empty rows removes the top-level RECORD.
 	reset := func(rows string) {
 		write(payloadPath, payload)
 		if rows == "" {
-			if err := os.Remove(filepath.Join(nestedInfo, "RECORD")); err != nil {
+			if err := os.Remove(filepath.Join(outerInfo, "RECORD")); err != nil {
 				t.Fatal(err)
 			}
 		} else {
-			writeNested(rows)
+			write(filepath.Join(outerInfo, "RECORD"), []byte(rows))
 		}
-		writeOuter(rows != "")
 	}
-	self := "tinyfix-1.0.dist-info/RECORD,,\n"
-	valid := "tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
-		"tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
-		// Parent-relative row inside the venv: refused only by a fence
-		// that wrongly locks every row to the vendor parent.
-		"../sibling/aux.py," + sha(aux) + "," + itoaForTest(len(aux)) + "\n" +
+	self := "tinyfix-outer-1.0.dist-info/RECORD,,\n"
+	valid := "vendor/tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"vendor/tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
+		"vendor/tinyfix-1.0.dist-info/RECORD," + sha([]byte(nestedRecord)) + "," + itoaForTest(len(nestedRecord)) + "\n" +
 		self
 	reset(valid)
 	t.Run("valid", func(t *testing.T) {
@@ -1023,17 +1007,18 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 			want: "installed distribution has no readable RECORD",
 		},
 		"unhashed_non_self": {
-			rows: "tinyfix-1.0.dist-info/METADATA,,\n" + self,
+			rows: "vendor/tinyfix-1.0.dist-info/METADATA,,\n" + self,
 			want: "unhashed RECORD entry is unsupported",
 		},
 		"absolute_entry": {
 			rows: "/absolute/evil," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" + self,
 			want: "malformed RECORD entry",
 		},
-		// Five ../ steps from the vendor base cross the venv root to the
-		// existing sentinel beside it, so containment refuses before the read.
+		// Four ../ steps from the site-packages base cross the venv root to
+		// the existing sentinel beside it, so containment refuses before
+		// the read.
 		"escape_beyond_venv": {
-			rows: "../../../../../outside-sentinel.txt," + sha(sentinel) + "," + itoaForTest(len(sentinel)) + "\n" + self,
+			rows: "../../../../outside-sentinel.txt," + sha(sentinel) + "," + itoaForTest(len(sentinel)) + "\n" + self,
 			want: "RECORD entry escapes the materialized venv",
 		},
 	}
@@ -1047,6 +1032,64 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 				t.Fatalf("%s: got %v, want refusal %q", name, err, scenario.want)
 			}
 		})
+	}
+}
+
+// TestNativeTargetAxisVenvRecordGateVendoredRecord pins the top-level RECORD
+// as the only inventory: a vendored nested RECORD is package data whose
+// bytes the outer RECORD hashes. Its rows are never resolved, so they may
+// name files the vendored layout never materialized, and every refusal
+// below surfaces through the outer digest.
+func TestNativeTargetAxisVenvRecordGateVendoredRecord(t *testing.T) {
+	venv := t.TempDir()
+	site := filepath.Join(venv, "lib", "python3.13", "site-packages")
+	outerInfo := filepath.Join(site, "pkg-1.dist-info")
+	vendoredInfo := filepath.Join(site, "pkg", "_vendor", "x-1.dist-info")
+	vendoredPkg := filepath.Join(site, "pkg", "_vendor", "x")
+	for _, dir := range []string{outerInfo, vendoredInfo, vendoredPkg} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sha := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
+	}
+	write := func(path string, body []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload := []byte("VX = 1\n")
+	vendoredPath := filepath.Join(vendoredInfo, "RECORD")
+	payloadPath := filepath.Join(vendoredPkg, "__init__.py")
+	// Realistic vendored inventory kept as data: the wheel's bin script row
+	// first, naming the absent vendor bin/x, then the payload and self rows.
+	// bin/x is never materialized; the rows must not resolve as an inventory.
+	vendored := "bin/x," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"x/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"x-1.dist-info/RECORD,,\n"
+	write(vendoredPath, []byte(vendored))
+	write(payloadPath, payload)
+	outer := "pkg/_vendor/x/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"pkg/_vendor/x-1.dist-info/RECORD," + sha([]byte(vendored)) + "," + itoaForTest(len(vendored)) + "\n" +
+		"pkg-1.dist-info/RECORD,,\n"
+	write(filepath.Join(outerInfo, "RECORD"), []byte(outer))
+	if err := nativeTargetVerifyVenvRecords(venv); err != nil {
+		t.Fatalf("vendored RECORD rows must not resolve as an inventory; clean tree refused: %v", err)
+	}
+	// A same-size mutation of the vendored RECORD bytes refuses through the
+	// outer digest.
+	write(vendoredPath, []byte(strings.Replace(vendored, "x/__init__.py,", "y/__init__.py,", 1)))
+	if err := nativeTargetVerifyVenvRecords(venv); err == nil || !strings.Contains(err.Error(), "differs from its wheel RECORD digest") {
+		t.Fatalf("mutated vendored RECORD was admitted: %v", err)
+	}
+	// A tampered vendored payload refuses through the outer digest too.
+	write(vendoredPath, []byte(vendored))
+	write(payloadPath, []byte("VX = 2\n"))
+	if err := nativeTargetVerifyVenvRecords(venv); err == nil || !strings.Contains(err.Error(), "differs from its wheel RECORD digest") {
+		t.Fatalf("tampered vendored payload was admitted: %v", err)
 	}
 }
 
@@ -1091,4 +1134,193 @@ func itoaForTest(n int) string {
 		n /= 10
 	}
 	return digits
+}
+
+// One root config is selected by fixed name precedence among the files the
+// recipe declares at the root, the pinned dependency manifest is the
+// fallback, and every stage names it with the root as rootdir while
+// collection selects the declared .py harness files whole. Expected values
+// are literals per case; no expected value is derived from the manifest.
+func TestNativeTargetPytestScopeStages(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			cases := []struct {
+				name      string
+				config    string // the exact -c value the stages must carry
+				declared  string // root config name the recipe declares, "" for fallback
+				inHarness bool   // the declared config rides harness_files, else support_files
+				withRival bool   // also declare a root pytest.ini in support_files
+			}{
+				{"harness pytest.toml", "pytest.toml", "pytest.toml", true, false},
+				{"support .pytest.toml", ".pytest.toml", ".pytest.toml", false, false},
+				{"harness pytest.ini", "pytest.ini", "pytest.ini", true, false},
+				{"support .pytest.ini", ".pytest.ini", ".pytest.ini", false, false},
+				{"harness pyproject.toml", "pyproject.toml", "pyproject.toml", true, false},
+				{"support tox.ini", "tox.ini", "tox.ini", false, false},
+				{"harness setup.cfg", "setup.cfg", "setup.cfg", true, false},
+				{"precedence pytest.toml over support pytest.ini", "pytest.toml", "pytest.toml", true, true},
+				{"fallback to pinned manifest", "pyproject.toml", "", false, false},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					m, c := nativeTargetTestManifest()
+					m.Root, c.Cwd = root, root
+					m.HarnessFiles = []string{nativeTargetFixtureName(root, "tests/test_beta.py"), nativeTargetFixtureName(root, "tests/test_alpha.py")}
+					m.SupportFiles = []string{nativeTargetFixtureName(root, "support/app.py"), nativeTargetFixtureName(root, "support/pytest.ini")}
+					if tc.declared != "" {
+						if tc.inHarness {
+							m.HarnessFiles = append(m.HarnessFiles, nativeTargetFixtureName(root, tc.declared))
+						} else {
+							m.SupportFiles = append(m.SupportFiles, nativeTargetFixtureName(root, tc.declared))
+						}
+					}
+					if tc.withRival {
+						m.SupportFiles = append(m.SupportFiles, nativeTargetFixtureName(root, "pytest.ini"))
+					}
+					m.Cases = map[string][]string{"case:fixture": {"tests/test_beta.py::test_beta", "tests/test_alpha.py::test_alpha"}}
+					witnesses, err := nativeTargetCaseWitnesses(m, c)
+					if err != nil {
+						t.Fatalf("scope fixture witnesses refused: %v", err)
+					}
+					c.Argv = append([]string{"pytest"}, witnesses...)
+					if err := validateNativeTargetManifest(m, c); err != nil {
+						t.Fatalf("scope fixture refused: %v", err)
+					}
+					plan := &nativeTargetOraclePlan{Recipe: m}
+					pytestScopeAssertStages(t, root, "prepare", plan, witnesses, tc.config)
+					pytestScopeAssertStages(t, root, "execute", plan, witnesses, tc.config)
+				})
+			}
+		})
+	}
+}
+
+// pytestScopeAssertStages compares one phase plan against the literal stage
+// arrays: the unchanged uv prefix, the pinned config flags on every pytest
+// stage, and collection naming the two declared .py harness files whole.
+func pytestScopeAssertStages(t *testing.T, root, phase string, plan *nativeTargetOraclePlan, witnesses []string, config string) {
+	t.Helper()
+	want := []NativeOracleStage{
+		{Name: "metadata", Argv: []string{"uv", "sync", "--locked", "--offline", "--no-build", "--no-python-downloads", "--no-install-project", "--no-install-workspace", "--no-install-local", "--link-mode", "copy"}},
+		{Name: "toolcheck", Argv: append([]string{"pytest", "--version", "-p", "no:cacheprovider", "-q"}, "-c", config, "--rootdir=.")},
+	}
+	if phase == "prepare" {
+		want = append(want, NativeOracleStage{Name: "collect", Argv: append(append([]string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}, "-c", config, "--rootdir=."), "tests/test_beta.py", "tests/test_alpha.py")})
+	} else {
+		for i, witness := range witnesses {
+			want = append(want, NativeOracleStage{Name: "test", Argv: append([]string{"pytest", witness, "-ra", "-q", "-p", "no:cacheprovider", fmt.Sprintf("--junitxml=$scratch/junit-%d.xml", i)}, "-c", config, "--rootdir=.")})
+		}
+	}
+	stages, err := plan.stages(phase, witnesses)
+	if err != nil {
+		t.Fatalf("root %s %s refused: %v", root, phase, err)
+	}
+	if len(stages) != len(want) {
+		t.Fatalf("root %s %s rendered %d stages, want %d", root, phase, len(stages), len(want))
+	}
+	for i := range want {
+		if stages[i].Name != want[i].Name || !slicesEqualStrings(stages[i].Argv, want[i].Argv) {
+			t.Fatalf("root %s %s stage %d = %s %v, want %s %v", root, phase, i, stages[i].Name, stages[i].Argv, want[i].Name, want[i].Argv)
+		}
+	}
+}
+
+// TestNativeTargetPytestScopeAdmission pins the pytest collection capacity
+// decision at manifest admission: the whole-file .py harness population must
+// render inside the bounded command shape, support entries and non-Python
+// harness entries never add selectors, a conftest.py harness entry counts as
+// a selector, and the per-operand bound is the root-relative target, never
+// the full repository path. Every case keeps the fixture's single selected
+// witness so no witness or stage limit can decide the outcome, and every
+// expected outcome is a literal.
+func TestNativeTargetPytestScopeAdmission(t *testing.T) {
+	// pyHarness renders n .py harness targets under root: the fixture's
+	// selected witness file, a conftest entry, then padded test files.
+	pyHarness := func(root string, n int) []string {
+		names := []string{"tests/test_value.py", "tests/conftest.py"}
+		for i := len(names); i < n; i++ {
+			names = append(names, fmt.Sprintf("tests/test_extra_%02d.py", i))
+		}
+		out := make([]string, 0, n)
+		for _, rel := range names[:n] {
+			out = append(out, nativeTargetFixtureName(root, rel))
+		}
+		return out
+	}
+	// nonPyHarness and supportPy render plain data harness entries and
+	// .py-named support entries; neither group adds a collection selector.
+	nonPyHarness := func(root string, n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, nativeTargetFixtureName(root, fmt.Sprintf("support/data_%02d.txt", i)))
+		}
+		return out
+	}
+	supportPy := func(root string, n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, nativeTargetFixtureName(root, fmt.Sprintf("support/helper_%02d.py", i)))
+		}
+		return out
+	}
+	// longRoot renders a 305-byte nested root: six 50-character
+	// slash-separated segments, inside the 512-byte repository path bound.
+	segments := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		segments = append(segments, strings.Repeat("d", 50))
+	}
+	longRoot := strings.Join(segments, "/")
+	for _, tc := range []struct {
+		name     string
+		root     string
+		harness  []string
+		support  []string
+		admitted bool
+	}{
+		{"eight_py_dot_root", ".", pyHarness(".", 8), nil, true},
+		{"eight_py_rooted", "pyfix", pyHarness("pyfix", 8), nil, true},
+		{"nine_py", "pyfix", pyHarness("pyfix", 9), nil, false},
+		{"sixteen_py_inventory_max", "pyfix", pyHarness("pyfix", 16), nil, false},
+		{"sixteen_mixed_eight_py", "pyfix", append(pyHarness("pyfix", 8), nonPyHarness("pyfix", 8)...), nil, true},
+		{"sixteen_support_py_not_collected", "pyfix", pyHarness("pyfix", 1), supportPy("pyfix", 16), true},
+		{"target_operand_256_bytes", "pyfix", []string{
+			nativeTargetFixtureName("pyfix", "tests/test_value.py"),
+			nativeTargetFixtureName("pyfix", "dir/"+strings.Repeat("a", 249)+".py"),
+		}, nil, true},
+		{"target_operand_257_bytes", "pyfix", []string{
+			nativeTargetFixtureName("pyfix", "tests/test_value.py"),
+			nativeTargetFixtureName("pyfix", "dir/"+strings.Repeat("a", 250)+".py"),
+		}, nil, false},
+		{"long_root_short_operands", longRoot, pyHarness(longRoot, 2), nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, c := nativeTargetTestManifest()
+			m.Root, c.Cwd = tc.root, tc.root
+			m.HarnessFiles = append([]string{}, tc.harness...)
+			m.SupportFiles = append([]string{}, tc.support...)
+			err := validateNativeTargetManifest(m, c)
+			if !tc.admitted {
+				if err == nil {
+					t.Fatal("collection population admitted, want a refusal at manifest admission")
+				}
+				assertFailureKind(t, err, KindLimitExceeded)
+				if !strings.Contains(err.Error(), "pytest recipe collection") {
+					t.Fatalf("refusal does not name the pytest recipe collection bound: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("admitted collection population refused: %v", err)
+			}
+			// The admitted population must render the canonical prepare
+			// collection command inside the bounded argv shape.
+			argv, err := (&nativeTargetOraclePlan{Recipe: m}).prepareCommand(c)
+			if err != nil {
+				t.Fatalf("prepare command refused for an admitted population: %v", err)
+			}
+			if err := validateWorktreeVerifyCommand(argv); err != nil {
+				t.Fatalf("rendered collection exceeds the bounded argv shape: %v", err)
+			}
+		})
+	}
 }

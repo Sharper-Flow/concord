@@ -178,7 +178,7 @@ func (p *integrationGitProbe) output(cwd string, stdin io.Reader, env []string, 
 	if err := p.refusal(); err != nil {
 		return integrationProbeResult{}, err
 	}
-	args := make([]string, 0, 2*len(integrationProbeMergeConfig)+len(argv))
+	var args []string
 	for _, setting := range integrationProbeMergeConfig {
 		args = append(args, "-c", setting)
 	}

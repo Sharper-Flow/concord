@@ -119,7 +119,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for every kind except `depends_on` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for `merged_into` or `supersedes` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -296,7 +296,7 @@ or storage method is not sufficient evidence.
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
   the same transaction, a resolution that would close a cycle or add a
-  second successor is refused, and every kind except `depends_on` demands
+  second successor is refused, and `merged_into` or `supersedes` demands
   the operator approval pinned to both work and contract versions.
 
 ## Verification

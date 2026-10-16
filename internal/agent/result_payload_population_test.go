@@ -738,6 +738,60 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 	return nil
 }
 
+// fixtureRequiredNames reads a schema required list as ordered Go strings.
+func fixtureRequiredNames(raw any) []string {
+	list, _ := raw.([]any)
+	names := make([]string, 0, len(list))
+	for _, entry := range list {
+		if name, ok := entry.(string); ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// avoidForbiddenRequiredConjunctions prunes the fixture so no required
+// conjunction a not clause forbids stays fully present, omitting a key no
+// active required list demands and failing loudly over a fully required one.
+func avoidForbiddenRequiredConjunctions(t *testing.T, out map[string]any, forbidden any, required []string) {
+	t.Helper()
+	notSchema, ok := forbidden.(map[string]any)
+	if !ok {
+		return
+	}
+	var conjunctions [][]string
+	if names := fixtureRequiredNames(notSchema["required"]); len(names) > 0 {
+		conjunctions = append(conjunctions, names)
+	}
+	if alternatives, ok := notSchema["anyOf"].([]any); ok {
+		for _, alternative := range alternatives {
+			arm, _ := alternative.(map[string]any)
+			if names := fixtureRequiredNames(arm["required"]); len(names) > 0 {
+				conjunctions = append(conjunctions, names)
+			}
+		}
+	}
+	for _, conjunction := range conjunctions {
+		complete, victim := true, ""
+		for _, name := range conjunction {
+			if _, present := out[name]; !present {
+				complete = false
+				break
+			}
+			if victim == "" && !slices.Contains(required, name) {
+				victim = name
+			}
+		}
+		if !complete {
+			continue
+		}
+		if victim == "" {
+			t.Fatalf("not clause forbids the required conjunction [%s]; every member is also required, so no fixture satisfies the schema", strings.Join(conjunction, ", "))
+		}
+		delete(out, victim)
+	}
+}
+
 func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]map[string]any, depth int) map[string]any {
 	t.Helper()
 	properties, _ := schema["properties"].(map[string]any)
@@ -759,6 +813,7 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 	for name, node := range defs {
 		rootDefs[name] = node
 	}
+	required := fixtureRequiredNames(schema["required"])
 	branches, _ := schema["allOf"].([]any)
 	if _, ok := schema["if"]; ok {
 		branches = append(slices.Clone(branches), schema)
@@ -776,23 +831,9 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			}
 			branch, _ = branch[keyword].(map[string]any)
 		}
-		// A branch may forbid keys the base schema declares, expressed as
-		// not.anyOf of required lists: the branch admits the value only when
-		// none of those keys is present. The fixture must omit every forbidden
-		// key of the branch it selected, so the populated optional members
-		// above cannot smuggle a key the branch refuses.
-		if forbidden, ok := branch["not"].(map[string]any); ok {
-			if alternatives, ok := forbidden["anyOf"].([]any); ok {
-				for _, alternative := range alternatives {
-					required, _ := alternative.(map[string]any)["required"].([]any)
-					for _, raw := range required {
-						if name, ok := raw.(string); ok {
-							delete(out, name)
-						}
-					}
-				}
-			}
-		}
+		// The branch's own required list is active for the value it selected.
+		required = append(required, fixtureRequiredNames(branch["required"])...)
+		avoidForbiddenRequiredConjunctions(t, out, branch["not"], required)
 		constraints, _ := branch["properties"].(map[string]any)
 		for name, node := range constraints {
 			member, ok := properties[name].(map[string]any)
@@ -807,6 +848,9 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			out[name] = schemaFixtureValue(t, constrained, defs, depth+1)
 		}
 	}
+	// Root exclusion follows the conditional assignments, so no constraint
+	// override repopulates a forbidden conjunction.
+	avoidForbiddenRequiredConjunctions(t, out, schema["not"], required)
 	return out
 }
 

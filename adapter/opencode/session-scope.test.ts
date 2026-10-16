@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import { HostControlPlane, hostControlPlane, SESSION_ROUTE } from "./move-session"
 
 const SCOPE_KEY = "concord.task_scope"
@@ -45,6 +46,7 @@ afterEach(() => {
   dispatchWindows().takeInFlight("scope-window")
   hostControlPlane().bind(undefined)
   configureHostLease({ reset: true })
+  configureCiWatch({ reset: true })
 })
 
 test("an unmanaged native Task preserves arguments and creates no Concord evidence", async () => {

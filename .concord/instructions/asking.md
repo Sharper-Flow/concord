@@ -27,6 +27,3 @@ refusal.
 
 When a decision is reversible and the cost of being wrong is small, choose and
 say what you chose. When it is not, ask.
-
-If a tool moved the session to another directory in the current turn, do not
-use the native question tool. Ask the operator in normal chat, then stop the turn.

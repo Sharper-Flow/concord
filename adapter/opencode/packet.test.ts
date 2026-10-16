@@ -1354,11 +1354,8 @@ test("strict binding rejection", () => {
 })
 
 // Generated worker guidance teaches the canonical task, the binding
-// authority, and the one-result scope, and states the approval premise limit
-// in UTF-8 bytes apart from the packet's code-point field limits and the
-// model token budget. It directs no truncation and no reapproval, and names
-// no host Task prompt cap.
-test("generated guidance teaches the canonical task, binding authority, and count units", async () => {
+// authority, and the one-result scope, and names no host Task prompt cap.
+test("generated guidance teaches the canonical task and binding authority", async () => {
   const agent = (await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()).replace(/\s+/g, " ")
   expect(agent).toContain("## Objective and binding")
   expect(agent).toContain("`inputs.task` is the canonical objective, carried verbatim")
@@ -1367,11 +1364,6 @@ test("generated guidance teaches the canonical task, binding authority, and coun
   expect(agent).toContain("`objective_source`")
   expect(agent).toContain("`contract_version` is null before a contract is approved")
   expect(agent).toContain("Complete only that assigned result")
-  expect(agent).toContain("at most 4096 UTF-8 bytes")
-  expect(agent).toContain("count JSON Schema Unicode code points")
-  expect(agent).toContain("`context_tokens_max` is a model token limit")
-  expect(agent).toContain("do not truncate approved content")
-  expect(agent).toContain("do not ask to reapprove unchanged scope")
   expect(agent).not.toMatch(/Task prompt (cap|limit)/i)
 })
 

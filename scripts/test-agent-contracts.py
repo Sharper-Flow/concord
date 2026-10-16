@@ -1160,7 +1160,7 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("native_lane_generator", ROOT / "scripts/generate-agent-lanes.py")
         lanes = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(lanes)
-        text = lanes.acceptance_oracle_instructions(packet_schema)
+        text = lanes.acceptance_oracle_instructions(packet_schema, {"id": "implement"})
         for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
                       "Managed workers", "gain no Concord tools", "Ordinary test output",
                       "Never author `subject_commit`", "never", "invent a locator",

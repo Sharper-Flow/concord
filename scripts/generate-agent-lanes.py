@@ -20,7 +20,6 @@ MANIFEST = ROOT / MANIFEST_PATH
 SCHEMA = ROOT / "contracts/agent-lanes.schema.json"
 PACKET_SCHEMA = ROOT / "contracts/agent-lane-packet.schema.json"
 REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
-PAYLOAD_SCHEMA = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
 PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
@@ -29,7 +28,7 @@ PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 PRIMARY_PROFILE_IDS = ("concord-coordinator", "concord-operator")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
-# quote its paragraph, so the rule has one statement.
+# name it by this lead sentence, so the rule has one statement.
 CONDUCT_CHANGE = ROOT / ".concord/instructions/change.md"
 COMMITTED_CONTENT_LEAD = "Commit only durable content."
 
@@ -226,19 +225,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     context_refs = context_finding["properties"]["evidence_refs"]
     context_domain = context_finding["properties"]["domain_id"]
     context_rationale = context_finding["properties"]["product_wide_rationale"]
-    base_comparison = properties["base_comparison"]
-    base_checks = base_comparison["properties"]["checks"]
-    base_check = report_schema["$defs"]["base_comparison_check"]
     review = report_schema["$defs"][properties["review"]["$ref"].removeprefix("#/$defs/")]
-    review_block = review
     review_findings = review["properties"]["findings"]
     review_finding = report_schema["$defs"]["review_finding"]
     oracle_finding = report_schema["$defs"]["oracle_finding"]
     oracle_receipt = report_schema["$defs"]["oracle_receipt"]
     resolved_findings = review["properties"]["resolved_findings"]
     resolved_finding = report_schema["$defs"]["resolved_finding"]
-    worker_job = properties["worker_job"]
-    return [
+    lines = [
         "Canonical report top-level shape (the adapter adds identity): "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
@@ -330,33 +324,38 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxLength={context_rationale['maxLength']}, "
         f"x-maxBytes={context_rationale['x-maxBytes']}. "
         "Required when domain_id names the root Domain, and refused on a child Domain.",
-        "base_comparison: "
-        "optional top-level object; "
-        f"type={base_comparison['type']}, "
-        f"additionalProperties={json.dumps(base_comparison['additionalProperties'])}, "
-        f"required={json.dumps(base_comparison['required'], ensure_ascii=False)}.",
-        "base_comparison.checks: "
-        f"type={base_checks['type']}, "
-        f"minItems={base_checks['minItems']}, "
-        f"maxItems={base_checks['maxItems']}, "
-        f"items={json.dumps(base_checks['items'], ensure_ascii=False)}.",
-        "base_comparison_check shape: "
-        f"type={base_check['type']}, "
-        f"additionalProperties={json.dumps(base_check['additionalProperties'])}, "
-        f"required={json.dumps(base_check['required'], ensure_ascii=False)}.",
-        "base_comparison_check.command: "
-        f"type={base_check['properties']['command']['type']}, "
-        f"minLength={base_check['properties']['command']['minLength']}, "
-        f"maxLength={base_check['properties']['command']['maxLength']}.",
-        "base_comparison_check.branch_result and base_comparison_check.base_result: "
-        f"enum={json.dumps(base_check['properties']['branch_result']['enum'], ensure_ascii=False)}.",
+        "evidence_entry.oracle_receipt: "
+        "optional object (CON-890); "
+        f"type={oracle_receipt['type']}, "
+        f"additionalProperties={json.dumps(oracle_receipt['additionalProperties'])}, "
+        f"required={json.dumps(oracle_receipt['required'], ensure_ascii=False)}. "
+        "Report one control execution: `result` is one of "
+        f"{', '.join(f'`{item}`' for item in oracle_receipt['properties']['result']['enum'])}. "
+        "An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; "
+        "`unavailable`/`not_run` carry the empty `run_ref` and name the explanation in "
+        "`evidence_refs`. A receipt is reported evidence, never native-run authority: when no "
+        "producing route issued an immutable locator, report `unavailable` and name the missing "
+        "producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID "
+        "identity: never author it; any echo is stripped and the observed subject is injected "
+        "from the dispatch packet.",
+        "oracle_receipt.control_ids: "
+        f"type={oracle_receipt['properties']['control_ids']['type']}, "
+        f"minItems={oracle_receipt['properties']['control_ids']['minItems']}, "
+        f"maxItems={oracle_receipt['properties']['control_ids']['maxItems']}, "
+        f"pattern={json.dumps(oracle_receipt['properties']['control_ids']['items']['pattern'], ensure_ascii=False)}.",
+        "oracle_receipt.recipe_source: "
+        "the exact pinned harness identity the control declared "
+        f"(project_id, path, commit_oid at {json.dumps(oracle_receipt['properties']['recipe_source']['$ref'], ensure_ascii=False)}); "
+        "never the candidate's modified copy of the harness.",
+    ]
+    review_lines = [
         "review: "
         "optional top-level object; "
         f"type={review['type']}, "
         f"additionalProperties={json.dumps(review['additionalProperties'])}, "
         f"required={json.dumps(review['required'], ensure_ascii=False)}.",
         "review.verdict: "
-        f"enum={json.dumps(review_block['properties']['verdict']['enum'], ensure_ascii=False)}.",
+        f"enum={json.dumps(review['properties']['verdict']['enum'], ensure_ascii=False)}.",
         "review.findings: "
         f"type={review_findings['type']}, "
         f"minItems={review_findings['minItems']}, "
@@ -405,41 +404,13 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"additionalProperties={json.dumps(resolved_finding['additionalProperties'])}, "
         f"required={json.dumps(resolved_finding['required'], ensure_ascii=False)}; "
         f"finding_id pattern={json.dumps(resolved_finding['properties']['finding_id']['pattern'], ensure_ascii=False)}.",
-        "evidence_entry.oracle_receipt: "
-        "optional object (CON-890); "
-        f"type={oracle_receipt['type']}, "
-        f"additionalProperties={json.dumps(oracle_receipt['additionalProperties'])}, "
-        f"required={json.dumps(oracle_receipt['required'], ensure_ascii=False)}. "
-        "Report one control execution: `result` is one of "
-        f"{', '.join(f'`{item}`' for item in oracle_receipt['properties']['result']['enum'])}. "
-        "An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; "
-        "`unavailable`/`not_run` carry the empty `run_ref` and name the explanation in "
-        "`evidence_refs`. A receipt is reported evidence, never native-run authority: when no "
-        "producing route issued an immutable locator, report `unavailable` and name the missing "
-        "producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID "
-        "identity: never author it; any echo is stripped and the observed subject is injected "
-        "from the dispatch packet.",
-        "oracle_receipt.control_ids: "
-        f"type={oracle_receipt['properties']['control_ids']['type']}, "
-        f"minItems={oracle_receipt['properties']['control_ids']['minItems']}, "
-        f"maxItems={oracle_receipt['properties']['control_ids']['maxItems']}, "
-        f"pattern={json.dumps(oracle_receipt['properties']['control_ids']['items']['pattern'], ensure_ascii=False)}.",
-        "oracle_receipt.recipe_source: "
-        "the exact pinned harness identity the control declared "
-        f"(project_id, path, commit_oid at {json.dumps(oracle_receipt['properties']['recipe_source']['$ref'], ensure_ascii=False)}); "
-        "never the candidate's modified copy of the harness.",
         "review verdict consistency: "
         "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
         "and one with a `no_ship` verdict and zero findings.",
-        "worker_job: optional top-level object; "
-        f"type={worker_job['type']}, "
-        f"additionalProperties={json.dumps(worker_job['additionalProperties'])}, "
-        f"required={json.dumps(worker_job['required'], ensure_ascii=False)}. "
-        "When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; "
-        "omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, "
-        "or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; "
-        "`inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.",
     ]
+    if "review" in lane.get("required_report_blocks", []):
+        return lines + review_lines
+    return lines
 
 
 def go_projection(manifest: dict, manifest_digest: str, worker_scope: dict[str, str]) -> str:
@@ -544,53 +515,6 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 """
 
 
-def reads_repository(lane: dict) -> bool:
-    """Whether the lane's declared capabilities grant repository reads."""
-    return "read_repository" in lane.get("capabilities", [])
-
-
-def source_lookup_routing_instructions(repository_reads: bool) -> str:
-    # Host connections decide which research services exist, so these
-    # instructions name Context7 and Exa as host-connected options, route
-    # each lookup to the source class that owns the fact, and require
-    # discovery before invocation. The repository paragraph is projected
-    # only where the recipient's declared capability grants repository
-    # reads — a lane's `read_repository` capability, or `read`/`grep` tool
-    # access for a utility — so an external-only recipient never receives
-    # guidance to inspect repository files or use repository search tools.
-    # utility_projection appends the block only where `execute` access is
-    # declared, so a utility without `execute` never receives it.
-    if repository_reads:
-        routed_sources = (
-            "Establish this repository's own behavior from local source lookup: `read`\n"
-            "and `grep` over its files, or a connected code-search tool through\n"
-            "`execute` (for example `tools.lgrep.search_semantic`) when one serves the\n"
-            "question better. Query Context7 for a library, API, platform, or tool fact\n"
-            "the repository does not settle. Search Exa for current external facts that\n"
-            "change over time.\n"
-        )
-    else:
-        routed_sources = (
-            "Query Context7 for a library, API, platform, or tool fact. Search Exa for\n"
-            "current external facts that change over time.\n"
-        )
-    return f"""## Source lookup routing
-
-Route each technical lookup to the source class that owns the fact.
-{routed_sources}Ground each technical claim in a source you actually
-consulted this attempt and cite it: recall is not a lookup. Discover the
-exact callable signatures first: enumerate the tool catalog inside
-`execute`, or search it for the service by name, then call the returned
-path exactly. Never reconstruct a tool path from memory.
-Context7 and Exa are host-connected options, and the host, not this
-instruction, controls whether they are connected. When a route the answer
-needs is not connected, or a source cannot answer the question, state that
-plainly, name the missing source, and continue with the evidence your role
-already allows. Never invent a lookup result, and never present recall as a
-research call.
-"""
-
-
 def edits_scoped_files(lane: dict) -> bool:
     """Whether the lane's declared capabilities grant scoped repository edits."""
     return "edit_scoped_files" in lane.get("capabilities", [])
@@ -634,21 +558,24 @@ def committed_content_rule() -> str:
 def committed_content_instructions(lane: dict) -> str:
     # Derived from capabilities like the edit boundary: a lane that writes
     # repository files applies the rule, and the diff-inspecting lane reviews
-    # against it. The review lane names the rule in each finding so its report
-    # carries the obligation without a new evidence kind.
+    # against it. The conduct corpus reaches every lane session, so the lane
+    # names the rule by its validated lead sentence instead of quoting it. The
+    # review lane names the rule in each finding so its report carries the
+    # obligation without a new evidence kind.
+    committed_content_rule()
     capabilities = lane.get("capabilities", [])
+    rule = f'the conduct rule that opens "{COMMITTED_CONTENT_LEAD}" in `.concord/instructions/change.md`'
     if edits_scoped_files(lane):
-        lead = "Apply this rule to every comment and document you add or change:"
+        text = f"Apply {rule} to every comment and document you add or change."
     elif "inspect_diff" in capabilities:
-        lead = (
-            "Review every added comment and committed document against this rule. Report "
+        text = (
+            f"Review every added comment and committed document against {rule}. Report "
             "each violation as a review finding whose `detail` starts with `committed-content:`."
         )
     else:
         return ""
-    wrap = {"width": 80, "break_on_hyphens": False, "break_long_words": False}
-    quoted = textwrap.fill(committed_content_rule(), initial_indent="> ", subsequent_indent="> ", **wrap)
-    return f"## Committed content\n\n{textwrap.fill(lead, **wrap)}\n\n{quoted}\n\n"
+    wrapped = textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
+    return f"## Committed content\n\n{wrapped}\n\n"
 
 
 def law_conformance_instructions(lane: dict) -> str:
@@ -707,16 +634,9 @@ def command_duration_instructions(lane: dict) -> str:
     return f"""## Command duration
 
 This lane's wall-time budget is {budget} seconds for the whole attempt. The
-shell tool ends a command at its `timeout` parameter, and without one it
-applies a short default of about 120 seconds, so a slow command dies before
-it finishes and the attempt loses the evidence.
-
-Before you run a command that can take minutes, set the shell tool `timeout`
-parameter in milliseconds to cover the expected runtime, and keep the time
-you spend inside the remaining lane budget. Treat full Go package suites
-(`go test ./...`, or one large package such as `./internal/store`) as able to
-exceed 400 seconds: give such a command an explicit `timeout` above 400000
-milliseconds, or run a narrower test tier instead.
+shell tool ends a command at its `timeout` parameter, about 120 seconds by
+default. Give a command that can take minutes an explicit `timeout` in
+milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
 """
 
 
@@ -817,18 +737,23 @@ checkpoint.
 """
 
 
-def acceptance_oracle_instructions(packet_schema: dict) -> str:
-    # When the packet's worker job carries the acceptance oracle,
-    # every lane reads the same recorded copy. The block teaches the shared
-    # oracle without adding acceptance criteria: consume host-produced native
-    # receipts, never substitute a preferred test, report a missing case as a
-    # legitimate blocker, treat earlier-subject receipts as baseline-only,
-    # and treat a timeout as unavailable evidence. The bounds are read off
-    # the packet schema, never restated as literals.
+def acceptance_oracle_instructions(packet_schema: dict, lane: dict) -> str:
+    # When the packet's worker job carries the acceptance oracle, every lane
+    # reads the same recorded copy. The block adds no acceptance criteria and
+    # keeps the native-oracle teaching CD-0223 requires: the host owns
+    # preparation and execution, distinguished by Go and target-repository
+    # driver. The receipt and finding shapes are stated once, in the report
+    # constraints. The bounds are read off the packet schema, never restated
+    # as literals.
     oracle = packet_schema["$defs"]["lane_worker_acceptance_oracle"]
     owners_max = oracle["properties"]["owners"]["maxItems"]
     cases_max = oracle["properties"]["cases"]["maxItems"]
     controls_max = oracle["properties"]["controls"]["maxItems"]
+    findings = (
+        "Classify each finding the oracle governs with `review_finding.oracle`.\n"
+        if "review" in lane.get("required_report_blocks", [])
+        else ""
+    )
     return f"""## Acceptance oracle
 
 When `inputs.worker_job.acceptance_oracle` is present, it is the owner-level
@@ -850,60 +775,22 @@ materializer/runner pairs are unavailable. Execution requires the exact
 persisted job, attempt, epoch, packet digest, control, preparation
 reference, and recorded raw subject. Managed workers gain no Concord tools.
 Do not replace this producer with your own argument vector, automatic
-preparation, or a model assertion. Ordinary test output does not acquire a
-qualified oracle receipt.
+preparation, a preferred test, or a model assertion. Ordinary test output
+does not acquire a qualified oracle receipt.
 
-Report the host-produced execution as a typed `oracle_receipt` on an evidence
-entry: the control ids,
-case ids, the pinned recipe source, the result (`pass`, `fail`, `unavailable`,
-or `not_run`), the exit code for an executed result, and the immutable run
-locator your host produced. A receipt is reported evidence, not authority:
-when no producing route issued an immutable locator, report `unavailable`
-with an empty `run_ref` and name the missing producer honestly — never
-invent a locator. A timeout is `unavailable` evidence, never a measured
-failure and never a source defect claim. Never author `subject_commit`:
-the dispatch owns that identity.
-
-Do not replace a hard control with a preferred test, add an unrelated
-delivery condition, or treat the finite case list as proof of complete
-semantics. When you find a real entry path or transition the inventory
-omits, report it as a review finding classified `uncovered_case` with its
-owner and entry point: a missing case is a legitimate delivery blocker, not
-a rejection. An obligation failure of a declared owner is a
-`delivery_blocker`; a concern outside the approved owner or contract is a
-`follow_up` and never becomes a repair criterion; an obsolete, inconsistent,
-or unsound harness is an `oracle_defect`, which blocks oracle readiness
-rather than manufacturing a repair obligation. Receipts from earlier
-subjects stay regression baselines: report current-subject evidence for
-current acceptance.
-"""
+Report each host-produced execution as an `oracle_receipt` on an evidence
+entry. When no producing route issued an immutable locator, report
+`unavailable` and never invent a locator. A timeout is `unavailable` evidence,
+never a measured failure. Never author `subject_commit`: the dispatch owns that
+identity. Receipts from earlier subjects are regression baselines only: report
+current-subject evidence for current acceptance.
+{findings}"""
 
 
-def objective_binding_instructions(packet_schema: dict, premise_max_bytes: int) -> str:
+def objective_binding_instructions() -> str:
     # The packet task is the objective verbatim and inputs.binding is the typed
-    # authority for it, so the guidance teaches both and keeps the three count
-    # units apart: the store's approval premise bound (UTF-8 bytes), the packet
-    # field bounds (JSON Schema Unicode code points), and the lane budget (model
-    # tokens). The numbers are read off the owning contracts, never restated.
-    # The guidance directs no truncation of approved content and names no host
-    # Task prompt cap.
-    task_max = packet_schema["properties"]["inputs"]["properties"]["task"]["maxLength"]
-    paragraph = textwrap.fill(
-        "The store admits an approved contract premise of at most "
-        f"{premise_max_bytes} UTF-8 bytes; that approval limit counts bytes. "
-        f"Packet field limits such as `inputs.task` `maxLength={task_max}` count "
-        "JSON Schema Unicode code points, a different unit. The lane budget "
-        "`context_tokens_max` is a model token limit and is separate from both. "
-        "Concord's CLI bootstrap and output guards are transport bounds of its "
-        "own tools, not a prompt cap on any host Task surface. An oversize or "
-        "invalid projection is refused as a typed failure before authorization; "
-        "do not truncate approved content, and do not ask to reapprove unchanged "
-        "scope to fit a limit.",
-        width=80,
-        break_on_hyphens=False,
-        break_long_words=False,
-    )
-    return f"""## Objective and binding
+    # authority for it, so the guidance teaches both.
+    return """## Objective and binding
 
 `inputs.task` is the canonical objective, carried verbatim: the approved
 contract premise when `inputs.binding.objective_source` is `contract_premise`,
@@ -925,12 +812,10 @@ record the versions the packet binds (`contract_version` is null before a
 contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
-
-{paragraph}
 """
 
 
-def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premise_max_bytes: int) -> str:
+def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
         "Edits only files inside the approved contract scope."
@@ -1012,10 +897,9 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {recorded_work_instructions()}
 {work_context_instructions(packet_schema)}{review_subject_instructions(lane)}
 {checkpoint_instructions()}
-{acceptance_oracle_instructions(packet_schema)}
-{objective_binding_instructions(packet_schema, premise_max_bytes)}
+{acceptance_oracle_instructions(packet_schema, lane)}
+{objective_binding_instructions()}
 {concord_context_boundary_instructions()}
-{source_lookup_routing_instructions(reads_repository(lane))}
 {command_duration_instructions(lane)}
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
@@ -1188,11 +1072,6 @@ def utility_projection(utility: dict) -> str:
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     body_text = body.format(duration=duration).rstrip()
-    if "execute" in utility["allowed_tools"]:
-        # The repository paragraph names `read` and `grep`, so it is
-        # projected only where the utility's declared tools can act on it.
-        repository_reads = bool({"read", "grep"} & set(utility["allowed_tools"]))
-        body_text += "\n\n" + source_lookup_routing_instructions(repository_reads).strip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent
@@ -1358,18 +1237,13 @@ def main() -> int:
         worker_scope = load_worker_scope(manifest)
         packet_schema = json.loads(PACKET_SCHEMA.read_text(encoding="utf-8"))
         report_schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
-        # The approval premise bound the guidance states: the store's
-        # WorkflowPremiseMaxLength, mirrored in the payload contract the
-        # generator reads rather than restated here.
-        payload_schema = json.loads(PAYLOAD_SCHEMA.read_text(encoding="utf-8"))
-        premise_max_bytes = payload_schema["$defs"]["workflow_premise"]["maxLength"]
         expected = {
             ROOT / "internal/store/generated_agent_lanes.go": go_projection(manifest, manifest_digest, worker_scope),
             ROOT / "adapter/opencode/generated-agent-lanes.ts": ts_projection(manifest, manifest_digest, packet_schema, report_schema, worker_scope),
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",
             ROOT / ".concord/docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
-        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema, premise_max_bytes) for lane in manifest["lanes"]})
+        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema) for lane in manifest["lanes"]})
         expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
         primary_profiles = load_primary_profiles(manifest)
         expected.update({

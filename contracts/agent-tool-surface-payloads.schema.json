@@ -630,6 +630,12 @@
     "work_pin": {
       "type": "object",
       "additionalProperties": false,
+      "not": {
+        "required": [
+          "work_context",
+          "work_context_unavailable"
+        ]
+      },
       "allOf": [
         {
           "if": {
@@ -889,7 +895,10 @@
               "type": "null"
             }
           ],
-          "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal."
+          "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member."
+        },
+        "work_context_unavailable": {
+          "$ref": "#/$defs/work_context_unavailable"
         },
         "verdict_evidence": {
           "type": "array",
@@ -3262,6 +3271,19 @@
         }
       }
     },
+    "work_context_unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "const": "limit_exceeded"
+        }
+      },
+      "description": "The shared work-context view exceeded its bound. The work pin and continuity remain readable, but packet construction refuses this marker."
+    },
     "worker_oracle_mechanism": {
       "type": "object",
       "additionalProperties": false,
@@ -3581,6 +3603,12 @@
         "pinned": {
           "type": "object",
           "additionalProperties": false,
+          "not": {
+            "required": [
+              "work_context",
+              "work_context_unavailable"
+            ]
+          },
           "required": [
             "product_identity",
             "workflow_step",
@@ -3736,7 +3764,10 @@
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
-              "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
+              "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member."
+            },
+            "work_context_unavailable": {
+              "$ref": "#/$defs/work_context_unavailable"
             }
           }
         },

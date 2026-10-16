@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -183,36 +182,6 @@ func requireResolvedResearchSelections(view *WorkContextView) error {
 			"rebind the pack to a current revision or drop the required selection through a later declaration")
 	}
 	return nil
-}
-
-// checkWorkContextResearchDeclarationTx is the one research-declaration
-// post-append check: it runs in the live action transaction just after the
-// action's events append and fold, and only for record_work_context
-// declarations with nonempty research selections. It reads the resulting
-// shared view through the caller's transaction; any reader refusal — an
-// over-bound view, a translated bounded read, an unavailable projection —
-// rolls the whole action back. Replay folds and terminal reports never run
-// it.
-func checkWorkContextResearchDeclarationTx(ctx context.Context, tx *sql.Tx, workID string, events []Event) error {
-	selected := false
-	for _, event := range events {
-		if event.Kind != WorkflowWorkContextRecorded {
-			continue
-		}
-		var payload workflowWorkContextRecordedPayload
-		if json.Unmarshal(event.Payload, &payload) != nil {
-			return workContextFailure(KindInvariantViolation, "work_context", "the appended work context declaration cannot be decoded for the research view check", "rebuild the projection from the event log")
-		}
-		if len(payload.ResearchSelections) > 0 {
-			selected = true
-			break
-		}
-	}
-	if !selected {
-		return nil
-	}
-	_, err := readWorkContextView(ctx, tx, workID)
-	return err
 }
 
 // isResearchNotFound reports whether an error is one of the canonical

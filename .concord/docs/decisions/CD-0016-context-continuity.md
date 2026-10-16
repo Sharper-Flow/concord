@@ -4,6 +4,7 @@
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
 **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
+**Bounded-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
 
 > **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
@@ -94,10 +95,21 @@ bound. A research selection stores references, never corpus content, in events.
 Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
 
-A declaration that selects research refuses if its resulting shared view
-exceeds the bounds. The check runs in the live action transaction after its
-events fold and never during replay. Valid terminal worker reports remain
-retained even when the resulting view exceeds its read bound.
+A declaration refuses without effects if its resulting shared view exceeds the bounds. The
+check runs once in the live action transaction after its events fold and never
+during replay. A declaration that restores a bounded view remains admissible.
+Valid completed and failed worker reports, oracle blockers, retained receipts,
+acceptance, job records, and native verification evidence remain retained even
+when the resulting view exceeds its read bound.
+
+When the shared reader refuses with `limit_exceeded`, the work pin and continuity
+snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}`
+member instead of `work_context`. The two members are mutually exclusive. A
+successfully evaluated absent context emits neither member. Other reader errors
+propagate. The outside-repair hold and ambiguous-contract partial-pin exits
+remain unchanged. Strict readers and dispatch still refuse the over-bound view.
+Packet construction refuses the unavailable marker and never transmits it as
+work context.
 
 The shared reader reports missing, stale, rebound, or inactive research
 selections as typed entries without content. A required unresolved selection
@@ -130,13 +142,13 @@ revalidates the sampled source identities inside it. A failure names the
 reading's ordinal and source identity and commits no dispatch effect.
 Replay and rebuild resolve nothing again.
 
-The view bounds above are retention and read bounds. The dispatch context is
-a separate capacity. The canonical JSON object formed from exactly the
-packet's present `inputs.work_context`, `inputs.checkpoint`, and
+The view bounds above constrain the derived view, not retained terminal
+evidence. The dispatch context is a separate capacity. The canonical JSON object
+formed from exactly the packet's present `inputs.work_context`, `inputs.checkpoint`, and
 `inputs.correction` members may not exceed 65,536 UTF-8 bytes, inclusive,
 with member names and delimiters counted. An over-bound dispatch refuses
 whole and never trims a finding, preparation, checkpoint, or correction to
-fit. The per-entry and retention bounds above stay unchanged.
+fit. The per-entry and view bounds above stay unchanged.
 
 ## Consequences
 

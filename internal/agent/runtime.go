@@ -1760,12 +1760,13 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if len(snapshot.ReadyWorkerJobs) > 0 {
 		pinned["ready_worker_jobs"] = snapshot.ReadyWorkerJobs
 	}
-	// CON-887: the current work-context view rides the pinned projection
-	// when records or findings exist, so a resumed session reads the
-	// declared working memory without a second tool call. The absent field
-	// keeps work without context records byte-stable.
+	// Resumed sessions receive available context or explicit unavailability.
+	// Absence keeps context-free payload bytes unchanged.
 	if snapshot.WorkContext != nil {
 		pinned["work_context"] = snapshot.WorkContext
+	}
+	if snapshot.WorkContextUnavailable != nil {
+		pinned["work_context_unavailable"] = snapshot.WorkContextUnavailable
 	}
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,

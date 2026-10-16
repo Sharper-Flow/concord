@@ -1156,6 +1156,12 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pinned": {
           "additionalProperties": false,
+          "not": {
+            "required": [
+              "work_context",
+              "work_context_unavailable"
+            ]
+          },
           "properties": {
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
@@ -1284,7 +1290,10 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
-              "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
+              "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member."
+            },
+            "work_context_unavailable": {
+              "$ref": "#/$defs/work_context_unavailable"
             },
             "work_pin": {
               "$ref": "#/$defs/work_pin"
@@ -9227,6 +9236,19 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_context_unavailable": {
+      "additionalProperties": false,
+      "description": "The shared work-context view exceeded its bound. The work pin and continuity remain readable, but packet construction refuses this marker.",
+      "properties": {
+        "reason": {
+          "const": "limit_exceeded"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
     "work_context_view": {
       "additionalProperties": false,
       "properties": {
@@ -10435,6 +10457,12 @@ const GeneratedPayloadSchemaDocument = `{
           }
         }
       ],
+      "not": {
+        "required": [
+          "work_context",
+          "work_context_unavailable"
+        ]
+      },
       "properties": {
         "attempt": {
           "oneOf": [
@@ -10599,7 +10627,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/operator_decision_withheld"
         },
         "work_context": {
-          "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal.",
+          "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member.",
           "oneOf": [
             {
               "$ref": "#/$defs/work_context_view"
@@ -10608,6 +10636,9 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "null"
             }
           ]
+        },
+        "work_context_unavailable": {
+          "$ref": "#/$defs/work_context_unavailable"
         },
         "work_id": {
           "$ref": "#/$defs/id"

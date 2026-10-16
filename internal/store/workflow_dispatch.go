@@ -473,12 +473,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err != nil {
 		return result, err
 	}
-	// The one research-declaration resulting-view check, in the live
-	// action transaction just after its events append and fold. It runs
-	// only for record_work_context declarations with nonempty research
-	// selections; a refusal here rolls the whole action back. Replay folds
-	// and terminal reports never run it.
-	if err := checkWorkContextResearchDeclarationTx(ctx, tx, request.WorkID, assembly.events); err != nil {
+	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, assembly.events); err != nil {
 		return result, err
 	}
 	result.EventIDs = operationResult.EventIDs

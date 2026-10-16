@@ -159,6 +159,7 @@ function resetCiWatchSnapshots(): void {
   peerSequence = 0
   retentionFloor = 0
   terminalReceipts.length = 0
+  resetCiWatchPeer()
 }
 
 function ciWatchRecord(watch: ActiveWatch) {
@@ -247,6 +248,7 @@ export function configureCiWatch(
 }
 
 export function bindCiWatchClient(source: PluginClientHost | WatchRouteClient | undefined): void {
+  ++bindingGeneration
   if (!source) {
     routeClient = null
     return
@@ -505,8 +507,10 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
 // custom tools directory as `<file>_<export>`, beside the plugin
 // registration. Only the plugin registration may name this tool (CD-0199
 // D1), so the definition leaves this module through a factory: a function
-// export is not a tool shape.
-export function ciWatchTool(): {
+// export is not a tool shape. The optional binding id names the peer
+// registration the plugin wiring passes; the watches this definition admits
+// stamp it, and the peer read qualifies watches against it.
+export function ciWatchTool(bindingID: string | null = null): {
   description: string
   args: typeof ciWatchContract.properties
   execute: (args: unknown, context: { sessionID: string; abort?: AbortSignal }) => Promise<{ title: string; output: string }>
@@ -514,7 +518,7 @@ export function ciWatchTool(): {
   return {
     description: hostToolDescriptions.concord_ci_watch,
     args: ciWatchContract.properties,
-    execute: (args, context) => executeConcordCiWatch(args, context),
+    execute: (args, context) => executeConcordCiWatch(args, context, bindingID),
   }
 }
 
@@ -533,6 +537,7 @@ export async function publishCiWatchDefinition(
 async function executeConcordCiWatch(
   rawArgs: unknown,
   context: { sessionID: string; abort?: AbortSignal },
+  bindingID: string | null = null,
 ): Promise<{ title: string; output: string }> {
   const boundaryRefusal = await coordinatorRefusal(context)
   if (boundaryRefusal !== null) return refusalResult(boundaryRefusal)
@@ -562,20 +567,20 @@ async function executeConcordCiWatch(
       `concord_ci_watch already holds ${unresolved} unresolved watches and undelivered reports for this session, and the delivery queue caps at ${config.maxQueuedPerSession}; receive a delivered report or send a message to release capacity`,
     )
   }
-  const watch = createWatch(context.sessionID, args, binary)
+  const watch = createWatch(context.sessionID, args, binary, bindingID)
   watchKeys.set(key, watch.id)
   startWatch(watch)
   announceWatchNotice(watch)
   return watchResult(watch, "started")
 }
 
-function createWatch(sessionID: string, args: CiWatchArgs, binary: string): ActiveWatch {
+function createWatch(sessionID: string, args: CiWatchArgs, binary: string, bindingID: string | null = null): ActiveWatch {
   const id = randomUUID()
   fs.mkdirSync(config.stateDir, { recursive: true })
   return {
     id,
     watchEpoch: ++peerSequence,
-    bindingID: null,
+    bindingID,
     lastObservation: null,
     consecutiveSliceFailures: 0,
     sessionID,
@@ -1100,4 +1105,234 @@ export function ciWatchSnapshot(sessionID: string, sinceSequence?: number): CiWa
     history_gap: sinceSequence !== undefined && sinceSequence < retentionFloor,
   }
   return JSON.parse(JSON.stringify(snapshot)) as CiWatchSnapshot
+}
+
+// --- Peer bindings and publication ---
+// A same-process peer plugin reads this plugin's watch state through a frozen port
+// published on a well-known global symbol inside registerCiWatchPeer, never
+// at module load.
+export type PeerInput = PluginClientHost & { serverUrl?: URL; directory?: string; worktree?: string }
+
+export type CiWatchPeerRead = {
+  version: 1; pid: number
+  runtime_epoch: string; read_at: number
+  binding_generation: number; client_bound: boolean
+  coverage: "unknown" | "complete_current_epoch"
+  gaps: string[]
+  bindings: Array<{ id: string; generation: number; endpoint: string; directory: string; worktree: string }>
+  snapshot: CiWatchSnapshot | null
+}
+
+// The published object carries only the version and the read call.
+type CiWatchPeer = { version: 1; read: (request: unknown) => Promise<CiWatchPeerRead> }
+// Owner-side record; peerBindingInfo strips client and live before exposure.
+type PeerBinding = {
+  id: string; generation: number; live: boolean; qualified: boolean
+  client: WatchRouteClient | null
+  endpoint: string; directory: string; worktree: string
+}
+
+// Bindings occupy lifetime slots; disposal frees none and overflow sticks until reset.
+const CI_WATCH_PEER_BINDING_LIMIT = 64
+const CI_WATCH_PEER_SYMBOL = Symbol.for("concord.ci-watch.peer.v1")
+// One typed globalThis view; register, reset, and the owner check share it.
+const peerGlobals = globalThis as typeof globalThis & { [CI_WATCH_PEER_SYMBOL]?: CiWatchPeer }
+const CI_WATCH_PEER_PUBLISH_FAILED = "concord ci-watch: the peer port could not be published on its global symbol; same-process peer reads stay unavailable"
+let bindingGeneration = 0
+let peerBindingOverflow = false
+const peerBindings = new Map<string, PeerBinding>()
+let publishedPeer: CiWatchPeer | null = null
+
+function peerUrlValid(serverUrl: unknown): serverUrl is URL {
+  return serverUrl instanceof URL &&
+    (serverUrl.protocol === "http:" || serverUrl.protocol === "https:") &&
+    serverUrl.username === "" && serverUrl.password === "" && serverUrl.search === "" &&
+    serverUrl.hash === "" && (serverUrl.pathname === "/" || serverUrl.pathname === "") &&
+    serverUrl.href.length <= 2048
+}
+
+function peerDirValid(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && Buffer.byteLength(value, "utf8") <= 4096
+}
+// Fresh record per call; no client reference or liveness state leaves the module.
+function peerBindingInfo(binding: PeerBinding): CiWatchPeerRead["bindings"][number] {
+  return { id: binding.id, generation: binding.generation, endpoint: binding.endpoint, directory: binding.directory, worktree: binding.worktree }
+}
+
+// Each publication cycle mints one port whose read hands readCiWatchPeer the
+// exact installed object; reset retires the reference, so a cached retired port
+// fails the later identity check and stays unknown.
+function makePeerPort(): CiWatchPeer {
+  const port: CiWatchPeer = Object.freeze({ version: 1, read: async (request: unknown) => readCiWatchPeer(request, port) })
+  return port
+}
+
+// A foreign symbol occupant (another module instance or an unrelated publisher)
+// is replaced by this frozen sentinel answering unknown for every read; it
+// never serves a complete map.
+const peerConflictSentinel: CiWatchPeer = Object.freeze({
+  version: 1,
+  read: async () => refusedPeerRead("owner_conflict"),
+})
+
+// Records one plugin-instance binding and publishes the peer port; a
+// publication failure logs at warn and never blocks the calling watch. A
+// typed null input is unsupported; the omitted-input default covers the
+// no-fields call. A field is stored only when it qualifies: an invalid URL
+// or oversized path stores an empty string, never a raw credential URL.
+export function registerCiWatchPeer(input: PeerInput = {}): { id: string; dispose: () => void } {
+  const binding: PeerBinding = {
+    id: randomUUID(), generation: ++bindingGeneration, live: true,
+    qualified: peerUrlValid(input.serverUrl) && peerDirValid(input.directory) && peerDirValid(input.worktree),
+    client: routeClientOf(input.client),
+    endpoint: peerUrlValid(input.serverUrl) ? input.serverUrl.href : "",
+    directory: peerDirValid(input.directory) ? input.directory : "",
+    worktree: peerDirValid(input.worktree) ? input.worktree : "",
+  }
+  if (peerBindings.size >= CI_WATCH_PEER_BINDING_LIMIT) peerBindingOverflow = true
+  else peerBindings.set(binding.id, binding)
+  if (publishedPeer === null) publishedPeer = makePeerPort()
+  // A foreign occupant can hold the slot read-only or behind a throwing
+  // getter; neither may break the watch this call is admitting.
+  try {
+    const current = peerGlobals[CI_WATCH_PEER_SYMBOL]
+    peerGlobals[CI_WATCH_PEER_SYMBOL] = current !== undefined && current !== publishedPeer ? peerConflictSentinel : publishedPeer
+  } catch {
+    log("warn", CI_WATCH_PEER_PUBLISH_FAILED)
+  }
+  return {
+    id: binding.id,
+    // Idempotent: the generation moves once per binding, never per dispose.
+    dispose: () => {
+      if (!binding.live) return
+      binding.live = false
+      ++bindingGeneration
+    },
+  }
+}
+
+// Retires this module's own port or sentinel and clears all binding state.
+function resetCiWatchPeer(): void {
+  const current = peerGlobals[CI_WATCH_PEER_SYMBOL]
+  if (current === publishedPeer || current === peerConflictSentinel) delete peerGlobals[CI_WATCH_PEER_SYMBOL]
+  peerBindings.clear()
+  peerBindingOverflow = false
+  bindingGeneration = 0
+  publishedPeer = null
+}
+
+// A refusal names its gaps and serves no snapshot: a bad request or a failed
+// identity lookup proves nothing about watch state. Like every read it also
+// carries prior_epoch_unverified — nothing here proves history from before
+// its own epoch.
+function refusedPeerRead(...gaps: string[]): CiWatchPeerRead {
+  return {
+    version: 1, pid: process.pid, runtime_epoch: runtimeEpoch, read_at: Date.now(), binding_generation: bindingGeneration,
+    client_bound: routeClient !== null, coverage: "unknown", gaps: ["prior_epoch_unverified", ...gaps], bindings: [], snapshot: null,
+  }
+}
+
+function parseCiWatchPeerRequest(request: unknown): { session_id: string; expected_runtime_epoch?: string; since_sequence?: number } | null {
+  if (request === null || typeof request !== "object" || Array.isArray(request)) return null
+  const record = request as Record<string, unknown>
+  if (Object.keys(record).some((key) => key !== "session_id" && key !== "expected_runtime_epoch" && key !== "since_sequence")) return null
+  const sessionID = record.session_id
+  if (typeof sessionID !== "string" || sessionID.trim().length === 0 || Buffer.byteLength(sessionID, "utf8") > 256) return null
+  const epoch = record.expected_runtime_epoch
+  if (epoch !== undefined && (typeof epoch !== "string" || epoch.length === 0 || Buffer.byteLength(epoch, "utf8") > 128)) return null
+  const cursor = record.since_sequence
+  if (cursor !== undefined) {
+    if (typeof cursor !== "number" || !Number.isSafeInteger(cursor) || cursor < 0) return null
+  }
+  return {
+    session_id: sessionID,
+    ...(epoch === undefined ? {} : { expected_runtime_epoch: epoch }),
+    ...(cursor === undefined ? {} : { since_sequence: cursor }),
+  }
+}
+
+function peerOwnerHolds(port: CiWatchPeer): boolean {
+  if (publishedPeer !== port) return false
+  try {
+    return peerGlobals[CI_WATCH_PEER_SYMBOL] === port
+  } catch {
+    return false
+  }
+}
+
+// The peer read validates the closed request, the port identity, and the epoch
+// expectation before any GET, captures binding state before its awaits, and
+// copies the snapshot synchronously after the last one, so no response serves
+// a stale generation. Every gap besides prior_epoch_unverified is a coverage
+// gap; the published array is the sorted gap set, complete and deterministic.
+async function readCiWatchPeer(request: unknown, port: CiWatchPeer): Promise<CiWatchPeerRead> {
+  const parsed = parseCiWatchPeerRequest(request)
+  if (parsed === null) return refusedPeerRead("invalid_request")
+  if (!peerOwnerHolds(port)) return refusedPeerRead("owner_conflict")
+  if (parsed.expected_runtime_epoch !== undefined && parsed.expected_runtime_epoch !== runtimeEpoch) return refusedPeerRead("epoch_mismatch")
+  const epoch = runtimeEpoch
+  const generation = bindingGeneration
+  const gaps = new Set<string>()
+  const live = [...peerBindings.values()].filter((binding) => binding.live)
+  if (peerBindingOverflow) gaps.add("binding_limit")
+  if (live.length === 0) gaps.add("no_live_binding")
+  if (live.some((binding) => !binding.qualified)) gaps.add("binding_unqualified")
+  if (routeClient === null || live.some((binding) => binding.qualified && binding.client === null)) gaps.add("client_unbound")
+  const matched: PeerBinding[] = []
+  const probed = live.filter((binding) => binding.qualified && binding.client !== null)
+  await Promise.all(probed.map(async (binding) => {
+    try {
+      const result = await binding.client!.get({ url: SESSION_ROUTE, path: { id: parsed.session_id }, signal: AbortSignal.timeout(10_000) })
+      if (result.response.status === 404) return
+      if (!result.response.ok) { gaps.add("session_unreachable"); return }
+      const record = (result.data ?? {}) as { id?: unknown }
+      if (record.id !== parsed.session_id) { gaps.add("session_identity_mismatch"); return }
+      matched.push(binding)
+    } catch {
+      gaps.add("session_unreachable")
+    }
+  }))
+  const lookupFailed = gaps.has("session_unreachable") || gaps.has("session_identity_mismatch")
+  if (matched.length === 0 && probed.length > 0 && !lookupFailed) gaps.add("session_missing")
+  else if (new Set(matched.map((binding) => binding.endpoint)).size > 1) gaps.add("ambiguous_host")
+  if (!peerOwnerHolds(port)) return refusedPeerRead("owner_conflict")
+  if (runtimeEpoch !== epoch) return refusedPeerRead("epoch_mismatch")
+  if (bindingGeneration !== generation) return refusedPeerRead("binding_changed")
+  // A failed identity lookup proves nothing about watch state: an empty
+  // snapshot would read as a proven-empty session, so refuse with the whole
+  // collected gap set — no single-gap selection hides a sibling cause.
+  const hasIdentityGap = ["ambiguous_host", "session_identity_mismatch", "session_missing", "session_unreachable"].some((gap) => gaps.has(gap))
+  if (hasIdentityGap) return refusedPeerRead(...[...gaps].sort())
+  const snapshot = ciWatchSnapshot(parsed.session_id, parsed.since_sequence)
+  // The envelope carries the same clock invariant freshenObservation applies
+  // to observations: a start stamp after this read's clock gaps, even empty.
+  if (snapshot.owner_started_at > snapshot.read_at) gaps.add("clock_gap")
+  const referenced = new Map<string, PeerBinding>()
+  for (const record of snapshot.active) {
+    const binding = record.binding_id === null ? undefined : peerBindings.get(record.binding_id)
+    if (binding === undefined) gaps.add("unqualified_watch")
+    else if (!binding.live) gaps.add("disposed_watch")
+    else if (!binding.qualified) gaps.add("unqualified_watch")
+    // The watch proves state only for the endpoint its binding names; a
+    // same-named session on another endpoint is a different session.
+    else if (matched[0] !== undefined && binding.endpoint !== matched[0].endpoint) gaps.add("watch_host_mismatch")
+    if (binding !== undefined) referenced.set(binding.id, binding)
+  }
+  for (const receipt of snapshot.receipts) {
+    const binding = receipt.binding_id === null ? undefined : peerBindings.get(receipt.binding_id)
+    if (binding !== undefined) referenced.set(binding.id, binding)
+  }
+  if (snapshot.history_gap) gaps.add("history_gap")
+  for (const binding of matched) referenced.set(binding.id, binding)
+  const others = [...gaps].sort()
+  const coverage: CiWatchPeerRead["coverage"] = others.length === 0 ? "complete_current_epoch" : "unknown"
+  const response: CiWatchPeerRead = {
+    version: 1, pid: process.pid, runtime_epoch: epoch, read_at: Date.now(), binding_generation: generation,
+    client_bound: routeClient !== null, coverage, gaps: ["prior_epoch_unverified", ...others],
+    bindings: [...referenced.values()].map(peerBindingInfo), snapshot,
+  }
+  // The whole response is bound, never truncated: an oversized set is
+  // refused whole, because truncation could understate the watch state.
+  if (Buffer.byteLength(JSON.stringify(response), "utf8") > 256 * 1024) return refusedPeerRead("response_limit")
+  return response
 }

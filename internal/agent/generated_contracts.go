@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:5e8be054e28ae343dee0aa9fcd58edb8fe60617fa8897344e40fcc525be3c620"
+const ManifestDigest = "sha256:cb6792a085840e4b9cae10d73376b5daddff82d0ee40d4726acddfe6be805b6d"
 
 type OperationKind string
 
@@ -231,6 +231,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_context_reading_source_repository_file":           {Required: []string{"kind", "project_id", "path", "commit_oid"}, Properties: []string{"kind", "project_id", "path", "commit_oid"}},
 	"work_context_research_finding":                         {Required: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status", "scopes"}, Properties: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status", "source_ids", "scopes"}},
 	"work_context_research_selection":                       {Required: []string{"pack_id", "revision", "finding_id", "domain_id"}, Properties: []string{"pack_id", "revision", "finding_id", "domain_id", "product_wide_rationale"}},
+	"work_context_unavailable":                              {Required: []string{"reason"}, Properties: []string{"reason"}},
 	"work_context_view":                                     {Required: []string{"source_event_frontier", "required_reading", "findings", "domain_groups"}, Properties: []string{"source_event_frontier", "required_reading", "findings", "domain_groups", "oracle_receipts", "subject_commit", "oracle_preparations", "research_findings"}},
 	"work_context_view2":                                    {Required: []string{"source_event_frontier", "required_reading", "findings", "domain_groups"}, Properties: []string{"source_event_frontier", "required_reading", "findings", "domain_groups", "oracle_receipts", "subject_commit", "oracle_preparations"}},
 	"work_context_view3":                                    {Required: []string{"source_event_frontier", "required_reading", "findings", "domain_groups"}, Properties: []string{"source_event_frontier", "required_reading", "findings", "research_findings", "domain_groups", "oracle_receipts", "subject_commit", "oracle_preparations"}},
@@ -250,7 +251,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                                {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit"}},
 	"work_observation_page":                                 {Required: []string{"observations", "total"}, Properties: []string{"total", "observations"}},
 	"work_page":                                             {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                              {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "workflow_definition_version", "workflow_definition_digest", "obligations", "outside_repair_disposition", "outside_repair_route", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "verdict_evidence", "verified_criteria"}},
+	"work_pin":                                              {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "workflow_definition_version", "workflow_definition_digest", "obligations", "outside_repair_disposition", "outside_repair_route", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "work_context_unavailable", "verdict_evidence", "verified_criteria"}},
 	"work_pin_attempt":                                      {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state", "failure_attribution"}},
 	"work_pin_driving_session":                              {Required: []string{"session_ref", "last_action_id", "last_acted_at"}, Properties: []string{"session_ref", "last_action_id", "last_acted_at"}},
 	"work_pin_evidence":                                     {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},

@@ -353,9 +353,9 @@ func TestDispatchRefusesWorkContextViewOverflow(t *testing.T) {
 	}
 }
 
-// seedWorkContextOverflow drives the work-wide current view past the
-// 32-finding bound using declarations alone: three declarations whose
-// combined selection and new findings hold 48 distinct findings.
+// seedWorkContextOverflow drives the current view past the 32-finding count
+// bound with an already-admitted historical declaration whose 48 findings
+// are optional context a later declaration can drop or replace.
 func seedWorkContextOverflow(t *testing.T, fixture workContextFixture) {
 	t.Helper()
 	declareSixteen := func(statement string) {
@@ -373,45 +373,42 @@ func seedWorkContextOverflow(t *testing.T, fixture workContextFixture) {
 		}
 	}
 	declareSixteen("first")
-	declareSixteen("second")
-	// The third declaration selects every earlier finding beside its own
-	// sixteen: 32 selected plus 16 new is 48 work-wide, past the view bound.
-	var seqs []int64
-	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, fixture.workID, WorkflowWorkContextRecorded)
-	if err != nil {
+	var firstSeq int64
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
-	for rows.Next() {
-		var seq int64
-		if err := rows.Scan(&seq); err != nil {
-			rows.Close()
-			t.Fatal(err)
-		}
-		seqs = append(seqs, seq)
+	refs := make([]string, 16)
+	for i := range refs {
+		refs[i] = fmt.Sprintf("finding:%d:%d", firstSeq, i)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		t.Fatal(err)
-	}
-	rows.Close()
-	refs := make([]string, 0, 32)
-	for _, seq := range seqs {
-		for ordinal := 0; ordinal < 16; ordinal++ {
-			refs = append(refs, fmt.Sprintf("finding:%d:%d", seq, ordinal))
-		}
-	}
+	// The anchor selects all sixteen earlier findings beside its own
+	// sixteen: the legal live view holds exactly 32.
 	if err := fixture.recordWorkContext(t, map[string]any{
 		"finding_refs": refs,
 		"context_findings": func() []map[string]any {
 			findings := make([]map[string]any, 16)
 			for i := range findings {
-				findings[i] = workContextFinding(workContextTestChild, "observation", "third", "")
+				findings[i] = workContextFinding(workContextTestChild, "observation", "second", "")
 			}
 			return findings
 		}(),
 	}); err != nil {
-		t.Fatalf("third declaration refused: %v", err)
+		t.Fatalf("second declaration refused: %v", err)
 	}
+	var secondSeq int64
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&secondSeq); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 16; i++ {
+		refs = append(refs, fmt.Sprintf("finding:%d:%d", secondSeq, i))
+	}
+	third := make([]map[string]any, 16)
+	for i := range third {
+		third[i] = workContextFinding(workContextTestChild, "observation", "third", "")
+	}
+	// The final over-bound declaration rides the historical route: the fold
+	// admits it on the pinned workflow identity, never as a live action.
+	recordHistoricalWorkContext(t, fixture, map[string]any{"finding_refs": refs, "context_findings": third})
 }
 
 // TestDispatchSubjectFreshnessCoreOwned proves the core dispatch admission

@@ -2,8 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -103,6 +107,57 @@ func frozenJournalFixtures() []struct {
 		{"completed-architecture-spike-v17", historicalJournalFixtureCompletedArchitectureSpikeV17},
 		{"completed-ops-runbook-v18", historicalJournalFixtureCompletedOpsRunbookV18},
 	}
+}
+
+// workflowProjectionLayout is one hashed projection table with its column
+// order. Production layouts are discovered from the store; a pinned historical
+// layout is a caller-supplied input only verification code builds.
+type workflowProjectionLayout struct {
+	table   string
+	columns []string
+}
+
+// hashWorkflowProjectionLayouts encodes each layout's rows: the table marker,
+// then per row the per-column name and value encoding in column order. Empty
+// tables still contribute their marker. The encoding is byte-stable across
+// discovered and pinned layouts.
+func hashWorkflowProjectionLayouts(ctx context.Context, db *sql.DB, layouts []workflowProjectionLayout) (string, error) {
+	h := sha256.New()
+	for _, layout := range layouts {
+		quotedColumns := make([]string, len(layout.columns))
+		for i, column := range layout.columns {
+			quotedColumns[i] = quoteSQLiteIdentifier(column)
+		}
+		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(layout.table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
+		}
+		writeHashf(h, "table:%d:%s\x00", len(layout.table), layout.table)
+		for rows.Next() {
+			values := make([]any, len(layout.columns))
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				rows.Close()
+				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+layout.table, true, "retry once the database is readable", err)
+			}
+			for i, value := range values {
+				writeHashf(h, "%d:%s=", len(layout.columns[i]), layout.columns[i])
+				writeHashValue(h, value)
+				writeHashf(h, "%c", byte(0))
+			}
+			writeHashf(h, "%c", byte(0))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
+		}
+		rows.Close()
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // frozenJournalProjectionLayouts is the projection layout the frozen journals
@@ -297,6 +352,25 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			pinned, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), frozenJournalProjectionLayouts())
 			if err != nil {
 				t.Fatal(err)
+			}
+			// The pinned encoder is the test copy of the production traversal:
+			// over the discovered current layout it must reproduce the
+			// production hash, so the frozen baseline still binds the
+			// production encoding.
+			current := make([]workflowProjectionLayout, 0, len(workflowProjectionTables))
+			for _, table := range workflowProjectionTables {
+				columns, err := projectionColumns(ctx, s.DatabaseForTesting(), table)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current = append(current, workflowProjectionLayout{table: table, columns: columns})
+			}
+			discovered, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if discovered != first {
+				t.Fatalf("pinned-layout encoder over the discovered layout = %s, want the production hash %s", discovered, first)
 			}
 			if err := RebuildFromLog(ctx, s); err != nil {
 				t.Fatalf("second rebuild from the frozen journal refused: %v", err)

@@ -2443,7 +2443,7 @@ func recoveryProducerLane(t *testing.T, laneID string) store.LaneDefinition {
 func readOperatorQuestionDigest(t *testing.T, s *store.Store, workID, actionID string) string {
 	t.Helper()
 	ctx := context.Background()
-	question, err := store.ReadWorkflowOperatorQuestion(ctx, s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("read operator question: %v", err)
 	}

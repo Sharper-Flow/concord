@@ -962,14 +962,6 @@ func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields
 	return []Event{nativeEvent}, nil
 }
 
-func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
-	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
-	if err != nil {
-		return Event{}, err
-	}
-	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), registered.Definition, request, actor, raw)
-}
-
 func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {

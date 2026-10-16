@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -738,4 +739,11 @@ func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
 	if lifecycle != "completed" {
 		t.Fatalf("lifecycle = %q, want completed", lifecycle)
 	}
+}
+
+// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
+// the scoped checkpoint fold carries the transaction's registry to the same
+// core.
+func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
+	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
 }

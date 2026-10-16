@@ -105,72 +105,6 @@ func ComputeWorkflowDecisionContextDigest(workID string, workVersion int64, defi
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// ReadWorkflowOperatorQuestion returns the question for the next approved
-// human-checkpoint action, if the current step has one. No question is emitted
-// for non-human steps or for a workflow without an approved contract.
-//
-// CD-0173 D2: the comparison-work count and the investigation-ref reads
-// answer one question, so every read below runs in one read transaction and
-// sees one snapshot.
-func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) (*WorkflowOperatorQuestion, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "workflow_operator_question", "store is not open", false, "open the authority database")
-	}
-	tx, err := beginReadTx(ctx, s.db)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent question snapshot", true, "retry once the database is readable", err)
-	}
-	defer tx.Rollback()
-	var currentStep string
-	var workVersion int64
-	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
-		if err == context.Canceled || err == context.DeadlineExceeded {
-			return nil, err
-		}
-		if err == sql.ErrNoRows {
-			return nil, newFailure(KindProjectionNotFound, "workflow_operator_question", "workflow instance is not recorded", false, "reread_entities")
-		}
-		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
-	}
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_operator_question")
-	if contractErr != nil {
-		if contractErr == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, contractErr
-	}
-	var contract WorkflowReadContract
-	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question contract", true, "retry once the database is readable", err)
-	}
-	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
-	}
-	var predicateErr error
-	contract.OutcomePredicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
-	if predicateErr != nil {
-		return nil, predicateErr
-	}
-	contract.SelfRepair, predicateErr = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
-	if predicateErr != nil {
-		return nil, predicateErr
-	}
-	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
-	if err != nil {
-		return nil, err
-	}
-	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
-		return nil, nil
-	}
-	question, _, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, currentStep, workVersion, definition, contract)
-	return question, questionErr
-}
-
 func workflowOperatorQuestion(workID string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract, actionID string) *WorkflowOperatorQuestion {
 	premise := boundedQuestionText(contract.Premise, 256)
 	outcomeKinds := make([]string, 0, len(contract.OutcomePredicates))
@@ -243,18 +177,6 @@ func workflowOperatorQuestionForDefinitionTx(ctx context.Context, q queryer, wor
 		return nil, nil, err
 	}
 	return workflowOperatorQuestion(workID, workVersion, readDefinition, contract, actionID), nil, nil
-}
-
-// requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
-// precondition in one read-only transaction, so the Product work-item count and
-// the investigation-ref reads see one snapshot (CD-0173 D2).
-func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
-	tx, err := beginReadTx(ctx, s.db)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
-	}
-	defer tx.Rollback()
-	return requireRecordedInvestigationArtifact(ctx, tx, workID)
 }
 
 // requireRecordedInvestigationArtifact admits an operator question only when a

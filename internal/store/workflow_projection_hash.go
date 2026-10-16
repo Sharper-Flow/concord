@@ -20,11 +20,46 @@ func WorkflowProjectionHash(ctx context.Context, s *Store) (string, error) {
 	if s == nil || s.db == nil {
 		return "", newFailure(KindUnavailable, "workflow_projection_hash", "store is not open", false, "open the authority database")
 	}
-	layouts, err := discoverWorkflowProjectionLayouts(ctx, s.db)
-	if err != nil {
-		return "", err
+	h := sha256.New()
+	for _, table := range workflowProjectionTables {
+		columns, err := projectionColumns(ctx, s.db, table)
+		if err != nil {
+			return "", err
+		}
+		quotedColumns := make([]string, len(columns))
+		for i, column := range columns {
+			quotedColumns[i] = quoteSQLiteIdentifier(column)
+		}
+		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
+		rows, err := s.db.QueryContext(ctx, query)
+		if err != nil {
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+table, true, "retry once the database is readable", err)
+		}
+		writeHashf(h, "table:%d:%s\x00", len(table), table)
+		for rows.Next() {
+			values := make([]any, len(columns))
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				rows.Close()
+				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+table, true, "retry once the database is readable", err)
+			}
+			for i, value := range values {
+				writeHashf(h, "%d:%s=", len(columns[i]), columns[i])
+				writeHashValue(h, value)
+				writeHashf(h, "%c", byte(0))
+			}
+			writeHashf(h, "%c", byte(0))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+table, true, "retry once the database is readable", err)
+		}
+		rows.Close()
 	}
-	return hashWorkflowProjectionLayouts(ctx, s.db, layouts)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // workflowProjectionTables is the fixed table order the projection hash covers.
@@ -33,71 +68,6 @@ var workflowProjectionTables = []string{
 	"workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records",
 	"workflow_instances", "workflow_premise_confirmations", "workflow_candidate_sets",
 	"law_subjects", "law_relations", "work_items", "relations",
-}
-
-// workflowProjectionLayout is one hashed projection table with its column
-// order. Production layouts are discovered from the store; a pinned historical
-// layout is a caller-supplied input only verification code builds.
-type workflowProjectionLayout struct {
-	table   string
-	columns []string
-}
-
-// discoverWorkflowProjectionLayouts reads each hashed table's current physical
-// column order from the store.
-func discoverWorkflowProjectionLayouts(ctx context.Context, db *sql.DB) ([]workflowProjectionLayout, error) {
-	layouts := make([]workflowProjectionLayout, 0, len(workflowProjectionTables))
-	for _, table := range workflowProjectionTables {
-		columns, err := projectionColumns(ctx, db, table)
-		if err != nil {
-			return nil, err
-		}
-		layouts = append(layouts, workflowProjectionLayout{table: table, columns: columns})
-	}
-	return layouts, nil
-}
-
-// hashWorkflowProjectionLayouts encodes each layout's rows: the table marker,
-// then per row the per-column name and value encoding in column order. Empty
-// tables still contribute their marker. The encoding is byte-stable across
-// discovered and pinned layouts.
-func hashWorkflowProjectionLayouts(ctx context.Context, db *sql.DB, layouts []workflowProjectionLayout) (string, error) {
-	h := sha256.New()
-	for _, layout := range layouts {
-		quotedColumns := make([]string, len(layout.columns))
-		for i, column := range layout.columns {
-			quotedColumns[i] = quoteSQLiteIdentifier(column)
-		}
-		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(layout.table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
-		rows, err := db.QueryContext(ctx, query)
-		if err != nil {
-			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
-		}
-		writeHashf(h, "table:%d:%s\x00", len(layout.table), layout.table)
-		for rows.Next() {
-			values := make([]any, len(layout.columns))
-			pointers := make([]any, len(values))
-			for i := range values {
-				pointers[i] = &values[i]
-			}
-			if err := rows.Scan(pointers...); err != nil {
-				rows.Close()
-				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+layout.table, true, "retry once the database is readable", err)
-			}
-			for i, value := range values {
-				writeHashf(h, "%d:%s=", len(layout.columns[i]), layout.columns[i])
-				writeHashValue(h, value)
-				writeHashf(h, "%c", byte(0))
-			}
-			writeHashf(h, "%c", byte(0))
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
-		}
-		rows.Close()
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func quoteSQLiteIdentifier(identifier string) string {

@@ -582,20 +582,6 @@ func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry Definition
 	return current, nil
 }
 
-// missingPredicateVerdicts lists the approved contract predicates that have
-// no recorded verdict. The join deliberately does NOT mirror completion
-// clause 6: any verdict kind counts here, because a weaker or incomparable
-// verdict at confirm_premise follows the declared failure edge to refine
-// (#1062) rather than wedging the item, while clause 6 still refuses such
-// verdicts at complete. One verdict per predicate id, latest per predicate.
-func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
-	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return nil, err
-	}
-	return missingPredicateVerdictsForContract(ctx, tx, workID, contract)
-}
-
 // missingPredicateVerdictsForContract lists the unverdicted approved
 // predicates from one already-read contract; owners holding the verified
 // definition reuse it so one transaction resolves the pin once.

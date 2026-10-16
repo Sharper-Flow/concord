@@ -764,16 +764,6 @@ type continuityInstance struct {
 	present     bool
 }
 
-// readContinuityInstanceTx reads the work item's workflow instance and seats
-// the instance-derived snapshot fields. An imported work item holds no
-// instance: the read answers with typed absence, and a launch never creates
-// one. Absence is a property of a recorded item, so an unknown ID refuses.
-// It is the builtin convenience: the stored pin verifies against the builtin
-// registry.
-func readContinuityInstanceTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityInstance, error) {
-	return readContinuityInstanceForRegistryTx(ctx, tx, work, nil, out)
-}
-
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
 // instance phase: a caller registry verifies the stored pin and seats the
 // work pin through itself with no builtin fallback, so the continuity

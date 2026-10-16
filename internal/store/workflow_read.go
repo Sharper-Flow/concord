@@ -282,10 +282,13 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
 	if out.Contract != nil {
-		out.OperatorQuestion, err = ReadWorkflowOperatorQuestion(ctx, s, request.WorkID)
-		if err != nil {
-			return out, err
+		// The open question rides the pin's one read snapshot: ReadWorkPin
+		// owns the operator-question read (CD-0173 D2).
+		pin, pinErr := ReadWorkPin(ctx, s, request.WorkID)
+		if pinErr != nil {
+			return out, pinErr
 		}
+		out.OperatorQuestion = pin.PendingOperatorDecision
 	}
 
 	rows, err := s.db.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)

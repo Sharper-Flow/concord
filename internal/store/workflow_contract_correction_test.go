@@ -191,7 +191,7 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	// The operator question gate requires an investigation observation naming
 	// a current Domain and another work item before it offers the question.
 	seedComparisonObservation(t, s, workID)
-	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	} else if binding != nil {
 		t.Fatalf("correction path returned a retry binding without a failed worker: %#v", binding)
 	}
-	question, err = ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err = readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
 		t.Fatalf("record return-route mismatch verdict: %v", err)
 	}
 	seedComparisonObservation(t, s, workID)
-	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

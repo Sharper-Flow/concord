@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -63,6 +64,18 @@ func newResolutionRegistry(t *testing.T, definition WorkflowDefinition) (Definit
 		t.Fatalf("local resolution definition refused registration: %v", err)
 	}
 	return registry, registered
+}
+
+// applyWorkflowOperationTxWithRegistry appends and folds one workflow
+// operation with the caller's definition registry bound to the scope before
+// any write. The binding refuses a scope from another transaction and a
+// conflicting second registry on one scope.
+func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) error {
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return err
+	}
+	_, err := applyWorkflowOperationTx(ctx, tx, operation, scope)
+	return err
 }
 
 // tryAppendWorkflowEventsWithRegistry appends and folds one operation through

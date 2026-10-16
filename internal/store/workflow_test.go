@@ -327,6 +327,14 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 	})
 }
 
+func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
+	if err != nil {
+		return Event{}, err
+	}
+	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), registered.Definition, request, actor, raw)
+}
+
 func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

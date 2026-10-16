@@ -1445,16 +1445,6 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
 }
 
-// foldCompleteStepContractCorrectionTx resolves the builtin registry for
-// direct callers. The core keeps the route marker, historical replay, and
-// admission checks together before it returns the pinned instance to its
-// external-effect step, and the scoped supersession fold carries the
-// transaction's registry to the same core. The caller holds the fold
-// transaction.
-func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
-	return foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, successor)
-}
-
 func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, successor *workflowContractApprovedPayload) error {
 	workID := event.SubjectID
 	var foldStep, foldState string
@@ -1974,13 +1964,6 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	return err
-}
-
-// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
-// the scoped checkpoint fold carries the transaction's registry to the same
-// core.
-func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
-	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
 }
 
 func foldWorkflowDecisionRecordForRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, raw json.RawMessage) error {

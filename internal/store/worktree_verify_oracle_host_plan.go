@@ -55,6 +55,10 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 	if err != nil {
 		return nil, err
 	}
+	var flags, targets []string
+	if pair.Runner == nativeTargetRunnerPytest {
+		flags, targets = nativeTargetPytestScope(m)
+	}
 	var stages []NativeOracleStage
 	if pair.Materializer == nativeTargetMaterializerUV {
 		// --locked asserts manifest/lock freshness and refuses an outdated
@@ -63,7 +67,7 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 		// stay closed materializer policy.
 		stages = append(stages, NativeOracleStage{Name: "metadata", Argv: []string{"uv", "sync", "--locked", "--offline", "--no-build", "--no-python-downloads", "--no-install-project", "--no-install-workspace", "--no-install-local", "--link-mode", "copy"}})
 		if pair.Runner == nativeTargetRunnerPytest {
-			stages = append(stages, NativeOracleStage{Name: "toolcheck", Argv: []string{"pytest", "--version", "-p", "no:cacheprovider", "-q"}})
+			stages = append(stages, NativeOracleStage{Name: "toolcheck", Argv: slices.Concat([]string{"pytest", "--version", "-p", "no:cacheprovider", "-q"}, flags)})
 		}
 	}
 	// Readiness must not qualify a control whose execute result exceeds the
@@ -76,10 +80,10 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 	switch pair.Runner {
 	case nativeTargetRunnerPytest:
 		if phase == "prepare" {
-			return append(stages, NativeOracleStage{Name: "collect", Argv: []string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}}), nil
+			return append(stages, NativeOracleStage{Name: "collect", Argv: slices.Concat([]string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}, flags, targets)}), nil
 		}
 		for i, witness := range witnesses {
-			stages = append(stages, NativeOracleStage{Name: "test", Argv: []string{"pytest", witness, "-ra", "-q", "-p", "no:cacheprovider", "--junitxml=$scratch/junit-" + strconv.Itoa(i) + ".xml"}})
+			stages = append(stages, NativeOracleStage{Name: "test", Argv: slices.Concat([]string{"pytest", witness, "-ra", "-q", "-p", "no:cacheprovider", "--junitxml=$scratch/junit-" + strconv.Itoa(i) + ".xml"}, flags)})
 		}
 		return stages, nil
 	case nativeTargetRunnerCheck:
@@ -106,6 +110,31 @@ func (t *nativeTargetOraclePlan) stages(phase string, witnesses []string) ([]Nat
 	default:
 		return nil, nativeUnavailable("unsupported target runner")
 	}
+}
+
+// nativeTargetPytestScope resolves one pytest plan's declared configuration
+// scope from the manifest alone: the flags every pytest stage appends, and
+// the root-relative whole-file .py harness targets a collect run names in
+// declared order. A root config is an exact rooted member of either declared
+// inventory, resolved in pinned priority order; with none declared, the
+// pinned dependency manifest configures the run. The candidate filesystem is
+// never scanned.
+func nativeTargetPytestScope(m nativeTargetOracleManifest) (flags, targets []string) {
+	config := m.Pin.DepManifest
+	for _, name := range []string{"pytest.toml", ".pytest.toml", "pytest.ini", ".pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"} {
+		rooted, ok := nativeTargetRootedPath(m.Root, name)
+		if ok && (slices.Contains(m.HarnessFiles, rooted) || slices.Contains(m.SupportFiles, rooted)) {
+			config = name
+			break
+		}
+	}
+	flags = []string{"-c", config, "--rootdir=."}
+	for _, name := range m.HarnessFiles {
+		if strings.HasSuffix(name, ".py") {
+			targets = append(targets, strings.TrimPrefix(name, m.Root+"/"))
+		}
+	}
+	return flags, targets
 }
 
 // nativeTargetCheckScripts names the one pinned harness script a check's

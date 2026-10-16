@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeCheckFailures"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeNewestAttempts"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeFailurePrecedence"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeMixedFailureAndPendingStaysPending"
+    }
+  ],
+  "id": "CD-0228",
+  "state": "satisfied"
+}

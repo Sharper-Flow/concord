@@ -2,6 +2,7 @@
 """Validate and deterministically generate relation vocabulary projections."""
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -89,7 +90,12 @@ var relationDefaultQueryLabels = []string{{{go_strings(defaults)}}}
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on relation vocabulary projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         vocabulary = json.loads(VOCABULARY.read_text())
         schema = json.loads(SCHEMA.read_text())
         check_schema_keywords(schema)
@@ -108,7 +114,7 @@ def main() -> int:
             ).stdout,
             ROOT / "contracts/relation-vocabulary.digest": vocabulary_digest + "\n",
         }
-        if "--check" in sys.argv[1:]:
+        if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text() != content:
                     fail(f"generated relation vocabulary drift: {path.relative_to(ROOT)}")

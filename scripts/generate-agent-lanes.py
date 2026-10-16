@@ -2,6 +2,7 @@
 """Validate and deterministically generate the CD-0017 lane projections."""
 from __future__ import annotations
 
+import argparse
 import copy
 import hashlib
 import importlib.util
@@ -1299,8 +1300,12 @@ def refresh_knowledge_index() -> None:
 
 
 def main() -> int:
-    check = "--check" in sys.argv[1:]
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on lane projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         manifest, manifest_digest = load_manifest()
         worker_scope = load_worker_scope(manifest)
         packet_schema = json.loads(PACKET_SCHEMA.read_text(encoding="utf-8"))

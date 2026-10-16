@@ -1,0 +1,48 @@
+{
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ],
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-15T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0226",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0197"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0044"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0058"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0226-review-findings-carry-fixes-with-cross-family-checks.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:edf8bfce7ee26ea5d569ded68f14850d48632fcd485f27eff3b25beea06272d0",
+  "status": "accepted",
+  "summary": "Blocking review findings carry bounded repair dispositions. Applied fixes require review from another model family before closure or delivery, with authenticated host classification evidence and no Concord model routing.",
+  "tags": [
+    "agent-lanes",
+    "review",
+    "worker-evidence"
+  ],
+  "title": "Review findings carry fixes with cross-family checks"
+}

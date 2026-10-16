@@ -419,35 +419,154 @@ func ArchitectureLawContextDigest(raw json.RawMessage) (string, error) {
 }
 
 // The event-sourced capacity invariant: after one operation's events fold and
-// before the same transaction commits, every affected work item whose latest
-// retained architecture projection declares an allocation must hold its
-// actual current member projections inside that allocation. The check reads
-// post-fold state through the raw typed readers only, never re-enters
-// workflow admission, and touches no work the operation did not affect.
+// before the same transaction commits, each affected work item measures the
+// final post-fold state of exactly the slots its operation's material writers
+// select. The producer policy unions the selected slots per work across the
+// whole operation; a custody-only subject selects no slot and is never read,
+// so a valid terminal report commits as retained custody and the strict check
+// moves to the next all-slot dispatch. The check reads post-fold state
+// through the raw typed readers only, never re-enters workflow admission,
+// and touches no work the operation did not materially write.
+
+// architectureCapacitySlotsForEvent classifies one work-subject event into
+// the material slots its producer writes. The switch is closed over the
+// event-kind registry: every registered work-subject kind owns an explicit
+// case, and a newly registered work producer refuses as missing policy until
+// it classifies here. Slots name what the producer materially writes, not
+// what its fold touches — a terminal report and its derived failure stay
+// custody, an action checkpoint writes the workflow checkpoint table and not
+// the packet checkpoint member, and a premise confirmation writes
+// confirmations and not the task premise. The one shared kind with distinct
+// writers, action_completed, classifies through its validated action
+// identity. The all-slot producers return the shared slot-order slice;
+// callers iterate it and never mutate it. An unknown event kind is a typed
+// invariant failure, never a silent zero.
+func architectureCapacitySlotsForEvent(event Event) ([]architectureCapacitySlot, error) {
+	switch event.Kind {
+	case WorkflowDesignRecorded, WorkflowContractApproved, WorkflowContractSuperseded, WorkerDispatched:
+		return architectureCapacitySlotsInOrder, nil
+	case "work.created", "work.intent_revised":
+		return []architectureCapacitySlot{architectureSlotWorkRecord, architectureSlotTaskPremise}, nil
+	case WorkflowProposalRecorded:
+		return []architectureCapacitySlot{architectureSlotProposalRecord}, nil
+	case WorkerJobRecorded:
+		return []architectureCapacitySlot{architectureSlotWorkerJob}, nil
+	case WorkflowWorkContextRecorded, WorkflowContextCheckpointed:
+		return []architectureCapacitySlot{architectureSlotWorkContext}, nil
+	case WorkflowActionCompleted:
+		return architectureCapacitySlotsForActionCompleted(event.Payload)
+	case WorkRemoved, "work.memberships_replaced", "work.worktree_created", "work.resource_claimed",
+		WorkObservationRecorded, "work.message_sent", "work.message_withdrawn", "work.resource_claim_released",
+		EventExternalObservationCaptured, EventExternalObservationVerified,
+		"work.worktree_reclaimed", "work.worktree_removal_settled", "work.worktree_occupancy_released",
+		"work.session_vacated", "work.session_vacate_landed", "work.project_handoff_recorded",
+		"work.project_handoff_consumed", "work.session_claim_landed",
+		"work.transitioned", "work.superseded", "work.reopened", "work.reopened_from_superseded",
+		"relation.added", "relation.removed",
+		"work_project.added", "work_project.removed", "work_project.role_changed",
+		"compaction_link.published",
+		"initiative_entry.added", "initiative_entry.removed", "initiative_entry.reordered",
+		"initiative_entry.requiredness_changed", "initiative.narrative_revised",
+		WorkerCompleted, WorkerFailed,
+		WorkflowDefinitionSelected, WorkflowOverlapResolved, WorkflowNativeRunRecorded,
+		WorkflowCandidateSetRevised, WorkflowActorRecorded, WorkflowActionStarted,
+		WorkflowActionCheckpointed, WorkflowActionFailed, WorkflowEvidenceBound,
+		WorkflowStalenessObserved, WorkflowVerdictRecorded, WorkflowPremiseConfirmed,
+		WorkflowSuccessorLinked, WorkflowImpactDeclared, WorkflowImpactNoticeRecorded,
+		WorkflowConditionAdded, WorkflowConditionResolved, WorkflowConditionCancelled,
+		WorkflowContextBoundaryCrossed, WorkflowBacklogAlignmentRecorded, WorkflowDiagnosisRecorded,
+		WorkflowDeliveryCorrected, WorkflowCompleted, WorkflowOutsideRepairDispositionSet,
+		WorkflowOutsideRepairReconciled, WorkflowOutsideRepairResumed:
+		return nil, nil
+	default:
+		return nil, architectureCapacityFailure(KindInvariantViolation,
+			fmt.Sprintf("event kind %q has no architecture capacity producer policy; a registered work producer is never measured as zero by default", event.Kind),
+			"add the new work-subject event kind to the closed producer/slot classification before its operation reaches capacity admission")
+	}
+}
+
+// architectureCapacitySlotsForActionCompleted classifies the generic
+// action_completed completion through its validated action identity: the
+// dispatch completion is all-slot strict, a rejected result or a correction
+// request writes the shared work_context slot, and every other validated
+// action — the accepts, the derived worker failure, the verdict batch, and
+// the unnamed remainder — is custody. The payload root must carry the
+// identity the fold validated: a non-object root or a non-string action_id
+// refuses instead of classifying as bookkeeping.
+func architectureCapacitySlotsForActionCompleted(payload []byte) ([]architectureCapacitySlot, error) {
+	if !isJSONObject(payload) {
+		return nil, architectureCapacityFailure(KindInvariantViolation,
+			"the action_completed payload is not a JSON object; its capacity producer identity is missing, not empty",
+			"classify only validated action_completed events")
+	}
+	var identity struct {
+		ActionID string `json:"action_id"`
+	}
+	if err := json.Unmarshal(payload, &identity); err != nil {
+		return nil, architectureCapacityFailure(KindInvariantViolation,
+			"the action_completed payload carries a malformed action identity; its capacity producer policy is missing, not empty",
+			"classify only validated action_completed events")
+	}
+	switch identity.ActionID {
+	case "dispatch_worker":
+		return architectureCapacitySlotsInOrder, nil
+	case "request_correction", "reject_worker_result":
+		return []architectureCapacitySlot{architectureSlotWorkContext}, nil
+	default:
+		return nil, nil
+	}
+}
 
 // validateArchitectureCapacityInvariantsTx validates post-fold capacity for
-// every work item the operation's events carry. Identification is by the
-// work-item subject alone, never by event-kind prefix: worker.job_recorded
-// and worker.completed are work subjects too. One whole multi-event
+// the works the operation's events materially write. The producer policy
+// classifies every work-subject event, an unknown policy refuses, a
+// custody-only subject selects no slot and is skipped without a profile or
+// member read, and the affected works follow their first material writer's
+// order, so the first failure is deterministic. One whole multi-event
 // operation validates its final state, not intermediate events, so an
 // intermediate over-allocation that a later event in the same operation
 // replaces is admitted.
 func validateArchitectureCapacityInvariantsTx(ctx context.Context, tx *sql.Tx, operation Operation) error {
-	seen := make(map[string]bool, len(operation.Events))
+	selected := make(map[string]map[architectureCapacitySlot]bool, len(operation.Events))
 	affected := make([]string, 0, len(operation.Events))
 	for _, event := range operation.Events {
-		if event.SubjectType != SubjectWorkItem || seen[event.SubjectID] {
+		if event.SubjectType != SubjectWorkItem {
 			continue
 		}
-		seen[event.SubjectID] = true
-		affected = append(affected, event.SubjectID)
+		slots, err := architectureCapacitySlotsForEvent(event)
+		if err != nil {
+			return err
+		}
+		if len(slots) == 0 {
+			continue
+		}
+		workSlots, seen := selected[event.SubjectID]
+		if !seen {
+			workSlots = make(map[architectureCapacitySlot]bool, len(architectureCapacitySlotsInOrder))
+			selected[event.SubjectID] = workSlots
+			affected = append(affected, event.SubjectID)
+		}
+		for _, slot := range slots {
+			workSlots[slot] = true
+		}
 	}
 	for _, workID := range affected {
-		if err := validateArchitectureCapacityAffectedWorkTx(ctx, tx, workID); err != nil {
+		if err := validateArchitectureCapacityAffectedWorkTx(ctx, tx, workID, selected[workID]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// architectureCapacityAllSlots selects every declared slot: the closed set
+// the full validators measure. It returns a fresh set each call, never the
+// shared slot-order slice.
+func architectureCapacityAllSlots() map[architectureCapacitySlot]bool {
+	selected := make(map[architectureCapacitySlot]bool, len(architectureCapacitySlotsInOrder))
+	for _, slot := range architectureCapacitySlotsInOrder {
+		selected[slot] = true
+	}
+	return selected
 }
 
 // architectureCapacityProfileForWorkTx reads the capacity profile from the
@@ -478,63 +597,95 @@ func architectureCapacityProfileForWorkTx(ctx context.Context, tx *sql.Tx, workI
 }
 
 // architectureCapacityCurrentMembersTx projects the work's actual current
-// slot members through the owning raw typed readers. The records, context,
-// checkpoint, objective, and outcome-predicate projections are the exact
-// packet projections the retry and dispatch admissions read; the correction
-// context reads unfiltered by step, so its member measures the widest open
-// record any dispatch could carry. A design hidden by contract supersession
-// leaves its member genuinely absent; an unknown or malformed member refuses
-// and never measures as zero. The law context comes from the existing law
-// reader, which qualifies its file locators against the knowledge home on
-// disk — it is reused, not reinterpreted, and is not SQL-only.
-func architectureCapacityCurrentMembersTx(ctx context.Context, tx *sql.Tx, workID string) (map[string]json.RawMessage, error) {
+// members for exactly the selected slots through the owning raw typed
+// readers. The records, context, checkpoint, objective, and outcome-predicate
+// projections are the exact packet projections the retry and dispatch
+// admissions read; the correction context reads unfiltered by step, so its
+// member measures the widest open record any dispatch could carry. A design
+// hidden by contract supersession leaves its member genuinely absent; an
+// unknown or malformed member refuses and never measures as zero. The law
+// context comes from the existing law reader, which qualifies its file
+// locators against the knowledge home on disk — it is reused, not
+// reinterpreted, and is not SQL-only.
+func architectureCapacityCurrentMembersTx(ctx context.Context, tx *sql.Tx, workID string, selected map[architectureCapacitySlot]bool) (map[string]json.RawMessage, error) {
 	inputs := map[string]any{}
-	if err := retryPacketRecordsTx(ctx, tx, workID, inputs); err != nil {
-		return nil, err
+	if selected[architectureSlotLawContext] {
+		if lawContext, err := readActiveWorkflowLawContext(ctx, tx, workID); err != nil {
+			return nil, err
+		} else if lawContext != nil {
+			inputs["law_context"] = lawContext
+		}
 	}
-	if err := retryPacketWorkContextTx(ctx, tx, workID, inputs); err != nil {
-		return nil, err
+	if selected[architectureSlotDesignRecord] {
+		if design, _, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
+			return nil, err
+		} else if design != nil {
+			inputs["design_record"] = design
+		}
 	}
-	if err := retryPacketCheckpointTx(ctx, tx, workID, inputs); err != nil {
-		return nil, err
+	if selected[architectureSlotProposalRecord] {
+		if proposal, err := readLatestWorkerPacketProposal(ctx, tx, workID); err != nil {
+			return nil, err
+		} else if proposal != nil {
+			inputs["proposal_record"] = proposal
+		}
 	}
-	correction, err := workflowCorrectionContext(ctx, tx, workID, "")
-	if err != nil {
-		return nil, err
+	if selected[architectureSlotWorkRecord] {
+		if work, err := readWorkerPacketWorkRecord(ctx, tx, workID); err != nil {
+			return nil, err
+		} else if work != nil {
+			inputs["work_record"] = work
+		}
 	}
-	if correction != nil {
-		inputs["correction"] = correction
+	if selected[architectureSlotWorkContext] {
+		if err := retryPacketWorkContextTx(ctx, tx, workID, inputs); err != nil {
+			return nil, err
+		}
+		if err := retryPacketCheckpointTx(ctx, tx, workID, inputs); err != nil {
+			return nil, err
+		}
+		if correction, err := workflowCorrectionContext(ctx, tx, workID, ""); err != nil {
+			return nil, err
+		} else if correction != nil {
+			inputs["correction"] = correction
+		}
 	}
-	if err := retryPacketOutcomePredicatesTx(ctx, tx, workID, inputs); err != nil {
-		return nil, err
+	if selected[architectureSlotOutcomePredicates] {
+		if err := retryPacketOutcomePredicatesTx(ctx, tx, workID, inputs); err != nil {
+			return nil, err
+		}
 	}
-	objective, _, _, err := retryPacketObjectiveTx(ctx, tx, workID)
-	if err != nil {
-		return nil, err
+	if selected[architectureSlotTaskPremise] {
+		objective, _, _, err := retryPacketObjectiveTx(ctx, tx, workID)
+		if err != nil {
+			return nil, err
+		}
+		inputs["task"] = objective
 	}
-	members := make(map[string]json.RawMessage, len(architectureCapacitySlotForMember))
+	members := make(map[string]json.RawMessage, len(inputs))
 	for name, value := range inputs {
 		if value == nil {
 			continue
 		}
 		raw, err := json.Marshal(value)
 		if err != nil {
+			remedy := "repair the member's owning record"
+			if name == "task" {
+				remedy = "repair the recorded premise or question"
+			}
 			return nil, architectureCapacityFailure(KindInvariantViolation,
-				"the "+name+" projection cannot be serialized for capacity measurement", "repair the member's owning record")
+				"the "+name+" projection cannot be serialized for capacity measurement", remedy)
 		}
 		members[name] = raw
 	}
-	task, err := json.Marshal(objective)
-	if err != nil {
-		return nil, architectureCapacityFailure(KindInvariantViolation,
-			"the task projection cannot be serialized for capacity measurement", "repair the recorded premise or question")
-	}
-	members["task"] = task
 	return members, nil
 }
 
-// architectureCapacityChargeCheck rejects the first measured slot over reserve.
-func architectureCapacityChargeCheck(ctx context.Context, q queryer, profile ArchitectureCapacityProfile, members map[string]json.RawMessage, workID string) error {
+// architectureCapacityChargeCheck rejects the first selected slot whose
+// measured members exceed its reserve. The recorded job revisions charge the
+// worker_job slot at their exact maximum-revision span and are read only
+// when that slot is selected.
+func architectureCapacityChargeCheck(ctx context.Context, q queryer, profile ArchitectureCapacityProfile, members map[string]json.RawMessage, workID string, selected map[architectureCapacitySlot]bool) error {
 	slotBytes := make(map[architectureCapacitySlot]int, len(architectureCapacitySlotsInOrder))
 	for key, value := range members {
 		slot, _, known := architectureCapacityClassifyMember(key)
@@ -545,19 +696,21 @@ func architectureCapacityChargeCheck(ctx context.Context, q queryer, profile Arc
 		}
 		slotBytes[slot] += architectureMemberSpan(key, value, true)
 	}
-	views, err := readWorkerJobRevisions(ctx, q, workID)
-	if err != nil {
-		return err
-	}
-	for _, view := range views {
-		raw, err := json.Marshal(packetJobFromView(view))
+	if selected[architectureSlotWorkerJob] {
+		views, err := readWorkerJobRevisions(ctx, q, workID)
 		if err != nil {
-			return architectureCapacityFailure(KindInvariantViolation,
-				"a worker-job projection cannot be serialized for capacity measurement of work "+workID,
-				"repair the recorded job revision")
+			return err
 		}
-		if span := architectureMemberSpan("worker_job", raw, false); span > slotBytes[architectureSlotWorkerJob] {
-			slotBytes[architectureSlotWorkerJob] = span
+		for _, view := range views {
+			raw, err := json.Marshal(packetJobFromView(view))
+			if err != nil {
+				return architectureCapacityFailure(KindInvariantViolation,
+					"a worker-job projection cannot be serialized for capacity measurement of work "+workID,
+					"repair the recorded job revision")
+			}
+			if span := architectureMemberSpan("worker_job", raw, false); span > slotBytes[architectureSlotWorkerJob] {
+				slotBytes[architectureSlotWorkerJob] = span
+			}
 		}
 	}
 	for _, slot := range architectureCapacitySlotsInOrder {
@@ -568,20 +721,24 @@ func architectureCapacityChargeCheck(ctx context.Context, q queryer, profile Arc
 	return nil
 }
 
-// validateArchitectureCapacityAffectedWorkTx rejects the first over-slot.
-func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx, workID string) error {
+// validateArchitectureCapacityAffectedWorkTx rejects the first selected slot
+// over its reserve on the work's retained allocation.
+func validateArchitectureCapacityAffectedWorkTx(ctx context.Context, tx *sql.Tx, workID string, selected map[architectureCapacitySlot]bool) error {
 	profile, found, err := architectureCapacityProfileForWorkTx(ctx, tx, workID)
 	if err != nil || !found {
 		return err
 	}
-	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
+	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID, selected)
 	if err != nil {
 		return err
 	}
-	return architectureCapacityChargeCheck(ctx, tx, profile, members, workID)
+	return architectureCapacityChargeCheck(ctx, tx, profile, members, workID, selected)
 }
 
-// One receipt-publishing release pre-measures the context on its own snapshot.
+// One receipt-publishing release pre-measures the context on its own
+// snapshot. Native prospective verification is explicitly all-slot strict
+// for both member projection and charging; its readiness and
+// retained-execution behavior stays unchanged.
 
 type architectureCapacityVerifyPublish struct {
 	SubjectCommit string
@@ -593,7 +750,8 @@ func architectureCapacityProspectiveVerifyTx(ctx context.Context, tx *sql.Tx, wo
 	if err != nil || !found {
 		return found, err
 	}
-	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID)
+	selected := architectureCapacityAllSlots()
+	members, err := architectureCapacityCurrentMembersTx(ctx, tx, workID, selected)
 	if err != nil {
 		return true, err
 	}
@@ -621,5 +779,5 @@ func architectureCapacityProspectiveVerifyTx(ctx context.Context, tx *sql.Tx, wo
 		}
 		members["work_context"] = raw
 	}
-	return true, architectureCapacityChargeCheck(ctx, tx, profile, members, workID)
+	return true, architectureCapacityChargeCheck(ctx, tx, profile, members, workID, selected)
 }

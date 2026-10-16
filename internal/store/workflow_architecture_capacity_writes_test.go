@@ -478,7 +478,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
 	})
 
-	t.Run("terminal findings growth refuses and a bounded report commits", func(t *testing.T) {
+	t.Run("valid terminal findings retain custody and the next dispatch refuses with zero effects", func(t *testing.T) {
 		const workID = "capw-terminal"
 		// The findings-capable break-fix head predates the failure-attribution
 		// terminal requirement, so a plain failed report is admissible there.
@@ -510,30 +510,19 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 			overFindings[i] = contextFindingFixture()
 			overFindings[i].Statement = strings.Repeat("f", 900)
 		}
-		version, events, rows := capacityWritesSnapshot(t, s, workID)
 		over := workerFailedContextFindingsEvent(workID, "capw-terminal-failed-over", "capw-terminal-dispatch-over", model, WorkerFailureWorkerError, overFindings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		// A valid terminal report is custody: it commits whole with its
+		// original payload and terminal state retained even when the combined
+		// context rises above the slot reserve, and the strict refusal moves
+		// to the next all-slot dispatch.
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{over}}); err != nil {
-			_ = capacityWritesRefusal(t, err, "work_context")
-		} else {
-			t.Fatal("the over-sized terminal findings were accepted")
+			t.Fatalf("the valid over-slot terminal report refused instead of committing retained custody: %v", err)
 		}
+		custodyAssertTerminalCustody(t, s, workID, over, "capw-terminal-dispatch-over", "failed")
+		version, events, rows := capacityWritesSnapshot(t, s, workID)
+		nextDispatch := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent(workID, "capw-terminal-dispatch-next", lane, nil)}})
+		_ = capacityWritesRefusal(t, nextDispatch, "work_context")
 		capacityWritesZeroEffects(t, s, workID, version, events, rows)
-		// The refused report left the attempt dispatched: the terminal fold
-		// never promoted it, and no worker.failed event for it exists.
-		var attemptState string
-		if err := s.db.QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, "capw-terminal-dispatch-over").Scan(&attemptState); err != nil {
-			t.Fatal(err)
-		}
-		if attemptState != "dispatched" {
-			t.Fatalf("the refused report left the attempt %q, want dispatched", attemptState)
-		}
-		var failedEvents int
-		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerFailed, "capw-terminal-dispatch-over").Scan(&failedEvents); err != nil {
-			t.Fatal(err)
-		}
-		if failedEvents != 0 {
-			t.Fatalf("the refused report left %d worker.failed events for the attempt", failedEvents)
-		}
 	})
 
 	t.Run("correction growth refuses and a bounded record commits", func(t *testing.T) {
@@ -634,7 +623,7 @@ func TestArchitectureCapacityWriterAtomicity(t *testing.T) {
 		}
 		// The store pools one connection: any read that left the caller's
 		// transaction for s.db would park on the pool until this deadline.
-		if err := validateArchitectureCapacityAffectedWorkTx(ctxTimeout, tx, workID); err != nil {
+		if err := validateArchitectureCapacityAffectedWorkTx(ctxTimeout, tx, workID, architectureCapacityAllSlots()); err != nil {
 			t.Fatalf("the capacity validation cannot run inside the caller transaction: %v", err)
 		}
 	})

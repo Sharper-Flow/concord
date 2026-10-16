@@ -72,7 +72,7 @@ Three writers create work-to-work relations, each scoped to its own kinds.
 1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
    or `merged_into` resolution commits the relation and the terminal
-   transition in one transaction. Every resolution kind except `depends_on`
+   transition in one transaction. A `merged_into` or `supersedes` resolution
    requires an operator approval pinned to both work versions and both
    contract versions.
 2. Capture writes `raised_from` through its `raised_from_work_id` input.

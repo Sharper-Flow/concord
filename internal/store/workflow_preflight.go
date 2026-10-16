@@ -522,6 +522,16 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 			break
 		}
 	}
+	// A consequence_v1 pin validates its found initial contract approval
+	// against the selected decision-fact declaration; the typed refusal
+	// propagates.
+	if found && actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		selected, err := workflowDecisionFactInitialActionDefinition(definition)
+		if err != nil {
+			return err
+		}
+		payloadDefinition = selected.Payload
+	}
 	if !found {
 		if actionID == "record_worker_failure" {
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
@@ -598,6 +608,10 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 		}
 	}
 	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
+		return err
+	}
+	if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
 		return err
 	}
 	// The proposal document rule is cross-field, so it runs only for a pinned

@@ -471,14 +471,17 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// A missing new-policy fact withholds the question with its typed
 		// reason at both levels: absence is never engineering.
 		absentSnapshot := approvalContinuitySnapshot(t, s3, registry3, absentID)
-		if absentSnapshot.WithheldOperatorDecision == nil || absentSnapshot.WithheldOperatorDecision.Reason == "" {
-			t.Fatalf("the absent-fact continuity top level withholds %+v, want the typed reason", absentSnapshot.WithheldOperatorDecision)
+		if absentSnapshot.WithheldOperatorDecision == nil || !strings.Contains(absentSnapshot.WithheldOperatorDecision.Reason, "absence is a legacy shape") {
+			t.Fatalf("the absent-fact continuity top level withholds %+v, want the typed absence reason", absentSnapshot.WithheldOperatorDecision)
 		}
 		if absentSnapshot.PendingOperatorDecision != nil {
 			t.Fatalf("the absent-fact continuity top level projects %+v, want no question", absentSnapshot.PendingOperatorDecision)
 		}
-		if absentSnapshot.WorkPin == nil || absentSnapshot.WorkPin.WithheldOperatorDecision == nil {
-			t.Fatalf("the absent-fact continuity work pin withholds %+v, want the typed reason", approvalWorkPinWithheld(absentSnapshot))
+		if absentSnapshot.WorkPin == nil || absentSnapshot.WorkPin.WithheldOperatorDecision == nil || !strings.Contains(absentSnapshot.WorkPin.WithheldOperatorDecision.Reason, "absence is a legacy shape") {
+			t.Fatalf("the absent-fact continuity work pin withholds %+v, want the typed absence reason", approvalWorkPinWithheld(absentSnapshot))
+		}
+		if absentSnapshot.WorkPin.PendingOperatorDecision != nil {
+			t.Fatalf("the absent-fact continuity work pin projects %+v, want no question", approvalWorkPinQuestion(absentSnapshot))
 		}
 		// A drifted registry carrying the same family and version with
 		// different bytes refuses the continuity projection, and the builtin
@@ -544,6 +547,10 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// is a legacy shape, not engineering, and refuses before any effect.
 		baselineVersion := verdictItemVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
+		var baselineConfirmations int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&baselineConfirmations); err != nil {
+			t.Fatal(err)
+		}
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var absentFailure *Failure
 		if err == nil || !failureAs(err, &absentFailure) || absentFailure.Kind != KindInvalidInput || !strings.Contains(absentFailure.Detail, "absence is a legacy shape") {
@@ -555,11 +562,29 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused confirmation advanced the work version to %d", version)
 		}
+		var confirmations int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&confirmations); err != nil {
+			t.Fatal(err)
+		}
+		if confirmations != baselineConfirmations {
+			t.Fatalf("the refused confirmation left %d confirmation rows (baseline %d)", confirmations, baselineConfirmations)
+		}
 		assertNoFoldGuardRows(t, s)
 		// The question owner must not fabricate a confirmation withholding on
 		// a step that declares no confirmation action: absence at execution is
-		// simply no question, whatever the folded fact says.
-		definitionEntry := RegisteredDefinition{Definition: approvalRouteDefinition(t)}
+		// simply no question, whatever the folded fact says. The state-backed
+		// projection resolves the actual carried registered definition and
+		// digest, the pin the carry forward retained, never a freshly made
+		// definition shape.
+		var carriedRef, carriedDigest string
+		var carriedVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest); err != nil {
+			t.Fatal(err)
+		}
+		definitionEntry, ok := registry.Lookup(carriedRef, carriedVersion)
+		if !ok || definitionEntry.Digest != carriedDigest {
+			t.Fatalf("the carried pin %s@%d %s does not resolve in the caller registry", carriedRef, carriedVersion, carriedDigest)
+		}
 		// The store pools one connection: the version reads before the
 		// transaction opens, never beside it.
 		noActionVersion := verdictItemVersion(t, s, workID)

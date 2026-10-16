@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // WorkflowApprovalPolicyConsequenceV1 is the one explicit approval-policy
 // value. Absence on a definition selects the released legacy policy; any other
@@ -203,4 +206,31 @@ func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role
 	}
 	return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDecision, Consent: WorkflowConsentRequired,
 		Reason: fmt.Sprintf("consequence_v1: %s on %s declares decision domains %v and requires the human consent question", actionID, pin, domains)}, nil
+}
+
+// workflowApprovalPolicyRequiresDecisionFact reports whether the pinned
+// approval policy requires a contract instance to declare its decision-domain
+// fact: consequence_v1 requires it; legacy absence knows no such fact.
+func workflowApprovalPolicyRequiresDecisionFact(definition WorkflowDefinition) bool {
+	return definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1
+}
+
+// Legacy authoring keeps its released bytes. New-policy authoring requires a
+// canonical array: decoding preserves the distinction between null and [].
+func workflowSubmittedDecisionDomains(definition WorkflowDefinition, role string, fields map[string]json.RawMessage) ([]string, error) {
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return nil, nil
+	}
+	raw, present := fields["decision_domains"]
+	var domains []string
+	if present && json.Unmarshal(raw, &domains) != nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s decision_domains is not a decodable string array", role), false, "declare the domains as a JSON array over preference, product, and ui_ux")
+	}
+	if domains == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s requires the submitted decision-domain fact; absence is a legacy shape", role), false, "declare the contract's decision domains explicitly")
+	}
+	if err := validateWorkflowDecisionDomains(domains); err != nil {
+		return nil, err
+	}
+	return domains, nil
 }

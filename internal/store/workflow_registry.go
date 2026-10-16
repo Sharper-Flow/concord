@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1675,6 +1676,15 @@ func actionEnumListField(name string, required bool, lower, upper int64, values 
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), Enum: values}
 }
 
+// workflowDecisionFactField declares the copied decision-fact field a
+// consequence_v1 contract carries: a required closed string list whose
+// members answer to workflowDecisionDomainSet, where the empty list records
+// engineering and absence has no declared shape. The enum storage is copied,
+// so the field never aliases the canonical set.
+func workflowDecisionFactField() WorkflowPayloadField {
+	return actionEnumListField("decision_domains", true, 0, int64(len(workflowDecisionDomainSet)), slices.Clone(workflowDecisionDomainSet)...)
+}
+
 func actionProseListField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
@@ -2073,6 +2083,54 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 		publicPayload = policy.PublicPayload
 	}
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
+}
+
+// workflowDecisionFactPayloadFields selects the copied decision-fact
+// declaration onto one contract payload: a consequence_v1 definition copies
+// the supplied fields, replaces a declared decision_domains field with the
+// one canonical fact at its position, or appends the fact when none is
+// declared, so the selection never duplicates it; a legacy definition keeps
+// the supplied fields byte-identical. The copy leaves every builtin policy
+// slice, pinned declaration, and released field list unmutated.
+func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return fields
+	}
+	selected := make([]WorkflowPayloadField, len(fields), len(fields)+1)
+	copy(selected, fields)
+	for index := range selected {
+		if selected[index].Name == "decision_domains" {
+			selected[index] = workflowDecisionFactField()
+			return selected
+		}
+	}
+	return append(selected, workflowDecisionFactField())
+}
+
+// workflowDecisionFactInitialActionDefinition selects the initial
+// approve_contract declaration the pinned definition itself carries, never a
+// synthesized one: a consequence_v1 pin answers from a clone of its declared
+// closed action with the fact on the payload and nonnil public payload
+// storage, an open initial payload refuses as a definition failure, and the
+// lookup's bare ID-only answer (no declared action) returns the zero action
+// with no error.
+func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) (WorkflowActionDefinition, error) {
+	pinned := workflowActionDefinitionByID(definition, "approve_contract")
+	if pinned.Consequence == "" {
+		return WorkflowActionDefinition{}, nil
+	}
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return pinned, nil
+	}
+	if !pinned.Payload.Closed {
+		return WorkflowActionDefinition{}, definitionFailure(KindInvalidDefinition, "consequence_v1 approve_contract initial payload is open; pin a closed initial payload declaration")
+	}
+	selected := workflowActionDefinitionByID(cloneWorkflowDefinition(definition), "approve_contract")
+	selected.Payload.Fields = workflowDecisionFactPayloadFields(definition, selected.Payload.Fields)
+	if selected.PublicPayload != nil {
+		selected.PublicPayload.Fields = workflowDecisionFactPayloadFields(definition, selected.PublicPayload.Fields)
+	}
+	return selected, nil
 }
 
 func workerFailureRecoveryActionDefinition() WorkflowActionDefinition {

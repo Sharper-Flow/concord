@@ -33,18 +33,22 @@ import (
 )
 
 // approvalRouteDefinition copies the local resolution definition and ships
-// confirm_premise's declared operator-decision contract, the declaration the
-// released families carry: the closed choice and the human digest travel as
-// declared envelope fields, so the public action route validates and records
-// them instead of refusing an undeclared field.
+// the route's contract-authoring declarations: the initial approve_contract
+// action is the closed current declaration the consequence_v1 selection
+// answers from, and confirm_premise carries its declared operator-decision
+// contract — the closed choice and the human digest travel as declared
+// envelope fields, so the public action route validates and records them
+// instead of refusing an undeclared field.
 func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	definition := resolutionPolicyDefinition(t)
 	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "confirm_premise" {
-			continue
+		switch definition.ActionDefinitions[index].ID {
+		case "approve_contract":
+			definition.ActionDefinitions[index] = currentActionDefinition("approve_contract", true)
+		case "confirm_premise":
+			definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: confirmPremiseOperatorFields()}
 		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: confirmPremiseOperatorFields()}
 	}
 	return definition
 }
@@ -276,14 +280,34 @@ func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string)
 	return s, registry, definition, owner, actors
 }
 
-// seedApprovalAbsentFactAtAcceptance seeds the local consequence_v1 pin to
-// the acceptance step with a contract whose current-version payload carries
-// no decision_domains member: the legacy absence shape, folded unchanged.
+// seedApprovalAbsentFactAtAcceptance seeds the consequence_v1 pin to the
+// acceptance step with a contract whose stored decision fact is absent: the
+// legacy absence shape. The absent contract is authored under a registered
+// synthetic legacy twin of the route definition, the same ref at
+// definition.Version with the legacy approval policy, so the contract write
+// keeps its legacy-shape absence. The investigation observation is recorded
+// through its real fold. A real WorkflowDefinitionSelected event then carries
+// the instance forward through the registered fold to the higher same-ref
+// consequence_v1 version, registered for its actual digest: the carry forward
+// keeps the acceptance step, keeps the NULL historical contract authoritative
+// with its recorded bytes, and keeps the owner as the executing actor. The
+// seed asserts each preserved state, so a carry forward that rewrote history
+// fails at the seed instead of downstream. No projection row, definition pin,
+// step position, or durable authority row is written directly, and no builtin
+// registry entry is mutated.
 func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowActor) {
 	t.Helper()
 	definition := approvalRouteDefinition(t)
-	registry, registered := newResolutionRegistry(t, definition)
-	s, owner := seedResolutionSelection(t, workID, registry, registered)
+	legacy := definition
+	legacy.ApprovalPolicy = ""
+	higher := definition
+	higher.Version = definition.Version + 1
+	registry, legacyRegistered := newResolutionRegistry(t, legacy)
+	higherRegistered, err := registry.Register(higher)
+	if err != nil {
+		t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
+	}
+	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
 	version := verdictItemVersion(t, s, workID)
@@ -304,6 +328,67 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 	})
 	advanceResolutionDelivery(t, s, registry, workID, owner)
+	seedResolutionInvestigation(t, s, workID)
+	// The absent-fact state the carry forward must preserve: the contract
+	// payload carries no decision_domains member, and the projection stores
+	// NULL absence.
+	var premise string
+	var domainsAbsent int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&premise, &domainsAbsent); err != nil {
+		t.Fatal(err)
+	}
+	var contractPayload []byte
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractPayload); err != nil {
+		t.Fatalf("read the absent contract event: %v", err)
+	}
+	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
+		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
+	}
+	carryVersion := verdictItemVersion(t, s, workID)
+	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
+		Events: []Event{
+			resolutionEvent("approval-absent-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
+				"ref": higherRegistered.Definition.Ref, "version": higherRegistered.Definition.Version, "digest": higherRegistered.Digest,
+				"work_kind": string(higherRegistered.Definition.WorkKind),
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): carryVersion},
+	})
+	// The carry forward kept the acceptance step, the NULL historical
+	// contract authoritative with its recorded bytes, and the executing
+	// owner, and moved the pin to the registered higher version and digest.
+	var carriedRef, carriedDigest, step string
+	var carriedVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest, &step); err != nil {
+		t.Fatal(err)
+	}
+	if carriedRef != higherRegistered.Definition.Ref || carriedVersion != higherRegistered.Definition.Version || carriedDigest != higherRegistered.Digest {
+		t.Fatalf("the carry forward pinned %s@%d %s, want the registered %s@%d %s", carriedRef, carriedVersion, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Definition.Version, higherRegistered.Digest)
+	}
+	if step != "acceptance" {
+		t.Fatalf("the carry forward moved the step to %q, want acceptance", step)
+	}
+	var carriedPremise string
+	var carriedDomainsAbsent, active int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL,(SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL) FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID, workID).Scan(&carriedPremise, &carriedDomainsAbsent, &active); err != nil {
+		t.Fatal(err)
+	}
+	if carriedPremise != premise || carriedDomainsAbsent != 1 {
+		t.Fatalf("the carry forward changed the historical contract to %q (NULL absence %d), want %q preserved with NULL absence", carriedPremise, carriedDomainsAbsent, premise)
+	}
+	if active != 1 {
+		t.Fatalf("the carry forward left %d active contracts, want the absent-fact contract kept authoritative", active)
+	}
+	var carriedPayload []byte
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&carriedPayload); err != nil {
+		t.Fatalf("reread the absent contract event: %v", err)
+	}
+	if string(carriedPayload) != string(contractPayload) {
+		t.Fatalf("the carry forward rewrote the absent contract event to %s, want %s preserved", carriedPayload, contractPayload)
+	}
+	if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
+		t.Fatalf("the carry forward moved the execution actor to %q, want the owner %s", executionActor, ownerRef)
+	}
 	return s, registry, owner
 }
 

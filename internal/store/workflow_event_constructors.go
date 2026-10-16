@@ -208,6 +208,13 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	if revisionErr != nil {
 		return nil, revisionErr
 	}
+	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "approval", fields)
+	if decisionDomainErr != nil {
+		return nil, decisionDomainErr
+	}
+	if decisionDomains != nil {
+		contract["decision_domains"] = decisionDomains
+	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
@@ -330,12 +337,19 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if revisionErr != nil {
 		return nil, revisionErr
 	}
+	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "successor", fields)
+	if decisionDomainErr != nil {
+		return nil, decisionDomainErr
+	}
 	premise, _ := workflowFieldString(fields, "premise")
 	successor := map[string]any{
 		"contract_version": next, "premise": premise, "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
 		"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 		"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
 		"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
+	}
+	if decisionDomains != nil {
+		successor["decision_domains"] = decisionDomains
 	}
 	if productChanging {
 		successor["architecture_binding"] = binding

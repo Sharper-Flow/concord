@@ -174,9 +174,20 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 	}
 	for _, action := range entry.Definition.ActionDefinitions {
-		if action.ID == actionID {
-			return entry, action, nil
+		if action.ID != actionID {
+			continue
 		}
+		// A consequence_v1 pin's initial contract approval resolves through
+		// the selected decision-fact declaration; a typed selection refusal
+		// propagates and every other declared action stays exactly as pinned.
+		if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(entry.Definition) {
+			selected, err := workflowDecisionFactInitialActionDefinition(entry.Definition)
+			if err != nil {
+				return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+			}
+			return entry, selected, nil
+		}
+		return entry, action, nil
 	}
 	return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared by the pinned definition", false, "reread_entities")
 }
@@ -213,7 +224,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, entry
 	}
 	decision := workflowAdmit(entry.Definition, state, "supersede_contract")
 	if decision.Admitted {
-		*action = workflowContractRecoveryActionDefinition()
+		*action = workflowDecisionFactRecoveryActionDefinition(entry.Definition)
 		return nil
 	}
 	return decision.Failure

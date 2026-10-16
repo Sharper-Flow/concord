@@ -1133,6 +1133,12 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 		return definitionErr
 	}
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	// consequence_v1 answers consent from the contract's declared decision
+	// domains, so a contract under that policy must declare the typed fact
+	// itself: nil is the legacy absence shape and [] is explicit engineering.
+	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) && p.DecisionDomains == nil {
+		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
+	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
@@ -1378,6 +1384,13 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		}
 		if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
 			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract supersession cannot use the legacy clone route", false, "supply a fully bound successor contract")
+		}
+		// The clone route copies the predecessor row and supplies no successor
+		// contract, so a consequence_v1 successor cannot declare its
+		// decision-domain fact on this shape. The complete-successor route
+		// declares it through the initial fold's policy gate.
+		if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
+			return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract supersession cannot use the legacy clone route", false, "supply a complete successor contract that declares its decision domains explicitly")
 		}
 		if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 			return err

@@ -212,7 +212,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 			return pin, stateErr
 		}
 		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted || decision.ApprovalRequired {
-			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(registered.Definition), pin.Version, "operator_contract_correction")}
 		}
 		return pin, nil
 	}
@@ -492,7 +492,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	// answer is not the advertisement's gate — the stale-law recovery stays
 	// offered at a step whose correction checkpoint refuses.
 	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction"))
 	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
 		return err
@@ -506,7 +506,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		return nil
 	}
 	if instanceState == "completed" && admits("supersede_contract") {
-		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction")}
 	} else {
 		pin.NextValidIntents = []WorkPinIntent{}
 	}
@@ -689,6 +689,15 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		if !ok {
 			continue
 		}
+		// The approve intent advertises the pinned declaration's selected
+		// shape; an unusable pinned initial declaration is never advertised.
+		if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+			selected, err := workflowDecisionFactInitialActionDefinition(definition)
+			if err != nil {
+				continue
+			}
+			action = selected
+		}
 		payload := publicWorkflowActionPayload(action)
 		fields := make([]string, 0, len(payload.Fields))
 		for _, field := range payload.Fields {
@@ -699,7 +708,7 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint && workflowContractCorrectionCheckpoint(definition, stepID) {
-		intents = append(intents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), version, "operator_contract_correction"))
+		intents = append(intents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), version, "operator_contract_correction"))
 	}
 	return intents
 }

@@ -125,6 +125,7 @@ type EventKindRegistration struct {
 	CurrentVersion  int
 	MinSupported    int
 	Upcasters       map[int]Upcaster
+	RecordedSchemas map[int][]recordedPayloadSchema
 	ValidatePayload func(Event) error
 	Authority       EventAppendAuthority
 	Fold            scopedProjectionMutation
@@ -209,12 +210,12 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.resource_claim_released":            registerEventKind[resourceClaimReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimReleased, nil),
 	"work.worktree_reclaimed":                 registerEventKind[worktreeReclaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeReclaimed, nil),
 	"work.worktree_removal_settled":           registerEventKind[worktreeRemovalSettledPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeRemovalSettled, nil),
-	"work.worktree_occupancy_released":        registerEventKind[worktreeOccupancyReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeOccupancyReleased, nil),
+	"work.worktree_occupancy_released":        withRecordedSchemas(registerEventKind[worktreeOccupancyReleasedPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityGeneric, foldWorktreeOccupancyReleased, nil), recordedOccupancyReleaseSchemas()),
 	"work.session_vacated":                    registerEventKind[sessionVacatedPayload](2, 1, map[int]Upcaster{1: upcastSessionVacatedV1}, EventAppendAuthorityGeneric, foldSessionVacated, validateSessionVacatedPayload),
 	"work.session_vacate_landed":              registerEventKind[sessionVacateLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionVacateLanded, nil),
 	"work.project_handoff_recorded":           registerEventKind[projectHandoffRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
 	"work.project_handoff_consumed":           registerEventKind[projectHandoffConsumedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
-	"work.session_claim_landed":               registerEventKind[sessionClaimLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil),
+	"work.session_claim_landed":               withRecordedSchemas(registerEventKind[sessionClaimLandedPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil), recordedClaimLandingSchemas()),
 	"work.transitioned":                       registerEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
 	"work.reopened":                           registerEventKind[workReopenedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopened, nil),
@@ -246,13 +247,13 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
 	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeNarrativeRevised, nil),
 	WorkerJobRecorded:                         registerEventKind[WorkerJobRecordedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkerJobRecorded, validateWorkerJobRecordedPayload),
-	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](6, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4, 5: upcastWorkerDispatchedV5}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
+	WorkerDispatched:                          withRecordedSchemas(registerEventKind[WorkerDispatchedPayload](6, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4, 5: upcastWorkerDispatchedV5}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload), recordedDispatchSchemas()),
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](7, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4, 5: upcastWorkerCompletedV5, 6: upcastWorkerCompletedV6}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
-	WorkerFailed:                              registerEventKind[WorkerFailedPayload](4, 1, map[int]Upcaster{1: upcastWorkerFailedV1, 2: upcastWorkerFailedV2, 3: upcastWorkerFailedV3}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
+	WorkerFailed:                              withRecordedSchemas(registerEventKind[WorkerFailedPayload](4, 1, map[int]Upcaster{1: upcastWorkerFailedV1, 2: upcastWorkerFailedV2, 3: upcastWorkerFailedV3}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload), recordedWorkerFailureSchemas()),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
 	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](4, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3}, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](1, nil, foldWorkflowOverlapResolved),
-	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](1, 1, nil, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
+	WorkflowNativeRunRecorded:                 withRecordedSchemas(registerEventKind[nativeRunPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload), recordedNativeRunSchemas()),
 	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](3, map[int]Upcaster{1: upcastWorkflowContractSupersededV1, 2: upcastWorkflowContractSupersededV2}, foldWorkflowContractSuperseded),
 	WorkflowCandidateSetRevised:               workflowRegistration[workflowCandidateSetRevisedPayload](1, nil, foldWorkflowCandidateSetRevised),
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
@@ -306,6 +307,16 @@ func validateEventKindRegistry(registry map[string]EventKindRegistration) error 
 				return fmt.Errorf("event kind %q has no upcaster from version %d", kind, version)
 			}
 		}
+		for version, schemas := range registration.RecordedSchemas {
+			if version < registration.MinSupported || version >= registration.CurrentVersion || len(schemas) == 0 {
+				return fmt.Errorf("event kind %q has invalid recorded schema bounds", kind)
+			}
+			for _, schema := range schemas {
+				if schema.matches == nil || schema.adapt == nil {
+					return fmt.Errorf("event kind %q has incomplete recorded schema", kind)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -353,16 +364,61 @@ type preparedRegisteredEvent struct {
 }
 
 func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
+	// Even an in-package caller cannot carry a recorded shape into a write.
+	event.recordedPayloadShape = recordedShapeCurrent
 	registration, ok := registeredEventKind(event.Kind)
 	if !ok {
 		return preparedRegisteredEvent{stage: StageFold}, unknownEventKind(event.Kind)
 	}
+	return prepareEventWithRegistration(event, registration)
+}
+
+func prepareRecordedEvent(event Event) (preparedRegisteredEvent, error) {
+	event.recordedPayloadShape = recordedShapeCurrent
+	registration, ok := registeredEventKind(event.Kind)
+	if !ok {
+		return preparedRegisteredEvent{stage: StageFold}, unknownEventKind(event.Kind)
+	}
+	if event.PayloadVersion < registration.MinSupported || event.PayloadVersion > registration.CurrentVersion {
+		return preparedRegisteredEvent{stage: StageUpcast}, unsupportedEventVersion(event, registration)
+	}
+	if schemas := registration.RecordedSchemas[event.PayloadVersion]; len(schemas) != 0 {
+		var payload map[string]json.RawMessage
+		if err := decodeRegisteredPayload(event, &payload); err != nil {
+			return preparedRegisteredEvent{stage: StageDecode}, err
+		}
+		selected := -1
+		for i, schema := range schemas {
+			if schema.matches(payload) {
+				if selected >= 0 {
+					return preparedRegisteredEvent{stage: StageDecode}, newFailure(KindInvalidPayload, "validate_event", "recorded payload matches multiple released schemas", false, "restore an unambiguous recorded payload")
+				}
+				selected = i
+			}
+		}
+		if selected < 0 {
+			return preparedRegisteredEvent{stage: StageDecode}, newFailure(KindInvalidPayload, "validate_event", "recorded payload matches no released schema", false, "restore a recognized recorded payload")
+		}
+		var err error
+		event, err = schemas[selected].adapt(event)
+		if err != nil {
+			return preparedRegisteredEvent{stage: StageDecode}, err
+		}
+	}
+	return prepareEventWithRegistration(event, registration)
+}
+
+func prepareEventWithRegistration(event Event, registration EventKindRegistration) (preparedRegisteredEvent, error) {
 	current, err := upcastEventWithRegistration(event, registration)
 	if err != nil {
 		return preparedRegisteredEvent{stage: StageUpcast}, err
 	}
-	if err := registration.ValidatePayload(current); err != nil {
-		return preparedRegisteredEvent{stage: StageDecode}, err
+	// A released owner shape was strictly validated before adaptation. Its
+	// fold consumes that typed shape instead of inventing current evidence.
+	if current.recordedPayloadShape == recordedShapeCurrent {
+		if err := registration.ValidatePayload(current); err != nil {
+			return preparedRegisteredEvent{stage: StageDecode}, err
+		}
 	}
 	return preparedRegisteredEvent{current: current, registration: registration}, nil
 }
@@ -377,6 +433,18 @@ func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event, scopes ..
 	if err != nil {
 		return attributeFailure(err, event, prepared.stage)
 	}
+	return foldPreparedEvent(ctx, tx, event, prepared, scopes...)
+}
+
+func foldRecordedEvent(ctx context.Context, tx *sql.Tx, event Event, scopes ...*foldScope) error {
+	prepared, err := prepareRecordedEvent(event)
+	if err != nil {
+		return attributeFailure(err, event, prepared.stage)
+	}
+	return foldPreparedEvent(ctx, tx, event, prepared, scopes...)
+}
+
+func foldPreparedEvent(ctx context.Context, tx *sql.Tx, event Event, prepared preparedRegisteredEvent, scopes ...*foldScope) error {
 	advanceWorkflowReplay(ctx, event)
 	var scope *foldScope
 	if len(scopes) == 1 {
@@ -738,7 +806,7 @@ var replayProjectionClearTables = []string{
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting
 	// onto the live row of the newest claim.
-	"worktree_entries",
+	"worktree_occupancy", "worktree_entries",
 	// Per-ref outcome rows (CD-0212 D4) fold purely from the reclamation
 	// plan and the chronological settlement events; clearing them lets the
 	// replay rebuild each generation's trajectory in log order instead of
@@ -793,8 +861,12 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
 	replayCtx := workflowReplayContext(ctx)
+	occupancyBefore, err := readOccupancyRebuildEvidence(ctx, tx)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot read occupancy comparison evidence", true, "retry once occupancy is readable", err)
+	}
 	for _, event := range events {
-		prepared, err := prepareRegisteredEvent(event)
+		prepared, err := prepareRecordedEvent(event)
 		if err != nil {
 			return attributeFailure(err, event, prepared.stage)
 		}
@@ -820,9 +892,12 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	for _, event := range events {
 		// Historical knowledge is git-derived. Domain-log replay must not
 		// rewrite archived_work, scope edges, or git watermarks.
-		if err := foldRegisteredEvent(replayCtx, tx, event, scope); err != nil {
+		if err := foldRecordedEvent(replayCtx, tx, event, scope); err != nil {
 			return err
 		}
+	}
+	if err := verifyOccupancyRebuildEvidence(ctx, tx, occupancyBefore); err != nil {
+		return err
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return err

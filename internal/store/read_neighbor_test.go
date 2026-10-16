@@ -947,6 +947,7 @@ func requireReadNeighborAbsence(name string, err error, want FailureKind) error 
 // indexed head.
 func seedNeighborKnowledgeHome(t *testing.T, s *Store) (string, KnowledgeHome) {
 	t.Helper()
+	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo, manifestFixture{
 		ID: "neighbor-law", Kind: "decision", Path: ".concord/docs/decisions/CD-9001-neighbor-law.md",
@@ -955,8 +956,25 @@ func seedNeighborKnowledgeHome(t *testing.T, s *Store) (string, KnowledgeHome) {
 	})
 	commitKnowledgeRepo(t, repo, "neighbor read fixture law")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "neighbor-locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "neighbor-knowledge-product", home, "home")
-	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
+	// A replay must restore the home from the log, so seed it the way the
+	// production event paths leave it instead of direct SQL rows.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		locatorProductEvent("neighbor-knowledge-product"),
+		locatorProjectEvent("home"),
+		locatorMembershipEvent("neighbor-knowledge-product", "home"),
+	}, ExpectedVersions: map[SubjectRef]int64{
+		VersionRef(SubjectProduct, "neighbor-knowledge-product"): 0,
+		VersionRef(SubjectProject, "home"):                       0,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "home", ProjectLocator{ID: "neighbor-locator", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "neighbor-knowledge-product", ProjectID: "home", LocatorID: "neighbor-locator", Reason: "neighbor read fixture", ExpectedVersion: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	return repo, home

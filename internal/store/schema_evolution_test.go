@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -214,6 +216,15 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	}
 	if failure.Kind != KindUnsupportedPayloadVersion || failure.EventID != poison.EventID || failure.EventKind != poison.Kind || failure.PayloadVersion != 4 || failure.SubjectType != poison.SubjectType || failure.SubjectID != poison.SubjectID || failure.Sequence != poisonSeq || failure.Stage != "upcast" {
 		t.Fatalf("failure context = %+v", failure)
+	}
+	for _, field := range []string{
+		fmt.Sprintf("event_id=%q", poison.EventID), fmt.Sprintf("sequence=%d", poisonSeq),
+		fmt.Sprintf("event_kind=%q", poison.Kind), "payload_version=4",
+		fmt.Sprintf("subject_type=%q", poison.SubjectType), fmt.Sprintf("subject_id=%q", poison.SubjectID), `stage="upcast"`,
+	} {
+		if !strings.Contains(err.Error(), field) {
+			t.Errorf("diagnostic %q does not report %s", err, field)
+		}
 	}
 	if got := projectionSnapshot(t, s); got != before {
 		t.Fatalf("failed rebuild changed projections:\n%s\nwant\n%s", got, before)

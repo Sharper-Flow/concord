@@ -106,8 +106,7 @@ func Backup(ctx context.Context, s *Store, destination string) (BackupManifest, 
 }
 
 // BackupWithOptions is Backup with explicit snapshot and Git inventory data.
-func BackupWithOptions(ctx context.Context, s *Store, destination string, options BackupOptions) (BackupManifest, error) {
-	var manifest BackupManifest
+func BackupWithOptions(ctx context.Context, s *Store, destination string, options BackupOptions) (manifest BackupManifest, err error) {
 	if s == nil || s.db == nil {
 		return manifest, newFailure(KindUnavailable, "backup", "store is not open", false, "open a store before backing it up")
 	}
@@ -141,6 +140,13 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot acquire a SQLite connection", true, "retry once the database is readable", err)
 	}
+	defer func() {
+		if err != nil {
+			for _, path := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
+				_ = os.Remove(path)
+			}
+		}
+	}()
 	tx, err := beginReadTx(ctx, conn)
 	if err != nil {
 		_ = conn.Close()
@@ -210,22 +216,27 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	}
 	_ = conn.Close()
 	if backupErr != nil {
-		_ = os.Remove(destination)
-		_ = os.Remove(manifestPath(destination))
 		return manifest, backupErr
 	}
 
 	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion(), s.Clock)
 	if err != nil {
-		_ = os.Remove(destination)
 		return BackupManifest{}, err
 	}
 	manifest.SnapshotID = snapshotID
 	manifest.CreatedAt = createdAt
 	manifest.BackupTime = createdAt
 	manifest.GitCommitIDs = cloneStringMap(options.GitCommitIDs)
+	// PM10 promotion gate: a snapshot is promotable only when this binary can
+	// restore it. The gate clones the verified snapshot to a disposable
+	// staging database and runs the shared restore verifier on the clone; the
+	// retained snapshot and its manifest are never written. A refusal discards
+	// the partial snapshot and leaves no manifest behind, and the live store
+	// keeps its schema, its log, and its direct authority untouched.
+	if err := verifyBackupReplay(ctx, destination, manifest); err != nil {
+		return BackupManifest{}, err
+	}
 	if err := writeBackupManifest(destination, manifest); err != nil {
-		_ = os.Remove(destination)
 		return BackupManifest{}, err
 	}
 	return manifest, nil
@@ -266,38 +277,56 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	return verified, nil
 }
 
+// RestoredDatabaseInventory is the verified inventory of the promoted restore
+// destination, computed from the staging database after its forward migrations
+// and event replay. Like the manifest, it is an inventory, never an authority.
+type RestoredDatabaseInventory struct {
+	SchemaVersion  int    `json:"schema_version"`
+	DBChecksum     string `json:"db_checksum"`
+	EventWatermark int64  `json:"event_watermark"`
+}
+
+// RestoreReport separates the verified source snapshot from the promoted
+// restored database. A migrated or rebuilt destination never inherits the
+// source inventory values, and no manifest is written for the destination.
+type RestoreReport struct {
+	SourceSnapshot   BackupManifest            `json:"source_snapshot"`
+	RestoredDatabase RestoredDatabaseInventory `json:"restored_database"`
+}
+
 // RestoreBackup verifies a snapshot, restores it into a clean staging file
-// with SQLite's Online Backup API, rebuilds and verifies its projections, then
-// promotes it without replacing an existing destination. The source snapshot
-// and manifest are never copied as bytes.
-func RestoreBackup(ctx context.Context, source, destination string) (BackupManifest, error) {
+// with SQLite's Online Backup API, migrates and replays the staging database
+// through the shared restore verifier, then promotes it without replacing an
+// existing destination. The source snapshot and manifest are never copied as
+// bytes and never modified.
+func RestoreBackup(ctx context.Context, source, destination string) (RestoreReport, error) {
 	if err := validateBackupDestination("", destination); err != nil {
-		return BackupManifest{}, err
+		return RestoreReport{}, err
 	}
 	if err := validateBackupDestination(source, destination); err != nil {
-		return BackupManifest{}, err
+		return RestoreReport{}, err
 	}
 	manifest, err := VerifyBackup(ctx, source)
 	if err != nil {
-		return BackupManifest{}, err
+		return RestoreReport{}, err
 	}
 	if _, err := os.Stat(destination); err == nil {
-		return BackupManifest{}, newFailure(KindInvalidOperation, "restore_backup", "restore destination already exists", false, "choose a clean destination path")
+		return RestoreReport{}, newFailure(KindInvalidOperation, "restore_backup", "restore destination already exists", false, "choose a clean destination path")
 	} else if !os.IsNotExist(err) {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot inspect restore destination", true, "check the destination path", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot inspect restore destination", true, "check the destination path", err)
 	}
 	if _, err := os.Stat(manifestPath(destination)); err == nil {
-		return BackupManifest{}, newFailure(KindInvalidOperation, "restore_backup", "restore destination manifest already exists", false, "choose a clean destination path")
+		return RestoreReport{}, newFailure(KindInvalidOperation, "restore_backup", "restore destination manifest already exists", false, "choose a clean destination path")
 	} else if !os.IsNotExist(err) {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot inspect restore manifest destination", true, "check the destination path", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot inspect restore manifest destination", true, "check the destination path", err)
 	}
 	if err := contextErr(ctx); err != nil {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
 	}
 
 	stageFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-restore-*")
 	if err != nil {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot create restore staging file", true, "check destination permissions", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot create restore staging file", true, "check destination permissions", err)
 	}
 	stage := stageFile.Name()
 	cleanupStage := func() {
@@ -307,29 +336,60 @@ func RestoreBackup(ctx context.Context, source, destination string) (BackupManif
 	}
 	defer cleanupStage()
 	if err := stageFile.Close(); err != nil {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot close restore staging file", true, "check destination permissions", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot close restore staging file", true, "check destination permissions", err)
 	}
 	notifyRestoreStageReady(ctx, stage)
 
 	if err := runOnlineRestore(ctx, source, stage); err != nil {
-		return BackupManifest{}, err
+		return RestoreReport{}, err
 	}
 
-	if err := verifyRestoredStage(ctx, stage, manifest); err != nil {
-		return BackupManifest{}, err
+	inventory, err := verifyRestoredStage(ctx, stage, manifest)
+	if err != nil {
+		return RestoreReport{}, err
 	}
 
 	// A hard link followed by unlink is an atomic no-replace promotion on the
 	// same directory. Unlike os.Rename, it cannot overwrite a destination that
 	// appeared after the existence check.
 	if err := os.Link(stage, destination); err != nil {
-		return BackupManifest{}, wrapFailure(KindInvalidOperation, "restore_backup", "cannot atomically promote restore without replacing the destination", false, "choose a clean destination path", err)
+		return RestoreReport{}, wrapFailure(KindInvalidOperation, "restore_backup", "cannot atomically promote restore without replacing the destination", false, "choose a clean destination path", err)
 	}
 	if err := os.Remove(stage); err != nil {
 		_ = os.Remove(destination)
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
+		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
 	}
-	return manifest, nil
+	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory}, nil
+}
+
+// verifyBackupReplay proves a snapshot promotes only when this binary can
+// restore it. It clones the snapshot to a disposable staging database through
+// SQLite's Online Backup API and runs the shared restore verifier on the
+// clone, then discards the clone. The snapshot itself is only ever read.
+func verifyBackupReplay(ctx context.Context, snapshot string, manifest BackupManifest) error {
+	stageFile, err := os.CreateTemp(filepath.Dir(snapshot), ".concord-backup-verify-*")
+	if err != nil {
+		return wrapFailure(KindUnavailable, "backup", "cannot create backup verification staging file", true, "check snapshot permissions", err)
+	}
+	stage := stageFile.Name()
+	cleanupStage := func() {
+		_ = os.Remove(stage)
+		_ = os.Remove(stage + "-wal")
+		_ = os.Remove(stage + "-shm")
+	}
+	defer cleanupStage()
+	if err := stageFile.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "backup", "cannot close backup verification staging file", true, "check snapshot permissions", err)
+	}
+	if err := runOnlineRestore(ctx, snapshot, stage); err != nil {
+		return err
+	}
+	// The staging clone now holds the snapshot bytes; the stage-ready seam
+	// fires before verification so a cancelled backup discards a complete
+	// clone and leaves the retained snapshot untouched.
+	notifyRestoreStageReady(ctx, stage)
+	_, err = verifyRestoredStage(ctx, stage, manifest)
+	return err
 }
 
 // runOnlineRestore copies the verified source into the staging database
@@ -423,25 +483,38 @@ func consumeSourceSnapshot(ctx context.Context, tx *sql.Tx) error {
 }
 
 // verifyRestoredStage proves the staged copy equals the verified source
-// manifest and that rebuilding its projections from the log changes nothing.
-func verifyRestoredStage(ctx context.Context, stage string, manifest BackupManifest) error {
-	verifiedStage, err := verifyBackupFile(ctx, stage, manifest.SchemaVersion, nil)
+// manifest, brings the staging database forward through this binary's accepted
+// forward migrations, and rebuilds its projections from the retained event log
+// without changing projection content. The returned inventory describes the
+// staging database after migration and replay, never the source snapshot.
+func verifyRestoredStage(ctx context.Context, stage string, source BackupManifest) (RestoredDatabaseInventory, error) {
+	verifiedStage, err := verifyBackupFile(ctx, stage, source.SchemaVersion, nil)
 	if err != nil {
-		return err
+		return RestoredDatabaseInventory{}, err
 	}
-	if verifiedStage.SchemaVersion != manifest.SchemaVersion || verifiedStage.EventWatermark != manifest.EventWatermark || verifiedStage.IntegrityCheck != manifest.IntegrityCheck || verifiedStage.QuickCheck != manifest.QuickCheck || len(verifiedStage.ForeignKeyCheck) != 0 {
-		return newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source", false, "discard the staging database and restore a verified snapshot")
+	if verifiedStage.SchemaVersion != source.SchemaVersion || verifiedStage.EventWatermark != source.EventWatermark || verifiedStage.IntegrityCheck != source.IntegrityCheck || verifiedStage.QuickCheck != source.QuickCheck || len(verifiedStage.ForeignKeyCheck) != 0 {
+		return RestoredDatabaseInventory{}, newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source", false, "discard the staging database and restore a verified snapshot")
+	}
+	if err := contextErr(ctx); err != nil {
+		return RestoredDatabaseInventory{}, wrapFailure(KindUnavailable, "restore_backup", "restore verification was interrupted", true, "retry the restore", err)
 	}
 	stageDB, err := sql.Open(driverName, dataSourceName(stage))
 	if err != nil {
-		return wrapFailure(KindUnavailable, "restore_backup", "cannot reopen restored staging database", true, "discard the staging database and retry", err)
+		return RestoredDatabaseInventory{}, wrapFailure(KindUnavailable, "restore_backup", "cannot reopen restored staging database", true, "discard the staging database and retry", err)
 	}
 	stageDB.SetMaxOpenConns(1)
 	stageStore := &Store{db: stageDB, path: stage}
 	if err := stageStore.verifyPragmas(ctx); err != nil {
 		_ = stageDB.Close()
-		return err
+		return RestoredDatabaseInventory{}, err
 	}
+	// Forward migrations run on the staging database only. The source
+	// snapshot, its manifest, and the live store keep their recorded schemas.
+	if err := migrateRestoredStage(ctx, stageDB); err != nil {
+		_ = stageDB.Close()
+		return RestoredDatabaseInventory{}, err
+	}
+	var inventory RestoredDatabaseInventory
 	before, err := projectionDigest(ctx, stageDB)
 	if err == nil {
 		err = RebuildFromLog(ctx, stageStore)
@@ -456,10 +529,53 @@ func verifyRestoredStage(ctx context.Context, stage string, manifest BackupManif
 	if err == nil {
 		err = validateMembershipInvariants(ctx, stageDB)
 	}
+	if err == nil {
+		inventory.SchemaVersion, inventory.EventWatermark, err = stagedInventory(ctx, stageDB)
+	}
 	if closeErr := stageDB.Close(); err == nil {
 		err = closeErr
 	}
-	return err
+	// The checksum is taken after the close so it describes the checkpointed
+	// staging bytes, which are the exact bytes a successful promotion links
+	// into the destination.
+	if err == nil {
+		inventory.DBChecksum, err = fileSHA256(stage)
+	}
+	if err != nil {
+		return RestoredDatabaseInventory{}, err
+	}
+	return inventory, nil
+}
+
+// migrateRestoredStage applies this binary's accepted forward migrations to
+// the staging database. A stamped release migrates the way concord upgrade
+// migrates the live store — every pending step, breaking ones included — so a
+// pre-upgrade snapshot verifies against the schema this binary serves. An
+// unstamped development build owns no migration for an existing store and
+// refuses a pending tail instead of bypassing that rule (CD-0139).
+func migrateRestoredStage(ctx context.Context, db *sql.DB) error {
+	if version.Value == version.Development {
+		return migrateUnstamped(ctx, db)
+	}
+	return Migrate(ctx, db)
+}
+
+// stagedInventory reads the restored schema version and event watermark from
+// the staging database after migration and replay. The schema must be this
+// binary's: the migrations above either brought it forward or refused.
+func stagedInventory(ctx context.Context, stageDB *sql.DB) (int, int64, error) {
+	var schema int
+	if err := stageDB.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
+		return 0, 0, wrapFailure(KindUnavailable, "restore_backup", "cannot read the restored schema version", true, "discard the staging database and retry", err)
+	}
+	if schema != CurrentSchemaVersion() {
+		return 0, 0, newFailure(KindInvariantViolation, "restore_backup", fmt.Sprintf("restored staging database holds schema version %d, not this binary's schema version %d", schema, CurrentSchemaVersion()), false, "restore from a snapshot this binary can migrate")
+	}
+	var watermark sql.NullInt64
+	if err := stageDB.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
+		return 0, 0, wrapFailure(KindUnavailable, "restore_backup", "cannot read the restored event watermark", true, "discard the staging database and retry", err)
+	}
+	return schema, watermark.Int64, nil
 }
 
 func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {

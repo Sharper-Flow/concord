@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:958b3d10c8c4814c81bf2a00a9c100970625bff2a31f6f847569288a67c88447",
+  "sha256": "sha256:8a02497127282fe612a94cf760514add5380af27c53d5fc298dc5c7f6e57dc19",
   "status": "accepted",
-  "summary": "Amends CD-0160 D4: in checks mode only a DIRTY merge state blocks the success verdict, while UNKNOWN, BEHIND, BLOCKED, UNSTABLE, DRAFT, and empty never do, because none is evidence about check completeness. The request gains a mode of checks or merge with checks as the default; merge mode gates success on CLEAN or HAS_HOOKS and keeps UNKNOWN pending. Merged and closed pull requests are terminal statuses, every report carries merge_state, and the utility entry moves to version 3 with a purpose that states the repo-plus-selector input contract.",
+  "summary": "In checks mode only DIRTY blocks a complete passing check verdict. Merge mode waits for an actual merge and selects the newest attempt per CheckRun name/workflow or StatusContext context. A failed or cancelled selected attempt ends the wait unless merge_state is UNSTABLE. Pending peers do not block that failure verdict. Merged, closed, and head-superseded outcomes retain precedence, and every report carries the observed merge_state.",
   "tags": [
     "agent-surface",
     "utilities",

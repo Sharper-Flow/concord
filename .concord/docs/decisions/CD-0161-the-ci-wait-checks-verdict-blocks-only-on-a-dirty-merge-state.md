@@ -48,11 +48,23 @@ say.
 ### D2. Merge mode answers the merge question
 
 The request gains `mode` with values `checks` and `merge`; `checks` stays the
-default, so every CD-0160 caller is unchanged. Merge mode gates `success` on
-`CLEAN` or `HAS_HOOKS` only and keeps every other value, including `UNKNOWN`,
-pending. In both modes the selector reads `state` and `mergedAt` on the
-`gh pr view` call it already makes, so a merged pull request reports `merged`
-and a closed one reports `closed` as terminal statuses.
+default. Merge mode waits for the pull request to merge, not merely become
+mergeable. Under [CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md),
+the newest attempt per check identity supplies the verdict. A failed or
+cancelled selected attempt ends an open merge wait as `failure`,
+unless `merge_state` is `UNSTABLE`. That state stays pending because GitHub
+reports the pull request as mergeable despite non-passing commit status.
+Failure takes precedence over pending peers. Without an observed failure,
+every open merge wait stays pending, including `CLEAN` and `HAS_HOOKS`.
+In both modes the selector reads `state` and `mergedAt` on the `gh pr view`
+call it already makes. A merged pull request reports `merged`, and a closed
+one reports `closed`. Those outcomes and head supersession retain precedence
+over check failures.
+
+CheckRun identity is `(name, workflowName)` because the existing rollup export
+omits event. StatusContext identity is its context, in a separate namespace.
+The greatest exported `startedAt` selects the attempt. A newer passing or
+pending rerun replaces an older failure. Different identities stay distinct.
 
 ### D3. Every report carries merge_state
 
@@ -85,8 +97,12 @@ unchanged.
   `success` for `UNKNOWN`, `BEHIND`, `BLOCKED`, `UNSTABLE`, `DRAFT`, empty,
   and `CLEAN` merge states with a complete passing check set, and `pending`
   for `DIRTY`.
-- Merge mode proves `CLEAN` success and `UNKNOWN` pending; merged and closed
-  pull requests prove terminal in both modes.
+- `cmd/concord.TestCiWaitPRMergeModeCheckFailures` proves merge-mode failure
+  and the `UNSTABLE` pending exception.
+- `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves newest-attempt
+  selection and separate check identities.
+- `cmd/concord.TestCiWaitPRMergeModeFailurePrecedence` proves merged, closed,
+  and superseded outcomes take precedence over check failures.
 - `python3 scripts/generate-agent-lanes.py --check` proves every generated
   projection matches the manifest and templates.
 - `go test ./cmd/concord/` proves the verb inside the full command package

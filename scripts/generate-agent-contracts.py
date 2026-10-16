@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate and deterministically generate the TS8 agent contract projections."""
 from __future__ import annotations
-import copy, hashlib, json, re, subprocess, sys
+import argparse, copy, hashlib, json, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2189,9 +2189,15 @@ console.log(JSON.stringify(total));'''
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on generated contract drift instead of writing projections")
+    parser.add_argument("--freeze-historical-decoder", action="store_true",
+                        help="freeze or union-extend the historical decoder document, then exit")
+    args = parser.parse_args()
     try:
-        check = "--check" in sys.argv[1:]
-        freeze = "--freeze-historical-decoder" in sys.argv[1:]
+        check = args.check
+        freeze = args.freeze_historical_decoder
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())

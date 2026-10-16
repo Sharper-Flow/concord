@@ -1453,12 +1453,84 @@ def _parent_manifest_activation() -> object:
     return document.get("doc_contract", {}).get("activation")
 
 
+def check_drafts(
+    paths: list[str],
+    manifest: dict,
+    contract: dict,
+    abbreviations: frozenset[str],
+    banned: tuple[str, ...],
+    findings: list[str],
+) -> None:
+    """Check unregistered decision drafts strictly through check_record."""
+    decision = contract.get("decision")
+    if not isinstance(decision, dict) or "current_required_sections" not in decision:
+        findings.append(
+            "draft: the manifest declares no current decision outline; "
+            "no draft can be checked against it"
+        )
+        return
+    root = ROOT.resolve()
+    registered: set[Path] = set()
+    for record in manifest.get("records") or []:
+        registered_path = record.get("path") if isinstance(record, dict) else None
+        if not isinstance(registered_path, str):
+            continue
+        try:
+            registered.add((ROOT / registered_path).resolve())
+        except (OSError, RuntimeError):
+            findings.append(
+                f"draft: registered record path {registered_path} cannot be "
+                "resolved; a draft cannot be checked against it"
+            )
+    for path_value in paths:
+        try:
+            resolved = (ROOT / path_value).resolve()
+        except (OSError, RuntimeError):
+            findings.append(f"draft-path: {path_value} (unresolvable path)")
+            continue
+        if not resolved.is_relative_to(root):
+            findings.append(f"draft-path: {path_value} (outside the repository root)")
+            continue
+        if resolved in registered:
+            findings.append(
+                f"draft-path: {path_value} (resolves to a registered record; "
+                "a draft must be unregistered)"
+            )
+            continue
+        if not resolved.is_file() or resolved.suffix != ".md":
+            findings.append(f"draft-path: {path_value} (not an existing .md file)")
+            continue
+        record = {
+            "id": f"draft:{path_value}",
+            "path": str(resolved.relative_to(root)),
+            "kind": "decision",
+            "status": "proposed",
+            "doc_contract_profile": "current",
+        }
+        check_record(record, contract, abbreviations, banned, findings)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--report-only",
         action="store_true",
         help="exit 0 and print findings; the default when doc_contract.enforced is false.",
+    )
+    modes.add_argument(
+        "--draft",
+        nargs="+",
+        metavar="PATH",
+        help=(
+            "check unregistered decision drafts instead of the corpus. Each "
+            "PATH is ROOT-relative (or absolute inside ROOT) and names one "
+            "proposed decision, judged in memory against the manifest's "
+            "current decision outline. Results are strict: any finding exits "
+            "1. Drafts are read-only: nothing is registered or promoted; "
+            "accepted-law citation checks do not run, though verification "
+            "anchors still apply."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -1472,10 +1544,15 @@ def main(argv: list[str]) -> int:
         return report(findings, "doc contract")
 
     enforced = bool(contract.get("enforced", False))
-    check_activation_sequence(enforced, contract.get("activation"), findings)
-    report_only_mode = args.report_only or not enforced
     banned: tuple[str, ...] = tuple(contract.get("banned_phrases", DEFAULT_BANNED_PHRASES))
     abbreviations = DEFAULT_ABBREVIATION_ALLOWLIST
+
+    if args.draft:
+        check_drafts(args.draft, manifest, contract, abbreviations, banned, findings)
+        return report(findings, "doc contract")
+
+    check_activation_sequence(enforced, contract.get("activation"), findings)
+    report_only_mode = args.report_only or not enforced
 
     records = manifest.get("records") or []
     references = LawReferences(ROOT)

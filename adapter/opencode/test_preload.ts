@@ -1,9 +1,14 @@
 // Test children inherit only fixture inputs, never the live session or home.
+import { afterAll } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ownedFixtureRunRoot } from "./fixture-temp-root"
 
-const root = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-"))
+// Owned case children nest below the nonce-validated owner run root so the
+// external owner's post-drain removal sweeps them; others use TMPDIR.
+const ownedRoot = process.env.TEST_CONCORD_FIXTURE_RUN_ROOT
+const root = mkdtempSync(join(ownedRoot ? ownedFixtureRunRoot() : tmpdir(), "concord-adapter-testenv-"))
 try {
   const home = join(root, "home")
   const telemetry = join(root, "go-telemetry")
@@ -36,4 +41,7 @@ try {
   throw error
 }
 
-process.once("exit", () => rmSync(root, { recursive: true, force: true }))
+// Suite cleanup runs through Bun's afterAll, not process exit: a failed bun
+// run fires afterAll but no exit/beforeExit listeners, across the whole run.
+// Owned children leave removal to their external owner instead.
+if (!ownedRoot) afterAll(() => rmSync(root, { recursive: true, force: true }))

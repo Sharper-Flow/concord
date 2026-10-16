@@ -2,6 +2,7 @@
 """Validate and deterministically generate the lane-step dispatch join."""
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -51,7 +52,12 @@ export const laneStepDispatchKinds = {json.dumps(bindings, ensure_ascii=False, i
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on lane-step dispatch projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         join = json.loads(JOIN.read_text(encoding="utf-8"))
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         check_schema_keywords(schema)
@@ -75,7 +81,7 @@ def main() -> int:
             TS: ts_projection(join),
             ROOT / "contracts/lane-step-dispatch.digest": digest(join) + "\n",
         }
-        if "--check" in sys.argv[1:]:
+        if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:
                     fail(f"generated lane-step dispatch join drift: {path.relative_to(ROOT)}")

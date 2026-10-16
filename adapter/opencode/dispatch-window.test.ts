@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto"
-import fs, { realpathSync } from "node:fs"
+import nodeFs, { realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
+afterEach(() => testDirectories.splice(0).forEach(directory => fs.rmSync(directory, { recursive: true, force: true })))
 
 const packet = {
   schema_version: "1.0" as const,

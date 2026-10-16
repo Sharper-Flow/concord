@@ -6,6 +6,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -1167,8 +1168,11 @@ describe("plugin entry registers the completion hook", () => {
 
 // The factory's host-lease claim fails against the unstamped repository
 // placeholder; the suite's files share one process in an order no file
-// controls, so this file leaves the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+// controls, so this file resets the factory's shared lease and peer state.
+afterAll(() => {
+  configureHostLease({ reset: true })
+  configureCiWatch({ reset: true })
+})
 
 describe("structured host failure observations", () => {
   test("retry and terminal observations retain their distinct source fields", async () => {

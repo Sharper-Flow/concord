@@ -1,3 +1,4 @@
+// Imports must exist in the baseline pinned by scripts/test-workflow-history.py.
 import { afterAll, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"

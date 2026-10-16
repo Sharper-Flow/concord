@@ -10,6 +10,7 @@ import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 
 syntheticHostVersionFixture()
@@ -166,5 +167,8 @@ describe("primary role guard", () => {
 
 // The factory's host-lease claim fails against the unstamped repository
 // placeholder; the suite's files share one process in an order no file
-// controls, so this file leaves the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+// controls, so this file resets the factory's shared lease and peer state.
+afterAll(() => {
+  configureHostLease({ reset: true })
+  configureCiWatch({ reset: true })
+})

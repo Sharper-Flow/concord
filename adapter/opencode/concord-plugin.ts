@@ -35,7 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition } from "./ci-watch"
+import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -73,6 +73,8 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   // The CI watcher delivers through the same client, so the plugin factory is
   // the one place the watcher transport is bound.
   bindCiWatchClient(input)
+  // Bind before publication so a failed peer registration can log.
+  const ciPeer = registerCiWatchPeer(input)
   // CD-0182: the session opener is the operator's host placement. The host
   // passes the options of the tuple entry to this factory, and the
   // session_opener value is the one argv template a coordinator may run to
@@ -111,7 +113,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // The registration is the watcher tool's only name: its module lives
       // in the custom tools directory, where nothing but the plugin may name
       // a tool.
-      concord_ci_watch: ciWatchTool(),
+      concord_ci_watch: ciWatchTool(ciPeer.id),
     }),
     "chat.message": async (
       input: { sessionID: string; messageID?: string },
@@ -230,5 +232,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await agentSwitch.transform(input, output)
     },
     "experimental.session.compacting": pushSessionGoalTitle,
+    dispose: async () => ciPeer.dispose(),
   }
 }

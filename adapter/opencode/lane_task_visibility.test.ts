@@ -4,8 +4,12 @@ import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(() => {
+  configureHostLease({ reset: true })
+  configureCiWatch({ reset: true })
+})
 
 // The registry's Task-list rule: utilities are coordinator-native Tasks a
 // coordinator picks by description; lanes are dispatch-only and never accept a

@@ -687,7 +687,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     configureCiWatch({ spawner: async () => { spawns++; return { exitCode: 0, stdout: JSON.stringify({ status: "success" }), stderr: "" } } })
     configureCoreBinary("/synthetic/concord")
     configureSyntheticLease()
-    const serverUrl = new URL("http://127.0.0.1:4097/")
+    const serverUrl = new URL("http://peer-a.invalid:4097/")
     const directory = "/synthetic/plugin-project"
     const plugin = await peerPlugin(fixture.client, serverUrl, directory)
     const port = requirePeerPort()
@@ -731,7 +731,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-peer-observe-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
     configureCoreBinary("/synthetic/concord")
     configureSyntheticLease()
-    const plugin = await peerPlugin(fixture.client, new URL("http://127.0.0.1:4097/"), "/synthetic/plugin-project")
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
     const port = requirePeerPort()
     const baseline = await port.read({ session_id: NOTICE_SESSION })
     const bindingID = baseline.bindings[0]!.id
@@ -772,7 +772,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-peer-dispose-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
     configureCoreBinary("/synthetic/concord")
     configureSyntheticLease()
-    const plugin = await peerPlugin(fixture.client, new URL("http://127.0.0.1:4097/"), "/synthetic/plugin-project")
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
     const port = requirePeerPort()
     const baseline = await port.read({ session_id: NOTICE_SESSION })
     const generationBefore = baseline.binding_generation
@@ -815,7 +815,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const fixture = watchFixture()
     configureCoreBinary("/synthetic/concord")
     configureSyntheticLease()
-    const serverUrl = new URL("http://127.0.0.1:4097/")
+    const serverUrl = new URL("http://peer-a.invalid:4097/")
     const directory = "/synthetic/plugin-project"
     const first = await peerPlugin(fixture.client, serverUrl, directory)
     const second = await peerPlugin(fixture.client, serverUrl, directory)
@@ -835,7 +835,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const fixture = watchFixture()
     configureCoreBinary("/synthetic/concord")
     configureSyntheticLease()
-    const plugin = await peerPlugin(fixture.client, new URL("http://127.0.0.1:4097/"), "/synthetic/plugin-project")
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
     const port = requirePeerPort()
     const before = await port.read({ session_id: NOTICE_SESSION })
     const dispose = requireDispose(plugin)

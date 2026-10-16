@@ -18,7 +18,7 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done })
   return { promise, resolve }
 }
-function fixture(endpoint = "http://127.0.0.1:1234/", directory = "/synthetic/project") {
+function fixture(endpoint = "http://peer-a.invalid:1234/", directory = "/synthetic/project") {
   const calls = { reads: 0, posts: 0, spawns: 0 }
   let lookup: () => Promise<{ data?: unknown; response: Response }> = async () => ({ data: { id: SESSION }, response: new Response(null, { status: 200 }) })
   const raw = {
@@ -104,7 +104,7 @@ test("same-endpoint instance directories coexist but differing matching endpoint
   const moved = await peer().read(request)
   expect(moved.coverage).toBe("complete_current_epoch")
   expect(moved.bindings).toHaveLength(2)
-  const third = fixture("http://127.0.0.1:4321/")
+  const third = fixture("http://peer-a.invalid:4321/")
   registerCiWatchPeer(third.input)
   unknown(await peer().read(request), "ambiguous_host")
 })
@@ -216,7 +216,7 @@ test("a watch from a different host cannot acquire coverage from a same-named se
   const started = JSON.parse((await ciWatchTool(binding.id).execute({ repo: "owner/name", selector: { kind: "pr", value: "1" } }, { sessionID: SESSION })).output)
   await ciWatchSettled(started.watch_id)
   old.lookup(async () => ({ response: new Response(null, { status: 404 }) }))
-  const other = fixture("http://127.0.0.1:4321/")
+  const other = fixture("http://peer-a.invalid:4321/")
   registerCiWatchPeer(other.input)
   const result = await peer().read(request)
   unknown(result, "watch_host_mismatch")

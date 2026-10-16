@@ -288,7 +288,7 @@ func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action s
 	}
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), registry, WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload,
-		Actor: actor,
+		Actor:                actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version),
 		ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),

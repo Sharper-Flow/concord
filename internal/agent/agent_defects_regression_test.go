@@ -342,38 +342,21 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	}
 }
 
-// Cycle refusals on resolve_overlap carry the offending edge structurally.
-// The existing reverse blocks edge comes from the retained journal fold.
+// Cycle refusals on resolve_overlap carry the offending edge structurally
+// and stay atomic. The routine attempt runs unsigned: the store refuses the
+// cycle before any effect, and the refusal consumes no consent and moves no
+// version.
 func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	t.Parallel()
-	s, service, _, privateKey, env, _ := seedAgentOverlapFixture(t)
+	s, service, _, _, env, _ := seedAgentOverlapFixture(t)
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
 		{EventID: "d5-work-1-blocks-work-2", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"work-1","to":"work-2","kind":"blocks","reason":"seed","expected_version":2,"resulting_version":3,"to_expected_version":2,"to_resulting_version":3}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2, store.VersionRef(store.SubjectWorkItem, "work-2"): 2}}); err != nil {
 		t.Fatal(err)
 	}
 	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`)
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("cycle resolution approval=%+v", first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("cycle resolution challenge=%+v", first.Error.Details)
-	}
-	approvedInput, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-2", "work-1"}, "scope_version": env.ScopeVersion}
-	versions := map[string]any{"from": int64(3), "to": int64(3), "from_contract": int64(1), "to_contract": int64(1)}
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, approvedInput)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
-	resp, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: approvedInput}, env)
-	if err != nil {
-		t.Fatalf("dispatch returned err=%v", err)
-	}
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error, got outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}

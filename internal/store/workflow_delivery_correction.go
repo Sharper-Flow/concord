@@ -20,8 +20,13 @@ const DeliveryEvidenceSourceCoordinatorAsserted = "coordinator_asserted"
 // WorkflowDeliveryCorrectionRequest names one append-only correction of a
 // completed delivery assertion. The target names the exact assertion event by
 // identity, sequence, and payload version; the reason and merge evidence are
-// coordinator-provided; the approval binding is the consumed core operator
-// approval for this one correction.
+// coordinator-provided; Actor is the recorded coordinator actor ref the
+// correction attributes. The approval fields are the historical v1 binding:
+// the live v2 route refuses any supplied claim. AuthenticatedActor is the
+// optional internal carrier of the already-authenticated caller tuple from
+// the agent boundary, so an absent actor row can be recorded through the
+// shared prefix owner; it is not a public input or identity authority, and
+// Actor stays the requested attribution ref.
 type WorkflowDeliveryCorrectionRequest struct {
 	WorkID                  string
 	ExpectedVersion         int64
@@ -31,6 +36,8 @@ type WorkflowDeliveryCorrectionRequest struct {
 	Reason                  string
 	DeliveryArtifact        string
 	DeliveryState           string
+	Actor                   string
+	AuthenticatedActor      *WorkflowActor
 	ApprovalRef             string
 	ApprovalOperationDigest string
 	ApprovalScopeJSON       string
@@ -60,17 +67,28 @@ type workflowDeliveryCorrectedPayload struct {
 	ApprovalConsequence     string `json:"approval_consequence"`
 }
 
-// ApplyWorkflowDeliveryCorrectionTx appends one delivery correction for a
-// completed delivery assertion inside the caller's transaction. The operator
-// approval must already be consumed exactly once by the owning approval
-// boundary; the mutation derives the operator workflow actor from that
-// approval, records it, and appends the typed correction event. Admission
-// authorizes the exact approval binding against the live approval row here,
-// and the fold re-derives the same admission from the event payload and the
-// log-derived actor row alone, so replay stays replay-pure. The workflow
-// instance stays closed: the fold writes no lifecycle or step state, and a
-// running instance is refused because it corrects delivery through
-// record_delivery instead.
+// upcastWorkflowDeliveryCorrectedV1 carries a version 1 event to version 2.
+// The v2 shape records the same fields, so the upcaster advances only the
+// version and rewrites no bytes. The fold reads the stored version back
+// through replaySourcePayloadVersion, so a recorded v1 event still replays
+// with its approval binding and operator checks intact.
+func upcastWorkflowDeliveryCorrectedV1(event Event) (Event, error) {
+	if event.PayloadVersion != 1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.delivery_corrected upcaster requires payload version 1", false, "supply a legacy v1 delivery-correction payload")
+	}
+	event.PayloadVersion = 2
+	return event, nil
+}
+
+// ApplyWorkflowDeliveryCorrectionTx appends one unsigned delivery correction
+// for a completed delivery assertion inside the caller's transaction. It
+// attributes the coordinator actor the request names, refuses any approval
+// claim, and advances the work version once, or twice when the request's
+// authenticated tuple has no recorded actor row and the shared prefix owner
+// derives its recording first; a supplied tuple that disagrees with the
+// requested ref refuses. The fold re-derives the same admission from the log
+// alone. The workflow instance stays closed: a running instance is refused
+// through record_delivery.
 func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, request WorkflowDeliveryCorrectionRequest) (ApplyOperationResult, error) {
 	sqlTx, err := transactionSQL(tx, "workflow_delivery_correction")
 	if err != nil {
@@ -82,62 +100,83 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = tx.now()
 	}
-	operator, err := workflowDeliveryCorrectionOperatorFromApprovalTx(ctx, sqlTx, request)
-	if err != nil {
-		return ApplyOperationResult{}, err
+	if request.Actor == "" {
+		return ApplyOperationResult{}, newFailure(KindUnauthorized, "workflow_delivery_correction", "delivery correction requires an authenticated actor", false, "attribute the correction to the recorded coordinator actor")
+	}
+	if request.ApprovalRef != "" || request.ApprovalOperationDigest != "" || request.ApprovalScopeJSON != "" || request.ApprovalVersionsJSON != "" || request.ApprovalConsequence != "" {
+		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "a routine delivery correction accepts no approval claim", false, "append the unsigned correction under the recorded coordinator actor")
+	}
+	var prefix *workflowActorRecordPrefix
+	if request.AuthenticatedActor != nil {
+		authenticatedRef, err := WorkflowActorRef(*request.AuthenticatedActor)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+		if authenticatedRef != request.Actor {
+			return ApplyOperationResult{}, newFailure(KindInvariantViolation, "workflow_delivery_correction", "requested actor ref does not match the authenticated actor", false, "attribute the correction to the authenticated caller's own workflow actor")
+		}
+		prefix, err = workflowActorRecordPrefixTx(ctx, sqlTx, *request.AuthenticatedActor)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
 	}
 	version := request.ExpectedVersion
 	events := make([]Event, 0, 2)
-	events = append(events, workflowTypedEvent(request.EventID+":operator", WorkflowActorRecorded, request.WorkID, operator.ref, request.OccurredAt, version, map[string]any{
-		"actor_ref": operator.ref, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef,
-		"agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": string(ActorOperator),
-	}))
-	version++
+	if prefix != nil {
+		events = append(events, prefix.event(request.EventID+":actor", request.WorkID, request.OccurredAt, version))
+		version++
+	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.WorkID, "expected_version": version, "resulting_version": version + 1,
 		"target_event_id": request.TargetEventID, "target_seq": request.TargetSeq, "target_payload_version": request.TargetPayloadVersion,
 		"reason": request.Reason, "delivery_artifact": request.DeliveryArtifact, "delivery_state": request.DeliveryState,
-		"evidence_source":           DeliveryEvidenceSourceCoordinatorAsserted,
-		"approval_ref":              request.ApprovalRef,
-		"approval_operation_digest": request.ApprovalOperationDigest,
-		"approval_scope_json":       request.ApprovalScopeJSON,
-		"approval_versions_json":    request.ApprovalVersionsJSON,
-		"approval_consequence":      request.ApprovalConsequence,
+		"evidence_source": DeliveryEvidenceSourceCoordinatorAsserted,
 	})
 	if err != nil {
 		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "delivery correction payload cannot be encoded", false, "supply the bounded correction fields")
 	}
-	events = append(events, Event{
-		EventID: request.EventID, Kind: WorkflowDeliveryCorrected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID,
-		Actor: operator.ref, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: workflowDeliveryCorrectionRegisteredVersion(), Payload: payload,
-	})
+	events = append(events, Event{EventID: request.EventID, Kind: WorkflowDeliveryCorrected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: workflowDeliveryCorrectionRegisteredVersion(), Payload: payload})
 	return applyOperationTx(ctx, sqlTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(sqlTx), true)
 }
 
-// workflowDeliveryCorrectionOperatorFromApprovalTx derives the operator
-// workflow actor from the consumed one-use approval row, so the durable
-// record shows the operator approval — not a session identity — asserting
-// the correction. This admission route is the only live-table authorization:
-// it re-checks the row's one-use consumed state and the request's exact
-// binding, and the fold later re-derives the same admission from the event
-// payload and the log-derived workflow_actors row alone.
-func workflowDeliveryCorrectionOperatorFromApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowDeliveryCorrectionRequest) (workflowApprovalOperator, error) {
-	return workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{
-		ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest,
-		ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON,
-		Consequence: request.ApprovalConsequence,
-	}, "workflow_delivery_correction")
+// workflowDeliveryCorrectionCoordinatorAdmitted refuses every correction
+// actor the recorded authority does not admit as a coordinator: an
+// unrecorded ref, an operator substitute, or a worker-lane actor. Every
+// input is log-derived state, so live admission and replay refuse alike.
+func workflowDeliveryCorrectionCoordinatorAdmitted(ctx context.Context, q queryer, workID, actorRef, stage string) error {
+	var actorClass string
+	err := q.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actorClass)
+	if err == sql.ErrNoRows {
+		return newFailure(KindUnauthorized, stage, "delivery correction requires a recorded coordinator actor", false, "attribute the correction to the recorded coordinator actor")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, stage, "cannot read the delivery correction actor", true, "retry once the workflow projection is readable", err)
+	}
+	if actorClass != string(ActorAgent) {
+		return newFailure(KindUnauthorized, stage, "delivery correction takes no operator substitution for the coordinator of record", false, "attribute the correction to the recorded coordinator actor")
+	}
+	authority, err := workflowEvaluationAuthority(ctx, q, workID, actorRef)
+	if err != nil {
+		return err
+	}
+	if authority == WorkflowWorkerEvaluator {
+		return newFailure(KindUnauthorized, stage, "delivery correction takes no worker-lane actor for the coordinator of record", false, "attribute the correction to the recorded coordinator actor")
+	}
+	return nil
 }
 
 // foldWorkflowDeliveryCorrected admits one typed delivery correction and
-// leaves every projection of the closed workflow instance untouched. The
-// checks read only the event payload and log-derived projections, so live
-// application and replay admit the same corrections.
+// leaves every projection of the closed workflow instance untouched. A
+// source-v1 payload replays under its own rules: the complete approval
+// binding and the recorded operator approval actor. The current v2 class
+// carries no approval claim and attributes the recorded coordinator actor,
+// re-derived from the event payload and log state alone.
 func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDeliveryCorrectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
 	}
+	sourceV1 := event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 2
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -148,19 +187,27 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if !replayValidReference(p.DeliveryArtifact) {
 		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact is not a reference admitted by a supported historical rule", false, "supply a bounded delivery reference")
 	}
-	if p.ApprovalRef == "" || !validDigest(p.ApprovalOperationDigest) || p.ApprovalScopeJSON == "" || p.ApprovalVersionsJSON == "" || p.ApprovalConsequence == "" {
-		return newFailure(KindInvalidPayload, "fold_event", "delivery correction carries no complete operator approval binding", false, "request the core operator approval for this correction")
+	if sourceV1 {
+		if p.ApprovalRef == "" || !validDigest(p.ApprovalOperationDigest) || p.ApprovalScopeJSON == "" || p.ApprovalVersionsJSON == "" || p.ApprovalConsequence == "" {
+			return newFailure(KindInvalidPayload, "fold_event", "delivery correction carries no complete operator approval binding", false, "request the core operator approval for this correction")
+		}
+	} else if p.ApprovalRef != "" || p.ApprovalOperationDigest != "" || p.ApprovalScopeJSON != "" || p.ApprovalVersionsJSON != "" || p.ApprovalConsequence != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "a routine delivery correction accepts no approval claim", false, "append the unsigned correction under the recorded coordinator actor")
 	}
 	if event.Actor == "" {
 		return newFailure(KindUnauthorized, "fold_event", "delivery correction has no authenticated actor", false, "append the correction through the approved operator route")
 	}
-	if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
-		ApprovalRef:     p.ApprovalRef,
-		OperationDigest: p.ApprovalOperationDigest,
-		ScopeJSON:       p.ApprovalScopeJSON,
-		VersionsJSON:    p.ApprovalVersionsJSON,
-		Consequence:     p.ApprovalConsequence,
-	}, deliveryCorrectionApprovalSubject); err != nil {
+	if sourceV1 {
+		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
+			ApprovalRef:     p.ApprovalRef,
+			OperationDigest: p.ApprovalOperationDigest,
+			ScopeJSON:       p.ApprovalScopeJSON,
+			VersionsJSON:    p.ApprovalVersionsJSON,
+			Consequence:     p.ApprovalConsequence,
+		}, deliveryCorrectionApprovalSubject); err != nil {
+			return err
+		}
+	} else if err := workflowDeliveryCorrectionCoordinatorAdmitted(ctx, tx, event.SubjectID, event.Actor, "fold_event"); err != nil {
 		return err
 	}
 	targetSeq, targetPayloadVersion, targetArtifact, err := workflowDeliveryAssertionEventTx(ctx, tx, event.SubjectID, p.TargetEventID)
@@ -279,7 +326,7 @@ type WorkflowReadDeliveryCorrection struct {
 	Reason         string `json:"reason"`
 	Artifact       string `json:"artifact"`
 	EvidenceSource string `json:"evidence_source"`
-	ApprovalRef    string `json:"approval_ref"`
+	ApprovalRef    string `json:"approval_ref,omitempty"`
 	CorrectedAt    string `json:"corrected_at"`
 }
 

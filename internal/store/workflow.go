@@ -181,18 +181,35 @@ type workflowContractPredicatePayload struct {
 
 type workflowOverlapResolvedPayload struct {
 	WorkflowVersionFields
-	ToWorkID            string `json:"to_work_id"`
-	ToExpectedVersion   int64  `json:"to_expected_version"`
-	ToResultingVersion  int64  `json:"to_resulting_version"`
-	FromContractVersion int64  `json:"from_contract_version"`
-	ToContractVersion   int64  `json:"to_contract_version"`
-	ResolutionKind      string `json:"resolution_kind"`
-	Reason              string `json:"reason"`
-	ApprovalRef         string `json:"approval_ref"`
+	ToWorkID                string `json:"to_work_id"`
+	ToExpectedVersion       int64  `json:"to_expected_version"`
+	ToResultingVersion      int64  `json:"to_resulting_version"`
+	FromContractVersion     int64  `json:"from_contract_version"`
+	ToContractVersion       int64  `json:"to_contract_version"`
+	ResolutionKind          string `json:"resolution_kind"`
+	Reason                  string `json:"reason"`
+	ApprovalRef             string `json:"approval_ref"`
+	ApprovalOperationDigest string `json:"approval_operation_digest"`
+	ApprovalScopeJSON       string `json:"approval_scope_json"`
+	ApprovalVersionsJSON    string `json:"approval_versions_json"`
+	ApprovalConsequence     string `json:"approval_consequence"`
 }
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
 	return p.WorkflowVersionFields
+}
+
+// upcastWorkflowOverlapResolvedV1 carries a version 1 event to version 2. The
+// v2 shape records the same fields, so the upcaster advances only the version
+// and rewrites no bytes. The fold reads the stored version back through
+// replaySourcePayloadVersion, so a recorded v1 event still replays under the
+// approval rules its writer admitted it with.
+func upcastWorkflowOverlapResolvedV1(event Event) (Event, error) {
+	if event.PayloadVersion != 1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.overlap_resolved upcaster requires payload version 1", false, "supply a legacy v1 overlap-resolution payload")
+	}
+	event.PayloadVersion = 2
+	return event, nil
 }
 
 type workflowContractSupersededPayload struct {

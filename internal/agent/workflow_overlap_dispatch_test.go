@@ -76,82 +76,90 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 	return s, service, grant, privateKey, env, input
 }
 
-func TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedApproval(t *testing.T) {
+// TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
+// proves the routine compatible_with caller records its coordination answer
+// unsigned: the success needs no challenge and consumes no approval, the
+// recorded event and projection carry the exact direction, kind, contract,
+// and version pins, and a supplied approval claim refuses with no effect.
+func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval(t *testing.T) {
 	t.Parallel()
-	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
-	var err error
-	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if err != nil {
-		t.Fatal(err)
+	s, service, _, _, env, input := seedAgentOverlapFixture(t)
+	// The genuine claim: one challenge a destructive dispatch through this
+	// Service minted on this fixture. The routine request below presents it,
+	// so the refusal is the planner's routine-branch decision and not an
+	// unknown-reference guess.
+	destructive := []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"merged_into"`, 1))
+	challenged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: destructive}, env)
+	if challenged.Error == nil || challenged.Error.Kind != "approval_required" {
+		t.Fatalf("destructive challenge dispatch outcome=%s error=%+v", challenged.Outcome, challenged.Error)
 	}
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("first overlap resolution outcome=%s error=%+v", first.Outcome, first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	challengeRef, ok := challenged.Error.Details["approval_ref"].(string)
 	if !ok || challengeRef == "" {
-		t.Fatalf("missing approval challenge: %+v", first.Error.Details)
+		t.Fatalf("destructive challenge carries no approval ref: %+v", challenged.Error.Details)
 	}
-	if first.Error.Details["resolution_kind"] != "compatible_with" || first.Error.Details["from_work_id"] != "work-1" || first.Error.Details["to_work_id"] != "work-2" {
-		t.Fatalf("approval challenge omitted resolution direction: %+v", first.Error.Details)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
+	withClaim, err := injectApproval(input, challengeRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	versions := map[string]any{"from": int64(2), "to": int64(2), "from_contract": int64(1), "to_contract": int64(1)}
-	baseScope := map[string]any{
-		"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"},
-		"work_ids": []string{"work-1", "work-2"}, "scope_version": env.ScopeVersion,
-	}
-
-	wrongKind := []byte(strings.Replace(string(withApproval), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
-	wrongDigest := mutationDigest("concord_work_relate", "resolve_overlap", env, wrongKind)
-	wrongEnv := env
-	wrongEnv.HostApproval = signedHostApproval(privateKey, challengeRef, wrongDigest, baseScope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	wrong, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: wrongKind}, wrongEnv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wrong.Error == nil || wrong.Error.Kind != "approval_invalid" {
-		t.Fatalf("changed resolution kind reused approval: %+v", wrong)
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: withClaim}, env)
+	if refused.Error == nil || refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "approval") {
+		t.Fatalf("supplied claim on the routine dispatch outcome=%s error=%+v, want invalid_input naming the approval claim", refused.Outcome, refused.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
-		t.Fatalf("invalid approval wrote %d resolutions", got)
+		t.Fatalf("the refused claim left %d resolutions", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`); got != 0 {
+		t.Fatalf("the refused claim left %d relation rows", got)
 	}
 	if workVersion(t, s, "work-1") != 2 || workVersion(t, s, "work-2") != 2 {
-		t.Fatal("invalid approval changed endpoint versions")
+		t.Fatal("the refused claim moved endpoint versions")
 	}
 
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
-	approvedEnv := env
-	approvedEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, baseScope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: withApproval}, approvedEnv)
+	// The unsigned dispatch records the routine answer: no challenge for it
+	// and no consumed approval, the exact recorded pins, and the single-step
+	// endpoint version bumps.
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved overlap resolution outcome=%s error=%+v", approved.Outcome, approved.Error)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("routine overlap resolution outcome=%s error=%+v", response.Outcome, response.Error)
 	}
-	var approvalRef, eventApprovalRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref FROM workflow_overlap_resolutions`).Scan(&approvalRef); err != nil {
+	var fromID, toID, kind, approvalRef string
+	var fromContract, toContract int64
+	var invalidated any
+	if err := s.DatabaseForTesting().QueryRow(`SELECT from_work_id,to_work_id,resolution_kind,from_contract_version,to_contract_version,approval_ref,invalidated_seq FROM workflow_overlap_resolutions`).Scan(&fromID, &toID, &kind, &fromContract, &toContract, &approvalRef, &invalidated); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.approval_ref') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventApprovalRef); err != nil {
+	if fromID != "work-1" || toID != "work-2" || kind != "compatible_with" || fromContract != 1 || toContract != 1 || approvalRef != "" || invalidated != nil {
+		t.Fatalf("recorded resolution=%s->%s %s contracts %d/%d approval=%q invalidated=%v, want the unsigned current work-1->work-2 pair at contracts 1/1", fromID, toID, kind, fromContract, toContract, approvalRef, invalidated)
+	}
+	var eventKind, eventToID, eventApprovalRef string
+	var resulting, toResulting int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.resolution_kind'),json_extract(payload,'$.to_work_id'),json_extract(payload,'$.approval_ref'),json_extract(payload,'$.resulting_version'),json_extract(payload,'$.to_resulting_version') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventKind, &eventToID, &eventApprovalRef, &resulting, &toResulting); err != nil {
 		t.Fatal(err)
 	}
-	if approvalRef == "" || approvalRef != eventApprovalRef || approvalRef == challengeRef {
-		t.Fatalf("persisted approval projection=%q event=%q challenge=%q", approvalRef, eventApprovalRef, challengeRef)
+	if eventKind != "compatible_with" || eventToID != "work-2" || eventApprovalRef != "" || resulting != 3 || toResulting != 3 {
+		t.Fatalf("resolution event kind=%s to=%s approval=%q versions=%d/%d, want the unsigned compatible_with event to work-2 at 3/3", eventKind, eventToID, eventApprovalRef, resulting, toResulting)
 	}
-	var usedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&usedCount); err != nil || usedCount != 1 {
-		t.Fatalf("consumed approval %q used_count=%d err=%v", approvalRef, usedCount, err)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='compatible_with' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
+		t.Fatalf("resolution relation rows=%d, want 1", got)
+	}
+	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
+		t.Fatal("routine resolution left the endpoints off the single-step versions")
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 1 {
+		t.Fatalf("challenge rows=%d, want only the genuine destructive challenge untouched", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
+		t.Fatalf("approval rows=%d, want zero consumed approvals", got)
 	}
 }
 
 func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
+	s, service, _, _, env, input := seedAgentOverlapFixture(t)
 	// The peer has an execution-start claim but awaits its next work step.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-2'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
@@ -170,26 +178,10 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 		t.Fatalf("peer was not ready before resolution: %+v", before.Items)
 	}
 	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("blocks resolution approval=%+v", first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("blocks resolution challenge=%+v", first.Error.Details)
-	}
-	approvedInput, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1", "work-2"}, "scope_version": env.ScopeVersion}
-	versions := map[string]any{"from": int64(2), "to": int64(2), "from_contract": int64(1), "to_contract": int64(1)}
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, approvedInput)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: approvedInput}
-	approved := dispatchMutation(t, s, service, request, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved blocks resolution=%+v", approved.Error)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}
+	resolved := dispatchMutation(t, s, service, request, env)
+	if resolved.Outcome != OutcomeOK {
+		t.Fatalf("routine blocks resolution=%+v", resolved.Error)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
 		t.Fatalf("resolution blocks rows=%d, want 1", got)

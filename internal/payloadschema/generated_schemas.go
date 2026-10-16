@@ -20758,7 +20758,6 @@ const GeneratedPayloadSchemaDocument = `{
         "reason",
         "artifact",
         "evidence_source",
-        "approval_ref",
         "corrected_at"
       ],
       "type": "object"

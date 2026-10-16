@@ -93,7 +93,7 @@ func TestReadWorkClosureCarriesTheEffectiveDeliveryArtifact(t *testing.T) {
 	const workID = "work-closure-effective"
 	s, targetEventID, version, payloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 	defer s.Close()
-	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, payloadVersion)
+	request := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, payloadVersion)
 	correctionErr := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowDeliveryCorrectionTx(ctx, tx, request)
 		return err

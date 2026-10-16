@@ -6315,6 +6315,53 @@ ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(even
 ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_domains IS NULL OR decision_domains IN ('[]','["preference"]','["product"]','["ui_ux"]','["preference","product"]','["preference","ui_ux"]','["product","ui_ux"]','["preference","product","ui_ux"]'));
 `,
 	},
+	{
+		// Routine coordination resolves compatible_with, depends_on, and
+		// blocks overlaps without a consumed approval, and the fold writes
+		// those resolutions unapproved. The rebuilt check admits an empty
+		// approval_ref for the routine kinds alone; merged_into and
+		// supersedes keep demanding a reference. The rebuild copies
+		// migration 91's shape, and every existing row satisfies the new
+		// check unchanged.
+		Version:  129,
+		Name:     "overlap_routine_resolution_carries_own_authority",
+		Breaking: true,
+		SQL: `
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE workflow_overlap_resolutions_v129_backup AS SELECT * FROM workflow_overlap_resolutions;
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DELETE FROM workflow_overlap_resolutions;
+DROP TABLE workflow_overlap_resolutions;
+
+CREATE TABLE workflow_overlap_resolutions (
+    resolution_id TEXT PRIMARY KEY,
+    event_seq INTEGER NOT NULL UNIQUE REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    from_contract_version INTEGER NOT NULL,
+    to_contract_version INTEGER NOT NULL,
+    resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks','merged_into','supersedes')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    approval_ref TEXT NOT NULL CHECK(length(approval_ref) > 0 OR resolution_kind IN ('compatible_with','depends_on','blocks')),
+    created_at TEXT NOT NULL,
+    invalidated_seq INTEGER REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    CHECK(from_work_id <> to_work_id),
+    CHECK(from_contract_version > 0 AND to_contract_version > 0),
+    FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+INSERT INTO workflow_overlap_resolutions SELECT * FROM workflow_overlap_resolutions_v129_backup;
+DROP TABLE workflow_overlap_resolutions_v129_backup;
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+CREATE TRIGGER workflow_overlap_resolutions_guard_insert BEFORE INSERT ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_update BEFORE UPDATE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

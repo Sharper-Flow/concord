@@ -273,15 +273,16 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 
 	overlapOp := registeredOp(t, "concord_work_relate", "resolve_overlap")
 	for _, tc := range []struct {
-		name    string
-		kind    string
-		durable bool
+		name     string
+		kind     string
+		durable  bool
+		approval bool
 	}{
-		{"compatible_with", "compatible_with", true},
-		{"depends_on", "depends_on", false},
-		{"blocks", "blocks", true},
-		{"merged_into", "merged_into", true},
-		{"supersedes", "supersedes", true},
+		{"compatible_with", "compatible_with", true, false},
+		{"depends_on", "depends_on", false, false},
+		{"blocks", "blocks", true, false},
+		{"merged_into", "merged_into", true, true},
+		{"supersedes", "supersedes", true, true},
 	} {
 		raw, err := json.Marshal(map[string]any{
 			"from_work_id": "work-1", "to_work_id": "work-2",
@@ -301,9 +302,42 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		if got := plannedFact(t, plan); got != tc.durable {
 			t.Errorf("overlap resolution %s planned initial durability %t, want %t", tc.kind, got, tc.durable)
 		}
-		if plan.requiresApproval != tc.durable {
-			t.Errorf("overlap resolution %s approval requirement %t does not follow its kind boundary", tc.kind, plan.requiresApproval)
+		if plan.requiresApproval != tc.approval {
+			t.Errorf("overlap resolution %s approval requirement %t does not follow its kind boundary, want %t", tc.kind, plan.requiresApproval, tc.approval)
 		}
+	}
+
+	// Consent never feeds the overlap facts: the same destructive plan
+	// carrying an approval claim keeps its durable fact and its consent
+	// requirement. A fresh same-Product routine request derives no consent
+	// requirement, so the tail consumes nothing and the effect refuses the
+	// unneeded claim. The dispatch tests own that refusal. A cross-Product
+	// routine request derives its consent inside the transaction instead,
+	// and its tail consumes the claim and settles.
+	approvedOverlapRaw, err := json.Marshal(map[string]any{
+		"from_work_id": "work-1", "to_work_id": "work-2",
+		"from_expected_version": 2, "to_expected_version": 3,
+		"from_contract_version": 1, "to_contract_version": 1,
+		"resolution_kind": "merged_into", "reason": "durability plan witness",
+		"idempotency_key": "durability-plan-overlap-approved",
+		"approval":        map[string]any{"approval_ref": "approval-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedOverlapPlan := newMutationPlan(envelope, overlapOp)
+	approvedOverlapAnswer, approvedOverlapErr, approvedOverlapHandled := r.planResolveOverlap(context.Background(), NewBase("durability-plan", "concord_work_relate", "resolve_overlap"), approvedOverlapRaw, digest, Authority{}, overlapOp, approvedOverlapPlan)
+	if approvedOverlapHandled || approvedOverlapErr != nil || approvedOverlapAnswer.Outcome == OutcomeError {
+		t.Fatalf("approved overlap planner refused: handled=%t err=%v answer=%+v", approvedOverlapHandled, approvedOverlapErr, approvedOverlapAnswer)
+	}
+	if !plannedFact(t, approvedOverlapPlan) {
+		t.Error("destructive overlap plan with an attached approval lost its durable fact")
+	}
+	if !approvedOverlapPlan.requiresApproval {
+		t.Error("destructive overlap plan with an attached approval lost its consent requirement")
+	}
+	if approvedOverlapPlan.approval != "approval-1" {
+		t.Errorf("approval reference %q was not carried on the plan", approvedOverlapPlan.approval)
 	}
 
 	membershipsOp := registeredOp(t, "concord_work_relate", "set_memberships")

@@ -3848,22 +3848,23 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
 //
-// A depends_on resolution is the one kind an agent may record without an
-// operator challenge: it constrains only the declaring work (the from side
-// waits while the peer proceeds), so a false declaration delays the
-// declarer and nothing else. Every other kind changes another
-// item's admission or identity — blocks frees the declarer and holds the
-// peer, compatible_with releases the gate for both sides, merged_into and
-// supersedes terminalize an item — and keeps the approval demand.
+// The routine kinds — depends_on, compatible_with, blocks — record the
+// caller's coordination answer without operator consent. The destructive
+// kinds — merged_into and supersedes — settle only through the consumed
+// one-use operator approval whose binding the event carries. Routine
+// consent and the transaction-derived cross-Product consent stay distinct:
+// the tail owns the final decision, so the effect alone rejects a routine
+// claim the tail did not consume.
 func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	destructive := in.ResolutionKind == store.ResolutionMergedInto || in.ResolutionKind == store.ResolutionSupersedes
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = in.ResolutionKind != "depends_on"
+	plan.requiresApproval = destructive
 	plan.declareInitialDurability(in.ResolutionKind != "depends_on")
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
@@ -3876,8 +3877,21 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 	plan.scope["product_id"] = r.Envelope.SelectedProductID
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-		result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, ApprovalRef: consumedApprovalRef, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()})
+		consumedRef, _ := plan.scope["approval_ref"].(string)
+		if !destructive && in.Approval != nil && consumedRef == "" {
+			return nil, nil, nil, newRuntimeFailure("invalid_input", "a routine overlap resolution accepts no approval claim", "reread_entities", false)
+		}
+		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
+		if destructive {
+			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
+			approvalVersionsJSON, _ := json.Marshal(plan.versions)
+			request.ApprovalRef = consumedRef
+			request.ApprovalOperationDigest = digest
+			request.ApprovalScopeJSON = string(approvalScopeJSON)
+			request.ApprovalVersionsJSON = string(approvalVersionsJSON)
+			request.ApprovalConsequence = plan.consequence
+		}
+		result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, request)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -3889,11 +3903,12 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 
 // planCorrectDelivery plans concord_work_transition.correct_delivery.
 //
-// The correction is always approval-required: it appends a typed correction to
-// a completed delivery assertion behind a consumed one-use operator approval,
-// and it never reopens the completed work. The merge evidence travels
-// coordinator-asserted: the core records what the coordinator provided and
-// claims no verification of any forge or merge state.
+// The correction is the coordinator's routine exact-target repair: it
+// appends one typed correction beside a completed delivery assertion under
+// the authenticated caller's own recorded workflow actor and never reopens
+// the completed work. Routine consent and the transaction-derived
+// cross-Product consent stay distinct: the tail owns the final decision,
+// so the effect alone rejects a claim the tail did not consume.
 func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in correctDeliveryMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -3902,31 +3917,34 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = true
+	plan.requiresApproval = false
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_id"] = r.Envelope.SelectedProductID
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "inspect_corrected_delivery", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-		approvalVersionsJSON, _ := json.Marshal(plan.versions)
+		if in.Approval != nil {
+			if consumedRef, _ := plan.scope["approval_ref"].(string); consumedRef == "" {
+				return nil, nil, nil, newRuntimeFailure("invalid_input", "a routine delivery correction accepts no approval claim", "reread_entities", false)
+			}
+		}
+		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+		actorRef, actorErr := store.WorkflowActorRef(actor)
+		if actorErr != nil {
+			return nil, nil, nil, actorErr
+		}
 		result, err := store.ApplyWorkflowDeliveryCorrectionTx(ctx, tx, store.WorkflowDeliveryCorrectionRequest{
 			WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion,
 			TargetEventID: in.TargetEventID, TargetSeq: in.TargetSeq, TargetPayloadVersion: in.TargetPayloadVersion,
 			Reason: in.Reason, DeliveryArtifact: in.DeliveryArtifact, DeliveryState: in.DeliveryState,
-			ApprovalRef:             consumedApprovalRef,
-			ApprovalOperationDigest: digest,
-			ApprovalScopeJSON:       string(approvalScopeJSON),
-			ApprovalVersionsJSON:    string(approvalVersionsJSON),
-			ApprovalConsequence:     plan.consequence,
-			EventID:                 digest + ":delivery-correction",
-			OccurredAt:              r.Authority.now(),
+			Actor: actorRef, AuthenticatedActor: &actor,
+			EventID:    digest + ":delivery-correction",
+			OccurredAt: r.Authority.now(),
 		})
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+2, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+int64(len(result.EventIDs)), 10)}}
 		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false

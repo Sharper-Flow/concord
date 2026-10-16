@@ -24,19 +24,18 @@ func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, s
 	return s, binding, ref
 }
 
+// resolveContentPair settles the pair through the live writer. Both kinds it
+// serves are routine coordination answers, so the request carries no approval
+// claim.
 func resolveContentPair(t *testing.T, s *Store, from, to, kind string) {
 	t.Helper()
-	approval := "approval:content"
-	if kind == ResolutionDependsOn {
-		approval = ""
-	}
 	fromVersion, toVersion := readWorkVersion(t, s, from), readWorkVersion(t, s, to)
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "content-resolution-" + from + "-" + to + "-" + kind, FromWorkID: from, ToWorkID: to,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
 			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
-			Reason: "synthetic coordination", ApprovalRef: approval, Actor: "operator",
+			Reason: "synthetic coordination", Actor: "operator",
 		})
 		return err
 	})

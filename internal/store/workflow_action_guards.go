@@ -52,7 +52,7 @@ type workflowActionGuardContext struct {
 	actorRef                string
 	eventActor              string
 	operatorRef             string
-	actorNeedsRecord        bool
+	actorRecordPrefix       *workflowActorRecordPrefix
 	operatorNeedsRecord     bool
 }
 
@@ -729,26 +729,56 @@ func guardForwardLinkOnly(g *workflowActionGuardContext) error {
 }
 
 // guardRecordedActorTuple verifies the authenticated actor against the durable
-// workflow actor record, or marks the actor for recording when no row exists.
-// It applies to every action rather than to one action ID, so the dispatcher
-// calls it directly instead of through the per-action table, as it does for
-// guardOperatorPremiseActor. Any action the current step declares is some
-// session's possible first action, and the folds that call requireActor refuse
-// until the row exists (issue #740).
+// workflow actor record, or retains the shared actor-recording draft when no
+// row exists. It applies to every action rather than to one action ID, so the
+// dispatcher calls it directly instead of through the per-action table, as it
+// does for guardOperatorPremiseActor. Any action the current step declares is
+// some session's possible first action, and the folds that call requireActor
+// refuse until the row exists.
 func guardRecordedActorTuple(g *workflowActionGuardContext) error {
+	prefix, err := workflowActorRecordPrefixTx(g.ctx, g.tx, g.request.Actor)
+	if err != nil {
+		return err
+	}
+	g.actorRecordPrefix = prefix
+	return nil
+}
+
+// workflowActorRecordPrefixTx is the shared actor-prefix owner for every
+// writer that may meet an unrecorded authenticated session: it derives the
+// canonical actor_ref and reads the durable tuple once, returning nil for a
+// matching row or the absent-actor draft for recording. The draft carries no
+// event metadata; the caller materializes its canonical event at its own
+// version cursor with its own normalized time. A recorded row that disagrees
+// with the authenticated tuple refuses; this owner never writes.
+func workflowActorRecordPrefixTx(ctx context.Context, q queryer, actor WorkflowActor) (*workflowActorRecordPrefix, error) {
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		return nil, err
+	}
 	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
-	recordErr := g.tx.QueryRowContext(g.ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, g.actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
+	recordErr := q.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
 	switch {
 	case recordErr == sql.ErrNoRows:
-		g.actorNeedsRecord = true
-		return nil
+		return &workflowActorRecordPrefix{actorRef: actorRef, actor: actor}, nil
 	case recordErr != nil:
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
 	}
-	if recordedPrincipal != g.request.Actor.PrincipalRef || recordedClient != g.request.Actor.ClientRef || recordedAgent != g.request.Actor.AgentRef || recordedSession != g.request.Actor.SessionRef {
-		return newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
+	if recordedPrincipal != actor.PrincipalRef || recordedClient != actor.ClientRef || recordedAgent != actor.AgentRef || recordedSession != actor.SessionRef {
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
 	}
-	return nil
+	return nil, nil
+}
+
+type workflowActorRecordPrefix struct {
+	actorRef string
+	actor    WorkflowActor
+}
+
+// event materializes the exact canonical WorkflowActorRecorded event. It
+// mutates nothing, so one lookup can serve repeated materializations.
+func (p workflowActorRecordPrefix) event(eventID, workID string, now time.Time, expectedVersion int64) Event {
+	return workflowTypedEvent(eventID, WorkflowActorRecorded, workID, p.actorRef, now, expectedVersion, map[string]any{"actor_ref": p.actorRef, "principal_ref": p.actor.PrincipalRef, "client_ref": p.actor.ClientRef, "agent_ref": p.actor.AgentRef, "session_ref": p.actor.SessionRef, "actor_class": string(p.actor.ActorClass)})
 }
 
 // Only these operator-decision actions can carry a verified operator identity.
@@ -1352,10 +1382,9 @@ type workflowActionAssemblyInput struct {
 	payload      json.RawMessage
 	evidenceRefs []string
 
-	actorRef               string
 	eventActor             string
 	operatorRef            string
-	actorNeedsRecord       bool
+	actorRecordPrefix      *workflowActorRecordPrefix
 	operatorNeedsRecord    bool
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
@@ -1383,8 +1412,8 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	actor := in.eventActor
 	events := []Event{}
 	versionCursor := in.request.ExpectedVersion
-	if in.actorNeedsRecord {
-		events = append(events, workflowTypedEvent(in.request.OperationID+":actor", WorkflowActorRecorded, in.request.WorkID, in.actorRef, in.request.Now, versionCursor, map[string]any{"actor_ref": in.actorRef, "principal_ref": in.request.Actor.PrincipalRef, "client_ref": in.request.Actor.ClientRef, "agent_ref": in.request.Actor.AgentRef, "session_ref": in.request.Actor.SessionRef, "actor_class": string(in.request.Actor.ActorClass)}))
+	if in.actorRecordPrefix != nil {
+		events = append(events, in.actorRecordPrefix.event(in.request.OperationID+":actor", in.request.WorkID, in.request.Now, versionCursor))
 		versionCursor++
 	}
 	if in.operatorNeedsRecord {

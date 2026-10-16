@@ -43,6 +43,14 @@ permission bridge; the Go core owns authority, transactions, and consequences.
 
 ## 2. Change rule before go-live
 
+New architecture-revision and integration-record action IDs are additive
+when considered alone. Required architecture and design bindings, tighter
+joint wire capacity, changed closed packet identities, and changed acceptance
+admission are a breaking closed-contract cutover. Their publication requires
+a major Conventional Commit signal, regenerated canonical contracts, frozen
+historical decoders, and the existing pre-domain digest refusal. An earlier
+major release does not cover a later breaking publication.
+
 The primary path changes directly. When the accepted surface changes, remove
 replaced fields, negotiation branches, aliases, migration hints, obsolete replay
 paths, and prose that existed only for the old development shape. Keep historical

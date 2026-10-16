@@ -35,9 +35,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8b038dfcd1928474b254b2c3f0affbaa28f9e3e968531707d7f86f54c89f8352",
+  "sha256": "sha256:a85aa10b648627c88ae339e83c63b37861944fb9cac5aa0dd2d1f40d99ab9697",
   "status": "accepted",
-  "summary": "Projects the current typed design into implement context, preserves superseded designs as history, and requires an approved replacement after contract correction.",
+  "summary": "Architecture-capable pins require a coordinator-authored design, ordered edit/integration slices, and a validated joint packet-capacity allocation. Contract recording binds the design under its existing consent policy, including engineering without a consequence_v1 prompt. revise_design is routine, preserves the envelope and accepted prefix, and never resets retries. Typed packets carry one recorded architecture. Historical pins retain their meaning.",
   "tags": [
     "workflow",
     "design",

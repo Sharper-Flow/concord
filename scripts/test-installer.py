@@ -59,7 +59,15 @@ class InstallerTests(unittest.TestCase):
         self.commands.mkdir()
         self.artifacts = self.root / "published"
         self.artifacts.mkdir()
-        self.write_command("git", "exit 0")
+        # The preflight probes the Git integration floor, so the stub
+        # answers `git --version` with a supported report; other calls stay no-ops.
+        self.write_command(
+            "git",
+            r'''case "$*" in
+  "--version") printf 'git version 2.53.0\n' ;;
+  *) exit 0 ;;
+esac''',
+        )
         self.write_command("opencode", "exit 0")
         self.write_command("secret-tool", "exit 0")
         self.write_command("gnome-keyring-daemon", "exit 0")

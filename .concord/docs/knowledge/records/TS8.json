@@ -39,9 +39,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:03261f8959f780cbc3394be69ddfead85f6c89865c99b6e47fbb308eefa90221",
+  "sha256": "sha256:10998add85e13a87ea32215f69abaa60822401e6ec6f07c2617d5ae2a39901be",
   "status": "accepted",
-  "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
+  "summary": "Identifies the surface by exact generated manifest digest. Architecture action IDs alone are additive, but required bindings, tighter joint wire capacity, packet identities and acceptance changes require a major closed-contract cutover, retained historical decoders and pre-domain digest refusal.",
   "tags": [
     "ts8",
     "manifest-digest"

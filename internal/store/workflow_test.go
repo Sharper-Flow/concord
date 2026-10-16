@@ -1082,7 +1082,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_impact_edges":          {"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"},
 		"workflow_impact_notices":        {"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"},
 		"workflow_decision_records":      {"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"},
-		"workflow_design_records":        {"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at"},
+		"workflow_design_records":        {"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at", "architecture", "revision", "digest"},
 		"workflow_premise_confirmations": {"work_id", "contract_version", "confirmed_by", "confirmed_at"},
 	}
 	expectedForeignKeys := map[string][]string{

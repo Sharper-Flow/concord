@@ -109,6 +109,7 @@ type workflowContractApprovedPayload struct {
 	LawModifies         []string                           `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
+	DesignBinding       *workflowDesignBinding             `json:"design_binding,omitempty"`
 	SelfRepair          *WorkflowSelfRepair                `json:"self_repair,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
@@ -1071,6 +1072,9 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err != nil {
 		return err
 	}
+	if err := validateWorkflowContractDesignBindingTx(ctx, tx, event, registered.Definition, p, contractFields["design_binding"]); err != nil {
+		return err
+	}
 	for _, entry := range p.OutcomePredicates {
 		predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
 		if err != nil || string(predicate.Kind) != entry.OutcomeKind {
@@ -2002,10 +2006,31 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := validateWorkflowDesignContentForReplay(p.workflowDesignContent); err != nil {
 		return err
 	}
+	// The architecture projection derives inside the fold from pure
+	// transaction state: membership from the work's projected Projects, the
+	// revision from the retained design rows, the digest from the content. A
+	// v1-sourced design inserts NULL in all three columns and projects as it
+	// always did; the registration validator admits an architecture-absent
+	// design only from that source.
+	var architectureValue, revisionValue, digestValue any
+	if p.Architecture != nil {
+		projects, err := workflowDesignMemberProjectsTx(ctx, tx, event.SubjectID)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkflowDesignArchitecture(*p.Architecture, func(project string) bool { return projects[project] }); err != nil {
+			return err
+		}
+		revision, digest, err := workflowDesignArchitectureProjectionTx(ctx, tx, event.SubjectID, p.workflowDesignContent)
+		if err != nil {
+			return err
+		}
+		architectureValue, revisionValue, digestValue = workflowJSON(p.Architecture), revision, digest
+	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,architecture,revision,digest,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), architectureValue, revisionValue, digestValue, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow design")
 }
 
@@ -3747,6 +3772,21 @@ func upcastWorkflowContractApprovedV3(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 4
+	return event, nil
+}
+
+func upcastWorkflowContractApprovedV4(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v4 payload is not a JSON object", false, "repair the stored workflow contract")
+	}
+	// The binding member is outside every historical closed shape: the
+	// upcast refuses it, null included, so no stored approval can acquire a
+	// binding on replay, and every older version chains through this step.
+	if _, present := fields["design_binding"]; present {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v4 cannot carry design_binding", false, "record the binding-bearing approval at payload version 5")
+	}
+	event.PayloadVersion = 5
 	return event, nil
 }
 

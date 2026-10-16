@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -661,6 +662,14 @@ func (s *Store) nativeOracleReplay(ctx context.Context, req WorktreeVerifyReques
 	if json.Unmarshal([]byte(raw), &r) != nil || r.Oracle == nil || r.Oracle.NativePlanSHA256 != digest || r.WorkID != work || r.ProjectID != project || r.LeaseID != req.LeaseID || r.OperationRef != worktreeVerifyOperationRef(req.LeaseID) || !slices.Equal(r.Command, expectedCommand) {
 		return r, true, oracleFailure(KindInvariantViolation, "native replay metadata is corrupt", "reconcile the retained native run")
 	}
+	// A withheld receipt replays its recorded typed refusal.
+	refusal, refErr := readInternalCapacityRefusal([]byte(raw))
+	if refErr != nil {
+		return r, true, refErr
+	}
+	if refusal != nil {
+		return r, true, annotateCommittedEffect(refusal, nativeLeaseRef(req.LeaseID))
+	}
 	return r, true, nil
 }
 
@@ -802,6 +811,11 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
+	// Publish shape: the only receipts a release would publish.
+	req.nativeCapacityStamp, req.nativeCapacityUnavailable, req.nativeCapacityRaw, req.nativeCapacityOver = nativeOracleReleaseStamp{}, unavailable, nil, nil
+	if result.ExitCode == 0 && !result.TrackedFilesChanged && result.Oracle != nil && (result.Oracle.Qualification == "pass" || result.Oracle.Qualification == "ready") {
+		req.nativeCapacityStamp, _, req.nativeCapacityUnavailable, req.nativeCapacityRaw, req.nativeCapacityOver = s.architectureCapacityVerifyRefusal(finalCtx, req, result, capture, unavailable, unavailableRaw)
+	}
 	result, err = s.releaseNativeOracle(finalCtx, req, entry, after, identity, plan, result, raw, unavailable, unavailableRaw, capture, ctx.Err() != nil)
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
@@ -857,8 +871,25 @@ type nativeOracleReleaseStamp struct {
 func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVerifyRequest) (nativeOracleReleaseStamp, error) {
 	var stamp nativeOracleReleaseStamp
 	job := WorkerJobBinding{}
-	if req.Oracle.WorkerJobBinding != nil {
-		job = *req.Oracle.WorkerJobBinding
+	attempt := ""
+	if req.Oracle != nil {
+		if req.Oracle.WorkerJobBinding != nil {
+			job = *req.Oracle.WorkerJobBinding
+		}
+		attempt = req.Oracle.AttemptID
+	}
+	// Bound: its job's receipts; unbound legacy: nothing; unbound with a
+	// retained allocation: every ready preparation receipt.
+	preparationsFilter, preparationsArgs := `0`, []any{}
+	if job != (WorkerJobBinding{}) {
+		preparationsFilter = `json_extract(result_json,'$.operation_ref') IN
+			(SELECT refs.value FROM domain_events j,json_each(j.payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
+			 WHERE j.subject_type='work_item' AND j.subject_id=? AND j.kind=? AND json_extract(j.payload,'$.job_id')=? AND json_extract(j.payload,'$.revision')=? AND json_extract(j.payload,'$.digest')=?)`
+		preparationsArgs = []any{req.WorkID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest}
+	} else if err := q.QueryRowContext(ctx, `SELECT 1 FROM workflow_design_records WHERE work_id=? AND architecture IS NOT NULL`, req.WorkID).Scan(new(int)); err == nil {
+		preparationsFilter = `json_extract(result_json,'$.oracle.phase')='prepare' AND json_extract(result_json,'$.oracle.qualification')='ready'`
+	} else if err != sql.ErrNoRows {
+		return stamp, err
 	}
 	err := q.QueryRowContext(ctx, `SELECT
 		coalesce((SELECT max(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=?),0),
@@ -867,11 +898,9 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 			FROM worker_attempts WHERE work_id=? AND attempt_id=?),''),
 		(SELECT json_group_array(json_array(lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,stdout_length,stderr_length))
 		 FROM (SELECT lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,length(stdout_blob) stdout_length,length(stderr_blob) stderr_length
-			FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND json_extract(result_json,'$.operation_ref') IN
-			(SELECT refs.value FROM domain_events j,json_each(j.payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
-			 WHERE j.subject_type='work_item' AND j.subject_id=? AND j.kind=? AND json_extract(j.payload,'$.job_id')=? AND json_extract(j.payload,'$.revision')=? AND json_extract(j.payload,'$.digest')=?)
-			ORDER BY lease_id))`, req.WorkID, req.WorkID, WorktreeSetID(req.WorkID), req.WorkID, req.Oracle.AttemptID,
-		req.WorkID, req.ProjectID, req.WorkID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).
+			FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND `+preparationsFilter+`
+			ORDER BY lease_id))`,
+		append([]any{req.WorkID, req.WorkID, WorktreeSetID(req.WorkID), req.WorkID, attempt, req.WorkID, req.ProjectID}, preparationsArgs...)...).
 		Scan(&stamp.Frontier, &stamp.CoreReceipt, &stamp.Attempt, &stamp.Preparations)
 	return stamp, err
 }
@@ -914,9 +943,17 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 			valid = false
 		}
 	}
-	if aborted || !valid || current != stamp || versionErr != nil || version != p.ContractVersion || outsideErr != nil || scopeErr != nil || live.ClaimOpID != entry.ClaimOpID || live.Path != entry.Path || live.Branch != entry.Branch {
+	drifted := aborted || !valid || current != stamp || versionErr != nil || version != p.ContractVersion || outsideErr != nil || scopeErr != nil || live.ClaimOpID != entry.ClaimOpID || live.Path != entry.Path || live.Branch != entry.Branch
+	if drifted {
 		result = unavailable
 		raw = unavailableRaw
+	}
+	// A receipt whose measurement refused or no longer holds is withheld.
+	capacityWithheld := !drifted && result.ExitCode == 0 && !result.TrackedFilesChanged && result.Oracle != nil && (result.Oracle.Qualification == "pass" || result.Oracle.Qualification == "ready") &&
+		(req.nativeCapacityOver != nil || req.nativeCapacityRaw != nil && current != req.nativeCapacityStamp)
+	if capacityWithheld {
+		result = req.nativeCapacityUnavailable
+		raw = req.nativeCapacityRaw
 	}
 	outcome := "completed"
 	if aborted {
@@ -939,5 +976,102 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 			return result, err
 		}
 	}
-	return result, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	if capacityWithheld && req.nativeCapacityOver == nil {
+		return result, capacityStalenessFailure()
+	}
+	return result, req.nativeCapacityOver
+}
+
+const internalCapacityRefusalMember = "internal_capacity_refusal"
+
+func capacityStalenessFailure() error {
+	return newFailure(KindProjectionConflict, "worktree_verify", "the verify capacity measurement did not hold at release; the receipt is withheld", false, "run another green verify with a fresh lease once the work's retained context stops changing")
+}
+
+func injectInternalCapacityRefusal(raw []byte, refusal error) ([]byte, error) {
+	if refusal == nil || len(raw) == 0 {
+		return raw, nil
+	}
+	record := map[string]json.RawMessage{}
+	if json.Unmarshal(raw, &record) != nil {
+		return nil, newFailure(KindInvariantViolation, "worktree_verify", "the capacity refusal cannot be persisted with the receipt", false, "reconcile the retained verify receipt")
+	}
+	var failure *Failure
+	if !errors.As(refusal, &failure) {
+		failure = wrapFailure(KindUnavailable, "worktree_verify", refusal.Error(), true, "run the verify again with a fresh lease once the context measurement is readable", refusal)
+	}
+	encoded, err := json.Marshal(failure)
+	if err != nil {
+		return nil, wrapFailure(KindInvariantViolation, "worktree_verify", "the capacity refusal cannot be persisted with the receipt", false, "reconcile the retained verify receipt", err)
+	}
+	record[internalCapacityRefusalMember] = encoded
+	injected, err := json.Marshal(record)
+	if err != nil {
+		return nil, wrapFailure(KindInvariantViolation, "worktree_verify", "the capacity refusal cannot be persisted with the receipt", false, "reconcile the retained verify receipt", err)
+	}
+	return injected, nil
+}
+
+func readInternalCapacityRefusal(raw []byte) (*Failure, error) {
+	var record map[string]json.RawMessage
+	if json.Unmarshal(raw, &record) != nil {
+		return nil, newFailure(KindInvariantViolation, "worktree_verify", "the retained verify receipt is malformed", false, "reconcile the retained verify receipt")
+	}
+	encoded, ok := record[internalCapacityRefusalMember]
+	if !ok {
+		return nil, nil
+	}
+	var failure *Failure
+	if json.Unmarshal(encoded, &failure) != nil || failure == nil || failure.Kind == "" {
+		return nil, newFailure(KindInvariantViolation, "worktree_verify", "the retained capacity refusal is malformed", false, "reconcile the retained verify receipt")
+	}
+	failure.Op = "worktree_verify"
+	return failure, nil
+}
+
+// architectureCapacityVerifyRefusal measures one publish-shape release on its own snapshot.
+func (s *Store) architectureCapacityVerifyRefusal(ctx context.Context, req WorktreeVerifyRequest, result WorktreeVerifyResult, capture *nativeStreamCapture, unavailable WorktreeVerifyResult, unavailableRaw []byte) (nativeOracleReleaseStamp, bool, WorktreeVerifyResult, []byte, error) {
+	var publish *architectureCapacityVerifyPublish
+	if result.Oracle != nil && result.Oracle.Qualification == "pass" && strings.HasPrefix(result.SubjectRef, "commit:") {
+		publish = &architectureCapacityVerifyPublish{SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:")}
+	}
+	empty := nativeOracleReleaseStamp{}
+	snapshot, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return empty, false, unavailable, unavailableRaw, err
+	}
+	defer snapshot.Rollback()
+	found, err := architectureCapacityProspectiveVerifyTx(ctx, snapshot, req.WorkID, publish)
+	if !found && err == nil {
+		// No retained architecture: nothing armed, nothing fenced.
+		return empty, false, unavailable, nil, nil
+	}
+	stamp, stampErr := readNativeOracleReleaseStamp(ctx, snapshot, req)
+	if stampErr != nil {
+		return empty, false, unavailable, unavailableRaw, stampErr
+	}
+	if err == nil {
+		injected, injectErr := injectInternalCapacityRefusal(unavailableRaw, capacityStalenessFailure())
+		if injectErr != nil {
+			return stamp, true, unavailable, unavailableRaw, injectErr
+		}
+		return stamp, true, unavailable, injected, nil
+	}
+	withheld := result
+	withheldOracle := *result.Oracle
+	withheld.Oracle = &withheldOracle
+	withheld.Oracle.Qualification = "unavailable"
+	withheld.Oracle.Detail = "native receipt withheld: " + err.Error()
+	raw, rawErr := marshalNativeVerifyRecord(&withheld, capture)
+	if rawErr != nil {
+		return stamp, true, unavailable, unavailableRaw, rawErr
+	}
+	injected, injectErr := injectInternalCapacityRefusal(raw, err)
+	if injectErr != nil {
+		return stamp, true, unavailable, unavailableRaw, injectErr
+	}
+	return stamp, true, withheld, injected, err
 }

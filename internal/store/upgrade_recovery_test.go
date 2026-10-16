@@ -126,6 +126,11 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
 		t.Fatalf("cannot restore the pre-127 verify lease: %v", err)
 	}
+	// Restore the pre-128 design records shape. The digest drops first
+	// because its column carries the triple's shape constraint.
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_design_records DROP COLUMN digest; ALTER TABLE workflow_design_records DROP COLUMN revision; ALTER TABLE workflow_design_records DROP COLUMN architecture`); err != nil {
+		t.Fatalf("cannot restore the pre-128 design records: %v", err)
+	}
 	if err := undoMigration124(t, context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}

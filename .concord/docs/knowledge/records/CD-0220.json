@@ -24,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3b046eeb1db071a775a891616f37ca75fbd29d54f6b7c91f3213b5cdab722b0d",
+  "sha256": "sha256:cbbfec83131c7da6dbf958d7535b99d711c5e76bac1926e842d2fdab4cc09ecd",
   "status": "accepted",
-  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native editors and morph_edit. Product-law approval, allowed command artifacts, independent repository review, and host-owned shell permissions retain separate authority boundaries.",
+  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native editors and morph_edit. Architecture-capable pins check native delivered-diff scope and size without claiming writer attribution or a sandbox. Product-law approval, command artifacts, independent semantic review, and host-owned shell permissions retain separate authority boundaries.",
   "tags": [
     "agent-lanes",
     "authoring",

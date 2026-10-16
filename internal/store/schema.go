@@ -6296,6 +6296,28 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(event_watermark IS NULL OR (typeof(event_watermark)='integer' AND event_watermark>=0));
 `,
 	},
+	{
+		Version:  128,
+		Name:     "workflow_design_architecture_projection",
+		Breaking: false,
+		// The fold writes the three columns once, at the design row's
+		// INSERT, from the event content and projected state, so a rebuild
+		// and the original writer agree; rows recorded before the columns
+		// keep NULL in all three (the origin class).
+		FoldMaintained: "origin",
+		SQL: `
+-- The durable design projection gains the architecture-bearing members: NULL
+-- in all three records a legacy design exactly as released, and a non-NULL
+-- triple records the typed architecture with its derived per-work revision
+-- and canonical content digest. The final column carries the triple's shape
+-- constraint, because the shape belongs to the new fields and evaluates on
+-- INSERT and UPDATE; legacy rows default to NULL and satisfy it, and no
+-- partial member set can exist to interpret.
+ALTER TABLE workflow_design_records ADD COLUMN architecture TEXT CHECK(architecture IS NULL OR (json_valid(architecture) AND json_type(architecture)='object'));
+ALTER TABLE workflow_design_records ADD COLUMN revision INTEGER CHECK(revision IS NULL OR revision>=1);
+ALTER TABLE workflow_design_records ADD COLUMN digest TEXT CHECK(digest IS NULL OR (length(digest)=71 AND substr(digest,1,7)='sha256:')) CONSTRAINT workflow_design_records_architecture_shape CHECK((architecture IS NULL) = (digest IS NULL) AND (revision IS NULL) = (digest IS NULL));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

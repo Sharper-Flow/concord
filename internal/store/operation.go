@@ -251,7 +251,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](7, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4, 5: upcastWorkerCompletedV5, 6: upcastWorkerCompletedV6}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              withRecordedSchemas(registerEventKind[WorkerFailedPayload](4, 1, map[int]Upcaster{1: upcastWorkerFailedV1, 2: upcastWorkerFailedV2, 3: upcastWorkerFailedV3}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload), recordedWorkerFailureSchemas()),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
-	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](4, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3}, foldWorkflowContractApproved),
+	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](5, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3, 4: upcastWorkflowContractApprovedV4}, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](1, nil, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:                 withRecordedSchemas(registerEventKind[nativeRunPayload](2, 1, map[int]Upcaster{1: upcastRecordedShapeV1}, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload), recordedNativeRunSchemas()),
 	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](3, map[int]Upcaster{1: upcastWorkflowContractSupersededV1, 2: upcastWorkflowContractSupersededV2}, foldWorkflowContractSuperseded),
@@ -275,7 +275,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowContextBoundaryCrossed:            workflowRegistration[workflowContextBoundaryCrossedPayload](1, nil, foldWorkflowContextBoundaryCrossed),
 	WorkflowWorkContextRecorded:               workflowRegistration[workflowWorkContextRecordedPayload](1, nil, foldWorkflowWorkContextRecorded),
 	WorkflowProposalRecorded:                  workflowRegistration[workflowProposalRecordedPayload](1, nil, foldWorkflowProposalRecorded),
-	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, nil, foldWorkflowDesignRecorded),
+	WorkflowDesignRecorded:                    registerEventKind[workflowDesignRecordedPayload](2, 1, map[int]Upcaster{1: upcastWorkflowDesignRecordedV1}, EventAppendAuthorityWorkflow, foldWorkflowDesignRecorded, validateWorkflowDesignRecordedPayload),
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, nil, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),
@@ -601,6 +601,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
+	if err := validateArchitectureCapacityInvariantsTx(ctx, tx, operation); err != nil {
+		return output, err
+	}
 	if err := scope.close(ctx); err != nil {
 		return output, err
 	}
@@ -709,6 +712,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		return output, rollback(err)
 	}
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx.Tx); err != nil {
+		return output, rollback(err)
+	}
+	if err := validateArchitectureCapacityInvariantsTx(ctx, tx.Tx, operation); err != nil {
 		return output, rollback(err)
 	}
 	output.Impact, err = membershipImpact(ctx, tx.Tx, operation)

@@ -30,9 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:df99f1a540022f46666f710d8fe32c226afad9f2eb5a1b6706676ce12777d52e",
+  "sha256": "sha256:25a5753dbe93c0a585ceb9d2e7737c7b636559b1d9f6c8a8114ac6fbdd1e3585",
   "status": "accepted",
-  "summary": "A dispatched worker lane holds no Concord read or write tool access. Generated denial and the adapter parent boundary hold independently, and the packet is the complete declared context: immutable readings, registry_path, typed prior state, and the one job oracle. No global inventory inserts derived cards, and recorded packets and reading sets stay readable under their recorded formats as history. Missing context uses the report boundary, never worker Concord access.",
+  "summary": "Dispatched worker lanes hold no Concord tool access. Generated denial and the adapter parent boundary hold independently. The packet carries only declared immutable context, including one typed architecture and an exact selected slice on architecture-capable pins. Editing lanes follow its bounds; review reports departures. Missing context or scope conflicts use the report boundary, never worker Concord access. Recorded formats remain readable as history.",
   "tags": [
     "agent-surface",
     "worker-attempts",

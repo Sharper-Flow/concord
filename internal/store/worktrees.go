@@ -5364,6 +5364,11 @@ type WorktreeVerifyRequest struct {
 	nativeAcceptedInputsDigest string
 	nativeEvidenceRefsJSON     string
 	nativeLeaseOwner           verifyLeaseOwnerProcess
+	// nativeCapacityUnavailable, nativeCapacityRaw, and the stamp/error fields carry and bind the variant.
+	nativeCapacityUnavailable WorktreeVerifyResult
+	nativeCapacityRaw         []byte
+	nativeCapacityStamp       nativeOracleReleaseStamp
+	nativeCapacityOver        error
 	// LeaseID scopes the lease and its pinned command. Retrying an
 	// interrupted verify with the same LeaseID resumes only the command the
 	// lease first pinned.
@@ -5519,11 +5524,6 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 	}
-	releaseTx, err := beginOrdinaryTx(finalizeCtx, s.db)
-	if err != nil {
-		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
-	}
-	defer releaseTx.Rollback()
 	changed := before != after || beforeSubject.head != afterSubject.head || before.head != beforeSubject.head || after.head != afterSubject.head
 	outcome := "completed"
 	if changed {
@@ -5539,15 +5539,56 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
 	result.SubjectRef = oracleVerifySubject(beforeSubject, afterSubject, changed)
 	resultJSON, _ := json.Marshal(result)
+	// A green release pre-measures the context; the snapshot stamp fences it.
+	capacityErr := error(nil)
+	capacityStamp := nativeOracleReleaseStamp{}
+	capacityMeasured := false
+	if cancelErr == nil && !changed && exitCode == 0 && strings.HasPrefix(result.SubjectRef, "commit:") {
+		snapshot, snapErr := beginReadTx(finalizeCtx, s.db)
+		if snapErr != nil {
+			capacityErr = wrapFailure(KindUnavailable, "worktree_verify", "cannot measure the verify release's context capacity", true, "run the verify again with a fresh lease once the context measurement is readable", snapErr)
+		} else {
+			publish := &architectureCapacityVerifyPublish{SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:")}
+			found, capErr := architectureCapacityProspectiveVerifyTx(finalizeCtx, snapshot, req.WorkID, publish)
+			if capErr == nil && found {
+				capacityStamp, capErr = readNativeOracleReleaseStamp(finalizeCtx, snapshot, req)
+				capacityMeasured = capErr == nil
+			}
+			if capErr != nil {
+				capacityErr = capErr
+			}
+			_ = snapshot.Rollback()
+		}
+	}
+	releaseTx, err := beginOrdinaryTx(finalizeCtx, s.db)
+	if err != nil {
+		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
+	}
+	defer releaseTx.Rollback()
+	if capacityMeasured && capacityErr == nil {
+		currentStamp, currentErr := readNativeOracleReleaseStamp(finalizeCtx, releaseTx, req)
+		if currentErr != nil {
+			capacityErr = currentErr
+		} else if currentStamp != capacityStamp {
+			capacityErr = capacityStalenessFailure()
+		}
+	}
+	if capacityErr != nil {
+		injected, injectErr := injectInternalCapacityRefusal(resultJSON, capacityErr)
+		if injectErr != nil {
+			// The original receipt bytes persist; the error withholds authority.
+			capacityErr = injectErr
+		} else {
+			resultJSON = injected
+		}
+	}
 	releasedAt := nowFromClock(nil)
 	if _, err := releaseTx.ExecContext(finalizeCtx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
 		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
-	if cancelErr == nil && !changed && exitCode == 0 {
-		// Only a passing run may stand as verification authority. A failed or
-		// mutated run stays history in worktree_verify_leases and names no
-		// producer operation, so the completion gate cannot consume it.
+	if cancelErr == nil && !changed && exitCode == 0 && capacityErr == nil {
+		// Only a passing, capacity-proven run becomes verification authority.
 		if err := recordWorktreeVerifyAuthorityTx(ctx, releaseTx, req, string(commandJSON), now, releasedAt, string(resultJSON)); err != nil {
 			return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 		}
@@ -5556,6 +5597,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	released = true
+	if capacityErr != nil {
+		return result, annotateCommittedEffect(capacityErr, leaseRef)
+	}
 	if cancelErr != nil {
 		return result, annotateCommittedEffect(cancelErr, leaseRef)
 	}
@@ -5757,7 +5801,14 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 			var recorded WorktreeVerifyResult
 			var failure error
 			if json.Unmarshal([]byte(resultJSON), &recorded) == nil {
-				if outcome == "refused_mutated" {
+				refusal, refErr := readInternalCapacityRefusal([]byte(resultJSON))
+				switch {
+				case refErr != nil:
+					return refErr
+				case refusal != nil:
+					// A withheld receipt replays its recorded typed refusal.
+					failure = annotateCommittedEffect(refusal, SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
+				case outcome == "refused_mutated":
 					failure = annotateCommittedEffect(newFailure(KindWorktreeVerifyMutated, "worktree_verify",
 						"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
 				}

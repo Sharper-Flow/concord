@@ -14,6 +14,36 @@ import (
 	"time"
 )
 
+// closeGitApprovalBindingRef names the synthetic capable implementation pin.
+const closeGitApprovalBindingRef = "workflow.test_close_git_binding"
+
+// closeGitApprovalDefinition clones the current implementation head for its
+// context actions. A synthetic closed declaration permits binding before
+// builtin activation.
+func closeGitApprovalDefinition(t *testing.T) RegisteredDefinition {
+	t.Helper()
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shape := definition.Definition
+	shape.Ref = closeGitApprovalBindingRef
+	for i := range shape.ActionDefinitions {
+		if shape.ActionDefinitions[i].ID != "approve_contract" {
+			continue
+		}
+		fields := make([]WorkflowPayloadField, 0, len(shape.ActionDefinitions[i].Payload.Fields)+1)
+		fields = append(fields, shape.ActionDefinitions[i].Payload.Fields...)
+		fields = append(fields, WorkflowPayloadField{Name: "design_binding", ValueType: PayloadObject, Required: true})
+		shape.ActionDefinitions[i].Payload.Fields = fields
+	}
+	registered, err := BuiltinWorkflowRegistry().Register(shape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registered
+}
+
 // Closing retained implementation work keeps context in event history, not Git.
 // The index and file manifest also catch writes that leave HEAD's tree unchanged.
 func TestWorkContextCloseGit(t *testing.T) {
@@ -49,10 +79,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 	seedWorkContextDomainRegistry(t, s)
 
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := closeGitApprovalDefinition(t)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/context-owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -69,6 +96,16 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	plan := projectionArchitecture()
+	designVersion := verdictItemVersion(t, s, workID)
+	design := projectionDesignEvent(t, workID, "close-git-design", designVersion, "close-git", &plan)
+	if err := applyProjectionEvents(t, s, workID, designVersion, design); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := readCurrentWorkflowDesign(ctx, s.DatabaseForTesting(), workID)
+	if err != nil || current == nil || current.Revision == nil || current.Digest == "" {
+		t.Fatalf("seeded close-git design carries no canonical identity: %+v %v", current, err)
+	}
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:context-close", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:context-close", "immutable_subject_ref": "commit:" + base, "expected_result": "pass"}}},
@@ -78,6 +115,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
+		"design_binding": workflowDesignBinding{Revision: *current.Revision, Digest: current.Digest},
 	})
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "execution", ownerRef); err != nil {
 		t.Fatal(err)
@@ -164,7 +202,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,i.definition_ref FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &definitionRef); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != "completed" || state != "completed" || definitionRef != "workflow.implementation" {
+	if lifecycle != "completed" || state != "completed" || definitionRef != closeGitApprovalBindingRef {
 		t.Fatalf("close state lifecycle=%s instance=%s definition=%s", lifecycle, state, definitionRef)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})

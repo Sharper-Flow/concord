@@ -102,6 +102,85 @@ func workflowDesignRecordEvents(definition WorkflowDefinition, request WorkflowA
 	return workflowDesignRecordedEvents(request, actor, raw, eventID, expected)
 }
 
+// workflowReviseDesignEvents is the bounded design-revision arm: the
+// replacement design_record rides the shared design writer so a revision is
+// the same design record family, and the derived revision and digest move
+// exactly as a first record's do. The route is approval-bounded: it refuses
+// without the approved parent contract, without the recorded architecture,
+// on a stale expected revision, while any worker attempt is still live, and
+// on any replacement the approved envelope, the capacity total, or the
+// slices bound by dispatched work forbid. The declared evidence-references
+// input is bounded and deduplicated here so the call names the evidence its
+// revision rests on. The declared hold mode owns the step hold; this arm
+// owns only what the revision itself must prove.
+func workflowReviseDesignEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	designRaw, designPresent := fields["design_record"]
+	if !designPresent || len(designRaw) == 0 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires the replacement design_record", false, "supply the replacement typed design content")
+	}
+	expectedRevision, revisionOK := workflowFieldIntOK(fields, "expected_design_revision")
+	if !revisionOK || expectedRevision < 1 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires expected_design_revision naming the revision the caller revised", false, "quote the current design revision")
+	}
+	reason := workflowFieldStringDefault(fields, "reason", "")
+	if len(reason) < 1 || len(reason) > revisionReasonMaxBytes {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires a bounded reason", false, "record why the revision is needed")
+	}
+	evidence := workflowFieldStrings(fields, "evidence_refs")
+	if len(evidence) < 1 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires evidence references", false, "name the bounded evidence the revision rests on")
+	}
+	if fault := workflowEvidenceRefsFault(evidence, workflowOperationEvidenceRefBound); fault != "" {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision evidence references are invalid: "+fault, false, "supply a deduplicated set within the evidence bound")
+	}
+	current, superseded, err := readCurrentWorkflowDesign(ctx, tx, request.WorkID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil || superseded {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires an existing typed design", false, "record the design before revising it")
+	}
+	if current.Architecture == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires the recorded architecture", false, "revise only an architecture-bearing design")
+	}
+	if expectedRevision != *current.Revision {
+		return nil, newFailure(KindStaleContext, "workflow_action", "design revision "+fmt.Sprint(expectedRevision)+" is no longer current; the recorded revision is "+fmt.Sprint(*current.Revision), false, "reread the current design and revise the recorded revision")
+	}
+	if _, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action"); contractErr == sql.ErrNoRows {
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+	} else if contractErr != nil {
+		return nil, contractErr
+	}
+	var live int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, request.WorkID).Scan(&live); err != nil {
+		return nil, workflowProjectionError(err, "cannot read the work's live worker attempts")
+	}
+	if live != 0 {
+		return nil, newFailure(KindIllegalLifecycleTransition, "workflow_action", "design revision requires every worker attempt to be terminal", false, "wait for the live attempts to reach a terminal state")
+	}
+	var replacement workflowDesignContent
+	if err := decodeWorkflowActionPayloadStrict(designRaw, &replacement); err != nil {
+		return nil, err
+	}
+	if replacement.Architecture == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "design revision requires the replacement architecture", false, "supply the replacement typed execution plan")
+	}
+	if err := workflowArchitectureEnvelopeEqual(*current.Architecture, *replacement.Architecture); err != nil {
+		return nil, err
+	}
+	if err := workflowArchitectureCapacityTotalPreserved(*current.Architecture, *replacement.Architecture); err != nil {
+		return nil, err
+	}
+	bound, boundErr := readWorkflowArchitectureRevisionBoundsTx(ctx, tx, request.WorkID, *current.Revision)
+	if boundErr != nil {
+		return nil, boundErr
+	}
+	if err := workflowArchitectureRevisionSlices(*current.Architecture, *replacement.Architecture, bound); err != nil {
+		return nil, err
+	}
+	return workflowDesignRecordedEvents(request, actor, designRaw, eventID, expected)
+}
+
 func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
 		return nil, err
@@ -210,8 +289,28 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
+	// The pinned closed declaration is the only capability source: a pin
+	// that declares design_binding binds the current canonical complete
+	// design identity and emits the binding-bearing payload; every other
+	// pin keeps the released approval shape and emits no binding.
+	payloadVersion := 4
+	if workflowApproveContractDeclaresDesignBinding(definition) {
+		binding, bindingParseErr := parseWorkflowDesignBinding(workflowFieldRaw(fields, "design_binding"), "workflow_action")
+		if bindingParseErr != nil {
+			return nil, bindingParseErr
+		}
+		current, currentErr := workflowCurrentDesignBindingTx(ctx, tx, request.WorkID, "workflow_action")
+		if currentErr != nil {
+			return nil, currentErr
+		}
+		if err := workflowCompareDesignBinding(binding, current, "workflow_action"); err != nil {
+			return nil, err
+		}
+		contract["design_binding"] = binding
+		payloadVersion = 5
+	}
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = 4
+	approvalEvent.PayloadVersion = payloadVersion
 	return []Event{approvalEvent}, nil
 }
 

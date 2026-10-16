@@ -206,8 +206,14 @@ func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (str
 	if s == nil || s.db == nil {
 		return "", newFailure(KindUnavailable, "project_locator", "store is not open", false, "open the authority database")
 	}
+	return projectCanonicalPathCore(ctx, s.db, projectID)
+}
+
+// projectCanonicalPathCore reads the canonical_path locator through the
+// supplied queryer, inheriting the caller's handle in transaction scope.
+func projectCanonicalPathCore(ctx context.Context, q queryer, projectID string) (string, error) {
 	var normalized string
-	err := s.db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&normalized)
+	err := q.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&normalized)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", newFailure(KindUnknownScope, "project_locator", "Project has no canonical_path locator", false, "register the repository's canonical path locator")

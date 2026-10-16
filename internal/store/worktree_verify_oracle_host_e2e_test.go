@@ -1532,3 +1532,265 @@ func TestNativeTargetAxisSharedArgvWitnesses(t *testing.T) {
 		t.Fatalf("shared-argv broken candidate %+v %v launches=%d", r, err, f.launches)
 	}
 }
+
+// Candidate application bytes reach grading through the pinned harness: an
+// undeclared test-shaped module is neither stripped nor replaced by a pin.
+func TestNativeTargetPytestScopeApplication(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			f := newNativeTargetFixtureAtRoot(t, root)
+			writeRepoFilesForTest(t, f.repo, map[string]string{
+				nativeTargetFixtureName(root, "app/test_mode.py"):    "VALUE = 7\n",
+				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.test_mode import VALUE\n\n\ndef test_value():\n    assert VALUE == 7\n",
+			})
+			f.commitAndPrepareRepin(t, "mode-pinned")
+			o := f.authorize(t, "mode-pinned", f.actor)
+			r, err := f.s.VerifyWorktree(context.Background(), f.request("mode-pinned-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
+				t.Fatalf("pinned application mode execute %+v %v launches=%d", r, err, f.launches)
+			}
+			// The pin stays at the previous head; execution grades candidate bytes.
+			if err := os.WriteFile(filepath.Join(f.repo, root, "app", "test_mode.py"), []byte("VALUE = 8\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.commitAndPrepare(t, "mode-regressed")
+			o = f.authorize(t, "mode-regressed", f.actor)
+			r, err = f.s.VerifyWorktree(context.Background(), f.request("mode-regressed-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 2 {
+				t.Fatalf("unpinned application regression escaped grading: %+v %v launches=%d", r, err, f.launches)
+			}
+			if err := validateNativeOracleProducerTx(context.Background(), f.s.db, f.work, &r, "fail"); err != nil {
+				t.Fatalf("truthful application failure receipt refused: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(f.repo, root, "app", "test_mode.py"), []byte("VALUE = 7\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.commitAndPrepare(t, "mode-repaired")
+			o = f.authorize(t, "mode-repaired", f.actor)
+			r, err = f.s.VerifyWorktree(context.Background(), f.request("mode-repaired-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 3 {
+				t.Fatalf("genuine application repair %+v %v launches=%d", r, err, f.launches)
+			}
+		})
+	}
+}
+
+// nativeTargetHostilePytestConfig renders one candidate-owned root config
+// body whose addopts name an option pytest must reject: any stage that
+// consumes the file instead of the pinned selection fails the run.
+func nativeTargetHostilePytestConfig(name string) string {
+	switch name {
+	case "pytest.toml", ".pytest.toml":
+		return "[pytest]\naddopts = [\"--definitely-invalid-native-option\"]\n"
+	case "setup.cfg":
+		return "[tool:pytest]\naddopts = --definitely-invalid-native-option\n"
+	default:
+		return "[pytest]\naddopts = --definitely-invalid-native-option\n"
+	}
+}
+
+// No candidate-owned configuration can determine pytest behavior: every
+// stage names the pinned root config, so each freely mutable rival name is
+// refused any influence, and a pytest section added to the already-pinned
+// dependency manifest refuses through dependency byte equality.
+func TestNativeTargetPytestScopeCandidateConfig(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			for _, name := range []string{"pytest.toml", ".pytest.toml", "pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"} {
+				t.Run(name, func(t *testing.T) {
+					f := newNativeTargetFixtureAtRoot(t, root)
+					if root != "." {
+						writeRepoFilesForTest(t, f.repo, map[string]string{
+							"pytest.ini": nativeTargetHostilePytestConfig("pytest.ini"),
+						})
+					}
+					writeRepoFilesForTest(t, f.repo, map[string]string{
+						nativeTargetFixtureName(root, name):          nativeTargetHostilePytestConfig(name),
+						nativeTargetFixtureName(root, "tests/"+name): nativeTargetHostilePytestConfig(name),
+					})
+					f.commitAndPrepare(t, "hostile-config")
+					o := f.authorize(t, "hostile-config", f.actor)
+					r, err := f.s.VerifyWorktree(context.Background(), f.request("hostile-config-execute", &o))
+					if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
+						t.Fatalf("hostile candidate config %s escaped the pinned selection: %+v %v launches=%d", name, r, err, f.launches)
+					}
+				})
+			}
+		})
+	}
+	t.Run("pinned manifest", func(t *testing.T) {
+		f := newNativeTargetFixture(t)
+		project := filepath.Join(f.repo, f.root, "pyproject.toml")
+		data, err := os.ReadFile(project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed := string(data) + "\n[tool.pytest.ini_options]\naddopts = \"--definitely-invalid-native-option\"\n"
+		if err := os.WriteFile(project, []byte(changed), 0600); err != nil {
+			t.Fatal(err)
+		}
+		f.commitAll(t, "manifest-config")
+		if _, err := f.s.VerifyWorktree(context.Background(), f.request("manifest-config-subject", nil)); err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.s.VerifyWorktree(context.Background(), f.request("manifest-config-prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}))
+		if err == nil || !strings.Contains(err.Error(), "candidate dependency inputs differ from pinned preparation") {
+			t.Fatalf("pinned dependency manifest did not refuse through byte equality: %v", err)
+		}
+		if f.launches != 0 {
+			t.Fatalf("pinned manifest refusal launched the acceptance body: launches=%d", f.launches)
+		}
+	})
+}
+
+// Explicit collection grades exactly the declared harness population: an
+// extra function appended to a declared file refuses the exact population.
+func TestNativeTargetPytestScopeDeclaredCollection(t *testing.T) {
+	f := newNativeTargetFixture(t)
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "tests/test_unpinned.py"): "def test_unpinned_failure():\n    assert False\n",
+		nativeTargetFixtureName(f.root, "app/test_mode.py"):       "VALUE = 7\n\n\ndef render_value():\n    return VALUE\n\n\ndef test_mode_value():\n    return VALUE\n",
+	})
+	f.commitAndPrepareRepin(t, "undeclared")
+	o := f.authorize(t, "undeclared", f.actor)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("undeclared-execute", &o))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
+		t.Fatalf("undeclared test-shaped files entered grading: %+v %v launches=%d", r, err, f.launches)
+	}
+	// The appended function rides the declared file: a selected-node
+	// workaround cannot restore the exact population.
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value():\n    assert VALUE == 7\n\n\ndef test_value_extra():\n    assert VALUE == 7\n",
+	})
+	f.commitAll(t, "extra-declared-witness")
+	f.bundle.Control.RecipeSource.CommitOID = f.head
+	if _, err := f.s.VerifyWorktree(context.Background(), f.request("extra-subject", nil)); err != nil {
+		t.Fatal(err)
+	}
+	prepare := NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	_, err = f.s.VerifyWorktree(context.Background(), f.request("extra-prepare", &prepare))
+	if err == nil || !strings.Contains(err.Error(), "collected population differs from the exact selected witnesses") {
+		t.Fatalf("extra declared witness did not refuse the exact population: %v", err)
+	}
+	if f.launches != 1 {
+		t.Fatalf("population refusal launched the acceptance body: launches=%d", f.launches)
+	}
+}
+
+// The overlay restores declared support bytes and strips undeclared
+// conftest.py files: a poisoned or ancestor conftest cannot reach grading.
+func TestNativeTargetPytestScopePinnedSupport(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			f := newNativeTargetFixtureAtRoot(t, root)
+			var manifest map[string]any
+			if err := json.Unmarshal([]byte(f.manifestJSON), &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest["support_files"] = []string{nativeTargetFixtureName(root, "tests/conftest.py")}
+			raw, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(f.repo, f.recipePath), raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			writeRepoFilesForTest(t, f.repo, map[string]string{
+				nativeTargetFixtureName(root, "tests/conftest.py"):   "import pytest\n\n\n@pytest.fixture\ndef pinned_seven():\n    return 7\n",
+				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value(pinned_seven):\n    assert VALUE == pinned_seven\n",
+			})
+			f.commitAndPrepareRepin(t, "pinned-support")
+			o := f.authorize(t, "pinned-support", f.actor)
+			r, err := f.s.VerifyWorktree(context.Background(), f.request("pinned-support-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
+				t.Fatalf("pinned support fixture %+v %v launches=%d", r, err, f.launches)
+			}
+			files := map[string]string{
+				nativeTargetFixtureName(root, "tests/conftest.py"): "import pytest\n\n\n@pytest.fixture\ndef pinned_seven():\n    return 8\n",
+				nativeTargetFixtureName(root, "conftest.py"):       "raise RuntimeError(\"hostile candidate conftest\")\n",
+			}
+			if root != "." {
+				files["conftest.py"] = "raise RuntimeError(\"hostile ancestor conftest\")\n"
+			}
+			writeRepoFilesForTest(t, f.repo, files)
+			f.commitAndPrepare(t, "poisoned-support")
+			o = f.authorize(t, "poisoned-support", f.actor)
+			r, err = f.s.VerifyWorktree(context.Background(), f.request("poisoned-support-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 2 {
+				t.Fatalf("poisoned support candidate escaped the pinned overlay: %+v %v launches=%d", r, err, f.launches)
+			}
+		})
+	}
+}
+
+// A conftest.py declared as an explicit whole-file harness collect target
+// admits real recipes that pin it: it contributes no witness of its own, so
+// grading still observes exactly the selected node while its pinned fixture
+// loads.
+func TestNativeTargetPytestScopeHarnessConftest(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			f := newNativeTargetFixtureAtRoot(t, root)
+			var manifest map[string]any
+			if err := json.Unmarshal([]byte(f.manifestJSON), &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest["harness_files"] = append(manifest["harness_files"].([]any), nativeTargetFixtureName(root, "tests/conftest.py"))
+			raw, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(f.repo, f.recipePath), raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			writeRepoFilesForTest(t, f.repo, map[string]string{
+				nativeTargetFixtureName(root, "tests/conftest.py"):   "import pytest\n\n\n@pytest.fixture\ndef seven():\n    return 7\n",
+				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value(seven):\n    assert VALUE == seven\n",
+			})
+			f.commitAndPrepareRepin(t, "harness-conftest")
+			o := f.authorize(t, "harness-conftest", f.actor)
+			r, err := f.s.VerifyWorktree(context.Background(), f.request("harness-conftest-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
+				t.Fatalf("explicit harness conftest collect target %+v %v launches=%d", r, err, f.launches)
+			}
+			if !slices.Equal(r.Oracle.ObservedWitnessIDs, []string{"tests/test_value.py::test_value"}) {
+				t.Fatalf("conftest collect target disturbed the exact witness set: %v", r.Oracle.ObservedWitnessIDs)
+			}
+		})
+	}
+}
+
+// With no root config declared, the pinned dependency manifest is the
+// fallback -c selection, and hostile candidate configs stay uninfluential.
+func TestNativeTargetPytestScopeFallback(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			f := newNativeTargetFixtureAtRoot(t, root)
+			var manifest map[string]any
+			if err := json.Unmarshal([]byte(f.manifestJSON), &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest["harness_files"] = []string{nativeTargetFixtureName(root, "tests/test_value.py")}
+			recipe, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(f.repo, f.recipePath), recipe, 0600); err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]string{
+				nativeTargetFixtureName(root, "pytest.ini"): nativeTargetHostilePytestConfig("pytest.ini"),
+			}
+			if root != "." {
+				files["tox.ini"] = nativeTargetHostilePytestConfig("tox.ini")
+			}
+			writeRepoFilesForTest(t, f.repo, files)
+			f.commitAndPrepareRepin(t, "fallback")
+			o := f.authorize(t, "fallback", f.actor)
+			r, err := f.s.VerifyWorktree(context.Background(), f.request("fallback-execute", &o))
+			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
+				t.Fatalf("fallback manifest selection %+v %v launches=%d", r, err, f.launches)
+			}
+		})
+	}
+}

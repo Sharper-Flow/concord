@@ -743,6 +743,23 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 // log rows, not only projections.
 func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
 	t.Helper()
+	sessionStart, err := hostlease.ProcessStart(sessionPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := hostlease.List(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baselineBinary string
+	for _, lease := range leases {
+		if lease.PID == sessionPID {
+			baselineBinary = lease.CoreBinary
+		}
+	}
+	if baselineBinary == "" {
+		t.Fatal("the synthetic baseline session must identify its core")
+	}
 	db := mustOpenCutoverStore(t, path)
 	tx, err := db.Begin()
 	if err != nil {
@@ -756,37 +773,48 @@ func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
 		}
 	}
 	exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1)`)
-	exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
-		VALUES('cutover-product','Cutover product','prototype','operator_only',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z');
-		INSERT INTO projects(id,display_name,version,created_at,updated_at)
-		VALUES('project','Cutover project',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES('cutover-product','project','primary')`)
-	exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
-		('cutover-owner','research','cutover research owner','in_progress',0,1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z'),
-		('cutover-consumer','research','cutover living consumer','in_progress',0,1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES('cutover-owner','project','primary'),('cutover-consumer','project','primary')`)
 	exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at)
 		VALUES('pack-cutover-living','cutover-owner',1,'current',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z')`)
 	exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at)
 		VALUES('pack-cutover-living',1,'does the cutover preserve living evidence?','[]','[]','[]','synthetic cutover witness','2026-10-12T00:00:00Z')`)
 	exec(`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at)
 		VALUES('pack-cutover-living',1,'cutover-consumer','decision_basis',1,'2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at)
-		VALUES('set-cutover','project','op-cutover-claim','simplify/cutover-living','1f2e3d4c5b6a79887766554433221100ffeeddccb','/srv/cutover-living-worktree','cutover-repo','active','2026-10-12T00:01:00Z')`)
-	exec(fmt.Sprintf(`INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity)
-		VALUES('set-cutover:project:op-cutover-claim','ses-cutover-living','2026-10-12T00:01:00Z',%d,NULL,1)`, sessionPID))
-	exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at)
-		VALUES('cutover-consumer','attempt-cutover-living-1','implement',1,'sha256:` + strings.Repeat("a", 64) + `','implementation','synthetic/cutover-worker','1.0','1.0','completed','','','2026-10-12T00:02:00Z','2026-10-12T00:10:00Z',NULL)`)
 	exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
+		('cutover-product-created','product.created','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
+			'{"display_name":"Cutover product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}'),
+		('cutover-project-created','project.created','project','project','operator','2026-10-12T00:00:00Z',1,
+			'{"display_name":"Cutover project"}'),
+		('cutover-product-membership','product_project.added','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
+			'{"product_id":"cutover-product","project_id":"project","role":"primary","reason":"operator bootstrap","expected_version":1,"resulting_version":2}'),
+		('cutover-owner-created','work.created','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',2,
+			'{"work_kind":"research","title":"cutover research owner","priority":0}'),
+		('cutover-owner-membership','work.memberships_replaced','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
+		('cutover-owner-started','work.transitioned','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
 		('cutover-work-created','work.created','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',2,
-			'{"work_kind":"research","title":"cutover living consumer","priority":1}'),
+			'{"work_kind":"research","title":"cutover living consumer","priority":0}'),
+		('cutover-consumer-membership','work.memberships_replaced','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
+		('cutover-consumer-started','work.transitioned','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
+			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
+		('op-cutover-claim:worktree-created','work.worktree_created','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
+			'{"expected_version":3,"resulting_version":4,"set_id":"wts:cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","branch":"simplify/cutover-living","base_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb","path":"/srv/cutover-living-worktree","repository_id":"cutover-repo","occupant_session_ref":"ses-cutover-living","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `,"git_facts":{"branch":"simplify/cutover-living","head_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb"}}'),
 		('cutover-consumer:session-claim-landed:ses-cutover-living:1','work.session_claim_landed','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
-			'{"work_id":"cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","session_ref":"ses-cutover-living","source_directories":[],"landed_directory":"/srv/cutover-living-worktree","host_pid":` + fmt.Sprint(sessionPID) + `}'),
+			'{"work_id":"cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","session_ref":"ses-cutover-living","source_directories":[],"landed_directory":"/srv/cutover-living-worktree","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `}'),
+		('cutover-attempt-dispatched','worker.dispatched','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:02:00Z',3,
+			'{"attempt_id":"attempt-cutover-living-1","lane_id":"implement","lane_version":1,"lane_digest":"sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc","capability_class":"implementation","readback_model":"synthetic/cutover-worker","packet_schema_version":"1.0","report_schema_version":"1.0","packet_digest":"sha256:` + strings.Repeat("0", 64) + `","host_provenance":{"digest":"sha256:` + strings.Repeat("0", 64) + `","sources":[{"kind":"unenumerated"}]}}'),
 		('cutover-attempt-completed','worker.completed','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:10:00Z',1,
 			'{"attempt_id":"attempt-cutover-living-1","readback_model":"synthetic/cutover-worker","report_schema_version":"1.0"}')`)
-	exec(`DELETE FROM fold_guard`)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Materialize fold-owned rows with the released core; research stays direct authority.
+	if code, out, errText := runRelease(t, baselineBinary, path, "recover-fold-guard", `{}`); code != 0 {
+		t.Fatalf("materialize the released fixture history: %d %s %s", code, out, errText)
 	}
 }
 
@@ -909,8 +937,8 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	sessionPID := session.command.Process.Pid
 	seedCutoverLivingEvidence(t, path, sessionPID)
 	want := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["domain_events"]) != 3 {
-		t.Fatalf("seeded event log = %d rows, want the three living-evidence events", len(want["domain_events"]))
+	if len(want["domain_events"]) != 13 {
+		t.Fatalf("seeded event log = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["domain_events"]))
 	}
 	if len(want["active_research_consumers"]) != 1 ||
 		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {

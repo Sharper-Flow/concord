@@ -515,7 +515,7 @@ func TestRestoreBackupReadOnlyWALBounded(t *testing.T) {
 		}
 		t.Fatalf("restore source mode %04o: %v", permission, err)
 	}
-	if got.DBChecksum != manifest.DBChecksum || got.SchemaVersion != manifest.SchemaVersion || got.EventWatermark != manifest.EventWatermark {
+	if got.SourceSnapshot.DBChecksum != manifest.DBChecksum || got.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || got.SourceSnapshot.EventWatermark != manifest.EventWatermark {
 		t.Fatalf("restored manifest = %+v, want %+v", got, manifest)
 	}
 	if _, err := verifyBackupFile(ctx, destination, CurrentSchemaVersion(), nil); err != nil {

@@ -12,7 +12,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/version"
 )
+
+// useDevelopmentBuild pins the build as an unstamped development build for one
+// test, the inverse of useStampedBuild, so the staging migration rule can be
+// observed under both build stamps.
+func useDevelopmentBuild(t *testing.T) {
+	t.Helper()
+	previous := version.Value
+	version.Value = version.Development
+	t.Cleanup(func() { version.Value = previous })
+}
 
 func TestBackupUsesOnlineSnapshotAndPM10Manifest(t *testing.T) {
 	t.Parallel()
@@ -71,12 +83,24 @@ func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testi
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "restored.db")
-	got, err := RestoreBackup(ctx, snapshot, destination)
+	report, err := RestoreBackup(ctx, snapshot, destination)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != want.SchemaVersion || got.EventWatermark != want.EventWatermark || got.DBChecksum != want.DBChecksum {
-		t.Fatalf("restored manifest = %+v, want %+v", got, want)
+	if report.SourceSnapshot.SnapshotID != want.SnapshotID || report.SourceSnapshot.SchemaVersion != want.SchemaVersion || report.SourceSnapshot.EventWatermark != want.EventWatermark || report.SourceSnapshot.DBChecksum != want.DBChecksum {
+		t.Fatalf("source snapshot inventory = %+v, want %+v", report.SourceSnapshot, want)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() || report.RestoredDatabase.EventWatermark != want.EventWatermark {
+		t.Fatalf("restored database inventory = %+v, want schema %d watermark %d", report.RestoredDatabase, CurrentSchemaVersion(), want.EventWatermark)
+	}
+	if restoredChecksum, err := fileSHA256(destination); err != nil || restoredChecksum != report.RestoredDatabase.DBChecksum {
+		t.Fatalf("restored checksum = %q err = %v, want the promoted inventory checksum %q", restoredChecksum, err, report.RestoredDatabase.DBChecksum)
+	}
+	if snapshotChecksum, err := fileSHA256(snapshot); err != nil || snapshotChecksum != want.DBChecksum {
+		t.Fatalf("snapshot checksum after restore = %q err = %v, want the verified %q", snapshotChecksum, err, want.DBChecksum)
+	}
+	if _, err := os.Stat(manifestPath(destination)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore destination manifest stat error = %v", err)
 	}
 	restored, err := Open(ctx, destination)
 	if err != nil {
@@ -818,4 +842,217 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if gotView := readViewBytes("after post-retirement rebuild", restored.DatabaseForTesting()); string(gotView) != string(missingViewRaw) {
 		t.Fatalf("post-retirement rebuilt view =\n%s\nwant\n%s", gotView, missingViewRaw)
 	}
+}
+
+// TestBackupRefusesUnreplayableLogAndDiscardsSnapshot is the promotion gate
+// witness: a snapshot of a log that no replay can fold never gains a manifest,
+// and a refused backup leaves neither a partial snapshot nor staging residue
+// while the source log keeps its recorded bytes.
+func TestBackupRefusesUnreplayableLogAndDiscardsSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	// The inserted event carries a field no released schema of its kind ever
+	// accepted, so every preparation route must refuse it on replay.
+	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, invalid.EventID, invalid.Kind, string(invalid.SubjectType), invalid.SubjectID, invalid.Actor, invalid.OccurredAt.Format(time.RFC3339Nano), invalid.PayloadVersion, string(invalid.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	_, err := Backup(ctx, s, destination)
+	if err == nil {
+		t.Fatal("Backup() promoted a snapshot of an unreplayable log")
+	}
+	assertFailureKind(t, err, KindInvalidPayload)
+	for _, candidate := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("refused backup left %s: %v", candidate, err)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("refused backup left verification staging files = %v (err=%v)", matches, err)
+	}
+	var stored string
+	var storedVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+		t.Fatal(err)
+	}
+	if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
+		t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+	}
+}
+
+// TestRestoreReportSeparatesSourceSnapshotFromRestoredDatabase pins the
+// restore report contract: the source snapshot inventory equals the verified
+// manifest, the restored database inventory describes the promoted bytes, and
+// no destination manifest exists.
+func TestRestoreReportSeparatesSourceSnapshotFromRestoredDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("report-product", "report-product-created"), locatorProjectEvent("report-project"), locatorMembershipEvent("report-product", "report-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	snapshot := filepath.Join(dir, "snapshot.db")
+	manifest, err := BackupWithOptions(ctx, s, snapshot, BackupOptions{SnapshotID: "snapshot-report-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(dir, "restored.db")
+	report, err := RestoreBackup(ctx, snapshot, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SourceSnapshot.SnapshotID != "snapshot-report-1" || report.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || report.SourceSnapshot.EventWatermark != manifest.EventWatermark || report.SourceSnapshot.DBChecksum != manifest.DBChecksum {
+		t.Fatalf("source snapshot inventory = %+v, want the verified manifest %+v", report.SourceSnapshot, manifest)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() || report.RestoredDatabase.SchemaVersion != manifest.SchemaVersion {
+		t.Fatalf("restored schema = %d, want the current %d from source %d", report.RestoredDatabase.SchemaVersion, CurrentSchemaVersion(), manifest.SchemaVersion)
+	}
+	if report.RestoredDatabase.EventWatermark != manifest.EventWatermark {
+		t.Fatalf("restored watermark = %d, want %d", report.RestoredDatabase.EventWatermark, manifest.EventWatermark)
+	}
+	restoredChecksum, err := fileSHA256(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredDatabase.DBChecksum != restoredChecksum {
+		t.Fatalf("restored inventory checksum = %q, want the promoted file %q", report.RestoredDatabase.DBChecksum, restoredChecksum)
+	}
+	snapshotChecksum, err := fileSHA256(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotChecksum != manifest.DBChecksum {
+		t.Fatalf("snapshot checksum after restore = %q, want the verified %q", snapshotChecksum, manifest.DBChecksum)
+	}
+	if _, err := os.Stat(manifestPath(destination)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore destination manifest stat error = %v", err)
+	}
+}
+
+// TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild runs without
+// t.Parallel so the build stamp cannot flip underneath it. A development build
+// owns no migration for an existing store, so promotion refuses instead of
+// bypassing that rule; a stamped release migrates the staging copy forward, so
+// the same snapshot promotes, restores at the current schema, and opens
+// without another upgrade while its source keeps the old schema.
+func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
+	ctx := context.Background()
+	_, applied := breakingWindow(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "older.db")
+	if err := openMigratedTo(t, sourcePath, applied).Close(); err != nil {
+		t.Fatal(err)
+	}
+	wantSourceSchema := manifestMax(t, sourcePath)
+	if wantSourceSchema >= CurrentSchemaVersion() {
+		t.Fatalf("older-schema fixture holds schema %d, want below %d", wantSourceSchema, CurrentSchemaVersion())
+	}
+
+	useDevelopmentBuild(t)
+	devSnapshot := filepath.Join(root, "dev-snapshot.db")
+	_, err := BackupDatabase(ctx, sourcePath, devSnapshot)
+	if err == nil {
+		t.Fatal("a development build migrated an older-schema snapshot to promote it")
+	}
+	assertFailureKind(t, err, KindInvalidOperation)
+	if !strings.Contains(err.Error(), "unstamped development build refuses schema migration") {
+		t.Fatalf("development refusal = %v, want the unstamped migration rule", err)
+	}
+	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("refused development backup left %s: %v", candidate, err)
+		}
+	}
+	if got := manifestMax(t, sourcePath); got != wantSourceSchema {
+		t.Fatalf("source schema = %d after refusal, want %d", got, wantSourceSchema)
+	}
+
+	useStampedBuild(t)
+	snapshot := filepath.Join(root, "stamped-snapshot.db")
+	manifest, err := BackupDatabase(ctx, sourcePath, snapshot)
+	if err != nil {
+		t.Fatalf("stamped backup of an older-schema store: %v", err)
+	}
+	if manifest.SchemaVersion != wantSourceSchema {
+		t.Fatalf("snapshot manifest schema = %d, want the unmigrated %d", manifest.SchemaVersion, wantSourceSchema)
+	}
+	destination := filepath.Join(root, "restored.db")
+	report, err := RestoreBackup(ctx, snapshot, destination)
+	if err != nil {
+		t.Fatalf("restore of an older-schema snapshot: %v", err)
+	}
+	if report.SourceSnapshot.SchemaVersion != wantSourceSchema {
+		t.Fatalf("source snapshot schema = %d, want %d", report.SourceSnapshot.SchemaVersion, wantSourceSchema)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("restored schema = %d, want the migrated %d", report.RestoredDatabase.SchemaVersion, CurrentSchemaVersion())
+	}
+	restoredChecksum, err := fileSHA256(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredDatabase.DBChecksum != restoredChecksum {
+		t.Fatalf("restored inventory checksum = %q, want the promoted file %q", report.RestoredDatabase.DBChecksum, restoredChecksum)
+	}
+	restored, err := Open(ctx, destination)
+	if err != nil {
+		t.Fatalf("promoted older-schema restore does not open: %v", err)
+	}
+	if err := restored.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshotChecksum, err := fileSHA256(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotChecksum != manifest.DBChecksum {
+		t.Fatalf("snapshot checksum after verification = %q, want the verified %q", snapshotChecksum, manifest.DBChecksum)
+	}
+	if got := manifestMax(t, sourcePath); got != wantSourceSchema {
+		t.Fatalf("source schema = %d after backup verification, want %d", got, wantSourceSchema)
+	}
+}
+
+// TestInterruptedBackupVerificationDiscardsSnapshotAndStaging cancels the
+// backup once its verification staging clone holds the snapshot bytes, so the
+// interrupted phase is the replay verification itself. The refusal leaves no
+// partial snapshot, no manifest, and no staging residue.
+func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("interrupt-product", "interrupt-product-created"), locatorProjectEvent("interrupt-project"), locatorMembershipEvent("interrupt-product", "interrupt-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	backupCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	backupCtx = context.WithValue(backupCtx, restoreStageReadyContextKey{}, func(string) { cancel() })
+	_, err := Backup(backupCtx, s, destination)
+	if err == nil {
+		t.Fatal("interrupted backup verification succeeded")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted verification error = %v, want the cancelled context", err)
+	}
+	for _, candidate := range []string{destination, manifestPath(destination)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("interrupted backup left %s: %v", candidate, err)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
+	}
+	assertTableCount(t, s, "domain_events", 3)
 }

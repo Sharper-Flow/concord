@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Unit tests for the opt-in neighbor mode in test-blackbox-acceptance.py.
+"""Unit tests for helpers of test-blackbox-acceptance.py, including the
+opt-in neighbor mode.
 
 Narrow and cheap: pure classification, aggregation, reconciliation, and
-argument parsing, plus one small round trip that runs the real worker child
-process against a stub binary emitting canned CLI JSON. No Go build, no
-concord binary, no network, and no SQLite file.
+argument parsing, one small round trip that runs the real worker child
+process against a stub binary emitting canned CLI JSON, and mocked
+step_h_backup_restore report-consumer checks. No Go build, no concord
+binary, no network, and no SQLite file.
 """
 
 from __future__ import annotations
@@ -225,6 +227,109 @@ class WorkerCleanupTests(unittest.TestCase):
             "problems": ["child exited 1"],
         }
         self.assertIsNotNone(_bb._neighbor_mode_verdict(aggregate, 1, 1))
+
+
+class RestoreReportTests(unittest.TestCase):
+    """step_h_backup_restore consumes the current nested RestoreReport.
+
+    Every CLI call is answered by a mocked _bb._run, so the checks stay pure
+    report-consumer behavior: no concord binary, no SQLite file, no network.
+    The packaged harness keeps its real backup/restore coverage in hosted CI.
+    """
+
+    WORK_ID = "work-restore-1"
+
+    @staticmethod
+    def _backup_manifest(snapshot_id: str = "snap-harness-1") -> dict:
+        return {"schema_version": 1, "integrity_check": "ok", "snapshot_id": snapshot_id}
+
+    @classmethod
+    def _restore_report(cls, source_snapshot: dict) -> dict:
+        return {
+            "source_snapshot": source_snapshot,
+            "restored_database": {
+                "schema_version": 1,
+                "db_checksum": "stub-checksum",
+                "event_watermark": 7,
+            },
+        }
+
+    def _mocked_run(self, restore_response: dict):
+        calls: list[tuple[list[str], dict, dict]] = []
+
+        def fake_run(binary, args, stdin_payload, env, timeout=60):
+            calls.append((list(args), dict(stdin_payload or {}), dict(env)))
+            command = args[0]
+            if command == "backup":
+                return self._backup_manifest()
+            if command == "restore":
+                destination = Path(stdin_payload["destination"])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b"restored")
+                return restore_response
+            if command == "invoke":
+                return {
+                    "outcome": "ok",
+                    "result": {"items": [{"id": self.WORK_ID}], "next_cursor": None},
+                }
+            raise AssertionError(f"unexpected CLI call: {args}")
+
+        return patch.object(_bb, "_run", fake_run), calls
+
+    def _run_step(self, tmp: Path) -> None:
+        _bb.step_h_backup_restore(
+            binary=tmp / "concord",
+            env={"PATH": "/usr/bin:/bin"},
+            work=tmp / "work",
+            repo=tmp / "repo",
+            context={"project_id": "stub-project", "scope_version": 1},
+            manifest_digest="stub-digest",
+            work_id=self.WORK_ID,
+        )
+
+    def test_current_nested_report_succeeds_through_fresh_process_read(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            patcher, calls = self._mocked_run(self._restore_report(self._backup_manifest()))
+            with patcher:
+                self._run_step(tmp)
+            self.assertEqual([args[0] for args, _, _ in calls], ["backup", "restore", "invoke"])
+            restored_destination = Path(calls[1][1]["destination"])
+            invoke_env = calls[2][2]
+            self.assertEqual(
+                restored_destination,
+                Path(invoke_env["XDG_DATA_HOME"]) / "concord" / "concord.db",
+            )
+            self.assertTrue(restored_destination.is_file())
+
+    def test_bad_or_missing_source_integrity_is_refused(self):
+        for source_snapshot in (
+            dict(self._backup_manifest(), integrity_check="failed"),
+            {k: v for k, v in self._backup_manifest().items() if k != "integrity_check"},
+        ):
+            with self.subTest(source_integrity=source_snapshot.get("integrity_check")):
+                with tempfile.TemporaryDirectory() as raw:
+                    patcher, calls = self._mocked_run(self._restore_report(source_snapshot))
+                    with patcher, self.assertRaises(_bb.HarnessError) as refused:
+                        self._run_step(Path(raw))
+                self.assertIn("integrity", str(refused.exception))
+                self.assertEqual([args[0] for args, _, _ in calls], ["backup", "restore"])
+
+    def test_mismatched_source_snapshot_id_is_refused(self):
+        other_snapshot = dict(self._backup_manifest(), snapshot_id="snap-other")
+        with tempfile.TemporaryDirectory() as raw:
+            patcher, calls = self._mocked_run(self._restore_report(other_snapshot))
+            with patcher, self.assertRaises(_bb.HarnessError) as refused:
+                self._run_step(Path(raw))
+        self.assertIn("snapshot", str(refused.exception))
+        self.assertEqual([args[0] for args, _, _ in calls], ["backup", "restore"])
+
+    def test_obsolete_flat_restore_response_is_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            patcher, calls = self._mocked_run(self._backup_manifest())
+            with patcher, self.assertRaises(_bb.HarnessError):
+                self._run_step(Path(raw))
+        self.assertEqual([args[0] for args, _, _ in calls], ["backup", "restore"])
 
 
 if __name__ == "__main__":

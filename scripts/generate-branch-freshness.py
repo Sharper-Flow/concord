@@ -13,6 +13,7 @@ declaration fails its owning suite.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
@@ -270,7 +271,12 @@ func BranchFreshnessReasons() []string {{
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on branch-freshness projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         declaration = load(DECLARATION)
         schema = load(SCHEMA)
         check_schema_keywords(schema)
@@ -286,7 +292,7 @@ def main() -> int:
             GO_PROJECTION: go_source,
             DIGEST: vocabulary_digest + "\n",
         }
-        if "--check" in sys.argv[1:]:
+        if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:
                     fail(f"generated branch-freshness drift: {path.relative_to(ROOT)}")

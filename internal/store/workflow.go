@@ -2275,8 +2275,10 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
-			return recoveryErr
+		if !isWorkflowReplay(ctx) {
+			if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
+				return recoveryErr
+			}
 		}
 		correctionRecovery = true
 	}
@@ -2444,8 +2446,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		// record_delivery and the delivery-asserting accept. The fold reads
 		// the recorded worker_job and delivery fields only.
 		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
-		// Prefix-bounded unconsumed-rejection hold at event assembly.
-		if p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
+		// Replay honors recorded advances; the rejection hold polices live appends.
+		if !isWorkflowReplay(ctx) && p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
 			rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
 			if rejectionHoldErr != nil {
 				return rejectionHoldErr
@@ -3130,7 +3132,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		allowed = allowed || derivedPair
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
-		// validateWorkerResultRejection runs unconditionally below.
+		// Live rejection eligibility is checked below.
 		allowed = true
 	}
 	if !allowed {
@@ -3159,7 +3161,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
 	var target workflowRejectableResult
-	if payload.ActionID == "reject_worker_result" {
+	if payload.ActionID == "reject_worker_result" && !isWorkflowReplay(ctx) {
 		var rejectionErr error
 		target, rejectionErr = validateWorkerResultRejection(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", payload.WorkerAttemptID, payload.AttemptEpoch, event.Seq)
 		if rejectionErr != nil {
@@ -3173,6 +3175,12 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
+	if payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
+		// Recorded executor identity does not depend on current rejection eligibility.
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE seq=?`, attemptSeq).Scan(&target.ExecutorRef); err != nil {
+			return workflowProjectionError(err, "cannot read recorded worker executor")
+		}
+	}
 	// Failure can bind to the authorization that created the attempt even
 	// when no worker dispatch evidence was admitted. Success still requires
 	// an actual dispatch. The epoch fence (CD-0133, CD-0148) remains the same.
@@ -3183,7 +3191,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// accept and failure dispositions: the epoch must match the latest
 	// workflow action start on the step, and the dispatch must follow that
 	// start, so a stale completed attempt cannot advance the step past the
-	// current one. Rejection skips that anchor: its exact target validation
+	// current one. Live rejection skips that anchor: its exact target validation
 	// above owns the epoch and dispatch provenance at this bound.
 	anchorSeq := event.Seq
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {

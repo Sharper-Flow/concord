@@ -1,11 +1,11 @@
-# CD-0226: Review findings carry fixes with cross-family checks
+# CD-0226: Review findings carry fixes with family evidence
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** Suggested fixes in ranked findings, correction provenance, and independent review of applied fixes.
-- **Amends:** [CD-0197](CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md) D1-D5, [CD-0017](CD-0017-typed-workers-and-model-routing.md) D6, [CD-0044](CD-0044-worker-evidence-caller-authentication.md) D1 and D4 for classification evidence only, and [CD-0058](CD-0058-no-model-routing.md) D2 for the family evidence and mandatory scope below.
+- **Amends:** [CD-0197](CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md) D1-D5, [CD-0044](CD-0044-worker-evidence-caller-authentication.md) D1 and D4 for classification evidence only, and [CD-0058](CD-0058-no-model-routing.md) D2 for family evidence only.
 - **Preserves:** [CD-0043](CD-0043-host-owned-lane-methodology.md), CD-0044 D2-D3 and D5-D6, [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md), [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) accepted-delivery review anchoring, [CD-0206](CD-0206-an-accepted-no-ship-review-opens-the-settling-review-obligation.md), [CD-0220](CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md), and host-owned model selection under CD-0058 D1 and D3-D5.
-- **Approval:** The operator accepted this record as written on 2026-10-15. Implementation requires a separate assignment.
+- **Approval:** The operator accepted this record as written on 2026-10-15. The operator then directed host-owned model choice and delegated the family-policy amendment to the coordinator. Dual review approved the amended text. Implementation requires a separate assignment.
 
 ## Context
 
@@ -17,8 +17,8 @@ Keeping that repair with its finding avoids a separate reconstruction from prose
 CD-0017 supplied that law. CD-0058 then removed Concord model routing.
 Neither record requires different model families for a reviewer-authored fix.
 R6 section 5 also records that the synthetic same-model versus cross-model measurement did not exist.
-This proposal claims no such measurement or general quality advantage.
-It proposes a narrow independence policy: a family that proposes changed bytes must not be their sole model-family reviewer.
+This record claims no such measurement or general quality advantage.
+Fix review needs a separate executing actor. Model-family choice belongs to each install, not Concord.
 
 ## Decision
 
@@ -61,27 +61,23 @@ It does not select an unchecked fallback or create an approval.
 
 The correction record binds the originating canonical finding, fix-producing attempt, patch digest, applying attempt, and actual repaired subject.
 An authorized coordinator may mechanically apply an unchanged suggestion, recording its real executing actor rather than an invented worker attempt.
-A model-authored adaptation must run through an editing attempt with authenticated model readback and family evidence.
-Coordinator model adaptations without that evidence are not an admitted repair route under these definitions.
+A model-authored adaptation must run through an editing attempt with authenticated model readback.
 The report records whether the suggestion was applied unchanged, adapted, or replaced, with evidence references for the actual delta.
 Adaptation does not erase the suggestion's authorship or make its originating family independent.
 Changes outside the approved repair return to the scope owner.
 
-### D3. The applied fix requires a reviewer from another model family
+### D3. The applied fix requires a separate reviewer, not a different family
 
 On new fix-capable workflow versions, applying or adapting a reviewer-supplied patch opens a fix-review obligation.
 Before finding closure or whole-work delivery, a separate review must cover the actual repaired subject and the source finding.
 Local acceptance may record the repair while this review debt remains open. It proves neither finding closure nor delivery.
 The subsequent review uses CD-0205's existing accepted implementation anchor and current clean qualified subject.
 The review's executing actor must differ from the actors that proposed and applied the fix under CD-0013 distinctness.
-Its actual model family must differ from the family that produced the suggested patch.
-If a model adapted the patch, the reviewer must also differ from that model's family.
-Replacement code follows the same rule when it retains reviewer-authored changes. A wholly independent replacement records that claim for independent review.
+A wholly independent replacement records that claim for independent review.
 Renaming or reformatting a patch cannot erase its authorship or satisfy this obligation.
 
-This clause explicitly amends CD-0017 D6's measurement-dependent mandatory scope for reviewer-supplied fixes only.
-Other model-distinctness requirements remain workflow-declared. No global two-family requirement applies to every lane or every change.
-The policy accepts another review's cost without presenting the result as measured proof of superior defect detection.
+An install that wants cross-family review chooses its reviewer models in host configuration under [CD-0054](CD-0054-routing-policy-host-authority.md) and CD-0058.
+Concord imposes no model-family requirement on fix review. It accepts another review's cost without claiming measured superiority.
 
 Family identity means the underlying model lineage, not its provider endpoint, spelling, version, or host alias.
 Different versions or endpoint aliases of the same lineage do not establish independence.
@@ -89,8 +85,10 @@ The trusted host supplies a canonical family classification of each actual `read
 It authenticates that classification through the existing worker-evidence assertion, bound to the exact attempt and readback model.
 The signed enumeration gains the canonical family and classification-source digest, with matching shared encoding vectors.
 The core compares these recorded family identities. It never guesses them from model-name substrings or accepts worker-authored family text.
-Ambiguous classifications or unavailable readback cannot satisfy the obligation.
-Conflicting classifications of the same readback identity refuse independence until the trusted host reconciles them through the classification-evidence route below.
+The review record reports one comparison of the reviewer's family with the families that proposed or adapted the fix.
+A missing, ambiguous, or conflicting classification is unknown.
+A known match reports the same family. Report different families only when every contributor classification is known and differs from the reviewer's known family.
+Otherwise the comparison reports unknown and claims no family independence.
 The host owns classification accuracy. This evidence does not independently prove a vendor's undisclosed model ancestry.
 The classification source is host configuration outside the repository. No Concord code path or repository file maps a model identifier to a family.
 
@@ -101,17 +99,16 @@ The existing `worker_evidence` capability, signature verification, nonce transac
 A correction must name the earlier classification it supersedes and retain a reason and evidence references. Original evidence remains readable.
 This narrow amendment to CD-0044 D4 allows classification side records after terminal completion, never another completion, failure, or changed readback model.
 Shared admission derives the current classification from these records and refuses ambiguous or incomplete corrections.
-A closure records the exact classification references it used. Replay evaluates each event against its recorded prefix, never the current host configuration.
-Before delivery, a later classification correction that invalidates a closure reopens its fix-review debt and requires a newly qualified review.
-After delivery, the correction preserves the recorded acceptance and surfaces the contradiction for coordinator defect intake under [CD-0211](CD-0211-defect-intake-classifies-recurrence-before-fix.md).
-It does not undo an external effect or rewrite history.
+A review records the exact classification references its observation used, or their absence. Replay evaluates each event against its recorded prefix, never current host configuration.
+A later classification correction updates the reported observation without reopening fix-review debt or changing recorded acceptance, before or after delivery.
+The correction retains the earlier observation and evidence. It does not undo an external effect or rewrite history.
 A host can therefore supply missing evidence or correct inaccurate classification without rewriting terminal outcome history or dispatching a fictitious author.
 
 This rule amends CD-0058 D2 only by adding authenticated classification of the sole observed model identity.
 It creates no intended-model field, repository model pins, provider inventory, fallback selection, or Concord model resolver.
-Host configuration still chooses what executes. Missing distinct-family evidence leaves fix-review debt open and names the missing evidence.
-Existing failed-attempt, approval, and escalation boundaries remain in force. Missing family evidence does not automatically launch another attempt.
-If no distinct family is available, the work retains its debt until the host supplies one or independent replacement removes the reviewer-authored bytes.
+Host configuration still chooses what executes.
+Neither model family nor classification availability gates dispatch, result acceptance, finding closure, or delivery.
+Existing model-readback, failed-attempt, approval, and escalation boundaries remain in force. Missing family evidence does not automatically launch another attempt.
 A contract revision alone does not erase debt for bytes still delivered. Any changed obligation requires the existing approval boundary and an evidenced disposition of those bytes.
 Neither an approval token nor a caller assertion alone discharges that debt.
 Implementation must prove a reachable recovery for every new refusal before it enables the new definitions.
@@ -124,7 +121,7 @@ Implementation must prove a reachable recovery for every new refusal before it e
 The packet schema, `adapter/opencode/packet.ts`, and `internal/store/work_context.go` carry the exact typed correction and source references.
 The shared workflow admission and existing review-debt owners enforce fix-review debt at finding closure and both delivery routes, while admitting local repair acceptance with debt open.
 `internal/agent/worker_evidence.go` owns the expanded signed shape and host-only classification-evidence authentication, with the existing CLI and adapter boundary owners.
-`internal/store/workflow_outcome.go` evaluates actor and family distinctness from recorded evidence, not configured intent.
+`internal/store/workflow_outcome.go` enforces actor distinctness and reports family comparisons from recorded evidence, not configured intent.
 `scripts/generate-agent-lanes.py` projects report obligations without adding an editing capability to review.
 
 The implementation must introduce explicit payload upcasts, new lane digests, and new workflow-definition versions.
@@ -140,18 +137,21 @@ Existing CD-0206 settling-review debt, oracle blocker closure, independent verif
 - Require every finding to contain a patch. Rejected: some findings require a scope or design decision instead of code.
 - Compare provider names or unequal model strings. Rejected: aliases and versions can name the same family.
 - Pin models in the repository. Rejected: CD-0058 keeps selection and model access with the host.
-- Mandate cross-family review for every change. Rejected: the proposed obligation concerns reviewer-authored bytes, not universal review quality.
+- Mandate cross-family fix review. Rejected: model choice belongs to each install, and a single-family install must remain usable.
+- Put the family policy in a workflow definition. Rejected: an install cannot change Product workflows without a fork.
+- Drop family evidence. Rejected: an install that wants cross-family review loses its evidence basis.
+- Add a host-only signed policy field. Rejected: assertions bind individual attempts, so conflicting declarations would need a new governing-policy rule for an optional check.
 - Treat tests alone as fix review. Rejected: passing checks do not establish semantic correctness or independent judgment.
 
 ## Consequences
 
 The finding retains a concrete repair or a reason why one cannot safely be supplied.
 The author retains responsibility for applicability, tests, scope, and the actual submitted bytes.
-An installation without adequate family evidence cannot close or deliver reviewer-authored repairs under the new definitions.
+An install can close and deliver a qualified fix review with the same or unknown model families. Actor distinctness remains mandatory.
 Host classification becomes another authenticated evidence input, with an explicit accuracy limit and no model-selection authority.
-An adapted fix can require a third family when the adapter and proposer belong to different families.
+An install's host configuration bears the cost of any cross-family requirement it chooses.
 Coordinator integration may apply unchanged bytes, but must delegate model-authored adaptation to an evidence-backed editing attempt.
-This proposal creates no runtime behavior until the operator accepts it and a separately authorized implementation passes verification.
+This record creates no runtime behavior until a separately authorized implementation passes verification.
 
 ## Verification
 
@@ -161,7 +161,8 @@ This proposal creates no runtime behavior until the operator accepts it and a se
 - `bun test adapter/opencode/dispatch.test.ts adapter/opencode/packet.test.ts` must prove whole-value admission, exact correction transport, preserved patch bytes, and unchanged non-editing review permissions.
 - `go test ./internal/store` must prove that local repair acceptance admits with debt open and creates the accepted review anchor, while finding closure and both delivery routes refuse until qualified fix review.
 - `go test ./internal/agent ./internal/store` must cover signed family side records, missing and corrected terminal classifications, immutable terminal outcomes, nonce replay, and absence of an agent grant route.
-- `go test ./internal/store` must prove prefix-bound replay of classifications and closures, reopened debt after an invalidating pre-delivery correction, and retained acceptance with a visible contradiction after delivery.
-- `go test ./internal/store` must preserve settling review, oracle closure, actor distinctness, and correction limits, and refuse adaptations without authenticated family evidence.
-- `go test ./internal/store` must prove debt for applied and adapted fixes, exact subject/finding joins, same-family refusal across aliases, unknown-family refusal, conflicting classification refusal, and distinct-family acceptance with valid provenance.
+- `go test ./internal/store` must prove prefix-bound replay, retained observations after classification corrections, and unchanged debt and acceptance before and after delivery.
+- `go test ./internal/store` must preserve settling review, oracle closure, actor distinctness, and correction limits, and refuse adaptations without authenticated model readback.
+- `go test ./internal/store` must prove debt for applied and adapted fixes, exact subject/finding joins, and reported same, different, and unknown families, including aliases and conflicting classifications.
+- `go test ./internal/store` must prove that family comparisons and absent classification evidence never gate dispatch, result acceptance, finding closure, or delivery.
 - `python3 scripts/generate-agent-lanes.py --check` and `python3 scripts/check-agent-contracts.py` must pass after regeneration. Independent review must check actual applicability and repair quality rather than treat schema acceptance as proof.

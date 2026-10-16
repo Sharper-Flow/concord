@@ -252,7 +252,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	checkpoint := containsString(step.Actions, "complete") ||
 		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
 		(step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker"))
+		(step.Kind != WorkflowStepHumanCheckpoint && containsString(step.Actions, "dispatch_worker") && !admissionTerminalStep(definition, state.step))
 	switch {
 	case !checkpoint:
 		return false

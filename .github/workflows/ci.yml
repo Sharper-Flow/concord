@@ -249,6 +249,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Check Git integration prerequisite
         run: python3 -c "import runpy; print(runpy.run_path('scripts/install.py')['require_git_version']())"

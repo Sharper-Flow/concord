@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test"
+import { afterAll, afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -11,6 +11,10 @@ import { hostControlPlane } from "./move-session"
 
 const SESSION = "watch-session"
 const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ci-watch-test-"))
+afterAll(() => {
+  configureCiWatch({ reset: true })
+  fs.rmSync(STATE_DIR, { recursive: true, force: true })
+})
 
 // The suite exercises the watcher through the factory the plugin registers
 // from, so both surfaces see the same tool shape.

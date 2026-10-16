@@ -1811,6 +1811,15 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		}
 	}
 	if !admitted {
+		// The recorded admission is the denial alternative only: the
+		// disposer fence stays the rule, and a stored prefix that proves the
+		// archived executor-equality policy re-admits its recorded writer.
+		admitted, err = workflowRecordedCheckpointAdmission(ctx, tx, event, p, entry.Definition, currentStep, executionActor)
+		if err != nil {
+			return err
+		}
+	}
+	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -2358,6 +2367,17 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 				}
 			}
 		}
+		// The recorded admission is the declared-requirement alternative
+		// only: the outstanding filter stays the rule, and a mapped archived
+		// completion whose own binding satisfied a declared requirement
+		// re-admits its recorded eligibility.
+		recorded, recordedErr := workflowRecordedRecoveryBindingAdmission(ctx, tx, event, p, entry.Definition, currentStep, binding)
+		if recordedErr != nil {
+			return recordedErr
+		}
+		if recorded {
+			return nil
+		}
 		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
 	return nil
@@ -2449,7 +2469,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			advancesStep = advancesStep && !p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")
 		}
 		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, currentStep, event, p); err != nil {
 				return err
 			}
 		}
@@ -2519,20 +2539,15 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		nextStep = workflowNextStep(entry.Definition, currentStep)
 		if p.ActionID == "confirm_premise" {
 			var nextErr error
-			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID)
+			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID, event.Seq)
 			if nextErr != nil {
 				return nextErr
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		// The declared unhealthy_verdict route owns the return: the fold
-		// moves the instance to the route's producer step (or, at a
-		// delivery gate, the route of the verdict step it serves), the
-		// same target the admission fold, the work pin, and the dispatched
-		// packet read from the one table.
-		nextStep = workflowCorrectionReturnTarget(entry.Definition, currentStep)
-		if nextStep == "" {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
+		nextStep, err = workflowFoldCorrectionReturnTarget(ctx, entry, p.StepID, currentStep)
+		if err != nil {
+			return err
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2677,12 +2692,23 @@ func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepI
 	return attemptID, lifecycle, true, nil
 }
 
-func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, beforeSeq int64) error {
-	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, stepID, beforeSeq)
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, stepID string, event Event, p workflowActionCompletedPayload) error {
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, event.SubjectID, stepID, event.Seq)
 	if err != nil {
 		return err
 	}
-	if !held || actionID == "accept_worker_result" {
+	if !held || p.ActionID == "accept_worker_result" {
+		return nil
+	}
+	// A recorded historical completion whose own stored prefix already
+	// satisfied the released hold predicate keeps folding: the recorded
+	// admission answers this hold decision alone and refuses every shape it
+	// cannot prove.
+	recorded, recordedErr := workflowRecordedHoldAdmission(ctx, tx, event, p, definition, stepID)
+	if recordedErr != nil {
+		return recordedErr
+	}
+	if recorded {
 		return nil
 	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
@@ -3209,7 +3235,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 	return ""
 }
 
-func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string) (string, error) {
+func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, beforeSeq int64) (string, error) {
 	step := workflowStep(definition, current)
 	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
 		return workflowNextStep(definition, current), nil
@@ -3235,7 +3261,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if err != nil {
 		return "", err
 	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, tx, workID, contract.Version, beforeSeq)
 	if err != nil {
 		return "", err
 	}
@@ -4000,7 +4026,11 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
+	// The completion fold sees the intact log during replay: a skipped
+	// verdict fold leaves its row in the log, so the read stops before this
+	// event and a later evaluator's verdict never satisfies this
+	// completion's evaluator-equality rule.
+	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
 	if err != nil {
 		return err
 	}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdtempSync as createDirectory, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -8,6 +8,12 @@ import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
 import { configureCoreBinary } from "./dispatch"
 import { hostControlPlane } from "./move-session"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = createDirectory(prefix)
+  testDirectories.push(directory)
+  return directory
+}
 
 // Fake-runner suite: bind the transport to a nominal core path instead of the
 // unstamped repository placeholder (CD-0111 D1). Each file sets this itself,
@@ -30,7 +36,12 @@ beforeEach(() => {
     post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
 })
-afterEach(() => { adapter.configureConcordAdapter({ reset: true }); resetManifestPinForTesting(); setManifestSourceForTesting(null) })
+afterEach(() => {
+  adapter.configureConcordAdapter({ reset: true })
+  resetManifestPinForTesting()
+  setManifestSourceForTesting(null)
+  for (const directory of testDirectories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 describe("the manifest pin", () => {
   test("resolves the digest the installed files declare", () => {

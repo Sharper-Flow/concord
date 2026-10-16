@@ -367,6 +367,9 @@ type ghPRRollup struct {
 	DetailsURL string `json:"detailsUrl"`
 	TargetURL  string `json:"targetUrl"`
 	Bucket     string `json:"bucket"`
+
+	StartedAt    time.Time `json:"startedAt"`
+	WorkflowName string    `json:"workflowName"`
 }
 
 func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
@@ -418,17 +421,12 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		report.Reason = "the pull request is closed without a merge"
 		return report, true, nil
 	}
-	if state.Mode == "merge" {
-		if ciWaitMergeable(head.MergeStateStatus) {
-			report.Reason = "the pull request can merge but is not merged yet"
-			return report, false, nil
-		}
-		report.Reason = "the pull request is not mergeable yet"
-		return report, false, nil
-	}
-
+	// Checks mode needs the complete population at the full-page boundary,
+	// so it fetches the paginated `pr checks` snapshot there. Merge mode
+	// classifies only the rollup entries already observed.
 	var population []ciWaitCheck
-	if len(head.StatusCheckRollup) == ciWaitPRRollupPageSize {
+	switch {
+	case state.Mode != "merge" && len(head.StatusCheckRollup) == ciWaitPRRollupPageSize:
 		checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
 			"--repo", state.Repo, "--json", "name,state,link,bucket")
 		if err != nil {
@@ -439,7 +437,11 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 			return ciWaitReport{}, false, err
 		}
 		population = ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
-	} else {
+	case state.Mode == "merge":
+		for _, entry := range ciWaitNewestRollupPerIdentity(head.StatusCheckRollup) {
+			population = append(population, ciWaitRollupCheck(entry))
+		}
+	default:
 		population = ciWaitPRCheckPopulation(nil, head.StatusCheckRollup)
 	}
 	counts := &ciWaitChecks{Total: len(population), Entries: make([]ciWaitCheck, 0, len(population))}
@@ -463,32 +465,46 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		}
 	}
 	report.Checks = counts
-	// An empty check set is never success: a PR with no checks yet stays
-	// pending until the deadline, and the timeout report says so.
-	if counts.Total == 0 {
-		report.Reason = "no checks reported for this pull request yet"
-		return report, false, nil
-	}
-	if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {
-		report.Reason = "the pull request status check rollup is not complete yet"
-		return report, false, nil
-	}
-	if counts.Pending == 0 {
-		switch {
-		case counts.Failing > 0:
-			report.Status = "failure"
-			report.Failures = failures
-			report.RunURL = ciWaitFirstRunURLForPopulation(state.Repo, population)
-			ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
-		case ciWaitMergeConflict(head.MergeStateStatus):
-			report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
+	if state.Mode == "merge" {
+		// GitHub's MergeStateStatus documents UNSTABLE as "Mergeable with
+		// non-passing commit status", so an observed failure there keeps
+		// the merge possible and the wait stays pending.
+		if counts.Failing == 0 || strings.EqualFold(head.MergeStateStatus, "UNSTABLE") {
+			if ciWaitMergeable(head.MergeStateStatus) {
+				report.Reason = "the pull request can merge but is not merged yet"
+				return report, false, nil
+			}
+			report.Reason = "the pull request is not mergeable yet"
 			return report, false, nil
-		default:
-			report.Status = "success"
 		}
+	} else {
+		// An empty check set is never success: a PR with no checks yet stays
+		// pending until the deadline, and the timeout report says so.
+		if counts.Total == 0 {
+			report.Reason = "no checks reported for this pull request yet"
+			return report, false, nil
+		}
+		if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {
+			report.Reason = "the pull request status check rollup is not complete yet"
+			return report, false, nil
+		}
+		if counts.Pending > 0 {
+			return report, false, nil
+		}
+	}
+	if counts.Failing > 0 {
+		report.Status = "failure"
+		report.Failures = failures
+		report.RunURL = ciWaitFirstRunURLForPopulation(state.Repo, population)
+		ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
 		return report, true, nil
 	}
-	return report, false, nil
+	if ciWaitMergeConflict(head.MergeStateStatus) {
+		report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
+		return report, false, nil
+	}
+	report.Status = "success"
+	return report, true, nil
 }
 
 // ciWaitPRCheckPopulation joins the gh pr checks snapshot with the pull
@@ -508,20 +524,8 @@ func ciWaitPRCheckPopulation(checks []ghPRCheck, rollup []ghPRRollup) []ciWaitCh
 		population = append(population, observed)
 	}
 	for _, entry := range rollup {
-		name := entry.Name
-		if name == "" {
-			name = entry.Context
-		}
-		if name == "" {
-			name = "unnamed status check"
-		}
-		bucket, _ := ciWaitRollupBucket(entry)
-		observed := ciWaitCheck{Name: name, URL: entry.DetailsURL}
-		if observed.URL == "" {
-			observed.URL = entry.TargetURL
-		}
-		observed.Bucket = bucket
-		key := ciWaitCheckKey(name)
+		observed := ciWaitRollupCheck(entry)
+		key := ciWaitCheckKey(observed.Name)
 		if position, ok := positions[key]; ok {
 			population[position] = observed
 			continue
@@ -530,6 +534,46 @@ func ciWaitPRCheckPopulation(checks []ghPRCheck, rollup []ghPRRollup) []ciWaitCh
 		population = append(population, observed)
 	}
 	return population
+}
+
+func ciWaitRollupCheck(entry ghPRRollup) ciWaitCheck {
+	name := entry.Name
+	if name == "" {
+		name = entry.Context
+	}
+	if name == "" {
+		name = "unnamed status check"
+	}
+	bucket, _ := ciWaitRollupBucket(entry)
+	observed := ciWaitCheck{Name: name, URL: entry.DetailsURL, Bucket: bucket}
+	if observed.URL == "" {
+		observed.URL = entry.TargetURL
+	}
+	return observed
+}
+
+// ciWaitNewestRollupPerIdentity keeps the greatest StartedAt per check
+// identity. A CheckRun's identity is (name, workflowName) because the rollup
+// export omits the event field; a StatusContext's identity is its context, in
+// a separate key namespace.
+func ciWaitNewestRollupPerIdentity(rollup []ghPRRollup) []ghPRRollup {
+	positions := make(map[[3]string]int, len(rollup))
+	newest := make([]ghPRRollup, 0, len(rollup))
+	for _, entry := range rollup {
+		key := [3]string{"check", entry.Name, entry.WorkflowName}
+		if entry.TypeName == "StatusContext" {
+			key = [3]string{"context", entry.Context, ""}
+		}
+		if position, ok := positions[key]; ok {
+			if entry.StartedAt.After(newest[position].StartedAt) {
+				newest[position] = entry
+			}
+			continue
+		}
+		positions[key] = len(newest)
+		newest = append(newest, entry)
+	}
+	return newest
 }
 
 func ciWaitCheckKey(name string) string {
@@ -589,12 +633,11 @@ func ciWaitMergeConflict(status string) bool {
 	return strings.EqualFold(status, "DIRTY")
 }
 
-// ciWaitMergeable reports whether GitHub says that the pull request can merge.
-// GitHub asserts this only for CLEAN or HAS_HOOKS. Every other value, including
-// the lazy UNKNOWN, stays pending (CD-0160 D4, CD-0161).
+// ciWaitMergeable reports whether GitHub's merge state says the pull request
+// can merge: CLEAN, HAS_HOOKS, or UNSTABLE (mergeable with non-passing checks).
 func ciWaitMergeable(status string) bool {
 	switch strings.ToUpper(status) {
-	case "CLEAN", "HAS_HOOKS":
+	case "CLEAN", "HAS_HOOKS", "UNSTABLE":
 		return true
 	default:
 		return false

@@ -2,6 +2,7 @@
 """Validate and deterministically generate the CD-0017 lane projections."""
 from __future__ import annotations
 
+import argparse
 import copy
 import hashlib
 import importlib.util
@@ -11,8 +12,11 @@ import sys
 import textwrap
 from pathlib import Path
 
+from git_environment import GitEnvironmentError, sanitized_environment
+
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "contracts/agent-lanes.v1.json"
+MANIFEST_PATH = "contracts/agent-lanes.v1.json"
+MANIFEST = ROOT / MANIFEST_PATH
 SCHEMA = ROOT / "contracts/agent-lanes.schema.json"
 PACKET_SCHEMA = ROOT / "contracts/agent-lane-packet.schema.json"
 REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
@@ -49,6 +53,50 @@ def lane_digest(lane: dict) -> str:
     body = copy.deepcopy(lane)
     body.pop("digest", None)
     return digest(body)
+
+
+def resolved_lane_digests(manifest: dict) -> dict[str, set[str]]:
+    resolved = {key: set(values) for key, values in manifest["legacy_lane_digests"].items()}
+    for lane in manifest["lanes"]:
+        resolved.setdefault(f"{lane['id']}:{lane['version']}", set()).add(lane_digest(lane))
+    return resolved
+
+
+def validate_lane_digest_retention(manifest: dict, previous: dict) -> None:
+    current = resolved_lane_digests(manifest)
+    for identity, digests in sorted(resolved_lane_digests(previous).items()):
+        missing = sorted(digests - current.get(identity, set()))
+        if missing:
+            raise ValueError(f"lane digest retention lost {identity}: {', '.join(missing)}; record replaced digests in legacy_lane_digests")
+
+
+def validate_committed_lane_history(manifest: dict) -> None:
+    try:
+        env = sanitized_environment()
+    except GitEnvironmentError as exc:
+        raise ValueError(f"cannot verify lane digest history: {exc}") from exc
+
+    def git(*args: str) -> str:
+        try:
+            result = subprocess.run(["git", *args], cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError(f"cannot verify lane digest history: {exc}") from exc
+        if result.returncode:
+            raise ValueError(f"cannot verify lane digest history: {result.stderr.strip()}")
+        return result.stdout.strip()
+
+    if git("rev-parse", "--is-shallow-repository") != "false":
+        raise ValueError("lane digest retention requires a full Git checkout")
+    revisions = git("log", "--format=%H", "HEAD", "--", MANIFEST_PATH).splitlines()
+    if not revisions:
+        raise ValueError("lane digest retention requires committed registry history")
+    for revision in revisions:
+        previous = json.loads(git("show", f"{revision}:{MANIFEST_PATH}"))
+        # The manifest's retention contract owns both the aliases it declares
+        # and its then-current identities. Earlier registries did not declare
+        # this contract; their retained identities enter through those aliases.
+        if "legacy_lane_digests" in previous:
+            validate_lane_digest_retention(manifest, previous)
 
 
 # The typed report block each lane name carries, and the declared evidence
@@ -110,6 +158,7 @@ def load_manifest() -> tuple[dict, str]:
             raise ValueError(f"legacy_lane_digests names unregistered lane identity {key!r}")
         if identities[key] in digests:
             raise ValueError(f"legacy_lane_digests for {key!r} carries the lane's current digest")
+    validate_committed_lane_history(manifest)
     return manifest, manifest_digest
 
 
@@ -1299,8 +1348,12 @@ def refresh_knowledge_index() -> None:
 
 
 def main() -> int:
-    check = "--check" in sys.argv[1:]
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on lane projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         manifest, manifest_digest = load_manifest()
         worker_scope = load_worker_scope(manifest)
         packet_schema = json.loads(PACKET_SCHEMA.read_text(encoding="utf-8"))

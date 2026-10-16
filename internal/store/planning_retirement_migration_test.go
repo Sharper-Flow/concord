@@ -164,20 +164,71 @@ func dropMigration120Objects(ctx context.Context, db *sql.DB) error {
 // Initiative events wrote are deleted, and linear_issue_links keeps exactly the
 // usable recorded identities in the retained columns.
 func TestMigration124RetiresThePlanningMirror(t *testing.T) {
-	t.Parallel()
+	useStampedBuild(t)
 	ctx := context.Background()
 	index := planningRetirementMigrationIndex(t)
 	path := filepath.Join(t.TempDir(), "pre-124.db")
 	db := openMigratedTo(t, path, index)
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
-VALUES('initiative-a','initiative','Initiative','needed',0,1,'t','t','{}','','standard'),
-      ('child-a','task','Child','needed',0,1,'t','t','{}','','standard');
-INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id) VALUES(901,'initiative-a','child-a','includes','t',NULL),(2,'initiative-a','child-a','blocks','t','resolution-a');
-INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at)
+	// The prerequisite history a backup replay must fold: the Project scope
+	// the planning work hangs from, both work items, each work Project
+	// membership, and the retained blocks edge. Append before the fixture
+	// transaction; the store pools one connection.
+	historicalWorkCreated := func(id, eventID, kind, title string) Event {
+		created := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{"work_kind": kind, "title": title, "priority": 0})
+		created.PayloadVersion = 2
+		return created
+	}
+	historical := []Event{
+		locatorProductEvent("planning-product"), locatorProjectEvent("planning-project"),
+		locatorMembershipEvent("planning-product", "planning-project"),
+		historicalWorkCreated("child-a", "create-planning-child", "task", "Child"),
+		historicalWorkCreated("initiative-a", "create-planning-initiative", "initiative", "Initiative"),
+		operationEvent("planning-child-project", "work_project.added", SubjectWorkItem, "child-a", map[string]any{
+			"work_id": "child-a", "project_id": "planning-project", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+		operationEvent("planning-initiative-project", "work_project.added", SubjectWorkItem, "initiative-a", map[string]any{
+			"work_id": "initiative-a", "project_id": "planning-project", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+		operationEvent("planning-blocks", "relation.added", SubjectWorkItem, "initiative-a", map[string]any{
+			"from": "initiative-a", "to": "child-a", "kind": "blocks", "reason": "test",
+			"expected_version": 2, "resulting_version": 3, "to_expected_version": 2, "to_resulting_version": 3,
+		}),
+	}
+	insertHistoricalEvents(t, db, historical)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range historical {
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+			t.Fatalf("fold %s: %v", event.Kind, err)
+		}
+	}
+	// Legacy direct-authority rows a pre-retirement binary wrote outside the
+	// log: the retired includes edge, the retained blocks identity, and the
+	// recorded Linear identities. Migration 124 removes the retired rows only
+	// in the migrated clone.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id) VALUES(901,'initiative-a','child-a','includes','t',NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE relations SET id=2, resolution_id='resolution-a' WHERE work_id_from='initiative-a' AND work_id_to='child-a' AND kind='blocks'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at)
 VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','confirmed','t','t'),
-      ('initiative-a','uuid-pending','','','pending','t','t');
-DELETE FROM fold_guard;`); err != nil {
+      ('initiative-a','uuid-pending','','','pending','t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	archive := filepath.Join(t.TempDir(), "planning-archive.db")

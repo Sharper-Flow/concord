@@ -66,23 +66,28 @@ test("preload fails without a fallback when no run root can be reserved", () => 
   expect(child.exitCode).not.toBe(0)
 })
 
-test("preload removes its run root on normal process exit", () => {
+test.each([false, true])("preload removes its run root when a child bun test run ends: directed failure=%s", (directedFailure) => {
   const runTmp = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-proof-"))
   try {
+    const childSeesLiveEnv = `import { expect, test } from "bun:test"
+import { existsSync } from "node:fs"
+import { dirname } from "node:path"
+test("sees the preload root alive inside TMPDIR", () => {
+  expect(dirname(dirname(process.env.HOME!))).toBe(process.env.TMPDIR)
+  expect(dirname(process.env.HOME!)).toBe(dirname(process.env.TEST_TELEMETRY_DIR!))
+  expect(existsSync(process.env.HOME!) && existsSync(process.env.TEST_TELEMETRY_DIR!)).toBe(true)
+})
+`
+    const childDirectedFailure = 'test("fails as directed", () => {\n  expect(true).toBe(false)\n})\n'
+    writeFileSync(join(runTmp, "one.test.ts"), childSeesLiveEnv)
+    writeFileSync(join(runTmp, "two.test.ts"), directedFailure ? childSeesLiveEnv + childDirectedFailure : childSeesLiveEnv)
     const child = Bun.spawnSync(
-      [process.execPath, "--preload", join(import.meta.dir, "test_preload.ts"), "-e", `
-        console.log(process.env.HOME)
-        console.log(process.env.TEST_TELEMETRY_DIR)
-      `],
-      { env: { ...process.env, TMPDIR: runTmp } },
+      [process.execPath, "test", "--preload", join(import.meta.dir, "test_preload.ts"), "one.test.ts", "two.test.ts"],
+      { cwd: runTmp, env: { ...process.env, TMPDIR: runTmp } },
     )
-    expect(child.exitCode).toBe(0)
-    const [home, telemetryDir] = child.stdout.toString().trim().split("\n")
-    expect(home.startsWith(runTmp)).toBe(true)
-    expect(telemetryDir?.startsWith(runTmp)).toBe(true)
-    expect(existsSync(home)).toBe(false)
-    expect(existsSync(telemetryDir!)).toBe(false)
-    expect(readdirSync(runTmp)).toEqual([])
+    expect(child.exitCode, child.stderr.toString()).toBe(directedFailure ? 1 : 0)
+    expect(child.stdout.toString() + child.stderr.toString()).toContain(directedFailure ? "1 fail" : "0 fail")
+    expect(readdirSync(runTmp).sort()).toEqual(["one.test.ts", "two.test.ts"])
   } finally {
     rmSync(runTmp, { recursive: true, force: true })
   }
@@ -90,7 +95,13 @@ test("preload removes its run root on normal process exit", () => {
 
 test("preload cleans its run root when the go env probe fails", () => {
   const runTmp = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-proof-"))
-  const binDir = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-bin-"))
+  let binDir: string
+  try {
+    binDir = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-bin-"))
+  } catch (error) {
+    rmSync(runTmp, { recursive: true, force: true })
+    throw error
+  }
   try {
     // A fake go that always fails, visible only to this child through PATH.
     writeFileSync(join(binDir, "go"), "#!/bin/sh\nexit 7\n", { mode: 0o755 })

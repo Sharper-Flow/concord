@@ -26,6 +26,9 @@ architecture binding for Product-changing work; CD-0213 removes planning writes;
 generated manifest the only pre-go-live surface identity.
 ## Contract
 
+Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent; destructive identity replacement, cancellation, removal, authority expansion, cross-Product scope, outside repair, and physical research deletion retain it. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+
+
 The binding contract is sections 1 through 4: the four-tool decision with the
 native-authority rule, each tool's operation table with core effects, the
 batch boundary of one domain intent per call, and the inline-versus-durable
@@ -116,7 +119,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for every kind except `depends_on` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for `merged_into` or `supersedes` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -293,7 +296,7 @@ or storage method is not sufficient evidence.
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
   the same transaction, a resolution that would close a cycle or add a
-  second successor is refused, and every kind except `depends_on` demands
+  second successor is refused, and `merged_into` or `supersedes` demands
   the operator approval pinned to both work and contract versions.
 
 ## Verification

@@ -22,6 +22,9 @@ workflow authority without claiming it killed or controlled the host process.
 
 ## Decision
 
+Routine contract supersession under CD-0013 D11 does not require a consent prompt and does not enact a law revision. Human enactment of Product law, breaking-cutover authorization, strict quiescence, migration fencing, and compatibility floors remain separate obligations. Historical contract pins retain their original approval rule.
+
+
 ### D1. Law revision identity
 
 The immutable revision identity is `(law_id, content_hash)`. `content_hash` is

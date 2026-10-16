@@ -18,6 +18,9 @@ Projection pruning remains a deferred optimization, not a new maintenance obliga
 
 ## Decision
 
+CD-0013 D11 separates routine local publication/proof reconciliation from destructive research retirement. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion still requires exact approval, while dry-run and mere retirement eligibility have no destructive authority.
+
+
 ### D1. Terminal projection pruning remains deferred
 
 No terminal-work prune eligibility predicate, storage-pressure threshold, maintenance run, or prune event is introduced.

@@ -137,6 +137,14 @@ type admissionModelState struct {
 	integration     bool
 	jobsUnsatisfied string
 	jobsScope       string
+	// engineering is the explicit classification dimension for a
+	// consequence_v1 contract whose declared decision fact is the empty set:
+	// the model folds no pending operator question for engineering work,
+	// whatever the step shape declares, and the conformance lift compares
+	// that answer with the real fold. Absence of the dimension (false on
+	// every legacy enumeration state) keeps the registered legacy
+	// enumeration byte-for-byte in its prior behavior.
+	engineering bool
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
@@ -335,10 +343,21 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
 		NonProgressAttempts:         state.nonprogress,
 		DispatchHold:                admissionDispatchHold(definition, state),
-		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
+		PendingOperatorDecision:     state.contracts == 1 && !state.engineering && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
+		ApprovalPolicy:              definition.ApprovalPolicy,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    delivery,
+	}
+	// The classification dimension folds the confirmation authority beside
+	// the question: an engineering contract records the coordinator's own
+	// confirmation, a decision contract keeps the verified operator, and a
+	// legacy pin keeps the empty authority the question machinery owns.
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		folded.ConfirmationAuthority = WorkflowConfirmationOperator
+		if state.engineering {
+			folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
+		}
 	}
 	// The escalation the model folds is its nonprogress wall; the loader
 	// derives a basis exactly at an escalated fold, so the lift mirrors that
@@ -373,9 +392,18 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	}
 	// The acceptance gate folds the recorded verdict: an open premise
 	// question without one refuses confirm_premise, and record_verdict on the
-	// same step stays the exit. Evidence binding is outside the model.
-	if action, _ := workflowOperatorQuestionAction(definition, state.step); folded.PendingOperatorDecision && action == "confirm_premise" && state.verdict == "" {
+	// same step stays the exit. Engineering work keeps the same deliverable
+	// gate — its confirmation replaces the question, not the prerequisites —
+	// and folds the recorded-investigation prerequisite beside it: without
+	// the observation the confirmation refuses, never admits behind an
+	// absent prerequisite. An earlier folded failure keeps its place, exactly
+	// as the loader preserves it. Evidence binding is outside the model.
+	action, _ := workflowOperatorQuestionAction(definition, state.step)
+	if (folded.PendingOperatorDecision || state.engineering) && action == "confirm_premise" && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
+	}
+	if state.engineering && action == "confirm_premise" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
+		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	if refinement && reviewStep {
 		folded.ReviewDebt = state.debt

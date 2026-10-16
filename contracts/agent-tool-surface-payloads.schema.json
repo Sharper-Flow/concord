@@ -1564,7 +1564,6 @@
         "reason",
         "artifact",
         "evidence_source",
-        "approval_ref",
         "corrected_at"
       ],
       "properties": {

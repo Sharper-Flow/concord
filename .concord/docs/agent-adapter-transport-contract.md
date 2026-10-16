@@ -21,6 +21,9 @@ module adapting the accepted tools to the short-lived CLI, with client
 bootstrap, transport, and the host approval bridge.
 ## Contract
 
+The approval bridge applies only to core-minted challenges required by CD-0013 D11, not every consequential mutation. Routine and engineering routes must not create host consent prompts or fabricated approval records. On a decision-bearing challenge, transport the complete typed `work_decision` summary unchanged; the host displays its work, contract version, and decision domains alongside the existing bound facts. Missing required approval transport still fails closed.
+
+
 The binding contract is sections 1 through 5: the one-module decision and its
 three host responsibilities, the process and transport rules including client
 bootstrap, the registration and schema rules including the hidden

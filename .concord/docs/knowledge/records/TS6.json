@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8d228722ce8daa15cc74258401efaf68cea5b7165901d3ebb971f0b146128264",
+  "sha256": "sha256:93cc9f956a6d9b1fb8a6999b9fdbe268a49d83f0fb969a591433eba434038950",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
   "tags": [

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"time"
 )
@@ -383,9 +384,16 @@ func readWorkflowOverlapJudgedContent(ctx context.Context, q queryer, workID str
 	return content, workflowOverlapResolutionProjectionError(rows.Err())
 }
 
+// workflowContractSupersededJudgedContentPayloadVersion is the
+// workflow.contract_superseded payload version that introduced judged-content
+// comparison in the supersession fold. Recorded versions below it invalidated
+// unconditionally and keep that semantic on replay.
+const workflowContractSupersededJudgedContentPayloadVersion = 3
+
 func invalidateWorkflowOverlapForContractRevisionTx(ctx context.Context, tx *sql.Tx, event Event, predecessors []int64, successor int64) error {
-	// Upcast v1/v2 events retain their recorded invalidation semantics.
-	if event.replaySourcePayloadVersion != 0 {
+	// Upcast pre-v3 events retain their recorded invalidation semantics;
+	// v3 and current compare judged content.
+	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractSupersededJudgedContentPayloadVersion {
 		return invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID)
 	}
 	next, err := readWorkflowOverlapJudgedContent(ctx, tx, event.SubjectID, successor)
@@ -694,26 +702,33 @@ func overlapAllowsWork(overlap WorkflowDomainOverlap, workID string) bool {
 	}
 }
 
-// WorkflowDomainOverlapResolutionRequest is the operator-approved resolution
-// payload consumed by the relation surface.
+// WorkflowDomainOverlapResolutionRequest is the overlap resolution payload
+// the relation surface consumes: the destructive kinds carry the consumed
+// approval binding and the routine kinds carry no approval claim.
 type WorkflowDomainOverlapResolutionRequest struct {
-	EventID             string
-	FromWorkID          string
-	ToWorkID            string
-	FromExpectedVersion int64
-	ToExpectedVersion   int64
-	FromContractVersion int64
-	ToContractVersion   int64
-	ResolutionKind      string
-	Reason              string
-	ApprovalRef         string
-	Actor               string
-	OccurredAt          time.Time
+	EventID                 string
+	FromWorkID              string
+	ToWorkID                string
+	FromExpectedVersion     int64
+	ToExpectedVersion       int64
+	FromContractVersion     int64
+	ToContractVersion       int64
+	ResolutionKind          string
+	Reason                  string
+	ApprovalRef             string
+	ApprovalOperationDigest string
+	ApprovalScopeJSON       string
+	ApprovalVersionsJSON    string
+	ApprovalConsequence     string
+	Actor                   string
+	OccurredAt              time.Time
 }
 
 // ResolveWorkflowDomainOverlapTx appends the immutable resolution event. The
-// fold performs all current-version, overlap, relation, and terminal checks in
-// this same transaction.
+// destructive kinds verify the exact consumed approval row before any write
+// and the routine kinds accept no approval claim; the fold re-derives the
+// same class from the payload. All current-version, overlap, relation, and
+// terminal checks fold in this same transaction.
 func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, request WorkflowDomainOverlapResolutionRequest) (ApplyOperationResult, error) {
 	sqlTx, err := transactionSQL(tx, "workflow_domain_overlap_resolution")
 	if err != nil {
@@ -722,16 +737,31 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = tx.now()
 	}
+	if request.Actor == "" {
+		return ApplyOperationResult{}, overlapResolutionFailure("overlap resolution requires an authenticated actor")
+	}
+	binding := workflowApprovalBinding{ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest, ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON, Consequence: request.ApprovalConsequence}
+	if workflowOverlapResolutionRequiresApproval(request.ResolutionKind) {
+		if _, err := workflowOperatorFromConsumedApprovalTx(ctx, sqlTx, binding, "workflow_domain_overlap"); err != nil {
+			return ApplyOperationResult{}, err
+		}
+	} else if binding.ApprovalRef != "" || binding.OperationDigest != "" || binding.ScopeJSON != "" || binding.VersionsJSON != "" || binding.Consequence != "" {
+		return ApplyOperationResult{}, overlapResolutionFailure("a routine overlap resolution accepts no approval claim")
+	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,
 		"to_work_id": request.ToWorkID, "to_expected_version": request.ToExpectedVersion, "to_resulting_version": request.ToExpectedVersion + 1,
 		"from_contract_version": request.FromContractVersion, "to_contract_version": request.ToContractVersion,
 		"resolution_kind": request.ResolutionKind, "reason": request.Reason, "approval_ref": request.ApprovalRef,
+		"approval_operation_digest": request.ApprovalOperationDigest,
+		"approval_scope_json":       request.ApprovalScopeJSON,
+		"approval_versions_json":    request.ApprovalVersionsJSON,
+		"approval_consequence":      request.ApprovalConsequence,
 	})
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, newFoldScope(sqlTx), true)
+	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: eventKindRegistry[WorkflowOverlapResolved].CurrentVersion, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, newFoldScope(sqlTx), true)
 }
 
 func validateWorkflowOverlapResolutionKind(kind string) bool {
@@ -745,6 +775,64 @@ func workflowOverlapResolutionRelationKind(kind string) string {
 	default:
 		return ""
 	}
+}
+
+// workflowOverlapResolutionRequiresApproval reports whether the resolution
+// kind settles only through a consumed one-use operator approval; the rest
+// are the routine coordination answers that need no consent.
+func workflowOverlapResolutionRequiresApproval(kind string) bool {
+	return kind == ResolutionMergedInto || kind == ResolutionSupersedes
+}
+
+// workflowOverlapApprovalScope is the typed planner scope a destructive
+// overlap approval binds: the endpoint work_ids membership the store
+// re-derives. Extra outer scope fields stay legal and unread.
+type workflowOverlapApprovalScope struct {
+	WorkIDs []string `json:"work_ids"`
+}
+
+// workflowOverlapApprovalVersions is the typed four-version pin a destructive
+// overlap approval binds.
+type workflowOverlapApprovalVersions struct {
+	From         int64 `json:"from"`
+	To           int64 `json:"to"`
+	FromContract int64 `json:"from_contract"`
+	ToContract   int64 `json:"to_contract"`
+}
+
+func workflowOverlapApprovalUnauthorized(mismatches string) error {
+	return newFailure(KindUnauthorized, "workflow_domain_overlap", "the consumed operator approval is not bound to this overlap resolution: "+mismatches, false, "request approval for the exact destructive resolution")
+}
+
+// workflowOverlapResolutionBindingAdmission re-derives one v2 payload's
+// approval class from its own bytes on replay, exactly as the live route
+// verified it against the consumed row. The store re-derives the endpoint
+// membership and the four version pins the payload binds.
+func workflowOverlapResolutionBindingAdmission(event Event, payload workflowOverlapResolvedPayload) error {
+	if !workflowOverlapResolutionRequiresApproval(payload.ResolutionKind) {
+		if payload.ApprovalRef != "" || payload.ApprovalOperationDigest != "" || payload.ApprovalScopeJSON != "" || payload.ApprovalVersionsJSON != "" || payload.ApprovalConsequence != "" {
+			return overlapResolutionFailure("a routine overlap resolution accepts no approval claim")
+		}
+		return nil
+	}
+	if payload.ApprovalRef == "" || !validDigest(payload.ApprovalOperationDigest) || payload.ApprovalScopeJSON == "" || payload.ApprovalVersionsJSON == "" || payload.ApprovalConsequence == "" {
+		return overlapResolutionFailure("a destructive overlap resolution carries no complete approval binding")
+	}
+	var scope workflowOverlapApprovalScope
+	if err := json.Unmarshal([]byte(payload.ApprovalScopeJSON), &scope); err != nil {
+		return overlapResolutionFailure("destructive overlap approval scope is malformed")
+	}
+	var versions workflowOverlapApprovalVersions
+	if err := json.Unmarshal([]byte(payload.ApprovalVersionsJSON), &versions); err != nil {
+		return overlapResolutionFailure("destructive overlap approval versions are malformed")
+	}
+	if !slices.Contains(scope.WorkIDs, event.SubjectID) || !slices.Contains(scope.WorkIDs, payload.ToWorkID) {
+		return workflowOverlapApprovalUnauthorized("work_ids")
+	}
+	if versions != (workflowOverlapApprovalVersions{From: *payload.ExpectedVersion, To: payload.ToExpectedVersion, FromContract: payload.FromContractVersion, ToContract: payload.ToContractVersion}) {
+		return workflowOverlapApprovalUnauthorized("versions")
+	}
+	return nil
 }
 
 func overlapResolutionFailure(detail string) error {
@@ -843,17 +931,23 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
 	}
-	// A depends_on resolution records pure sequencing: the declarer waits,
-	// the peer proceeds, and no other item's admission changes, so it is the
-	// one kind the fold accepts without an operator approval reference.
-	// Every other kind changes another item's admission or identity and
-	// requires the approval the plan layer demands.
-	approvalRequired := payload.ResolutionKind != ResolutionDependsOn
+	// A payload recorded at source version 1 replays under its source rules:
+	// every kind except depends_on required the plan layer's ref-only
+	// approval reference. The current v2 classes replace that mandate: the
+	// routine kinds settle without any approval claim, and the destructive
+	// kinds carry the binding the live row verification admitted.
+	sourceV1 := event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 2
+	approvalRefRequired := sourceV1 && payload.ResolutionKind != ResolutionDependsOn
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) || (approvalRequired && payload.ApprovalRef == "") {
+	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) || (approvalRefRequired && payload.ApprovalRef == "") {
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
+	}
+	if !sourceV1 {
+		if err := workflowOverlapResolutionBindingAdmission(event, payload); err != nil {
+			return err
+		}
 	}
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)

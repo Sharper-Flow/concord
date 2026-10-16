@@ -14,10 +14,10 @@ import (
 )
 
 // The delivery correction admits one typed, append-only correction of a
-// completed delivery assertion behind a consumed core operator approval. The
-// original event log stays immutable, the terminal instance stays closed, and
-// the read surfaces show the effective assertion beside the unchanged
-// original.
+// completed delivery assertion, attributed to the recorded coordinator actor
+// and carrying no approval claim. The original event log stays immutable, the
+// terminal instance stays closed, and the read surfaces show the effective
+// assertion beside the unchanged original.
 const (
 	deliveryCorrectionApprovalRef  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	deliveryCorrectionApprovalHold = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -119,7 +119,6 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	insertConsumedApproval(t, s, deliveryCorrectionApprovalRef, workID, deliveryWorkVersion(t, s, workID))
 	return s
 }
 
@@ -319,21 +318,21 @@ func TestMergeEvidenceSchemaAlignsWithFoldRule(t *testing.T) {
 
 // TestTerminalDeliveryCorrectionAdmission proves the admission gate: the
 // correction is admitted only with the target identity, version, reason, and
-// merge evidence, behind a consumed one-use operator approval bound to this
-// exact operation, on a completed instance whose assertion is not already
+// merge evidence, attributed to the recorded coordinator actor and carrying
+// no approval claim, on a completed instance whose assertion is not already
 // corrected. proves check:terminal-delivery-correction-admission.
 func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	t.Parallel()
 	const workID = "delivery-correction-admission"
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 
-	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	request := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	request.DeliveryArtifact = "https://example.test/%zz"
 	if _, err := url.Parse(request.DeliveryArtifact); err == nil {
 		t.Fatal("legacy URL parser accepted the malformed percent escape witness")
 	}
 	if err := runDeliveryCorrection(t, s, request); err != nil {
-		t.Fatalf("approved delivery correction refused: %v", err)
+		t.Fatalf("unsigned delivery correction refused: %v", err)
 	}
 	var instanceState, currentStep, lifecycle string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState, &currentStep); err != nil {
@@ -348,8 +347,17 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if lifecycle != "completed" {
 		t.Fatalf("correction reopened the work item lifecycle to %q", lifecycle)
 	}
-	if got := deliveryWorkVersion(t, s, workID); got != version+2 {
-		t.Fatalf("correction version=%d, want the operator actor and the correction event (%d)", got, version+2)
+	if got := deliveryWorkVersion(t, s, workID); got != version+1 {
+		t.Fatalf("correction version=%d, want the single correction advance (%d)", got, version+1)
+	}
+	// The routine correction mints and consumes no approval row: the unsigned
+	// path spends no operator approval authority.
+	var approvalRows int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&approvalRows); err != nil {
+		t.Fatal(err)
+	}
+	if approvalRows != 0 {
+		t.Fatalf("the unsigned correction left %d approval rows", approvalRows)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatalf("replay refused a URL admitted by the new syntax: %v", err)
@@ -362,25 +370,24 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 		t.Fatalf("replayed merge artifact = %+v, want %q", assertion.DeliveryAssertion, request.DeliveryArtifact)
 	}
 
-	// A second correction of the same assertion is refused: the approval is
-	// one-use per correction and the assertion is already corrected.
-	second := deliveryCorrectionRequest(workID, deliveryWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
+	// A second correction of the same assertion is refused: one correction
+	// overlays one assertion, and no approval is minted to attempt another.
+	second := unsignedDeliveryCorrectionRequest(t, s, workID, deliveryWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
 	second.EventID = "correction-" + workID + "-second"
-	second.ApprovalRef = "a0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	insertConsumedApproval(t, s, second.ApprovalRef, workID, deliveryWorkVersion(t, s, workID))
-	second.ApprovalVersionsJSON = deliveryCorrectionVersionsJSON(deliveryWorkVersion(t, s, workID))
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
 }
 
 // TestTerminalDeliveryCorrectionAdmissionRefusals holds the named refusals:
 // incomplete fields, a mistargeted identity or version, a non-assertion
-// target, a live instance, a restated artifact, and an approval that is
-// not recorded, not consumed, or unbound.
+// target, a live instance, a restated artifact, a missing or unrecorded
+// coordinator actor, and separately supplied approval claim fields, every
+// refusal landing before any event or version effect.
 func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	t.Parallel()
 	const workID = "delivery-correction-refusals"
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-	valid := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	valid := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	eventsBefore := countWorkflowSubjectEvents(t, s, workID)
 
 	cases := []struct {
 		name      string
@@ -413,32 +420,47 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 			r.DeliveryArtifact = "file:internal/store/other.go"
 			return r
 		}, wantKind: KindInvalidPayload, wantPiece: "delivery_artifact"},
-		{name: "missing approval", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalRef = ""
+		{name: "missing actor", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.Actor = ""
 			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "operator approval reference"},
-		{name: "approval row is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalRef = deliveryCorrectionApprovalHold
-			r.EventID = "correction-" + workID + "-unrecorded"
+		}, wantKind: KindUnauthorized, wantPiece: "requires an authenticated actor"},
+		{name: "actor is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.Actor = "principal:absent-coordinator"
 			return r
-		}, wantKind: KindApprovalRequired, wantPiece: "requires a consumed operator approval"},
-		{name: "approval is not consumed", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalRef = "e0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-			r.EventID = "correction-" + workID + "-unconsumed"
-			insertConsumedApprovalState(t, s, r.ApprovalRef, workID, version, 0)
+		}, wantKind: KindUnauthorized, wantPiece: "requires a recorded coordinator actor"},
+		{name: "supplied approval reference", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalRef = deliveryCorrectionApprovalRef
 			return r
-		}, wantKind: KindApprovalRequired, wantPiece: "consumed one-use operator approval"},
-		{name: "unbound approval", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalRef = "d0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			r.EventID = "correction-" + workID + "-unbound"
-			insertConsumedApprovalState(t, s, r.ApprovalRef, workID, version, 1)
-			r.ApprovalOperationDigest = "sha256:" + strings.Repeat("d", 64)
+		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
+		{name: "supplied approval operation digest", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalOperationDigest = deliveryCorrectionDigest
 			return r
-		}, wantKind: KindUnauthorized, wantPiece: "not bound to the exact operation"},
+		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
+		{name: "supplied approval scope", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalScopeJSON = deliveryCorrectionScopeJSON(workID)
+			return r
+		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
+		{name: "supplied approval versions", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalVersionsJSON = deliveryCorrectionVersionsJSON(version)
+			return r
+		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
+		{name: "supplied approval consequence", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalConsequence = deliveryCorrectionConsequence
+			return r
+		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
 	}
 	for _, item := range cases {
 		request := item.mutate(valid)
 		requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, request), item.wantKind, item.wantPiece)
+	}
+	if after := countWorkflowSubjectEvents(t, s, workID); after != eventsBefore {
+		t.Fatalf("the refused corrections appended events: before=%d after=%d", eventsBefore, after)
+	}
+	if after := deliveryWorkVersion(t, s, workID); after != version {
+		t.Fatalf("the refused corrections moved the version to %d, want %d", after, version)
+	}
+	if rows := routineApprovalActorRows(t, s); rows != 0 {
+		t.Fatalf("the refused corrections left %d approval-derived workflow actor rows", rows)
 	}
 	countEvents := func() int {
 		t.Helper()
@@ -485,7 +507,7 @@ func TestTerminalDeliveryCorrectionRefusalNamesReferenceByteBound(t *testing.T) 
 	t.Parallel()
 	const workID = "delivery-correction-reference-byte-bound"
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	request := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	request.DeliveryArtifact = "https://" + strings.Repeat("é", 61)
 	before := countWorkflowSubjectEvents(t, s, workID)
 	err := runDeliveryCorrection(t, s, request)
@@ -514,7 +536,7 @@ func TestTerminalDeliveryCorrectionTargetsCurrentAssertionOnly(t *testing.T) {
 	const workID = "delivery-correction-stale-target"
 	s := completedDeliveryFixtureWithAssertions(t, workID, 2)
 	staleEventID, staleSeq, stalePayloadVersion := deliveryAssertionEvent(t, s, workID, 1)
-	request := deliveryCorrectionRequest(workID, deliveryWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
+	request := unsignedDeliveryCorrectionRequest(t, s, workID, deliveryWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, request), KindInvalidOperation, "not the current delivery assertion")
 }
 
@@ -549,8 +571,8 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runDeliveryCorrection(t, s, deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
-		t.Fatalf("approved delivery correction refused: %v", err)
+	if err := runDeliveryCorrection(t, s, unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
+		t.Fatalf("unsigned delivery correction refused: %v", err)
 	}
 
 	after, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
@@ -565,8 +587,8 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("original assertion changed: %+v", assertion)
 	}
 	correction := assertion.Correction
-	if correction.Artifact != deliveryCorrectionMergeRef || correction.EvidenceSource != "coordinator_asserted" || correction.Reason == "" || correction.ApprovalRef != deliveryCorrectionApprovalRef {
-		t.Fatalf("correction read = %+v, want the merge evidence under coordinator provenance", correction)
+	if correction.Artifact != deliveryCorrectionMergeRef || correction.EvidenceSource != "coordinator_asserted" || correction.Reason == "" || correction.ApprovalRef != "" {
+		t.Fatalf("correction read = %+v, want the merge evidence under coordinator provenance with no approval claim", correction)
 	}
 	if assertion.EffectiveArtifact != deliveryCorrectionMergeRef {
 		t.Fatalf("effective artifact = %q, want the corrected merge evidence", assertion.EffectiveArtifact)
@@ -665,8 +687,8 @@ func TestTerminalDeliveryCorrectionReplaysWithoutApprovalRows(t *testing.T) {
 	t.Parallel()
 	const workID = "delivery-correction-replay-purity"
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-	if err := runDeliveryCorrection(t, s, deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
-		t.Fatalf("approved delivery correction refused: %v", err)
+	if err := runDeliveryCorrection(t, s, unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
+		t.Fatalf("unsigned delivery correction refused: %v", err)
 	}
 	live, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {

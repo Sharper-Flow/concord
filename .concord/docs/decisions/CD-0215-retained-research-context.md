@@ -25,6 +25,9 @@ This replacement does not restore Epic identity or alter unrelated Initiative ob
 
 ## Decision
 
+Physical pack deletion through `research_retire` is destructive under CD-0013 D11. Non-dry-run retirement requires exact one-use approval bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required.
+
+
 ### D1. Initiative remains secondary business context
 
 An Initiative is finite and Product-scoped, with a living narrative and ordered entries with explicit requiredness.

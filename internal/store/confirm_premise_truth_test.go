@@ -99,7 +99,7 @@ func TestConfirmPremiseDigestMismatchRefuses(t *testing.T) {
 	s := openTemp(t)
 	workID, otherWorkID := "confirm-digest-mismatch", "confirm-digest-mismatch-other"
 	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
-	question, err := ReadWorkflowOperatorQuestion(ctx, s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("question read failed: %v", err)
 	}

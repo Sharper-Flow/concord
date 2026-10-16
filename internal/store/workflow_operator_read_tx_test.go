@@ -10,38 +10,82 @@ import (
 )
 
 // CD-0173 D2: the comparison-work count and the investigation-ref reads
-// answer one question and must run in one read transaction. The operator
-// question reader therefore opens its own read-only snapshot and every read
-// below flows through it; no read may bypass the transaction through the
-// store handle. This structural check fails when a read is reattached to
-// s.db, because a behavioral test cannot interleave a writer between two
-// reads of one serialized call.
+// answer one question and must run in one read transaction. The owner of
+// the operator question read is ReadWorkPin: it opens the one read-only
+// snapshot and every read below flows through it; no read may bypass the
+// transaction through the store handle. This structural check fails when a
+// read is reattached to s.db, because a behavioral test cannot interleave a
+// writer between two reads of one serialized call. It also fails when the
+// reserved projection calls one of the direct operator-question readers by
+// name — ReadWorkflowOperatorQuestion, workflowOperatorQuestionTx, or
+// workflowOperatorQuestionForDefinitionTx — because each would read the
+// question outside the pin's single snapshot.
 func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
-	sourcePath := filepath.Join(filepath.Dir(thisFile), "workflow_operator.go")
+	storeDir := filepath.Dir(thisFile)
+
+	ownerPath := filepath.Join(storeDir, "workpin.go")
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, sourcePath, nil, 0)
+	ownerFile, err := parser.ParseFile(fset, ownerPath, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var body *ast.BlockStmt
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkflowOperatorQuestion" {
-			body = fn.Body
+	var ownerBody *ast.BlockStmt
+	for _, decl := range ownerFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkPin" {
+			ownerBody = fn.Body
 			break
 		}
 	}
-	if body == nil {
-		t.Fatal("ReadWorkflowOperatorQuestion not found in internal/store/workflow_operator.go")
+	if ownerBody == nil {
+		t.Fatal("ReadWorkPin not found in internal/store/workpin.go")
 	}
-	readBegins, dbRefs := operatorQuestionReadSnapshotCounts(body)
+	readBegins, dbRefs := operatorQuestionReadSnapshotCounts(ownerBody)
 	if readBegins != 1 {
-		t.Errorf("ReadWorkflowOperatorQuestion must open exactly one read-only transaction for its reads (CD-0173 D2); got %d", readBegins)
+		t.Errorf("ReadWorkPin must open exactly one read-only transaction for its reads (CD-0173 D2); got %d", readBegins)
 	}
 	allowed := 1 + readBegins // the open guard and the read owner's database argument
 	if dbRefs > allowed {
-		t.Errorf("ReadWorkflowOperatorQuestion references s.db %d times; only the open guard and the beginReadTx argument are permitted, every read must flow through the transaction", dbRefs)
+		t.Errorf("ReadWorkPin references s.db %d times; only the open guard and the beginReadTx argument are permitted, every read must flow through the transaction", dbRefs)
+	}
+
+	projectionPath := filepath.Join(storeDir, "workflow_read.go")
+	projectionFile, err := parser.ParseFile(fset, projectionPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projectionBody *ast.BlockStmt
+	for _, decl := range projectionFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkflowProjection" {
+			projectionBody = fn.Body
+			break
+		}
+	}
+	if projectionBody == nil {
+		t.Fatal("ReadWorkflowProjection not found in internal/store/workflow_read.go")
+	}
+	pinCalls, bypassCalls := 0, 0
+	ast.Inspect(projectionBody, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if fn, ok := call.Fun.(*ast.Ident); ok {
+			switch fn.Name {
+			case "ReadWorkPin":
+				pinCalls++
+			case "ReadWorkflowOperatorQuestion", "workflowOperatorQuestionTx", "workflowOperatorQuestionForDefinitionTx":
+				bypassCalls++
+			}
+		}
+		return true
+	})
+	if pinCalls < 1 {
+		t.Errorf("ReadWorkflowProjection must read the operator question through its owner ReadWorkPin (CD-0173 D2); found %d ReadWorkPin calls", pinCalls)
+	}
+	if bypassCalls != 0 {
+		t.Errorf("ReadWorkflowProjection must read the operator question through its owner ReadWorkPin (CD-0173 D2), not through a direct-reader bypass (ReadWorkflowOperatorQuestion, workflowOperatorQuestionTx, workflowOperatorQuestionForDefinitionTx); found %d direct-reader calls", bypassCalls)
 	}
 }
 

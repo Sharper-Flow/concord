@@ -234,6 +234,7 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 	}
 	if unpoison {
 		for _, statement := range []string{
+			`ALTER TABLE workflow_contracts DROP COLUMN decision_domains`,
 			`ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`,
 			`DROP TRIGGER native_oracle_plan_pair_insert`,
 			`DROP TRIGGER native_oracle_plan_pair_update`,

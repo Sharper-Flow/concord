@@ -281,10 +281,16 @@ type WorkflowEvaluatorIndependence struct {
 }
 
 type WorkflowDefinition struct {
-	Ref                   string                        `json:"ref"`
-	Version               int64                         `json:"version"`
-	WorkKind              WorkKind                      `json:"work_kind"`
-	ChangesProductTruth   *bool                         `json:"changes_product_truth,omitempty"`
+	Ref                 string   `json:"ref"`
+	Version             int64    `json:"version"`
+	WorkKind            WorkKind `json:"work_kind"`
+	ChangesProductTruth *bool    `json:"changes_product_truth,omitempty"`
+	// ApprovalPolicy is the definition-owned approval-policy discriminator.
+	// Absence selects the released legacy policy; the one explicit value is
+	// WorkflowApprovalPolicyConsequenceV1. It is digest-covered manifest
+	// content whenever it is declared, so a definition cannot change its
+	// policy without its digest detecting the change.
+	ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
 	StepGraph             WorkflowStepGraph             `json:"step_graph"`
 	AvailableActions      []string                      `json:"available_actions"`
 	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -419,6 +425,9 @@ func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, vali
 	}
 	if *definition.ChangesProductTruth != workKindMayChangeProductTruth(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its work-kind matrix")
+	}
+	if definition.ApprovalPolicy != "" && definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		return definitionFailure(KindInvalidDefinition, "definition approval policy is unknown")
 	}
 	graph := definition.StepGraph
 	if len(graph.Steps) < 2 || len(graph.Steps) > 32 || len(graph.Edges) < 1 || len(graph.Edges) > 64 || !validWorkflowID(graph.StartStep) || len(graph.TerminalSteps) < 1 || len(graph.TerminalSteps) > 16 {
@@ -571,6 +580,7 @@ func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, val
 		Version               int64                         `json:"version"`
 		WorkKind              WorkKind                      `json:"work_kind"`
 		ChangesProductTruth   *bool                         `json:"changes_product_truth"`
+		ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
 		StepGraph             WorkflowStepGraph             `json:"step_graph"`
 		AvailableActions      []string                      `json:"available_actions"`
 		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -584,6 +594,7 @@ func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, val
 	}{
 		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, Version: definition.Version, WorkKind: definition.WorkKind,
 		ChangesProductTruth: definition.ChangesProductTruth,
+		ApprovalPolicy:      definition.ApprovalPolicy,
 		StepGraph:           definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,

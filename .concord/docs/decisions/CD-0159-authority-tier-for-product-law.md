@@ -47,6 +47,9 @@ migration of existing law text.
 
 ## Decision
 
+Under CD-0013 D11, recording an engineering contract or routine successor is not human enactment of Product law. The legislative authority and explicit scope-cut decision in this record remain required for actual law changes. A contract without the required human enactment cannot authorize such a change merely because its workflow consent class is routine.
+
+
 ### D1. A Product law record carries an authority tier
 
 Each law record carries one of two tier values.

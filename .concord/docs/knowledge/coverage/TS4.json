@@ -6,7 +6,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedApproval"
+      "value": "internal/agent.TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestRoutineCoordinationDestructiveApprovalRefusesWhenBoundToAnotherRequest"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval"
     },
     {
       "kind": "scenario",

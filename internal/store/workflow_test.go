@@ -327,6 +327,14 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 	})
 }
 
+func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
+	if err != nil {
+		return Event{}, err
+	}
+	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), registered.Definition, request, actor, raw)
+}
+
 func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -1073,7 +1081,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
@@ -1130,6 +1138,23 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 				}
 				if count != 1 {
 					t.Errorf("missing %s guard trigger", action)
+				}
+			}
+			if table == "workflow_contracts" {
+				// Migration 128 added decision_domains with ALTER TABLE alone,
+				// so the table-level fold-only guards keep governing the new
+				// column: an outside-fold UPDATE of it must abort.
+				seedWork(t, s, "fold-guard-decision-domains")
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('actor:' || hex(zeroblob(32)),'principal:fold-guard-dd','client:fold-guard-dd','agent:fold-guard-dd','session:fold-guard-dd','agent','now');
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('fold-guard-decision-domains',1,'fold guard decision domains','internal_sqlite','[]','[]','now','actor:' || hex(zeroblob(32)),'[]','[]',0,'prototype_internal');
+DELETE FROM fold_guard`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id='fold-guard-decision-domains' AND contract_version=1`); err == nil {
+					t.Fatal("an outside-fold UPDATE of decision_domains was accepted")
+				} else if !strings.Contains(err.Error(), "fold-only") {
+					t.Fatalf("an outside-fold UPDATE of decision_domains failed with %v, want the fold-only guard", err)
 				}
 			}
 		})

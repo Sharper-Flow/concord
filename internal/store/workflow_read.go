@@ -38,6 +38,11 @@ type WorkflowReadContract struct {
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
+	// DecisionDomains carries the contract's declared classification fact.
+	// nil is historical absence (a NULL projection column), never engineering;
+	// an explicit engineering contract reads as the empty set. omitzero drops
+	// only the nil fact from the encoding.
+	DecisionDomains []string `json:"decision_domains,omitzero"`
 }
 
 type WorkflowReadPredicate struct {
@@ -223,7 +228,8 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
+	var decisionDomains sql.NullString
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains)
 	if err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
@@ -232,6 +238,13 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		// NULL is historical absence and stays nil; a recorded array decodes
+		// as the declared set, where [] reads as engineering.
+		if decisionDomains.Valid {
+			if json.Unmarshal([]byte(decisionDomains.String), &contract.DecisionDomains) != nil {
+				return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains a malformed decision domain set", false, "rebuild projections from the event log")
+			}
+		}
 		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
 			return out, err
@@ -269,10 +282,13 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
 	if out.Contract != nil {
-		out.OperatorQuestion, err = ReadWorkflowOperatorQuestion(ctx, s, request.WorkID)
-		if err != nil {
-			return out, err
+		// The open question rides the pin's one read snapshot: ReadWorkPin
+		// owns the operator-question read (CD-0173 D2).
+		pin, pinErr := ReadWorkPin(ctx, s, request.WorkID)
+		if pinErr != nil {
+			return out, pinErr
 		}
+		out.OperatorQuestion = pin.PendingOperatorDecision
 	}
 
 	rows, err := s.db.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)

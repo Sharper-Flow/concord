@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:689e5bea9836ba5b902727c6d1bdc6604c6f76e28d08d68c3c35e8edca6ba686",
+  "sha256": "sha256:fc5ead0a45cb3fdb589066a28ffd96ee500706a38fb625e3936a726f5748cee9",
   "status": "accepted",
   "summary": "A signed operator-approved successor contract can classify Concord workflow repair with a typed refusal, blocked operation, and evidence references. The classification bypasses only Domain-overlap admission, keeps overlaps visible, and gives no exemption to ordinary work.",
   "tags": [

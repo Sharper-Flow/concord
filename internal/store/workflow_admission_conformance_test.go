@@ -25,45 +25,49 @@ import (
 // loaded for callers but never decided on; the hold and recovery flags they
 // feed are compared instead.
 type admissionConformanceView struct {
-	Step                        string
-	Lifecycle                   string
-	InstanceState               string
-	RefinementWorkflow          bool
-	ReviewStep                  bool
-	ActiveContracts             int64
-	LawPinStale                 bool
-	DesignStale                 bool
-	ArtifactStale               bool
-	ReviewDebt                  WorkflowReviewDebt
-	ReadyReview                 bool
-	ReadyReviewSettles          bool
-	LateVerdictRoute            bool
-	WorkerFailureRecovery       bool
-	CorrectionRecovery          bool
-	CorrectionRequestRecovery   bool
-	CorrectionEscalated         bool
-	NonProgressAttempts         int64
-	RetryConvergence            bool
-	FailedWorkerRetry           bool
-	DispatchHold                bool
-	PendingOperatorDecision     bool
-	CompleteStepCorrection      bool
-	ContractCorrectionAvailable bool
-	DeliveryStarted             bool
-	DeliveryProofRequired       bool
-	DeliveryProofReady          bool
-	DeliveryFailure             bool
-	DeliveryProofFailure        bool
-	DeliveryJobsRecorded        bool
-	DeliveryJobsUnsatisfiedKeys string
-	DeliveryJobsScopeKeys       string
-	DeliveryJobsIntegrated      bool
-	MandatePresent              bool
-	MandateMissing              bool
-	MandateBindingStep          string
-	MandateAddedByContract      bool
-	MandateCorrectionAction     string
-	MandateFailure              bool
+	Step                          string
+	Lifecycle                     string
+	InstanceState                 string
+	RefinementWorkflow            bool
+	ReviewStep                    bool
+	ActiveContracts               int64
+	LawPinStale                   bool
+	DesignStale                   bool
+	ArtifactStale                 bool
+	ReviewDebt                    WorkflowReviewDebt
+	ReadyReview                   bool
+	ReadyReviewSettles            bool
+	LateVerdictRoute              bool
+	WorkerFailureRecovery         bool
+	CorrectionRecovery            bool
+	CorrectionRequestRecovery     bool
+	CorrectionEscalated           bool
+	NonProgressAttempts           int64
+	RetryConvergence              bool
+	FailedWorkerRetry             bool
+	DispatchHold                  bool
+	PendingOperatorDecision       bool
+	AcceptanceDeliverablesMissing bool
+	ApprovalPolicy                string
+	ConfirmationAuthority         string
+	ConfirmationFactFailure       bool
+	CompleteStepCorrection        bool
+	ContractCorrectionAvailable   bool
+	DeliveryStarted               bool
+	DeliveryProofRequired         bool
+	DeliveryProofReady            bool
+	DeliveryFailure               bool
+	DeliveryProofFailure          bool
+	DeliveryJobsRecorded          bool
+	DeliveryJobsUnsatisfiedKeys   string
+	DeliveryJobsScopeKeys         string
+	DeliveryJobsIntegrated        bool
+	MandatePresent                bool
+	MandateMissing                bool
+	MandateBindingStep            string
+	MandateAddedByContract        bool
+	MandateCorrectionAction       string
+	MandateFailure                bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
@@ -79,7 +83,11 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		RetryConvergence:  state.RetryConvergence.valid(),
 		FailedWorkerRetry: state.FailedWorkerRetry != nil,
 		DispatchHold:      state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
-		CompleteStepCorrection: state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
+		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
+		ApprovalPolicy:                state.ApprovalPolicy,
+		ConfirmationAuthority:         string(state.ConfirmationAuthority),
+		ConfirmationFactFailure:       state.ConfirmationFactFailure != nil,
+		CompleteStepCorrection:        state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		DeliveryJobsRecorded: state.Delivery.JobsRecorded, DeliveryJobsUnsatisfiedKeys: state.Delivery.JobsUnsatisfiedKeys,

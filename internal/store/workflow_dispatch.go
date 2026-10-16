@@ -247,6 +247,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return result, err
+	}
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return result, err
@@ -438,8 +441,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	assemblyInput := workflowActionAssemblyInput{
 		ctx: ctx, tx: tx,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
-		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
-		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
+		eventActor: guards.eventActor, operatorRef: guards.operatorRef,
+		actorRecordPrefix: guards.actorRecordPrefix, operatorNeedsRecord: guards.operatorNeedsRecord,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
 		envelopeEvidenceRefs: envelopeEvidenceRefs,
 		admission:            guards.admissionState,
@@ -905,7 +908,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_verdict":
 		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence, envelopeEvidenceRefs)
 	case "confirm_premise":
-		return workflowConfirmPremiseEvents(ctx, tx, request, actor, fields, eventID, expected)
+		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":
 		return workflowLinkSuccessorEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "declare_impact":
@@ -954,14 +957,19 @@ func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields
 	return []Event{nativeEvent}, nil
 }
 
-func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
+func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return Event{}, err
 	}
 	// Completion takes operator authority under the same recorded-delivery
 	// condition as the verdict. Evidence and outcome gates still apply.
+	// consequence_v1 rejects the operator claim outright: the authenticated
+	// coordinator completes without substitution.
 	if request.OperatorActor != nil {
+		if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+			return Event{}, newFailure(KindUnauthorized, "complete_workflow", "consequence_v1 takes no operator substitution for completion; the authorized coordinator completes under its own identity", false, "complete as the authenticated coordinator")
+		}
 		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
 			return Event{}, err
 		}
@@ -1005,7 +1013,7 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	// verifies, never from caller fields or literals (#856): the recorded
 	// verdict kinds, the count of bound evidence events, and the premise
 	// confirmation the gate itself reads.
-	contractData, _, contractErr := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
+	contractData, _, contractErr := workflowCompletionContract(ctx, tx, registry, request.WorkID)
 	if contractErr != nil {
 		return Event{}, contractErr
 	}

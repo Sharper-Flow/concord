@@ -16,6 +16,9 @@ evidence planes record, and what the first go-live decision must later
 define.
 ## Contract
 
+Approval measurements distinguish CD-0013 D11's routine overlap answers from destructive merger/supersession and distinguish new-policy engineering from decision-bearing workflow checkpoints. No routine route is measured as requiring a host consent prompt. Existing population identity, evidence, and measurement obligations remain unchanged; historical pins remain a separate declared population.
+
+
 The binding contract is sections 1 through 3: the pre-go-live authority rule
 that only deterministic scenario evidence authorizes a surface change, the
 deterministic evidence planes and their boundaries, and the six-element

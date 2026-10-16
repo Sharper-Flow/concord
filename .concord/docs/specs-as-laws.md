@@ -125,9 +125,10 @@ CD-0222 makes Product law architecture-bound and primary:
 - every Product-changing work contract names one home Domain, all affected
   Domains, exact governing law revisions, authorized additions/modifications,
   and verification obligations;
-- overlapping affected Domains require an operator-approved, version-pinned
-  compatibility, sequencing, merger, supersession, or terminal resolution before
-  both items hold execution authority;
+- overlapping affected Domains require a version-pinned resolution before both
+  items hold execution authority; dependency, blocking, and compatibility answers
+  are routine under CD-0013 D11, while merger and supersession retain exact
+  operator approval;
 - changing either work contract invalidates its prior overlap resolution; and
 - the checks rerun transactionally at every authoritative consequential action.
 

@@ -68,7 +68,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		actions []string
 	}{
 		{"workflow_dispatch.go", "workflowCompletionBoundaryPreflight", []string{"complete"}},
-		{"workflow_dispatch.go", "workflowCompletionEvent", []string{"complete"}},
+		{"workflow_dispatch.go", "workflowCompletionEventForDefinition", []string{"complete"}},
 		{"workflow_dispatch.go", "workflowContractOutcomePredicates", []string{"approve_contract"}},
 		{"workflow_action_guards.go", "guardRecoveryEvidenceBind", []string{"bind_evidence"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2455,4 +2456,14 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("discovery offered duplicate recovery on the completed off-shape instance")
 	}
+}
+
+// foldCompleteStepContractCorrectionTx resolves the builtin registry for
+// direct callers. The core keeps the route marker, historical replay, and
+// admission checks together before it returns the pinned instance to its
+// external-effect step, and the scoped supersession fold carries the
+// transaction's registry to the same core. The caller holds the fold
+// transaction.
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	return foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, successor)
 }

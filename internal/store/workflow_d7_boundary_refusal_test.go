@@ -412,7 +412,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 					EventID: "d7-resolve-" + testCase.actionID, FromWorkID: workID, ToWorkID: otherID,
 					FromExpectedVersion: version, ToExpectedVersion: otherVersion, FromContractVersion: 1, ToContractVersion: 1,
 					ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved concurrent change",
-					ApprovalRef: "approval:d7-" + testCase.actionID, Actor: actorRef,
+					Actor:      actorRef,
 					OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC),
 				})
 				return resolveErr

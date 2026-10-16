@@ -16,6 +16,9 @@ authoring because its target rebased and self-resolved.
 
 ## Decision
 
+A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and destructive removal retain approval. A message cannot satisfy either gate, alter the recipient's classification, or weaken a historical workflow pin.
+
+
 **D1. Messages are durable events addressed to work, not sessions.**
 `work.message_sent` carries a recipient work id in its payload; the
 `work_messages` fold validates the recipient exists (the successor-link

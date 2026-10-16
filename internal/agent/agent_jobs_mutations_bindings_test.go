@@ -546,12 +546,15 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 // AJ5 — relate_and_scope_work
 // ---------------------------------------------------------------------------
 
-// AJ5-resolve-domain-overlap proves why the current overlap operation exists: an
-// ordinary relation cannot confer Product-concordance authority, while one
-// operator-approved call binds both endpoint and contract versions atomically.
+// AJ5-resolve-domain-overlap proves the overlap operation's kind boundary: an
+// ordinary relation cannot confer Product-concordance authority, the routine
+// compatible_with answer records unsigned with no challenge and no consumed
+// approval, and a destructive kind settles only through a challenge the
+// Service minted, a host assertion over the exact request, and one consumed
+// one-use operator approval.
 func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
+	s, service, _, _, env, input := seedAgentOverlapFixture(t)
 	seed, _ := sc.InitialState["idempotency_seed"].(string)
 	var request map[string]any
 	if err := json.Unmarshal(input, &request); err != nil {
@@ -588,55 +591,80 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatal("ordinary relation refusal changed journal or endpoint versions")
 	}
 
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("overlap resolution did not request operator approval: %+v", first.Error)
+	routine := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
+	if routine.Outcome != OutcomeOK || routine.Error != nil {
+		t.Fatalf("unsigned routine overlap resolution failed: %+v", routine.Error)
 	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || challengeRef == "" {
-		t.Fatalf("overlap resolution challenge missing: %+v", first.Error.Details)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{
-		"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"},
-		"work_ids": []string{"work-1", "work-2"}, "scope_version": env.ScopeVersion,
-	}
-	versions := map[string]any{"from": int64(2), "to": int64(2), "from_contract": int64(1), "to_contract": int64(1)}
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: withApproval}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved overlap resolution failed: %+v", approved.Error)
-	}
-
 	var kind, approvalRef string
 	var fromContract, toContract int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT resolution_kind,from_contract_version,to_contract_version,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&kind, &fromContract, &toContract, &approvalRef); err != nil {
 		t.Fatal(err)
 	}
-	var relationCount, usedCount int
+	if kind != "compatible_with" || fromContract != 1 || toContract != 1 || approvalRef != "" {
+		t.Fatalf("routine resolution %s contracts %d/%d approval=%q, want the unsigned compatible_with answer at 1/1", kind, fromContract, toContract, approvalRef)
+	}
+	var relationCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='compatible_with' AND resolution_id IS NOT NULL`).Scan(&relationCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&usedCount); err != nil {
-		t.Fatal(err)
+	if relationCount != 1 {
+		t.Fatalf("resolution relation rows=%d, want 1", relationCount)
 	}
-	if relationCount != 1 || usedCount != 1 {
-		t.Fatalf("resolution relation=%d approval uses=%d", relationCount, usedCount)
+	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
+		t.Fatal("routine resolution left the endpoints off the single-step versions")
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
+		t.Fatalf("routine resolution minted %d challenges, want 0", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
+		t.Fatalf("routine resolution consumed %d approvals, want 0", got)
 	}
 
-	obs := envelopeToObservation(approved)
+	obs := envelopeToObservation(routine)
 	obs.State = map[string]any{
 		"overlap":   map[string]any{"current_resolution": map[string]any{"kind": kind, "from_contract_version": fromContract, "to_contract_version": toContract}},
 		"relations": map[string]any{"compatible_with": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
 	}
-	obs.Authority = map[string]any{"operator_approval_consumed": usedCount == 1, "approval_ref": approvalRef}
+	obs.Authority = map[string]any{"operator_approval_consumed": false}
+
+	// The destructive control is the only source of consumed-approval
+	// authority in this observation: a separate genuine host fixture settles
+	// merged_into through the challenge the Service minted, the host
+	// assertion over the exact request, and one consumed one-use approval.
+	destructiveStore, destructiveService, destructiveKey, destructiveEnv := routineCoordinationFixture(t)
+	binding := routineOverlapExactBinding(t, destructiveStore, store.ResolutionMergedInto)
+	destructiveInput := routineOverlapResolveInput(t, binding, "aj5-destructive-merged-into")
+	challengeRef := routineOverlapChallenge(t, destructiveStore, destructiveService, destructiveEnv, binding, destructiveInput)
+	withApproval, err := injectApproval(destructiveInput, challengeRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, versions := routineOverlapApprovalBindings(t, destructiveStore, destructiveEnv, binding)
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", destructiveEnv, withApproval)
+	approved := routineOverlapApprovedDispatch(t, destructiveStore, destructiveService, destructiveKey, destructiveEnv, challengeRef, digest, scope, versions, withApproval)
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved destructive merged_into resolution failed: %+v", approved.Error)
+	}
+	var destructiveKind, destructiveRef string
+	var usedCount int
+	if err := destructiveStore.DatabaseForTesting().QueryRow(`SELECT resolution_kind,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&destructiveKind, &destructiveRef); err != nil {
+		t.Fatal(err)
+	}
+	if err := destructiveStore.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, destructiveRef).Scan(&usedCount); err != nil {
+		t.Fatal(err)
+	}
+	destructiveConsumed := destructiveKind == store.ResolutionMergedInto && destructiveRef != "" && usedCount == 1
+	if !destructiveConsumed {
+		t.Fatalf("destructive control kind=%q approval=%q used=%d, want merged_into through one consumed approval", destructiveKind, destructiveRef, usedCount)
+	}
+	obs.State["destructive_control"] = map[string]any{
+		"resolution_kind":            destructiveKind,
+		"operator_approval_consumed": destructiveConsumed,
+		"approval_ref":               destructiveRef,
+	}
 	obs.Effects = map[string]any{
 		"atomic_core_effect":          "complete",
-		"approval_authority_consumed": true,
+		"approval_authority_consumed": destructiveConsumed,
 		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, wrote no relation or resolution, and left the Domain overlap unresolved"},
 	}
 	return obs

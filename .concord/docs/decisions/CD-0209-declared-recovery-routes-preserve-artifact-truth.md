@@ -87,6 +87,9 @@ whitelist, or a nearest-target order does not own that decision.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, attempt history, return targets, convergence, and real liveness checks remain required. Historical pins retain their signature rules.
+
+
 ### D1. One declared recovery-route table per family
 
 A workflow definition declares at most one recovery-route table

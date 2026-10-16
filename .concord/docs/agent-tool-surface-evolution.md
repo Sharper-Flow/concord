@@ -14,6 +14,9 @@ pre-go-live: the current surface has one generated manifest whose exact
 digest is its identity.
 ## Contract
 
+CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed closed decision-domain and consequence-summary contracts follow a major surface cutover, with regenerated projections, fail-closed old-client negotiation, historical decoders, and replay evidence. Released workflow definition content and active pins do not change implicitly.
+
+
 The binding contract is sections 1 through 3: the canonical manifest as the
 only source of agent-visible surface, the change rule before go-live with its
 four required evidence elements and the named domain-overlap proof, and

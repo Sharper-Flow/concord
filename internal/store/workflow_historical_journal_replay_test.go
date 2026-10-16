@@ -2,8 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -102,6 +106,96 @@ func frozenJournalFixtures() []struct {
 		{"corrected-break-fix-v24", historicalJournalFixtureCorrectedBreakFixV24},
 		{"completed-architecture-spike-v17", historicalJournalFixtureCompletedArchitectureSpikeV17},
 		{"completed-ops-runbook-v18", historicalJournalFixtureCompletedOpsRunbookV18},
+	}
+}
+
+// workflowProjectionLayout is one hashed projection table with its column
+// order. Production layouts are discovered from the store; a pinned historical
+// layout is a caller-supplied input only verification code builds.
+type workflowProjectionLayout struct {
+	table   string
+	columns []string
+}
+
+// hashWorkflowProjectionLayouts encodes each layout's rows: the table marker,
+// then per row the per-column name and value encoding in column order. Empty
+// tables still contribute their marker. The encoding is byte-stable across
+// discovered and pinned layouts.
+func hashWorkflowProjectionLayouts(ctx context.Context, db *sql.DB, layouts []workflowProjectionLayout) (string, error) {
+	h := sha256.New()
+	for _, layout := range layouts {
+		quotedColumns := make([]string, len(layout.columns))
+		for i, column := range layout.columns {
+			quotedColumns[i] = quoteSQLiteIdentifier(column)
+		}
+		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(layout.table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
+		}
+		writeHashf(h, "table:%d:%s\x00", len(layout.table), layout.table)
+		for rows.Next() {
+			values := make([]any, len(layout.columns))
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				rows.Close()
+				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+layout.table, true, "retry once the database is readable", err)
+			}
+			for i, value := range values {
+				writeHashf(h, "%d:%s=", len(layout.columns[i]), layout.columns[i])
+				writeHashValue(h, value)
+				writeHashf(h, "%c", byte(0))
+			}
+			writeHashf(h, "%c", byte(0))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
+		}
+		rows.Close()
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// frozenJournalProjectionLayouts is the projection layout the frozen journals
+// were captured against: the hashed tables in hash order with their baseline
+// physical column order at commit d95dd9d0293f01317c5744b555dd3c59be0acbd4.
+// Frozen provenance hashes compare only against this pinned layout; the
+// current discovered layout keeps covering every present column.
+func frozenJournalProjectionLayouts() []workflowProjectionLayout {
+	return []workflowProjectionLayout{
+		{"workflow_actors", []string{"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"}},
+		{"workflow_checkpoints", []string{"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"}},
+		{"workflow_contracts", []string{"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest"}},
+		{"workflow_contract_predicates", []string{"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"}},
+		{"workflow_contract_law_revisions", []string{"work_id", "contract_version", "law_id", "content_hash"}},
+		{"workflow_contract_law_modifications", []string{"work_id", "contract_version", "law_id"}},
+		{"workflow_overlap_resolutions", []string{"resolution_id", "event_seq", "product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "approval_ref", "created_at", "invalidated_seq"}},
+		{"workflow_architecture_bindings", []string{"work_id", "contract_version", "product_id", "domain_registry_content_hash", "home_domain_id", "projection_hash"}},
+		{"workflow_contract_affected_domains", []string{"work_id", "contract_version", "domain_id"}},
+		{"workflow_contract_domain_modifications", []string{"work_id", "contract_version", "domain_id"}},
+		{"workflow_contract_domain_relation_modifications", []string{"work_id", "contract_version", "source_domain_id", "kind", "target_domain_id"}},
+		{"workflow_law_addition_reservations", []string{"product_id", "law_id", "owner_work_id", "owner_contract_version", "home_domain_id"}},
+		{"workflow_contract_law_additions", []string{"work_id", "contract_version", "product_id", "law_id", "home_domain_id", "reservation_owner_work_id", "reservation_owner_contract_version"}},
+		{"workflow_contract_verification_obligations", []string{"work_id", "contract_version", "law_id", "obligation_id"}},
+		{"workflow_decision_records", []string{"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"}},
+		{"workflow_external_conditions", []string{"work_id", "condition_id", "await_type", "await_ref", "resolution_authority", "condition_state", "resolution_evidence", "resolved_by_event", "cancellation_authority", "cancellation_evidence", "cancelled_by_event", "recorded_at", "resolved_at", "cancelled_at", "expected_within_seconds"}},
+		{"workflow_impact_edges", []string{"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"}},
+		{"workflow_impact_notices", []string{"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"}},
+		{"workflow_context_checkpoints", []string{"work_id", "work_version", "checkpoint_sequence", "checkpoint_id", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions", "workflow_ref", "workflow_definition_version", "workflow_definition_digest", "actor_ref", "request_id", "recorded_at"}},
+		{"workflow_context_boundaries", []string{"work_id", "work_version", "boundary_sequence", "boundary_count", "boundary_id", "boundary_kind", "checkpoint_id", "checkpoint_sequence", "attempt_epoch", "summary", "workflow_ref", "workflow_definition_version", "workflow_definition_digest", "actor_ref", "request_id", "recorded_at"}},
+		{"workflow_design_records", []string{"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
+		{"workflow_proposal_records", []string{"work_id", "work_version", "problem", "affected", "stakes", "user_outcomes", "constraints", "open_questions", "recorded_at", "out_of_scope"}},
+		{"workflow_instances", []string{"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state"}},
+		{"workflow_premise_confirmations", []string{"work_id", "contract_version", "confirmed_by", "confirmed_at"}},
+		{"workflow_candidate_sets", []string{"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"}},
+		{"law_subjects", []string{"home_project_id", "home_locator_id", "law_id", "kind", "status", "path", "title", "content_hash", "scanned_commit_oid", "authority_tier", "criterion_bindings"}},
+		{"law_relations", []string{"home_project_id", "home_locator_id", "source_law_id", "kind", "target_law_id", "scanned_commit_oid"}},
+		{"work_items", []string{"id", "kind", "title", "lifecycle", "priority", "version", "created_at", "updated_at", "terminal_time", "intent_json", "narrative", "urgency"}},
+		{"relations", []string{"id", "work_id_from", "work_id_to", "kind", "created_at", "resolution_id"}},
 	}
 }
 
@@ -242,6 +336,42 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Historical contracts keep NULL on columns recorded after the
+			// baseline capture: the fact is never upcast into their rows.
+			var declaredFacts int64
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE decision_domains IS NOT NULL`).Scan(&declaredFacts); err != nil {
+				t.Fatal(err)
+			}
+			if declaredFacts != 0 {
+				t.Fatalf("replayed journal declares %d decision facts, want every historical contract NULL", declaredFacts)
+			}
+			// The frozen provenance hash names the baseline capture layout, so
+			// it compares against that pinned layout alone; the discovered
+			// current layout keeps covering every present column and proves
+			// rebuild stability below.
+			pinned, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The pinned encoder is the test copy of the production traversal:
+			// over the discovered current layout it must reproduce the
+			// production hash, so the frozen baseline still binds the
+			// production encoding.
+			current := make([]workflowProjectionLayout, 0, len(workflowProjectionTables))
+			for _, table := range workflowProjectionTables {
+				columns, err := projectionColumns(ctx, s.DatabaseForTesting(), table)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current = append(current, workflowProjectionLayout{table: table, columns: columns})
+			}
+			discovered, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if discovered != first {
+				t.Fatalf("pinned-layout encoder over the discovered layout = %s, want the production hash %s", discovered, first)
+			}
 			if err := RebuildFromLog(ctx, s); err != nil {
 				t.Fatalf("second rebuild from the frozen journal refused: %v", err)
 			}
@@ -252,8 +382,8 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if first != after {
 				t.Fatalf("projection hash moved across rebuild of the frozen journal: %s != %s", first, after)
 			}
-			if after != provenance.WorkflowProjectionHash {
-				t.Fatalf("replayed projection hash %s does not reproduce the frozen baseline hash %s", after, provenance.WorkflowProjectionHash)
+			if pinned != provenance.WorkflowProjectionHash {
+				t.Fatalf("replayed projection hash %s does not reproduce the frozen baseline hash %s", pinned, provenance.WorkflowProjectionHash)
 			}
 			workID := journal.frozenWorkID(t)
 			var instanceState, currentStep string
@@ -264,7 +394,8 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 				t.Fatalf("replayed instance state = %q, want the frozen %q", instanceState, provenance.TerminalState)
 			}
 			// Reopen stability: a restored journal reads identically across a
-			// store reopen.
+			// store reopen, on both the pinned baseline layout and the full
+			// current layout.
 			if err := s.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -274,8 +405,15 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if reopenHash != provenance.WorkflowProjectionHash {
-				t.Fatalf("reopened projection hash %s does not reproduce the frozen baseline hash %s", reopenHash, provenance.WorkflowProjectionHash)
+			if reopenHash != after {
+				t.Fatalf("reopened projection hash %s does not reproduce the pre-reopen full hash %s", reopenHash, after)
+			}
+			reopenPinned, err := hashWorkflowProjectionLayouts(ctx, reopened.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reopenPinned != provenance.WorkflowProjectionHash {
+				t.Fatalf("reopened projection hash %s does not reproduce the frozen baseline hash %s", reopenPinned, provenance.WorkflowProjectionHash)
 			}
 
 			// As-of boundaries. A reconstruct sample replays through the

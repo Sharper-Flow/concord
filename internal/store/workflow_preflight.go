@@ -390,7 +390,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			}
 		}
 	}
-	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
+	// The selection core consumes the folded admission's confirmation
+	// answer: one classification, no second fact read.
+	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority, factFailure: admission.ConfirmationFactFailure}); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -1050,7 +1052,7 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
-func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest) error {
+func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, req ClaimRequest) error {
 	if err := refuseRemovedWorkTx(ctx, tx, req.WorkID, "workflow_preflight"); err != nil {
 		return err
 	}
@@ -1061,7 +1063,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	if workflowExists == 0 {
 		return nil
 	}
-	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), req.WorkID)
+	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, registry, req.WorkID)
 	if err != nil {
 		return err
 	}
@@ -1095,7 +1097,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	return nil
 }
 
-func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) error {
+func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, opID string) error {
 	var workID, workflowRef, stepID string
 	var workflowVersion int
 	err := tx.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_version,step_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowVersion, &stepID)
@@ -1111,7 +1113,7 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) 
 	if !strings.HasPrefix(workflowRef, "workflow.") {
 		return nil
 	}
-	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}

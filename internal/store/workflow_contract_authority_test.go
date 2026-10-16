@@ -41,7 +41,7 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 	if err := enterFold(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	err = foldWorkflowContractApproved(context.Background(), tx, event)
+	err = foldWorkflowContractApproved(context.Background(), tx, event, nil)
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil || !strings.Contains(err.Error(), "requires no active workflow contract") {

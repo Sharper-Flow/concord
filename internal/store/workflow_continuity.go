@@ -170,6 +170,14 @@ type ContinuityRequest struct {
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
+	return readWorkflowContinuityForRegistry(ctx, s, req, nil)
+}
+
+// readWorkflowContinuityForRegistry is the registry-threaded continuity
+// core: a caller registry verifies the stored pin and projects the same
+// folded confirmation answer the admission state stores, with no builtin
+// fallback. A nil registry keeps the builtin convenience.
+func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req ContinuityRequest, registry DefinitionRegistry) (ContinuitySnapshot, error) {
 	var out ContinuitySnapshot
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C19.Continuity", "store is not open", false, "open the authority database")
@@ -245,7 +253,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		return out, err
 	}
 	if disposition := out.OutsideRepairDisposition; disposition != nil && disposition.State != OutsideRepairStateResumed {
-		pin, err := ReadWorkPinTx(ctx, tx, req.Work)
+		pin, err := readWorkPinForRegistryTx(ctx, tx, req.Work, registry)
 		if err != nil {
 			return out, err
 		}
@@ -262,7 +270,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		out.Observations = []WorkObservation{}
 		return out, nil
 	}
-	instance, err := readContinuityInstanceTx(ctx, tx, req.Work, &out)
+	instance, err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, &out)
 	if err != nil {
 		return out, err
 	}
@@ -271,7 +279,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
 	}
-	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition); err != nil {
+	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
 		return out, err
 	}
 	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
@@ -344,7 +352,7 @@ func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string,
 // revisions and context, stale-law and compatible-amendment scans, and the
 // open operator question. A work item with no contract row leaves the
 // snapshot without one.
-func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition) error {
+func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition, registry DefinitionRegistry) error {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
@@ -391,7 +399,15 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return err
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
-		pending, withheld, questionErr := workflowOperatorQuestionTx(ctx, tx, work, currentStep, workVersion, definition, contract)
+		registered, verifyErr := verifyReadWorkflowDefinitionForRegistry(definition, registry)
+		if verifyErr != nil {
+			return verifyErr
+		}
+		confirmation, foldErr := foldWorkflowConfirmationTx(ctx, tx, work, registered.Definition)
+		if foldErr != nil {
+			return foldErr
+		}
+		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, work, currentStep, workVersion, registered.Definition, definition, contract, confirmation)
 		if questionErr != nil {
 			return questionErr
 		}
@@ -737,11 +753,11 @@ type continuityInstance struct {
 	present     bool
 }
 
-// readContinuityInstanceTx reads the work item's workflow instance and seats
-// the instance-derived snapshot fields. An imported work item holds no
-// instance: the read answers with typed absence, and a launch never creates
-// one. Absence is a property of a recorded item, so an unknown ID refuses.
-func readContinuityInstanceTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityInstance, error) {
+// readContinuityInstanceForRegistryTx is the registry-threaded continuity
+// instance phase: a caller registry verifies the stored pin and seats the
+// work pin through itself with no builtin fallback, so the continuity
+// snapshot projects the same folded confirmation answer the work pin does.
+func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) (continuityInstance, error) {
 	var instance continuityInstance
 	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Version, &instance.definition.Digest, &instance.workVersion)
 	if err == sql.ErrNoRows {
@@ -760,13 +776,13 @@ func readContinuityInstanceTx(ctx context.Context, tx *sql.Tx, work string, out 
 	}
 	instance.present = true
 	out.WorkflowInstance = WorkflowInstancePresent
-	pin, err := ReadWorkPinTx(ctx, tx, work)
+	pin, err := readWorkPinForRegistryTx(ctx, tx, work, registry)
 	if err != nil {
 		return instance, err
 	}
 	out.WorkPin = &pin
 	out.WorkflowStep = instance.step
-	registered, err := verifyReadWorkflowDefinition(instance.definition)
+	registered, err := verifyReadWorkflowDefinitionForRegistry(instance.definition, registry)
 	if err != nil {
 		return instance, err
 	}

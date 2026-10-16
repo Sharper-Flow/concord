@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:abeceff52fbbda182f87c3f565e986c5a7a16dbe2d4b37d6821ec006e44cdc49",
+  "sha256": "sha256:04b27eeaa75c354cf58984f72f5789648d76852233329f81138d0f1492e9246c",
   "status": "accepted",
   "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
   "tags": [

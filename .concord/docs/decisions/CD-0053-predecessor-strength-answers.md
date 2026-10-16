@@ -39,6 +39,9 @@ What was missing is the record that closes the question.
 
 ## Decision
 
+For definitions declaring `approval_policy=consequence_v1`, the human-checkpoint floor is conditional on recorded decision domains under CD-0013 D11, not on `changes_product_truth`. Engineering still requires a recorded contract, independent outcome evaluation, premise confirmation, and the same completion proof. Historical definitions retain their human-checkpoint requirement.
+
+
 ### D1. Gated human-checkpoint lifecycle: **absorbed**
 
 The predecessor's strength was never the number seven — it was that a human

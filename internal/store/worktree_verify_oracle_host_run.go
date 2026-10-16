@@ -430,25 +430,32 @@ func nativeTargetVerifyMaterialization(ctx context.Context, t *nativeTargetOracl
 // wheel RECORD entry. uv verifies downloaded archives once but never re-reads
 // cached unpacked bytes, so this gate is the dependency-integrity check for
 // the materialized environment: a corrupted cached wheel surfaces here.
-// RECORD paths resolve against the directory containing each .dist-info,
-// not against site-packages; entries may legitimately name the venv's own
-// bin scripts through relative parent steps and are verified there. An
-// empty hash is legitimate only for the distribution's RECORD self-entry;
-// any other unhashed or mismatching entry refuses.
+// Per the recording-installed-packages spec
+// (https://packaging.python.org/en/latest/specifications/recording-installed-packages/),
+// an installed project's .dist-info lives alongside its importable modules at
+// the top of site-packages, and its RECORD paths resolve against that parent;
+// entries may legitimately name the venv's own bin scripts through relative
+// parent steps and are verified there. Nested vendored .dist-info directories
+// are package data of the installed project, covered by its RECORD hashes, so
+// only top-level RECORDs are read directly and a missing one refuses. An
+// empty hash is legitimate only for the distribution's RECORD self-entry; any
+// other unhashed or mismatching entry refuses, a policy deliberately stricter
+// than the spec requires so every installed file is verified.
 func nativeTargetVerifyVenvRecords(venv string) error {
 	sites, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
 	if err != nil || len(sites) != 1 {
 		return nativeUnavailable("materialized venv has no single site-packages root")
 	}
 	siteRoot, venvRoot := sites[0], venv
-	return fs.WalkDir(os.DirFS(siteRoot), ".", func(name string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	entries, err := os.ReadDir(siteRoot)
+	if err != nil {
+		return nativeUnavailable("materialized venv site-packages is unreadable: " + err.Error())
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), ".dist-info") {
+			continue
 		}
-		if !d.IsDir() || !strings.HasSuffix(name, ".dist-info") {
-			return nil
-		}
-		base, selfRow := filepath.Dir(filepath.Join(siteRoot, name)), filepath.Base(name)+"/RECORD"
+		name, selfRow := entry.Name(), entry.Name()+"/RECORD"
 		data, err := fs.ReadFile(os.DirFS(siteRoot), name+"/RECORD")
 		if err != nil {
 			return nativeUnavailable("installed distribution has no readable RECORD: " + name)
@@ -465,7 +472,7 @@ func nativeTargetVerifyVenvRecords(venv string) error {
 			if rel == "" || strings.HasPrefix(rel, "/") {
 				return nativeUnavailable("malformed RECORD entry in " + name)
 			}
-			resolved := filepath.Clean(filepath.Join(base, rel))
+			resolved := filepath.Clean(filepath.Join(siteRoot, rel))
 			if resolved != venvRoot && !strings.HasPrefix(resolved, venvRoot+string(filepath.Separator)) {
 				return nativeUnavailable("RECORD entry escapes the materialized venv in " + name)
 			}
@@ -490,8 +497,8 @@ func nativeTargetVerifyVenvRecords(venv string) error {
 				return nativeUnavailable("materialized file differs from its wheel RECORD digest: " + rel)
 			}
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func parseDecimal(s string) int64 {

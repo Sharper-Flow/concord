@@ -52,6 +52,11 @@ type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: 
 
 type ActiveWatch = {
   id: string
+  watchEpoch: number
+  bindingID: string | null
+  lastObservation: CiWatchObservation | null
+  terminalObservation?: CiWatchObservation
+  consecutiveSliceFailures: number
   sessionID: string
   args: CiWatchArgs
   binary: string
@@ -118,8 +123,106 @@ let routeClient: WatchRouteClient | null = null
 
 const activeWatches = new Map<string, ActiveWatch>()
 const watchKeys = new Map<string, string>()
-const queuedReports = new Map<string, Array<{ watchID: string; text: string }>>()
+const queuedReports = new Map<string, Array<{ record: CiWatchRecord; text: string }>>()
 const settledWatches = new Map<string, Promise<void>>()
+
+type CiWatchCounts = { total: number; passing: number; failing: number; skipped: number; pending: number }
+type CiWatchObservation = {
+  status: string
+  sha: string | null
+  head_sha: string | null
+  run_url: string | null
+  checks: CiWatchCounts | null
+  slice_started_at: number
+  report_received_at: number
+  stale: boolean
+  evidence: "exact_head" | "unavailable"
+  gaps: string[]
+}
+type CiWatchRecord = ReturnType<typeof ciWatchRecord>
+type CiWatchReceipt = CiWatchRecord & {
+  terminal_sequence: number
+  terminal_observation: CiWatchObservation
+  delivery_state: "delivering" | "queued" | "delivered" | "drained"
+}
+let runtimeEpoch = randomUUID()
+let ownerStartedAt = Date.now()
+let peerSequence = 0
+let retentionFloor = 0
+const terminalReceipts: CiWatchReceipt[] = []
+// The terminal ring's fixed capacity, reported to peers as receipt_limit.
+const CI_WATCH_RECEIPT_LIMIT = 64
+
+function resetCiWatchSnapshots(): void {
+  runtimeEpoch = randomUUID()
+  ownerStartedAt = Date.now()
+  peerSequence = 0
+  retentionFloor = 0
+  terminalReceipts.length = 0
+  resetCiWatchPeer()
+}
+
+function ciWatchRecord(watch: ActiveWatch) {
+  return {
+    watch_id: watch.id, watch_epoch: watch.watchEpoch, session_id: watch.sessionID,
+    repo: watch.args.repo, selector: watch.args.selector, mode: watch.args.mode ?? "checks",
+    started_at: watch.startedAt, binding_id: watch.bindingID,
+    phase: (watch.waiting ? "observing" : "delivering") as "observing" | "delivering" | "queued",
+    consecutive_slice_failures: watch.consecutiveSliceFailures, last_observation: watch.lastObservation,
+    terminal_observation: watch.terminalObservation ?? null,
+  }
+}
+
+function projectCiObservation(watch: ActiveWatch, report: CiWaitReport, startedAt: number, receivedAt = Date.now()): CiWatchObservation {
+  const gaps: string[] = []
+  const statuses = ["pending", "success", "failure", "merged", "closed", "superseded", "timeout", "error", "refused"]
+  const status = statuses.includes(report.status) ? report.status : "unknown"
+  const sha = typeof report.sha === "string" && /^[0-9a-f]{40}$/.test(report.sha) ? report.sha : null
+  const head = typeof report.head_sha === "string" && /^[0-9a-f]{40}$/.test(report.head_sha) ? report.head_sha : null
+  if (sha === null) gaps.push("sha_unknown")
+  if (report.head_sha !== undefined && head === null) gaps.push("invalid_head_sha")
+  if (watch.args.selector.kind === "sha" && sha !== watch.args.selector.value) gaps.push("subject_mismatch")
+  let checks: CiWatchCounts | null = null
+  if (report.checks !== undefined) {
+    const raw = report.checks as Record<string, unknown> | null
+    const keys = ["total", "passing", "failing", "skipped", "pending"] as const
+    if (raw !== null && typeof raw === "object" && keys.every((key) => Number.isSafeInteger(raw[key]) && Number(raw[key]) >= 0)) {
+      checks = Object.fromEntries(keys.map((key) => [key, raw[key]])) as CiWatchCounts
+      if (checks.total !== checks.passing + checks.failing + checks.skipped + checks.pending) checks = null
+    }
+    if (checks === null) gaps.push("invalid_checks")
+  }
+  if (status === "success" && (!checks || checks.total === 0 || checks.failing !== 0 || checks.pending !== 0)) gaps.push("invalid_checks")
+  if (status === "failure" && (!checks || checks.failing === 0)) gaps.push("invalid_checks")
+  if (["merged", "closed", "superseded"].includes(status) && watch.args.selector.kind !== "pr") gaps.push("selector_mismatch")
+  if (status === "superseded" && (head === null || head === sha)) gaps.push("subject_mismatch")
+  if (watch.args.selector.kind === "pr" && ["success", "failure", "merged", "closed"].includes(status) && head !== sha) gaps.push("subject_mismatch")
+  if (watch.args.mode === "merge" && status === "success") gaps.push("merge_unproven")
+  if (["timeout", "error", "refused", "unknown"].includes(status)) gaps.push("terminal_evidence_unavailable")
+  if (!Number.isFinite(startedAt) || !Number.isFinite(receivedAt) || startedAt > receivedAt || startedAt < ownerStartedAt) gaps.push("invalid_interval")
+  const url = typeof report.run_url === "string" && report.run_url.length <= 2048 ? report.run_url : null
+  if (report.run_url !== undefined && url === null) gaps.push("invalid_run_url")
+  return {
+    status, sha, head_sha: head, run_url: url, checks,
+    slice_started_at: startedAt, report_received_at: receivedAt,
+    stale: false,
+    evidence: gaps.length === 0 ? "exact_head" : "unavailable", gaps,
+  }
+}
+
+function recordCiTerminal(watch: ActiveWatch, observation: CiWatchObservation): void {
+  terminalReceipts.push({ ...ciWatchRecord(watch), terminal_sequence: ++peerSequence, terminal_observation: observation, delivery_state: "delivering" })
+  if (terminalReceipts.length > CI_WATCH_RECEIPT_LIMIT) {
+    terminalReceipts.shift()
+    retentionFloor = terminalReceipts[0]!.terminal_sequence
+  }
+}
+
+function updateCiDelivery(watchID: string, state: CiWatchReceipt["delivery_state"]): void {
+  const receipt = terminalReceipts.find((entry) => entry.watch_id === watchID)
+  if (receipt) receipt.delivery_state = state
+  peerSequence++
+}
 
 // Test seams: the host test suite injects a fake spawner and a fake route
 // client through the same exported functions production uses. No production
@@ -136,6 +239,7 @@ export function configureCiWatch(
     watchKeys.clear()
     queuedReports.clear()
     settledWatches.clear()
+    resetCiWatchSnapshots()
     return
   }
   const { spawner: injected, ...rest } = overrides
@@ -144,6 +248,7 @@ export function configureCiWatch(
 }
 
 export function bindCiWatchClient(source: PluginClientHost | WatchRouteClient | undefined): void {
+  ++bindingGeneration
   if (!source) {
     routeClient = null
     return
@@ -402,8 +507,10 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
 // custom tools directory as `<file>_<export>`, beside the plugin
 // registration. Only the plugin registration may name this tool (CD-0199
 // D1), so the definition leaves this module through a factory: a function
-// export is not a tool shape.
-export function ciWatchTool(): {
+// export is not a tool shape. The optional binding id names the peer
+// registration the plugin wiring passes; the watches this definition admits
+// stamp it, and the peer read qualifies watches against it.
+export function ciWatchTool(bindingID: string | null = null): {
   description: string
   args: typeof ciWatchContract.properties
   execute: (args: unknown, context: { sessionID: string; abort?: AbortSignal }) => Promise<{ title: string; output: string }>
@@ -411,7 +518,7 @@ export function ciWatchTool(): {
   return {
     description: hostToolDescriptions.concord_ci_watch,
     args: ciWatchContract.properties,
-    execute: (args, context) => executeConcordCiWatch(args, context),
+    execute: (args, context) => executeConcordCiWatch(args, context, bindingID),
   }
 }
 
@@ -430,6 +537,7 @@ export async function publishCiWatchDefinition(
 async function executeConcordCiWatch(
   rawArgs: unknown,
   context: { sessionID: string; abort?: AbortSignal },
+  bindingID: string | null = null,
 ): Promise<{ title: string; output: string }> {
   const boundaryRefusal = await coordinatorRefusal(context)
   if (boundaryRefusal !== null) return refusalResult(boundaryRefusal)
@@ -459,18 +567,22 @@ async function executeConcordCiWatch(
       `concord_ci_watch already holds ${unresolved} unresolved watches and undelivered reports for this session, and the delivery queue caps at ${config.maxQueuedPerSession}; receive a delivered report or send a message to release capacity`,
     )
   }
-  const watch = createWatch(context.sessionID, args, binary)
+  const watch = createWatch(context.sessionID, args, binary, bindingID)
   watchKeys.set(key, watch.id)
   startWatch(watch)
   announceWatchNotice(watch)
   return watchResult(watch, "started")
 }
 
-function createWatch(sessionID: string, args: CiWatchArgs, binary: string): ActiveWatch {
+function createWatch(sessionID: string, args: CiWatchArgs, binary: string, bindingID: string | null = null): ActiveWatch {
   const id = randomUUID()
   fs.mkdirSync(config.stateDir, { recursive: true })
   return {
     id,
+    watchEpoch: ++peerSequence,
+    bindingID,
+    lastObservation: null,
+    consecutiveSliceFailures: 0,
     sessionID,
     args,
     binary,
@@ -506,9 +618,15 @@ function verbRequestBody(watch: ActiveWatch): string {
 }
 
 async function runVerbSlice(watch: ActiveWatch): Promise<CiWaitReport> {
+  const sliceStartedAt = Date.now()
   const { exitCode, stdout, stderr } = await spawner([watch.binary, "ci-wait"], verbRequestBody(watch), AbortSignal.timeout(config.sliceTimeoutMs))
   const report = parseVerbReport(stdout)
-  if (report !== null) return report
+  if (report !== null) {
+    // Projected beside this exact report; the terminal settle passes it back.
+    watch.lastObservation = projectCiObservation(watch, report, sliceStartedAt)
+    peerSequence++
+    return report
+  }
   const detail = stderr.trim() ? `: ${stderr.trim().slice(0, 400)}` : ""
   throw new Error(`the concord ci-wait verb produced no JSON report (exit ${exitCode}${detail})`)
 }
@@ -536,7 +654,6 @@ function watchCeilingMs(watch: ActiveWatch): number {
 async function runWatch(watch: ActiveWatch): Promise<void> {
   activeWatches.set(watch.id, watch)
   try {
-    let sliceFailures = 0
     for (;;) {
       if (Date.now() - watch.startedAt >= watchCeilingMs(watch)) {
         await settle(watch, {
@@ -549,27 +666,29 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
       try {
         report = await runVerbSlice(watch)
       } catch (error) {
-        sliceFailures++
+        watch.consecutiveSliceFailures++
+        peerSequence++
         log("error", `ci-watch ${watch.id}: verb slice failed (${errorDetail(error)})`)
-        if (sliceFailures >= config.maxSliceFailures) {
+        if (watch.consecutiveSliceFailures >= config.maxSliceFailures) {
           await settle(watch, {
             status: "error",
-            reason: `the concord ci-wait verb failed ${sliceFailures} consecutive slices: ${errorDetail(error)}`,
+            reason: `the concord ci-wait verb failed ${watch.consecutiveSliceFailures} consecutive slices: ${errorDetail(error)}`,
           })
           return
         }
         continue
       }
-      sliceFailures = 0
+      watch.consecutiveSliceFailures = 0
       // pending means re-invoke: the verb already paced this slice, so the
       // next slice starts immediately.
       if (report.status === "pending") continue
-      await settle(watch, report)
+      await settle(watch, report, watch.lastObservation)
       return
     }
   } finally {
     stopWatchHeartbeats(watch)
     activeWatches.delete(watch.id)
+    peerSequence++
     // The loop owns abandonment as well as normal terminal reports. A child
     // that dies without a report cannot remove its own resumable state.
     try {
@@ -684,8 +803,14 @@ function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
   return `[concord ci-watch ${watch.id}] CI wait ${report.status} for ${watch.args.repo} ${selector}${mode}.\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\``
 }
 
-async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
+async function settle(watch: ActiveWatch, report: CiWaitReport, sliceObservation: CiWatchObservation | null = null): Promise<void> {
   stopWatchHeartbeats(watch)
+  // The terminal receipt records before any await. Only the call site that
+  // just received this report from runVerbSlice hands its observation down;
+  // adapter-generated timeout/error reports project fresh evidence at
+  // Date.now and borrow no earlier slice's SHA.
+  watch.terminalObservation = sliceObservation ?? projectCiObservation(watch, report, Date.now())
+  recordCiTerminal(watch, watch.terminalObservation)
   // The notice always precedes the report: settle waits for the announce task
   // before it delivers. The task never rejects, so this cannot fail delivery.
   await watch.notice
@@ -695,13 +820,14 @@ async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
   try {
     const outcome = await deliverTerminalReport(watch, text)
     if (outcome === "delivered") {
+      updateCiDelivery(watch.id, "delivered")
       log("info", `ci-watch ${watch.id}: the terminal report was delivered and the assistant reply parented to it followed`)
     } else {
-      queueReport(watch.sessionID, watch.id, text)
+      queueReport(watch, text)
       log("warn", `ci-watch ${watch.id}: no assistant reply parented to the injected report followed within ${Math.round(config.confirmWindowMs / 1000)}s; the report is queued for the next message`)
     }
   } catch (error) {
-    queueReport(watch.sessionID, watch.id, text)
+    queueReport(watch, text)
     log("error", `ci-watch ${watch.id}: delivery failed (${errorDetail(error)}); the report is queued for the next message`)
   }
 }
@@ -841,18 +967,19 @@ function unresolvedSessionDeliveries(sessionID: string): number {
   return active + (queuedReports.get(sessionID)?.length ?? 0)
 }
 
-function queueReport(sessionID: string, watchID: string, text: string): void {
-  const queue = queuedReports.get(sessionID) ?? []
+function queueReport(watch: ActiveWatch, text: string): void {
+  const queue = queuedReports.get(watch.sessionID) ?? []
   if (queue.length >= config.maxQueuedPerSession) {
     // Admission bounds a session's unresolved watches plus queued reports, so
     // this branch means that bound was exceeded; the accepted report is
     // retained anyway and the breach is logged, because dropping an earlier
     // accepted report to make room is the one outcome admission exists to
     // prevent.
-    log("error", `ci-watch ${watchID}: session ${sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
+    log("error", `ci-watch ${watch.id}: session ${watch.sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
   }
-  queue.push({ watchID, text })
-  queuedReports.set(sessionID, queue)
+  queue.push({ record: { ...ciWatchRecord(watch), phase: "queued" }, text })
+  queuedReports.set(watch.sessionID, queue)
+  updateCiDelivery(watch.id, "queued")
 }
 
 // drainQueuedCiReports injects every queued terminal report into the message
@@ -864,10 +991,11 @@ function queueReport(sessionID: string, watchID: string, text: string): void {
 export function drainQueuedCiReports(sessionID: string, messageID: string, output: { parts: unknown[] }): void {
   const queue = queuedReports.get(sessionID)
   if (queue === undefined || queue.length === 0) return
-  queuedReports.delete(sessionID)
-  for (const { text } of queue) {
+  for (const { record, text } of queue) {
+    updateCiDelivery(record.watch_id, "drained")
     output.parts.push({ id: `prt_ciwatch-${randomUUID()}`, sessionID, messageID, type: "text", text, synthetic: true })
   }
+  queuedReports.delete(sessionID)
 }
 
 // drainQueuedCiReportsForMessage resolves the drain identity the way the host
@@ -897,4 +1025,314 @@ export function drainQueuedCiReportsForMessage(
     return
   }
   drainQueuedCiReports(sessionID, messageID, output as { parts: unknown[] })
+}
+
+// --- Peer read snapshot ---
+
+// A peer read is passive: observations are freshened on detached copies only,
+// and the result is JSON-cloned once so nested selectors, counts, and
+// observations cannot alias the owner's maps or mutate them later.
+export type CiWatchSnapshot = {
+  version: 1
+  pid: number
+  runtime_epoch: string
+  owner_started_at: number
+  sequence: number
+  session_id: string
+  read_at: number
+  active: CiWatchRecord[]
+  receipts: CiWatchReceipt[]
+  receipt_limit: number
+  retention_floor: number
+  history_gap: boolean
+}
+
+// Freshness marks the detached copy only: a slice older than the slice
+// timeout plus the 30s grace watchCeilingMs also grants is stale, an interval
+// off this read's clock adds clock_gap, and either marks evidence unavailable.
+function freshenObservation(observation: CiWatchObservation, now: number): CiWatchObservation {
+  const stale = now - observation.slice_started_at > config.sliceTimeoutMs + 30_000
+  const gaps = [...observation.gaps]
+  let evidence = observation.evidence
+  if (observation.report_received_at > now || observation.slice_started_at > observation.report_received_at) {
+    gaps.push("clock_gap")
+    evidence = "unavailable"
+  }
+  if (stale) {
+    gaps.push("observation_stale")
+    evidence = "unavailable"
+  }
+  return { ...observation, stale, evidence, gaps }
+}
+
+// ciWatchSnapshot reads one session's watch state for a peer. It runs before
+// the first watch, holds no client, and truncates nothing: the peer boundary
+// owns its own bounds. A queued record wins a transient overlap with its
+// still-active watch, so the session sees the settled phase.
+export function ciWatchSnapshot(sessionID: string, sinceSequence?: number): CiWatchSnapshot {
+  const now = Date.now()
+  const byWatchID = new Map<string, CiWatchRecord>()
+  for (const watch of activeWatches.values()) {
+    if (watch.sessionID === sessionID) byWatchID.set(watch.id, ciWatchRecord(watch))
+  }
+  for (const { record } of queuedReports.get(sessionID) ?? []) {
+    byWatchID.set(record.watch_id, record)
+  }
+  const active = [...byWatchID.values()].map((record) => ({
+    ...record,
+    last_observation: record.last_observation && freshenObservation(record.last_observation, now),
+    terminal_observation: record.terminal_observation && freshenObservation(record.terminal_observation, now),
+  }))
+  const receipts = terminalReceipts
+    .filter((receipt) => receipt.session_id === sessionID && (sinceSequence === undefined || receipt.terminal_sequence > sinceSequence))
+    .map((receipt) => ({
+      ...receipt,
+      last_observation: receipt.last_observation && freshenObservation(receipt.last_observation, now),
+      terminal_observation: freshenObservation(receipt.terminal_observation, now),
+    }))
+  const snapshot = {
+    version: 1,
+    pid: process.pid,
+    runtime_epoch: runtimeEpoch,
+    owner_started_at: ownerStartedAt,
+    sequence: peerSequence,
+    session_id: sessionID,
+    read_at: now,
+    active,
+    receipts,
+    receipt_limit: CI_WATCH_RECEIPT_LIMIT,
+    retention_floor: retentionFloor,
+    history_gap: sinceSequence !== undefined && sinceSequence < retentionFloor,
+  }
+  return JSON.parse(JSON.stringify(snapshot)) as CiWatchSnapshot
+}
+
+// --- Peer bindings and publication ---
+// A same-process peer plugin reads this plugin's watch state through a frozen port
+// published on a well-known global symbol inside registerCiWatchPeer, never
+// at module load.
+export type PeerInput = PluginClientHost & { serverUrl?: URL; directory?: string; worktree?: string }
+
+export type CiWatchPeerRead = {
+  version: 1; pid: number
+  runtime_epoch: string; read_at: number
+  binding_generation: number; client_bound: boolean
+  coverage: "unknown" | "complete_current_epoch"
+  gaps: string[]
+  bindings: Array<{ id: string; generation: number; endpoint: string; directory: string; worktree: string }>
+  snapshot: CiWatchSnapshot | null
+}
+
+// The published object carries only the version and the read call.
+type CiWatchPeer = { version: 1; read: (request: unknown) => Promise<CiWatchPeerRead> }
+// Owner-side record; peerBindingInfo strips client and live before exposure.
+type PeerBinding = {
+  id: string; generation: number; live: boolean; qualified: boolean
+  client: WatchRouteClient | null
+  endpoint: string; directory: string; worktree: string
+}
+
+// Bindings occupy lifetime slots; disposal frees none and overflow sticks until reset.
+const CI_WATCH_PEER_BINDING_LIMIT = 64
+const CI_WATCH_PEER_SYMBOL = Symbol.for("concord.ci-watch.peer.v1")
+// One typed globalThis view; register, reset, and the owner check share it.
+const peerGlobals = globalThis as typeof globalThis & { [CI_WATCH_PEER_SYMBOL]?: CiWatchPeer }
+const CI_WATCH_PEER_PUBLISH_FAILED = "concord ci-watch: the peer port could not be published on its global symbol; same-process peer reads stay unavailable"
+let bindingGeneration = 0
+let peerBindingOverflow = false
+const peerBindings = new Map<string, PeerBinding>()
+let publishedPeer: CiWatchPeer | null = null
+
+function peerUrlValid(serverUrl: unknown): serverUrl is URL {
+  return serverUrl instanceof URL &&
+    (serverUrl.protocol === "http:" || serverUrl.protocol === "https:") &&
+    serverUrl.username === "" && serverUrl.password === "" && serverUrl.search === "" &&
+    serverUrl.hash === "" && (serverUrl.pathname === "/" || serverUrl.pathname === "") &&
+    serverUrl.href.length <= 2048
+}
+
+function peerDirValid(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && Buffer.byteLength(value, "utf8") <= 4096
+}
+// Fresh record per call; no client reference or liveness state leaves the module.
+function peerBindingInfo(binding: PeerBinding): CiWatchPeerRead["bindings"][number] {
+  return { id: binding.id, generation: binding.generation, endpoint: binding.endpoint, directory: binding.directory, worktree: binding.worktree }
+}
+
+// Each publication cycle mints one port whose read hands readCiWatchPeer the
+// exact installed object; reset retires the reference, so a cached retired port
+// fails the later identity check and stays unknown.
+function makePeerPort(): CiWatchPeer {
+  const port: CiWatchPeer = Object.freeze({ version: 1, read: async (request: unknown) => readCiWatchPeer(request, port) })
+  return port
+}
+
+// A foreign symbol occupant (another module instance or an unrelated publisher)
+// is replaced by this frozen sentinel answering unknown for every read; it
+// never serves a complete map.
+const peerConflictSentinel: CiWatchPeer = Object.freeze({
+  version: 1,
+  read: async () => refusedPeerRead("owner_conflict"),
+})
+
+// Records one plugin-instance binding and publishes the peer port; a
+// publication failure logs at warn and never blocks the calling watch. A
+// typed null input is unsupported; the omitted-input default covers the
+// no-fields call. A field is stored only when it qualifies: an invalid URL
+// or oversized path stores an empty string, never a raw credential URL.
+export function registerCiWatchPeer(input: PeerInput = {}): { id: string; dispose: () => void } {
+  const binding: PeerBinding = {
+    id: randomUUID(), generation: ++bindingGeneration, live: true,
+    qualified: peerUrlValid(input.serverUrl) && peerDirValid(input.directory) && peerDirValid(input.worktree),
+    client: routeClientOf(input.client),
+    endpoint: peerUrlValid(input.serverUrl) ? input.serverUrl.href : "",
+    directory: peerDirValid(input.directory) ? input.directory : "",
+    worktree: peerDirValid(input.worktree) ? input.worktree : "",
+  }
+  if (peerBindings.size >= CI_WATCH_PEER_BINDING_LIMIT) peerBindingOverflow = true
+  else peerBindings.set(binding.id, binding)
+  if (publishedPeer === null) publishedPeer = makePeerPort()
+  // A foreign occupant can hold the slot read-only or behind a throwing
+  // getter; neither may break the watch this call is admitting.
+  try {
+    const current = peerGlobals[CI_WATCH_PEER_SYMBOL]
+    peerGlobals[CI_WATCH_PEER_SYMBOL] = current !== undefined && current !== publishedPeer ? peerConflictSentinel : publishedPeer
+  } catch {
+    log("warn", CI_WATCH_PEER_PUBLISH_FAILED)
+  }
+  return {
+    id: binding.id,
+    // Idempotent: the generation moves once per binding, never per dispose.
+    dispose: () => {
+      if (!binding.live) return
+      binding.live = false
+      ++bindingGeneration
+    },
+  }
+}
+
+// Retires this module's own port or sentinel and clears all binding state.
+function resetCiWatchPeer(): void {
+  const current = peerGlobals[CI_WATCH_PEER_SYMBOL]
+  if (current === publishedPeer || current === peerConflictSentinel) delete peerGlobals[CI_WATCH_PEER_SYMBOL]
+  peerBindings.clear()
+  peerBindingOverflow = false
+  bindingGeneration = 0
+  publishedPeer = null
+}
+
+// A refusal names its gaps and serves no snapshot: a bad request or a failed
+// identity lookup proves nothing about watch state. Like every read it also
+// carries prior_epoch_unverified — nothing here proves history from before
+// its own epoch.
+function refusedPeerRead(...gaps: string[]): CiWatchPeerRead {
+  return {
+    version: 1, pid: process.pid, runtime_epoch: runtimeEpoch, read_at: Date.now(), binding_generation: bindingGeneration,
+    client_bound: routeClient !== null, coverage: "unknown", gaps: ["prior_epoch_unverified", ...gaps], bindings: [], snapshot: null,
+  }
+}
+
+function parseCiWatchPeerRequest(request: unknown): { session_id: string; expected_runtime_epoch?: string; since_sequence?: number } | null {
+  if (request === null || typeof request !== "object" || Array.isArray(request)) return null
+  const record = request as Record<string, unknown>
+  if (Object.keys(record).some((key) => key !== "session_id" && key !== "expected_runtime_epoch" && key !== "since_sequence")) return null
+  const sessionID = record.session_id
+  if (typeof sessionID !== "string" || sessionID.trim().length === 0 || Buffer.byteLength(sessionID, "utf8") > 256) return null
+  const epoch = record.expected_runtime_epoch
+  if (epoch !== undefined && (typeof epoch !== "string" || epoch.length === 0 || Buffer.byteLength(epoch, "utf8") > 128)) return null
+  const cursor = record.since_sequence
+  if (cursor !== undefined) {
+    if (typeof cursor !== "number" || !Number.isSafeInteger(cursor) || cursor < 0) return null
+  }
+  return {
+    session_id: sessionID,
+    ...(epoch === undefined ? {} : { expected_runtime_epoch: epoch }),
+    ...(cursor === undefined ? {} : { since_sequence: cursor }),
+  }
+}
+
+function peerOwnerHolds(port: CiWatchPeer): boolean {
+  if (publishedPeer !== port) return false
+  try {
+    return peerGlobals[CI_WATCH_PEER_SYMBOL] === port
+  } catch {
+    return false
+  }
+}
+
+// The peer read validates the closed request, the port identity, and the epoch
+// expectation before any GET, captures binding state before its awaits, and
+// copies the snapshot synchronously after the last one, so no response serves
+// a stale generation. Every gap besides prior_epoch_unverified is a coverage
+// gap; the published array is the sorted gap set, complete and deterministic.
+async function readCiWatchPeer(request: unknown, port: CiWatchPeer): Promise<CiWatchPeerRead> {
+  const parsed = parseCiWatchPeerRequest(request)
+  if (parsed === null) return refusedPeerRead("invalid_request")
+  if (!peerOwnerHolds(port)) return refusedPeerRead("owner_conflict")
+  if (parsed.expected_runtime_epoch !== undefined && parsed.expected_runtime_epoch !== runtimeEpoch) return refusedPeerRead("epoch_mismatch")
+  const epoch = runtimeEpoch
+  const generation = bindingGeneration
+  const gaps = new Set<string>()
+  const live = [...peerBindings.values()].filter((binding) => binding.live)
+  if (peerBindingOverflow) gaps.add("binding_limit")
+  if (live.length === 0) gaps.add("no_live_binding")
+  if (live.some((binding) => !binding.qualified)) gaps.add("binding_unqualified")
+  if (routeClient === null || live.some((binding) => binding.qualified && binding.client === null)) gaps.add("client_unbound")
+  const matched: PeerBinding[] = []
+  const probed = live.filter((binding) => binding.qualified && binding.client !== null)
+  await Promise.all(probed.map(async (binding) => {
+    try {
+      const result = await binding.client!.get({ url: SESSION_ROUTE, path: { id: parsed.session_id }, signal: AbortSignal.timeout(10_000) })
+      if (result.response.status === 404) return
+      if (!result.response.ok) { gaps.add("session_unreachable"); return }
+      const record = (result.data ?? {}) as { id?: unknown }
+      if (record.id !== parsed.session_id) { gaps.add("session_identity_mismatch"); return }
+      matched.push(binding)
+    } catch {
+      gaps.add("session_unreachable")
+    }
+  }))
+  const lookupFailed = gaps.has("session_unreachable") || gaps.has("session_identity_mismatch")
+  if (matched.length === 0 && probed.length > 0 && !lookupFailed) gaps.add("session_missing")
+  else if (new Set(matched.map((binding) => binding.endpoint)).size > 1) gaps.add("ambiguous_host")
+  if (!peerOwnerHolds(port)) return refusedPeerRead("owner_conflict")
+  if (runtimeEpoch !== epoch) return refusedPeerRead("epoch_mismatch")
+  if (bindingGeneration !== generation) return refusedPeerRead("binding_changed")
+  // A failed identity lookup proves nothing about watch state: an empty
+  // snapshot would read as a proven-empty session, so refuse with the whole
+  // collected gap set — no single-gap selection hides a sibling cause.
+  const hasIdentityGap = ["ambiguous_host", "session_identity_mismatch", "session_missing", "session_unreachable"].some((gap) => gaps.has(gap))
+  if (hasIdentityGap) return refusedPeerRead(...[...gaps].sort())
+  const snapshot = ciWatchSnapshot(parsed.session_id, parsed.since_sequence)
+  // The envelope carries the same clock invariant freshenObservation applies
+  // to observations: a start stamp after this read's clock gaps, even empty.
+  if (snapshot.owner_started_at > snapshot.read_at) gaps.add("clock_gap")
+  const referenced = new Map<string, PeerBinding>()
+  for (const record of snapshot.active) {
+    const binding = record.binding_id === null ? undefined : peerBindings.get(record.binding_id)
+    if (binding === undefined) gaps.add("unqualified_watch")
+    else if (!binding.live) gaps.add("disposed_watch")
+    else if (!binding.qualified) gaps.add("unqualified_watch")
+    // The watch proves state only for the endpoint its binding names; a
+    // same-named session on another endpoint is a different session.
+    else if (matched[0] !== undefined && binding.endpoint !== matched[0].endpoint) gaps.add("watch_host_mismatch")
+    if (binding !== undefined) referenced.set(binding.id, binding)
+  }
+  for (const receipt of snapshot.receipts) {
+    const binding = receipt.binding_id === null ? undefined : peerBindings.get(receipt.binding_id)
+    if (binding !== undefined) referenced.set(binding.id, binding)
+  }
+  if (snapshot.history_gap) gaps.add("history_gap")
+  for (const binding of matched) referenced.set(binding.id, binding)
+  const others = [...gaps].sort()
+  const coverage: CiWatchPeerRead["coverage"] = others.length === 0 ? "complete_current_epoch" : "unknown"
+  const response: CiWatchPeerRead = {
+    version: 1, pid: process.pid, runtime_epoch: epoch, read_at: Date.now(), binding_generation: generation,
+    client_bound: routeClient !== null, coverage, gaps: ["prior_epoch_unverified", ...others],
+    bindings: [...referenced.values()].map(peerBindingInfo), snapshot,
+  }
+  // The whole response is bound, never truncated: an oversized set is
+  // refused whole, because truncation could understate the watch state.
+  if (Buffer.byteLength(JSON.stringify(response), "utf8") > 256 * 1024) return refusedPeerRead("response_limit")
+  return response
 }

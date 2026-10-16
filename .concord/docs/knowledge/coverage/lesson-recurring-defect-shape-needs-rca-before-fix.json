@@ -1,5 +1,30 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecurrentBugCaptureRefusesNamingSiblingAndRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRootCauseDisqualificationsRefuse"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicDefectJourneyThroughRealResearchCompletion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWellFormedAdmissionStateHasNonContinuityExit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-agent-lanes.py"
+    }
+  ],
   "id": "lesson-recurring-defect-shape-needs-rca-before-fix",
-  "issue": "CON-797",
-  "state": "outstanding"
+  "state": "satisfied"
 }

@@ -2390,11 +2390,10 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
-		if recoveryErr != nil {
+		if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
 			return recoveryErr
 		}
+		correctionRecovery = true
 	}
 	if p.ActionID == "request_correction" {
 		if isWorkflowReplay(ctx) {
@@ -2473,6 +2472,12 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 	return nil
 }
 
+// workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
+func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
+	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
+	return ok && mode == ActionAdvance && (p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")))
+}
+
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -2537,11 +2542,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	}
 	advancesStep := false
 	if p.ActionID != "" {
-		executionMode, ok := workflowActionExecutionMode(entry.Definition, p.ActionID)
-		if !ok && !isWorkflowReplay(ctx) {
+		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		advancesStep = ok && executionMode == ActionAdvance
 		// A non-settling accepted review keeps the step current: refine does
 		// not advance to delivery behind a no_ship review, and the advance
 		// waits for a settling review (CD-0201 D3). The decision is the
@@ -2555,8 +2558,16 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		// job and holds the parent step. Whole-work delivery stays with
 		// record_delivery and the delivery-asserting accept. The fold reads
 		// the recorded worker_job and delivery fields only.
-		if p.ActionID == "accept_worker_result" {
-			advancesStep = advancesStep && !p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")
+		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
+		// Prefix-bounded unconsumed-rejection hold at event assembly.
+		if p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
+			rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
+			if rejectionHoldErr != nil {
+				return rejectionHoldErr
+			}
+			if failure := workflowRejectionAdvanceFailure(rejectionHeld, p.ActionID, advancesStep); failure != nil {
+				return failure
+			}
 		}
 		if advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, currentStep, event, p); err != nil {
@@ -3234,11 +3245,8 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		allowed = allowed || derivedPair
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
-		var recoveryErr error
-		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", event.Seq)
-		if recoveryErr != nil {
-			return recoveryErr
-		}
+		// validateWorkerResultRejection runs unconditionally below.
+		allowed = true
 	}
 	if !allowed {
 		// The pinned definition is code and its step graph moves on, so a
@@ -3265,6 +3273,14 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if attemptWorkID != event.SubjectID {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
+	var target workflowRejectableResult
+	if payload.ActionID == "reject_worker_result" {
+		var rejectionErr error
+		target, rejectionErr = validateWorkerResultRejection(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", payload.WorkerAttemptID, payload.AttemptEpoch, event.Seq)
+		if rejectionErr != nil {
+			return rejectionErr
+		}
+	}
 	var attemptSeq int64
 	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND seq<? AND ((kind=? AND json_extract(payload,'$.attempt_id')=?) OR (? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.step_id')=?)) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, event.Seq, WorkerDispatched, payload.WorkerAttemptID, requiredLifecycle == "failed", WorkflowActionCompleted, payload.WorkerAttemptID, currentStep).Scan(&attemptSeq); err != nil {
 		if err == sql.ErrNoRows {
@@ -3278,10 +3294,12 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// At a human_checkpoint step the
 	// attempt anchors to the dispatch window that opened it (CD-0193): an
 	// authorized window no worker used must not orphan the failed attempt the
-	// operator records there. Every other step keeps the prior rule: the
-	// epoch must match the latest workflow action start on the step, and the
-	// dispatch must follow that start, so a stale completed attempt cannot
-	// advance the step past the current one.
+	// operator records there. Every other step keeps the prior rule for the
+	// accept and failure dispositions: the epoch must match the latest
+	// workflow action start on the step, and the dispatch must follow that
+	// start, so a stale completed attempt cannot advance the step past the
+	// current one. Rejection skips that anchor: its exact target validation
+	// above owns the epoch and dispatch provenance at this bound.
 	anchorSeq := event.Seq
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
 		anchorSeq = attemptSeq
@@ -3290,10 +3308,10 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if err != nil {
 		return err
 	}
-	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
+	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the attempt with the epoch of the workflow action start that dispatched it")
 	}
-	if attemptSeq <= startSeq {
+	if attemptSeq <= startSeq && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")
 	}
 	if lifecycle != requiredLifecycle {
@@ -3306,7 +3324,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
 	if !derivedPair {
-		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
+		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef, "", false, "fold_event"); err != nil {
 			return err
 		}
 	}

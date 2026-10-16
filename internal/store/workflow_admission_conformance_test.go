@@ -42,6 +42,7 @@ type admissionConformanceView struct {
 	CorrectionRecovery            bool
 	CorrectionRequestRecovery     bool
 	CorrectionEscalated           bool
+	UnconsumedUnboundRejection    bool
 	NonProgressAttempts           int64
 	RetryConvergence              bool
 	FailedWorkerRetry             bool
@@ -79,7 +80,7 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		ReviewDebt:    state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "",
 		LateVerdictRoute: state.LateVerdictRoute, WorkerFailureRecovery: state.WorkerFailureRecovery,
 		CorrectionRecovery: state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
-		CorrectionEscalated: state.CorrectionEscalated, NonProgressAttempts: state.NonProgressAttempts,
+		CorrectionEscalated: state.CorrectionEscalated, UnconsumedUnboundRejection: state.UnconsumedUnboundRejection, NonProgressAttempts: state.NonProgressAttempts,
 		RetryConvergence:  state.RetryConvergence.valid(),
 		FailedWorkerRetry: state.FailedWorkerRetry != nil,
 		DispatchHold:      state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,

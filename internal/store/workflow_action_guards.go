@@ -83,6 +83,20 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRecovery {
 		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
+	// The refusal binds the exact attempt pair the payload names; no
+	// availability boolean for another open result authorizes it.
+	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+	attemptID, attemptOK := workflowFieldString(fields, "attempt_id")
+	epoch, epochOK := workflowFieldIntOK(fields, "attempt_epoch")
+	if !attemptOK || attemptID == "" || !epochOK {
+		return newFailure(KindInvalidPayload, "workflow_action", "reject_worker_result requires the exact attempt_id and attempt_epoch of a completed result", false, "supply the attempt pair the work pin advertises")
+	}
+	if _, err := validateWorkerResultRejection(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", attemptID, epoch, 0); err != nil {
+		return err
+	}
 	// On an oracle-capable history the rejection's open finding
 	// set must exactly equal the derived open set — omission never closes
 	// a finding. Oracle-free histories keep the legacy optional field.
@@ -987,6 +1001,25 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	}
 	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 	state := workflowFieldStringDefault(fields, "delivery_state", "")
+	// Payload-bound advance derivation while the folded hold stands.
+	if g.admissionState.UnconsumedUnboundRejection {
+		mode, modeOK := workflowActionExecutionMode(g.entry.Definition, "accept_worker_result")
+		advances := modeOK && mode == ActionAdvance && !workflowAcceptBindsReadyUnsettledReview(g.admissionState, fields)
+		if advances && artifact == "" && state == "" && workflowWorkerJobsActive(g.entry.Definition) {
+			job, jobErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+			if jobErr != nil {
+				return jobErr
+			}
+			advances = job == nil
+		}
+		if failure := workflowRejectionAdvanceFailure(true, "accept_worker_result", advances); failure != nil {
+			// The review refusal takes precedence when both obligations refuse.
+			if err := guardPostRejectionReviewGate(g); err != nil {
+				return err
+			}
+			return failure
+		}
+	}
 	if workflowAcceptDeliveryAdmissionActive(g.entry.Definition, g.currentStep) {
 		// The accepted disposition of a ready non-settling review is the one
 		// non-delivery accept the delivery-admitting refinement step takes:

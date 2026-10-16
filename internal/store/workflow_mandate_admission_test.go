@@ -18,7 +18,7 @@ func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, defi
 	if err != nil {
 		return err
 	}
-	rejected, err := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, step, subject, 0)
+	rejected, err := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, step, subject)
 	if err != nil {
 		return err
 	}

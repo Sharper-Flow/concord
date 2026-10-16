@@ -126,6 +126,9 @@ type WorkflowAdmissionState struct {
 	// CorrectionEscalated reports a recorded worker correction that reached
 	// the attempt limit.
 	CorrectionEscalated bool
+	// UnconsumedUnboundRejection reports an unbound rejection at the
+	// current step no materialized dispatch has consumed yet.
+	UnconsumedUnboundRejection bool
 	// RetryConvergence is derived from recorded finding sets or a contract
 	// supersession. An escalated retry needs this basis, not an approval.
 	RetryConvergence WorkflowRetryConvergence
@@ -375,7 +378,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, workerFailureErr
 	}
 	state.WorkerFailureRecovery = workerFailureRoute
-	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject, 0)
+	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject)
 	if correctionRouteErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, correctionRouteErr
 	}
@@ -421,6 +424,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, correctionErr
 	} else if correctionErr == nil && correction != nil {
 		state.CorrectionEscalated = correction.Escalated
+	}
+	// A current-step advance condition from the history's consumption answer.
+	if workflowStepCarriesRejectionHold(definition, currentStep) {
+		rejectionHold, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, q, workID, currentStep, subject, 0)
+		if rejectionHoldErr != nil {
+			return WorkflowAdmissionState{}, nil, nil, rejectionHoldErr
+		}
+		state.UnconsumedUnboundRejection = rejectionHold
 	}
 	nonProgress, wallErr := workflowNonProgressAttemptCount(ctx, q, workID, subject)
 	if wallErr != nil {
@@ -808,6 +819,18 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			return decision
 		}
 	}
+	// The accept-side sibling of the dispatch hold; the payload-omitted held
+	// shapes defer to the guard and the fold.
+	if state.UnconsumedUnboundRejection && actionID == "accept_worker_result" {
+		mode, modeOK := workflowActionExecutionMode(definition, actionID)
+		advances := modeOK && mode == ActionAdvance &&
+			!workflowAcceptDeliveryAdmissionActive(definition, state.Step) &&
+			!workflowWorkerJobsActive(definition)
+		if failure := workflowRejectionAdvanceFailure(true, actionID, advances); failure != nil {
+			decision.Failure = failure
+			return decision
+		}
+	}
 	if !workflowAdmissionStepAllows(definition, state, actionID) {
 		decision.OffStep = true
 		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
@@ -973,6 +996,50 @@ func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) Workflo
 // ride the review gate's acceptance route.
 func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision, actionID string) bool {
 	return decision.FreshReviewRequired && actionID == "accept_worker_result"
+}
+
+// workflowStepCarriesRejectionHold: a named non-checkpoint step carries the hold.
+func workflowStepCarriesRejectionHold(definition WorkflowDefinition, currentStep string) bool {
+	step := workflowStep(definition, currentStep)
+	return step != nil && step.Kind != WorkflowStepHumanCheckpoint
+}
+
+// workflowUnconsumedUnboundRejection reports whether an unbound
+// reject_worker_result record at the current step stands unconsumed in the
+// prefix beforeSeq names (exclusive; 0 reads the current prefix), reusing the
+// correction walk's consumption rule over a shallow copy of its records.
+func workflowUnconsumedUnboundRejection(ctx context.Context, q queryer, workID, currentStep, subject string, beforeSeq int64) (bool, error) {
+	if currentStep == "" {
+		return false, nil
+	}
+	prefix := beforeSeq - 1
+	if beforeSeq <= 0 {
+		prefix = int64(1) << 62
+	}
+	history, err := workflowCorrectionWalk(ctx, q, workID, prefix, subject)
+	if err != nil {
+		return false, err
+	}
+	filtered := *history
+	filtered.records = make([]workflowCorrectionRecordState, 0, len(history.records))
+	for _, record := range history.records {
+		if record.fields.ActionID != "reject_worker_result" || record.jobKey != "" || record.fields.StepID != currentStep {
+			continue
+		}
+		filtered.records = append(filtered.records, record)
+	}
+	return filtered.openRecord("") != nil, nil
+}
+
+// workflowRejectionAdvanceFailure is the shared unconsumed-rejection advance
+// refusal; non-advancing held shapes keep their routes.
+func workflowRejectionAdvanceFailure(held bool, actionID string, advances bool) *Failure {
+	if !held || actionID != "accept_worker_result" || !advances {
+		return nil
+	}
+	return newFailure(KindIllegalLifecycleTransition, "workflow_action",
+		"an unconsumed rejected worker result holds the step's advance", false,
+		"dispatch a fresh worker whose materialized completion consumes the correction, then advance")
 }
 
 // workflowReadyReviewAttemptTx names the latest completed review attempt

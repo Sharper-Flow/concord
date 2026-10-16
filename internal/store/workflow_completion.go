@@ -858,13 +858,22 @@ func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, ve
 }
 
 func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+	return workflowActorsDistinctForExecutor(ctx, tx, workID, "", verdictActor, verdictModel, requireModelDistinct, operation)
+}
+
+// workflowActorsDistinctForExecutor evaluates distinctness against a supplied
+// executorRef, which must resolve, and otherwise against the instance's current lookup.
+func workflowActorsDistinctForExecutor(ctx context.Context, tx *sql.Tx, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
-	err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
-	if err == sql.ErrNoRows {
-		// Instances pinned before selector pinning carry no executor tuple.
-		// The selecting actor from the immutable definition event is the
-		// same identity the fold now pins, so distinctness evaluates
-		// against it instead of refusing outright (#970).
+	var err error
+	if executorRef == "" {
+		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	} else {
+		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=? WHERE i.work_id=?`, executorRef, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	}
+	if err == sql.ErrNoRows && executorRef == "" {
+		// The immutable selecting actor supplies the tuple when the
+		// instance has no executor tuple.
 		derived, found, deriveErr := workflowSelectingActorTx(ctx, tx, workID)
 		if deriveErr != nil {
 			return deriveErr

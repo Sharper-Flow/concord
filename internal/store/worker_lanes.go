@@ -929,34 +929,53 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 	return findAuthorizedDispatchWindowCore(ctx, tx, workID, attemptID)
 }
 
-// findAuthorizedDispatchWindowCore is the queryer-scoped window read. The
-// nullable frontier scan reads the recorded worker_context_frontier without
-// a COALESCE default, so a historical authorization without the field reads
-// as explicit absence, never as a recorded zero.
-func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, attemptID string) (WorkerDispatchWindow, error) {
+// readAuthorizedDispatchWindowBefore is the raw SQL read both window readers
+// share: exclusive at beforeSeq (0 reads the current prefix), the nullable
+// frontier keeps explicit absence, and the completion epoch returns beside the window.
+func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, attemptID string, beforeSeq int64) (WorkerDispatchWindow, int64, error) {
 	var window WorkerDispatchWindow
 	var frontier sql.NullInt64
+	var completionEpoch, startEpoch int64
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
+			return window, 0, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
-		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
+		return window, 0, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
 	}
 	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
-	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq, beforeSeq, beforeSeq).Scan(&window.StartSeq, &startEpoch); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
+			return window, 0, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
-		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
+		return window, 0, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
 	}
+	window.AttemptEpoch = startEpoch
 	if window.SubjectCommit != "" && !worktreeSHAPattern.MatchString(window.SubjectCommit) {
-		return window, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
+		return window, 0, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
+	}
+	return window, completionEpoch, nil
+}
+
+// findAuthorizedDispatchWindowBefore is the strict read: the completion epoch must match the recorded start.
+func findAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, attemptID string, beforeSeq int64) (WorkerDispatchWindow, error) {
+	window, completionEpoch, err := readAuthorizedDispatchWindowBefore(ctx, q, workID, attemptID, beforeSeq)
+	if err != nil {
+		return window, err
+	}
+	if completionEpoch != window.AttemptEpoch {
+		return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completion attempt_epoch does not match the starting authorization epoch", false, "reopen the workflow action against a fresh step epoch")
 	}
 	return window, nil
+}
+
+// findAuthorizedDispatchWindowCore is the current-prefix read without the strict epoch equality.
+func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, attemptID string) (WorkerDispatchWindow, error) {
+	window, _, err := readAuthorizedDispatchWindowBefore(ctx, q, workID, attemptID, 0)
+	return window, err
 }
 
 // WorkerDispatchWindowIsOpenTx reports whether the window has already been

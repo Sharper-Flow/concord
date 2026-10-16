@@ -535,7 +535,7 @@ func TestAcceptedCheckpointReviewIsNotRejectable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	available, err := workflowRejectedWorkerResultAvailable(ctx, s.DatabaseForTesting(), workID, registered.Definition, "verify", "test", 0)
+	available, err := workflowRejectedWorkerResultAvailable(ctx, s.DatabaseForTesting(), workID, registered.Definition, "verify", "test")
 	if err != nil {
 		t.Fatal(err)
 	}

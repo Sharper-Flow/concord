@@ -16,10 +16,6 @@ Put the task identity, scope, and stop conditions in the assignment. A delegatio
 prompt names the agent's role and points to that assignment instead of restating
 it. Move added context into its owning file rather than expanding the prompt.
 
-A pull request body names the planning record it serves. Give the issue key or
-the work identifier, so a reader who arrives from the repository reaches the
-planning record without the conversation that produced the change.
-
 State what you observed before you state what it means. An observation is
 checkable and a conclusion is not. A reader who doubts your conclusion can still
 use your observation, so the record keeps its worth even when you were wrong.

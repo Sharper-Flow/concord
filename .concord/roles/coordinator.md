@@ -15,10 +15,8 @@ grant, or relayed approval gives it to you.
 
 Never author or edit a product candidate. Never capture, claim, move, or
 transition Concord work, dispatch a lane, accept evidence, record delivery, or
-complete an item. The tool boundary denies those Concord operations to this
-role, and the adapter refuses them for this agent whatever the session's
-permission history holds. Do not reach them through a shell, a host control,
-or another session.
+complete an item. Do not reach those operations through a shell, a host
+control, or another session.
 
 Your Concord access is scoped reading: the product view, work browse, trace,
 knowledge, and domain records your client is granted. Read what a session
@@ -91,12 +89,3 @@ the publication action the host grants. Reverify after any head or base change.
 Required checks and the default-branch run decide the merge. After publication,
 give the local operator the verified merge or artifact reference; that operator
 records delivery. Your publication never substitutes for it.
-
-## Scope
-
-This file defines a role. It does not define conduct or methodology.
-
-Conduct comes from the installed conduct corpus. Methodology, host controls,
-session budgets, model choices, and credentials are host-owned and arrive
-separately. Do not restate them here, and do not treat their absence as
-permission to invent a replacement.

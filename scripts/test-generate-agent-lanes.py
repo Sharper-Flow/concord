@@ -15,11 +15,10 @@ generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
 REPORT_SCHEMA = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
 PACKET_SCHEMA = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
-PREMISE_MAX_BYTES = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text(encoding="utf-8"))["$defs"]["workflow_premise"]["maxLength"]
 
 
 def lane_projection(lane, report=None):
-    return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA, PREMISE_MAX_BYTES)
+    return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA)
 
 
 class LaneDigestRetentionTests(unittest.TestCase):
@@ -139,45 +138,6 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`assigned_result` names the one evidence obligation whose discharge completes this attempt", normalized)
         self.assertIn("Complete only that assigned result", normalized)
 
-    def test_projection_states_the_premise_limit_in_bytes_apart_from_other_units(self):
-        # The approval premise bound is UTF-8 bytes; the packet field
-        # bounds are JSON Schema Unicode code points; the lane budget is model
-        # tokens. The guidance reads each number off its owning contract and
-        # keeps the three apart.
-        normalized = " ".join(lane_projection(self.LANE).split())
-        self.assertIn(f"at most {PREMISE_MAX_BYTES} UTF-8 bytes", normalized)
-        self.assertIn("that approval limit counts bytes", normalized)
-        self.assertIn("count JSON Schema Unicode code points", normalized)
-        self.assertIn("`maxLength=4096`", normalized)
-        self.assertIn("`context_tokens_max` is a model token limit", normalized)
-
-    def test_projection_reads_the_task_bound_from_the_packet_schema(self):
-        changed = copy.deepcopy(PACKET_SCHEMA)
-        changed["properties"]["inputs"]["properties"]["task"]["maxLength"] = 77
-        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
-        self.assertIn("`maxLength=77`", normalized)
-        self.assertNotIn("`maxLength=4096`", normalized)
-
-    def test_projection_directs_no_truncation_or_reapproval_and_names_no_task_cap(self):
-        # Oversize projections refuse as typed failures; the guidance
-        # must not tell a lane to cut approved content or to seek reapproval of
-        # unchanged scope, and must not claim a host Task prompt cap.
-        normalized = " ".join(lane_projection(self.LANE).split())
-        self.assertIn("do not truncate approved content", normalized)
-        self.assertIn("do not ask to reapprove unchanged scope", normalized)
-        self.assertIn("not a prompt cap on any host Task surface", normalized)
-        self.assertNotIn("truncate the premise", normalized)
-        self.assertNotIn("truncate the objective", normalized)
-        self.assertNotIn("premise to fit", normalized)
-
-    def test_projection_premise_bound_tracks_the_payload_contract(self):
-        # The byte count the guidance states is a parameter fed from the
-        # payload contract's workflow_premise bound, not a literal in the
-        # generator body.
-        text = " ".join(generator.objective_binding_instructions(PACKET_SCHEMA, 77).split())
-        self.assertIn("at most 77 UTF-8 bytes", text)
-        self.assertNotIn(f"at most {PREMISE_MAX_BYTES} UTF-8 bytes", text)
-
     def test_projection_instructs_the_lane_to_refuse_a_non_packet_first_message(self):
         # CD-0102 heuristic control: with no adapter plugin nothing
         # adapter-side runs, so every generated lane definition must itself
@@ -235,7 +195,7 @@ class AgentProjectionTests(unittest.TestCase):
         changed = copy.deepcopy(PACKET_SCHEMA)
         changed["$defs"]["lane_work_context_view"]["properties"]["required_reading"]["maxItems"] = 5
         changed["$defs"]["lane_work_context_view"]["properties"]["findings"]["maxItems"] = 6
-        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
+        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed).split())
         self.assertIn("at most 5 readings and 6 findings", normalized)
         self.assertNotIn("at most 32 readings", normalized)
 
@@ -284,57 +244,47 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertNotIn("pwd", projection)
         self.assertNotIn("cwd", projection)
 
-    def test_projection_routes_source_lookups_by_source_class(self):
-        # A lane whose capabilities grant repository reads routes each
-        # lookup to the source class that owns the fact: repository facts
-        # come from local source lookup, unknown library or platform facts
-        # from Context7, and current external facts from Exa. No external
-        # quota applies to repository-only tasks, and the block still
-        # requires an actually consulted source, signature discovery, host
-        # connection ownership, and honest gap reporting.
-        lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
-        projection = lane_projection(lane, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn("## Source lookup routing", projection)
-        self.assertIn("Route each technical lookup to the source class that owns the fact", normalized)
-        self.assertIn("from local source lookup", normalized)
-        self.assertIn("`read` and `grep`", normalized)
-        self.assertIn("connected code-search tool through `execute`", normalized)
-        self.assertIn("tools.lgrep.search_semantic", normalized)
-        self.assertIn("Query Context7 for a library, API, platform, or tool fact the repository does not settle", normalized)
-        self.assertIn("Search Exa for current external facts that change over time", normalized)
-        self.assertIn("Ground each technical claim in a source you actually consulted this attempt and cite it", normalized)
-        self.assertIn("recall is not a lookup", normalized)
-        self.assertIn("Discover the exact callable signatures first", normalized)
-        self.assertIn("host-connected options", normalized)
-        self.assertIn("the host, not this instruction, controls whether they are connected", normalized)
-        self.assertIn("state that plainly, name the missing source", normalized)
-        self.assertIn("Never invent a lookup result", normalized)
-        self.assertNotIn("For each bounded technical task", normalized)
-        self.assertNotIn("one real source lookup", normalized)
-        self.assertNotIn("applies to repository-only tasks", normalized)
-        self.assertNotIn("look up a relevant external technology", normalized)
+    def test_no_lane_or_utility_carries_a_lookup_procedure(self):
+        # CD-0043 D1: lane definitions carry no procedure. The conduct corpus
+        # (.concord/instructions/evidence.md) owns the technical-unknown
+        # obligation and reaches every session, so a definition never restates
+        # a lookup routine.
+        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+        projections = [(lane["id"], lane_projection(lane)) for lane in manifest["lanes"]]
+        projections += [(utility["id"], generator.utility_projection(utility)) for utility in manifest["utilities"]]
+        for agent_id, projection in projections:
+            with self.subTest(agent=agent_id):
+                self.assertNotIn("## Source lookup routing", projection)
+                self.assertNotIn("Route each technical lookup", projection)
 
-    def test_projection_without_read_repository_keeps_external_routing_only(self):
-        # The repository paragraph is derived from the read_repository
-        # capability, never from the lane id: a lane that cannot read the
-        # repository keeps the external routing, consulted-source citation,
-        # signature discovery, and honest gap reporting, and receives no
-        # repository-source lookup guidance.
-        lane = dict(self.LANE, capabilities=["inspect_diff", "run_targeted_checks", "report_findings"])
-        projection = lane_projection(lane, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn("## Source lookup routing", projection)
-        self.assertIn("Route each technical lookup to the source class that owns the fact", normalized)
-        self.assertIn("Query Context7 for a library, API, platform, or tool fact.", normalized)
-        self.assertIn("Search Exa for current external facts that change over time", normalized)
-        self.assertIn("Ground each technical claim in a source you actually consulted this attempt and cite it", normalized)
-        self.assertIn("Discover the exact callable signatures first", normalized)
-        self.assertIn("Never invent a lookup result", normalized)
-        self.assertNotIn("local source lookup", normalized)
-        self.assertNotIn("`read` and `grep`", normalized)
-        self.assertNotIn("lgrep", normalized)
-        self.assertNotIn("the repository does not settle", normalized)
+    def test_only_the_review_lane_carries_the_review_block_constraints(self):
+        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                projection = lane_projection(lane)
+                carries = "review" in lane.get("required_report_blocks", [])
+                self.assertEqual("- review.verdict:" in projection, carries)
+                self.assertEqual("- review_finding.oracle:" in projection, carries)
+                self.assertIn("- evidence_entry.oracle_receipt:", projection)
+
+    def test_projection_never_asks_the_worker_to_copy_the_worker_job(self):
+        # The adapter strips a worker-authored worker_job and derives the
+        # binding from the packet, so the definition only tells the worker to
+        # omit it.
+        normalized = " ".join(lane_projection(self.LANE).split())
+        self.assertNotIn("copy its `job_id`", normalized)
+        self.assertNotIn("- worker_job:", lane_projection(self.LANE))
+
+    def test_projection_keeps_the_native_oracle_teaching(self):
+        # CD-0223: native-oracle teaching distinguishes the supported Go and
+        # target-repository drivers, and the host owns preparation and
+        # execution.
+        normalized = " ".join(lane_projection(self.LANE).split())
+        self.assertIn("The authenticated host owns `native_oracle_v2` preparation and execution", normalized)
+        self.assertIn("pinned pure-Go harness compiles", normalized)
+        self.assertIn("`target_runner_v1` recipe", normalized)
+        self.assertIn("Ordinary test output does not acquire a qualified oracle receipt", normalized)
+        self.assertIn("A timeout is `unavailable` evidence, never a measured failure", normalized)
 
     def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
@@ -353,7 +303,7 @@ class AgentProjectionTests(unittest.TestCase):
         # lane is told to use, with no generator-side literal left behind.
         changed = copy.deepcopy(PACKET_SCHEMA)
         changed["properties"]["inputs"]["properties"]["report_protocol"]["const"] = "concord-worker-result-test9"
-        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
+        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed).split())
         self.assertIn("info string is `concord-worker-result-test9`", normalized)
         self.assertNotIn("concord-worker-result-v1", normalized)
 
@@ -454,7 +404,6 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Do not edit files", projection)
         self.assertIn("Object.keys(tools)", projection)
         self.assertIn("tools.lgrep.search_semantic", projection)
-        self.assertIn("Query Context7", projection)
         self.assertIn("MCP access depends on host connections", projection)
         self.assertIn("Use read-only tools only", projection)
 
@@ -502,24 +451,6 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("The parent coordinator owns the diagnosis and the root-cause assessment", normalized)
         self.assertNotIn("inferences", projection)
 
-    def test_execute_enabled_utilities_carry_the_source_lookup_block(self):
-        for utility_id, tools in (
-            ("explore", ["bash", "read", "glob", "grep", "execute"]),
-            ("lookup", ["webfetch", "execute"]),
-            ("advisor", ["bash", "read", "glob", "grep", "execute"]),
-        ):
-            utility = {
-                "id": utility_id,
-                "purpose": "Bounded work.",
-                "allowed_tools": tools,
-                "allowed_commands": [],
-                "time_seconds_max": 600,
-            }
-            projection = generator.utility_projection(utility)
-            self.assertIn("## Source lookup routing", projection, utility_id)
-            self.assertIn("Context7", projection, utility_id)
-            self.assertIn("Exa", projection, utility_id)
-
     def test_external_only_lookup_projection_carries_no_repository_source_guidance(self):
         # The lookup utility is external research only: its declared tools
         # grant no repository reads, and its body forbids inspecting the
@@ -536,11 +467,6 @@ class AgentProjectionTests(unittest.TestCase):
         }
         projection = generator.utility_projection(utility)
         normalized = " ".join(projection.split())
-        self.assertIn("## Source lookup routing", projection)
-        self.assertIn("Query Context7 for a library, API, platform, or tool fact", normalized)
-        self.assertIn("Search Exa for current external facts that change over time", normalized)
-        self.assertIn("Ground each technical claim in a source you actually consulted", normalized)
-        self.assertIn("Discover the exact callable signatures first", normalized)
         self.assertIn("Do not inspect or edit the repository", normalized)
         self.assertNotIn("local source lookup", normalized)
         self.assertNotIn("`read` and `grep`", normalized)
@@ -560,15 +486,6 @@ class AgentProjectionTests(unittest.TestCase):
         projection = generator.utility_projection(utility)
         self.assertNotIn("## Source lookup routing", projection)
         self.assertNotIn("Context7", projection)
-
-    def test_utility_repository_routing_follows_declared_tools(self):
-        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
-        for utility in manifest["utilities"]:
-            with self.subTest(utility=utility["id"]):
-                projection = generator.utility_projection(utility)
-                permits_reads = bool({"read", "grep"} & set(utility["allowed_tools"]))
-                self.assertEqual("local source lookup" in projection, permits_reads)
-                self.assertEqual("tools.lgrep.search_semantic" in projection, permits_reads)
 
     def test_all_registered_projections_omit_external_call_quotas(self):
         manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
@@ -630,7 +547,6 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("No concerns", projection)
         self.assertIn("model that served this opinion", projection)
         self.assertIn("search connected tools through `execute` first", " ".join(projection.split()))
-        self.assertIn("Ground each technical claim in a source you actually consulted", " ".join(projection.split()))
         self.assertIn("line range", projection)
         self.assertIn("10 minutes", projection)
 
@@ -772,9 +688,10 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
 
 
 class CommittedContentRuleTests(unittest.TestCase):
-    # The rule has one owner, the conduct corpus paragraph the generator reads.
-    # Lanes that write repository files apply it; the diff-inspecting lane
-    # reviews against it; other lanes carry no section.
+    # The rule has one owner, the conduct corpus paragraph the generator
+    # validates. Lanes that write repository files apply it by its lead
+    # sentence; the diff-inspecting lane reviews against it; other lanes carry
+    # no section.
     EDITING = ["read_repository", "edit_scoped_files", "run_tests", "report_evidence"]
     REVIEWING = ["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"]
     VERIFYING = ["read_repository", "run_tests", "run_validators", "report_evidence"]
@@ -795,18 +712,22 @@ class CommittedContentRuleTests(unittest.TestCase):
         blocks = [" ".join(block.split()) for block in text.split("\n\n")]
         return next(block for block in blocks if block.startswith(generator.COMMITTED_CONTENT_LEAD))
 
-    def test_editing_lane_applies_the_owner_paragraph_verbatim(self):
+    def owner_reference(self):
+        return f'the conduct rule that opens "{generator.COMMITTED_CONTENT_LEAD}" in `.concord/instructions/change.md`'
+
+    def test_editing_lane_applies_the_owner_rule_by_reference(self):
         projection = " ".join(lane_projection(self.lane("implement", self.EDITING)).split())
         self.assertIn("## Committed content", projection)
-        self.assertIn("Apply this rule to every comment and document you add or change", projection)
-        self.assertIn(self.owner_paragraph(), projection.replace("> ", ""))
+        self.assertIn(f"Apply {self.owner_reference()} to every comment and document you add or change", projection)
+        self.assertTrue(self.owner_paragraph().startswith(generator.COMMITTED_CONTENT_LEAD))
+        self.assertNotIn(self.owner_paragraph(), projection)
 
     def test_reviewing_lane_reports_violations_as_named_findings(self):
         projection = " ".join(lane_projection(self.lane("review", self.REVIEWING)).split())
         self.assertIn("## Committed content", projection)
-        self.assertIn("Review every added comment and committed document against this rule", projection)
+        self.assertIn(f"Review every added comment and committed document against {self.owner_reference()}", projection)
         self.assertIn("`committed-content:`", projection)
-        self.assertIn(self.owner_paragraph(), projection.replace("> ", ""))
+        self.assertNotIn(self.owner_paragraph(), projection)
 
     def test_other_lanes_carry_no_committed_content_section(self):
         self.assertNotIn("## Committed content", lane_projection(self.lane("verify", self.VERIFYING)))

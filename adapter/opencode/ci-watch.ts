@@ -52,6 +52,11 @@ type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: 
 
 type ActiveWatch = {
   id: string
+  watchEpoch: number
+  bindingID: string | null
+  lastObservation: CiWatchObservation | null
+  terminalObservation?: CiWatchObservation
+  consecutiveSliceFailures: number
   sessionID: string
   args: CiWatchArgs
   binary: string
@@ -118,8 +123,105 @@ let routeClient: WatchRouteClient | null = null
 
 const activeWatches = new Map<string, ActiveWatch>()
 const watchKeys = new Map<string, string>()
-const queuedReports = new Map<string, Array<{ watchID: string; text: string }>>()
+const queuedReports = new Map<string, Array<{ record: CiWatchRecord; text: string }>>()
 const settledWatches = new Map<string, Promise<void>>()
+
+type CiWatchCounts = { total: number; passing: number; failing: number; skipped: number; pending: number }
+type CiWatchObservation = {
+  status: string
+  sha: string | null
+  head_sha: string | null
+  run_url: string | null
+  checks: CiWatchCounts | null
+  slice_started_at: number
+  report_received_at: number
+  stale: boolean
+  evidence: "exact_head" | "unavailable"
+  gaps: string[]
+}
+type CiWatchRecord = ReturnType<typeof ciWatchRecord>
+type CiWatchReceipt = CiWatchRecord & {
+  terminal_sequence: number
+  terminal_observation: CiWatchObservation
+  delivery_state: "delivering" | "queued" | "delivered" | "drained"
+}
+let runtimeEpoch = randomUUID()
+let ownerStartedAt = Date.now()
+let peerSequence = 0
+let retentionFloor = 0
+const terminalReceipts: CiWatchReceipt[] = []
+// The terminal ring's fixed capacity, reported to peers as receipt_limit.
+const CI_WATCH_RECEIPT_LIMIT = 64
+
+function resetCiWatchSnapshots(): void {
+  runtimeEpoch = randomUUID()
+  ownerStartedAt = Date.now()
+  peerSequence = 0
+  retentionFloor = 0
+  terminalReceipts.length = 0
+}
+
+function ciWatchRecord(watch: ActiveWatch) {
+  return {
+    watch_id: watch.id, watch_epoch: watch.watchEpoch, session_id: watch.sessionID,
+    repo: watch.args.repo, selector: watch.args.selector, mode: watch.args.mode ?? "checks",
+    started_at: watch.startedAt, binding_id: watch.bindingID,
+    phase: (watch.waiting ? "observing" : "delivering") as "observing" | "delivering" | "queued",
+    consecutive_slice_failures: watch.consecutiveSliceFailures, last_observation: watch.lastObservation,
+    terminal_observation: watch.terminalObservation ?? null,
+  }
+}
+
+function projectCiObservation(watch: ActiveWatch, report: CiWaitReport, startedAt: number, receivedAt = Date.now()): CiWatchObservation {
+  const gaps: string[] = []
+  const statuses = ["pending", "success", "failure", "merged", "closed", "superseded", "timeout", "error", "refused"]
+  const status = statuses.includes(report.status) ? report.status : "unknown"
+  const sha = typeof report.sha === "string" && /^[0-9a-f]{40}$/.test(report.sha) ? report.sha : null
+  const head = typeof report.head_sha === "string" && /^[0-9a-f]{40}$/.test(report.head_sha) ? report.head_sha : null
+  if (sha === null) gaps.push("sha_unknown")
+  if (report.head_sha !== undefined && head === null) gaps.push("invalid_head_sha")
+  if (watch.args.selector.kind === "sha" && sha !== watch.args.selector.value) gaps.push("subject_mismatch")
+  let checks: CiWatchCounts | null = null
+  if (report.checks !== undefined) {
+    const raw = report.checks as Record<string, unknown> | null
+    const keys = ["total", "passing", "failing", "skipped", "pending"] as const
+    if (raw !== null && typeof raw === "object" && keys.every((key) => Number.isSafeInteger(raw[key]) && Number(raw[key]) >= 0)) {
+      checks = Object.fromEntries(keys.map((key) => [key, raw[key]])) as CiWatchCounts
+      if (checks.total !== checks.passing + checks.failing + checks.skipped + checks.pending) checks = null
+    }
+    if (checks === null) gaps.push("invalid_checks")
+  }
+  if (status === "success" && (!checks || checks.total === 0 || checks.failing !== 0 || checks.pending !== 0)) gaps.push("invalid_checks")
+  if (status === "failure" && (!checks || checks.failing === 0)) gaps.push("invalid_checks")
+  if (["merged", "closed", "superseded"].includes(status) && watch.args.selector.kind !== "pr") gaps.push("selector_mismatch")
+  if (status === "superseded" && (head === null || head === sha)) gaps.push("subject_mismatch")
+  if (watch.args.selector.kind === "pr" && ["success", "failure", "merged", "closed"].includes(status) && head !== sha) gaps.push("subject_mismatch")
+  if (watch.args.mode === "merge" && status === "success") gaps.push("merge_unproven")
+  if (["timeout", "error", "refused", "unknown"].includes(status)) gaps.push("terminal_evidence_unavailable")
+  if (!Number.isFinite(startedAt) || !Number.isFinite(receivedAt) || startedAt > receivedAt || startedAt < ownerStartedAt) gaps.push("invalid_interval")
+  const url = typeof report.run_url === "string" && report.run_url.length <= 2048 ? report.run_url : null
+  if (report.run_url !== undefined && url === null) gaps.push("invalid_run_url")
+  return {
+    status, sha, head_sha: head, run_url: url, checks,
+    slice_started_at: startedAt, report_received_at: receivedAt,
+    stale: false,
+    evidence: gaps.length === 0 ? "exact_head" : "unavailable", gaps,
+  }
+}
+
+function recordCiTerminal(watch: ActiveWatch, observation: CiWatchObservation): void {
+  terminalReceipts.push({ ...ciWatchRecord(watch), terminal_sequence: ++peerSequence, terminal_observation: observation, delivery_state: "delivering" })
+  if (terminalReceipts.length > CI_WATCH_RECEIPT_LIMIT) {
+    terminalReceipts.shift()
+    retentionFloor = terminalReceipts[0]!.terminal_sequence
+  }
+}
+
+function updateCiDelivery(watchID: string, state: CiWatchReceipt["delivery_state"]): void {
+  const receipt = terminalReceipts.find((entry) => entry.watch_id === watchID)
+  if (receipt) receipt.delivery_state = state
+  peerSequence++
+}
 
 // Test seams: the host test suite injects a fake spawner and a fake route
 // client through the same exported functions production uses. No production
@@ -136,6 +238,7 @@ export function configureCiWatch(
     watchKeys.clear()
     queuedReports.clear()
     settledWatches.clear()
+    resetCiWatchSnapshots()
     return
   }
   const { spawner: injected, ...rest } = overrides
@@ -471,6 +574,10 @@ function createWatch(sessionID: string, args: CiWatchArgs, binary: string): Acti
   fs.mkdirSync(config.stateDir, { recursive: true })
   return {
     id,
+    watchEpoch: ++peerSequence,
+    bindingID: null,
+    lastObservation: null,
+    consecutiveSliceFailures: 0,
     sessionID,
     args,
     binary,
@@ -506,9 +613,15 @@ function verbRequestBody(watch: ActiveWatch): string {
 }
 
 async function runVerbSlice(watch: ActiveWatch): Promise<CiWaitReport> {
+  const sliceStartedAt = Date.now()
   const { exitCode, stdout, stderr } = await spawner([watch.binary, "ci-wait"], verbRequestBody(watch), AbortSignal.timeout(config.sliceTimeoutMs))
   const report = parseVerbReport(stdout)
-  if (report !== null) return report
+  if (report !== null) {
+    // Projected beside this exact report; the terminal settle passes it back.
+    watch.lastObservation = projectCiObservation(watch, report, sliceStartedAt)
+    peerSequence++
+    return report
+  }
   const detail = stderr.trim() ? `: ${stderr.trim().slice(0, 400)}` : ""
   throw new Error(`the concord ci-wait verb produced no JSON report (exit ${exitCode}${detail})`)
 }
@@ -536,7 +649,6 @@ function watchCeilingMs(watch: ActiveWatch): number {
 async function runWatch(watch: ActiveWatch): Promise<void> {
   activeWatches.set(watch.id, watch)
   try {
-    let sliceFailures = 0
     for (;;) {
       if (Date.now() - watch.startedAt >= watchCeilingMs(watch)) {
         await settle(watch, {
@@ -549,27 +661,29 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
       try {
         report = await runVerbSlice(watch)
       } catch (error) {
-        sliceFailures++
+        watch.consecutiveSliceFailures++
+        peerSequence++
         log("error", `ci-watch ${watch.id}: verb slice failed (${errorDetail(error)})`)
-        if (sliceFailures >= config.maxSliceFailures) {
+        if (watch.consecutiveSliceFailures >= config.maxSliceFailures) {
           await settle(watch, {
             status: "error",
-            reason: `the concord ci-wait verb failed ${sliceFailures} consecutive slices: ${errorDetail(error)}`,
+            reason: `the concord ci-wait verb failed ${watch.consecutiveSliceFailures} consecutive slices: ${errorDetail(error)}`,
           })
           return
         }
         continue
       }
-      sliceFailures = 0
+      watch.consecutiveSliceFailures = 0
       // pending means re-invoke: the verb already paced this slice, so the
       // next slice starts immediately.
       if (report.status === "pending") continue
-      await settle(watch, report)
+      await settle(watch, report, watch.lastObservation)
       return
     }
   } finally {
     stopWatchHeartbeats(watch)
     activeWatches.delete(watch.id)
+    peerSequence++
     // The loop owns abandonment as well as normal terminal reports. A child
     // that dies without a report cannot remove its own resumable state.
     try {
@@ -684,8 +798,14 @@ function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
   return `[concord ci-watch ${watch.id}] CI wait ${report.status} for ${watch.args.repo} ${selector}${mode}.\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\``
 }
 
-async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
+async function settle(watch: ActiveWatch, report: CiWaitReport, sliceObservation: CiWatchObservation | null = null): Promise<void> {
   stopWatchHeartbeats(watch)
+  // The terminal receipt records before any await. Only the call site that
+  // just received this report from runVerbSlice hands its observation down;
+  // adapter-generated timeout/error reports project fresh evidence at
+  // Date.now and borrow no earlier slice's SHA.
+  watch.terminalObservation = sliceObservation ?? projectCiObservation(watch, report, Date.now())
+  recordCiTerminal(watch, watch.terminalObservation)
   // The notice always precedes the report: settle waits for the announce task
   // before it delivers. The task never rejects, so this cannot fail delivery.
   await watch.notice
@@ -695,13 +815,14 @@ async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
   try {
     const outcome = await deliverTerminalReport(watch, text)
     if (outcome === "delivered") {
+      updateCiDelivery(watch.id, "delivered")
       log("info", `ci-watch ${watch.id}: the terminal report was delivered and the assistant reply parented to it followed`)
     } else {
-      queueReport(watch.sessionID, watch.id, text)
+      queueReport(watch, text)
       log("warn", `ci-watch ${watch.id}: no assistant reply parented to the injected report followed within ${Math.round(config.confirmWindowMs / 1000)}s; the report is queued for the next message`)
     }
   } catch (error) {
-    queueReport(watch.sessionID, watch.id, text)
+    queueReport(watch, text)
     log("error", `ci-watch ${watch.id}: delivery failed (${errorDetail(error)}); the report is queued for the next message`)
   }
 }
@@ -841,18 +962,19 @@ function unresolvedSessionDeliveries(sessionID: string): number {
   return active + (queuedReports.get(sessionID)?.length ?? 0)
 }
 
-function queueReport(sessionID: string, watchID: string, text: string): void {
-  const queue = queuedReports.get(sessionID) ?? []
+function queueReport(watch: ActiveWatch, text: string): void {
+  const queue = queuedReports.get(watch.sessionID) ?? []
   if (queue.length >= config.maxQueuedPerSession) {
     // Admission bounds a session's unresolved watches plus queued reports, so
     // this branch means that bound was exceeded; the accepted report is
     // retained anyway and the breach is logged, because dropping an earlier
     // accepted report to make room is the one outcome admission exists to
     // prevent.
-    log("error", `ci-watch ${watchID}: session ${sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
+    log("error", `ci-watch ${watch.id}: session ${watch.sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
   }
-  queue.push({ watchID, text })
-  queuedReports.set(sessionID, queue)
+  queue.push({ record: { ...ciWatchRecord(watch), phase: "queued" }, text })
+  queuedReports.set(watch.sessionID, queue)
+  updateCiDelivery(watch.id, "queued")
 }
 
 // drainQueuedCiReports injects every queued terminal report into the message
@@ -864,10 +986,11 @@ function queueReport(sessionID: string, watchID: string, text: string): void {
 export function drainQueuedCiReports(sessionID: string, messageID: string, output: { parts: unknown[] }): void {
   const queue = queuedReports.get(sessionID)
   if (queue === undefined || queue.length === 0) return
-  queuedReports.delete(sessionID)
-  for (const { text } of queue) {
+  for (const { record, text } of queue) {
+    updateCiDelivery(record.watch_id, "drained")
     output.parts.push({ id: `prt_ciwatch-${randomUUID()}`, sessionID, messageID, type: "text", text, synthetic: true })
   }
+  queuedReports.delete(sessionID)
 }
 
 // drainQueuedCiReportsForMessage resolves the drain identity the way the host
@@ -897,4 +1020,84 @@ export function drainQueuedCiReportsForMessage(
     return
   }
   drainQueuedCiReports(sessionID, messageID, output as { parts: unknown[] })
+}
+
+// --- Peer read snapshot ---
+
+// A peer read is passive: observations are freshened on detached copies only,
+// and the result is JSON-cloned once so nested selectors, counts, and
+// observations cannot alias the owner's maps or mutate them later.
+export type CiWatchSnapshot = {
+  version: 1
+  pid: number
+  runtime_epoch: string
+  owner_started_at: number
+  sequence: number
+  session_id: string
+  read_at: number
+  active: CiWatchRecord[]
+  receipts: CiWatchReceipt[]
+  receipt_limit: number
+  retention_floor: number
+  history_gap: boolean
+}
+
+// Freshness marks the detached copy only: a slice older than the slice
+// timeout plus the 30s grace watchCeilingMs also grants is stale, an interval
+// off this read's clock adds clock_gap, and either marks evidence unavailable.
+function freshenObservation(observation: CiWatchObservation, now: number): CiWatchObservation {
+  const stale = now - observation.slice_started_at > config.sliceTimeoutMs + 30_000
+  const gaps = [...observation.gaps]
+  let evidence = observation.evidence
+  if (observation.report_received_at > now || observation.slice_started_at > observation.report_received_at) {
+    gaps.push("clock_gap")
+    evidence = "unavailable"
+  }
+  if (stale) {
+    gaps.push("observation_stale")
+    evidence = "unavailable"
+  }
+  return { ...observation, stale, evidence, gaps }
+}
+
+// ciWatchSnapshot reads one session's watch state for a peer. It runs before
+// the first watch, holds no client, and truncates nothing: the peer boundary
+// owns its own bounds. A queued record wins a transient overlap with its
+// still-active watch, so the session sees the settled phase.
+export function ciWatchSnapshot(sessionID: string, sinceSequence?: number): CiWatchSnapshot {
+  const now = Date.now()
+  const byWatchID = new Map<string, CiWatchRecord>()
+  for (const watch of activeWatches.values()) {
+    if (watch.sessionID === sessionID) byWatchID.set(watch.id, ciWatchRecord(watch))
+  }
+  for (const { record } of queuedReports.get(sessionID) ?? []) {
+    byWatchID.set(record.watch_id, record)
+  }
+  const active = [...byWatchID.values()].map((record) => ({
+    ...record,
+    last_observation: record.last_observation && freshenObservation(record.last_observation, now),
+    terminal_observation: record.terminal_observation && freshenObservation(record.terminal_observation, now),
+  }))
+  const receipts = terminalReceipts
+    .filter((receipt) => receipt.session_id === sessionID && (sinceSequence === undefined || receipt.terminal_sequence > sinceSequence))
+    .map((receipt) => ({
+      ...receipt,
+      last_observation: receipt.last_observation && freshenObservation(receipt.last_observation, now),
+      terminal_observation: freshenObservation(receipt.terminal_observation, now),
+    }))
+  const snapshot = {
+    version: 1,
+    pid: process.pid,
+    runtime_epoch: runtimeEpoch,
+    owner_started_at: ownerStartedAt,
+    sequence: peerSequence,
+    session_id: sessionID,
+    read_at: now,
+    active,
+    receipts,
+    receipt_limit: CI_WATCH_RECEIPT_LIMIT,
+    retention_floor: retentionFloor,
+    history_gap: sinceSequence !== undefined && sinceSequence < retentionFloor,
+  }
+  return JSON.parse(JSON.stringify(snapshot)) as CiWatchSnapshot
 }

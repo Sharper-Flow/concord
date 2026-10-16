@@ -1296,6 +1296,63 @@ func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
 	_ = runs
 }
 
+func TestCiWaitSHAFailureRunURL(t *testing.T) {
+	passURL := "https://github.com/o/r/actions/runs/10"
+	failURL := "https://github.com/o/r/actions/runs/20"
+	cases := []struct {
+		name string
+		runs []ghRunSummary
+	}{
+		{
+			name: "passing first then failing",
+			runs: []ghRunSummary{
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+			},
+		},
+		{
+			name: "failing first then passing",
+			runs: []ghRunSummary{
+				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+			},
+		},
+		{
+			name: "passing first then cancelled",
+			runs: []ghRunSummary{
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{Name: "Verify", Status: "completed", Conclusion: "cancelled", URL: failURL},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := `case "$*" in
+	*"run list"*) echo '` + ciWaitJSON(t, tc.runs) + `';;
+esac`
+			ghStubPath(t, ghStubDir(t, stub))
+			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+				Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
+			}))
+			if report.Status != "failure" {
+				t.Fatalf("a completed failing run must end the wait with failure, got %s (report=%+v)", report.Status, report)
+			}
+			if code != 0 {
+				t.Fatalf("a failure verdict is a successful observation; want exit 0, got %d", code)
+			}
+			if report.RunURL != failURL {
+				t.Fatalf("failure must carry the failing run URL %q, got %q (report=%+v)", failURL, report.RunURL, report)
+			}
+			if report.Checks == nil || report.Checks.Total != 2 || report.Checks.Passing != 1 || report.Checks.Failing != 1 || report.Checks.Pending != 0 {
+				t.Fatalf("counts must reflect the observed population total=2 pass=1 fail=1 pending=0, got %+v", report.Checks)
+			}
+			if len(report.Failures) != 1 || report.Failures[0].Name != "Verify" || report.Failures[0].URL != failURL {
+				t.Fatalf("want one failure naming %q at %q, got %+v", "Verify", failURL, report.Failures)
+			}
+		})
+	}
+}
+
 // --- error paths ---
 
 func TestCiWaitAuthFailureIsErrorNeverSuccess(t *testing.T) {

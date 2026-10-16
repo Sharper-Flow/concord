@@ -914,17 +914,17 @@ func TestNativeTargetAxisVenvRecordGate(t *testing.T) {
 }
 
 // TestNativeTargetAxisVenvRecordGateNested pins RECORD path ownership for a
-// nested vendored distribution: rows resolve against the .dist-info parent,
-// the unhashed self-row uses that parent's base, and every integrity
-// refusal survives, while a global site-packages base or a vendor fence
-// fails the fixture.
+// vendored nested distribution: the only inventory is the top-level
+// site-packages/*.dist-info/RECORD, and it enumerates and hashes the vendored
+// payload, METADATA, and RECORD as package data, so every integrity refusal
+// is exercised against rows of the top-level RECORD.
 func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 	venv := t.TempDir()
 	site := filepath.Join(venv, "lib", "python3.13", "site-packages")
 	nestedInfo := filepath.Join(site, "vendor", "tinyfix-1.0.dist-info")
 	outerInfo := filepath.Join(site, "tinyfix-outer-1.0.dist-info")
 	payloadPath := filepath.Join(site, "vendor", "tinyfix", "__init__.py")
-	for _, dir := range []string{nestedInfo, filepath.Dir(payloadPath), outerInfo, filepath.Join(site, "tinyfix"), filepath.Join(site, "sibling"), filepath.Join(venv, "bin")} {
+	for _, dir := range []string{nestedInfo, filepath.Dir(payloadPath), outerInfo} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -934,7 +934,7 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 		return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
 	}
 	payload, metadata := []byte("VALUE = 7\n"), []byte("Name: tinyfix\nVersion: 1.0\n")
-	aux, sentinel := []byte("AUX = 1\n"), []byte("outside\n")
+	sentinel := []byte("outside\n")
 	write := func(path string, body []byte) {
 		t.Helper()
 		if err := os.WriteFile(path, body, 0600); err != nil {
@@ -943,46 +943,30 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 	}
 	write(payloadPath, payload)
 	write(filepath.Join(nestedInfo, "METADATA"), metadata)
-	write(filepath.Join(site, "sibling", "aux.py"), aux)
-	// A conflicting top-level payload: a global site-packages base would
-	// hash this decoy instead of the nested payload and fail the fixture.
-	write(filepath.Join(site, "tinyfix", "__init__.py"), []byte("VALUE = decoy\n"))
 	// Exists outside the venv so the escape case refuses on containment,
 	// not on a missing file.
 	write(filepath.Join(venv, "..", "outside-sentinel.txt"), sentinel)
-	var nestedRecord []byte
-	writeNested := func(rows string) {
-		nestedRecord = []byte(rows)
-		write(filepath.Join(nestedInfo, "RECORD"), nestedRecord)
-	}
-	// The outer inventory only hashes the nested RECORD and is rehashed
-	// after every RECORD mutation, so the outer row never masks the
-	// nested refusal under test.
-	writeOuter := func(inventoryNested bool) {
-		rows := ""
-		if inventoryNested {
-			rows += "vendor/tinyfix-1.0.dist-info/RECORD," + sha(nestedRecord) + "," + itoaForTest(len(nestedRecord)) + "\n"
-		}
-		write(filepath.Join(outerInfo, "RECORD"), []byte(rows+"tinyfix-outer-1.0.dist-info/RECORD,,\n"))
-	}
-	// reset installs rows; empty rows removes the nested RECORD entirely.
+	// The vendored RECORD is package data: its relative inventory rows stay
+	// verbatim but are never resolved as an inventory.
+	nestedRecord := "tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
+		"tinyfix-1.0.dist-info/RECORD,,\n"
+	write(filepath.Join(nestedInfo, "RECORD"), []byte(nestedRecord))
+	// reset installs outer rows; empty rows removes the top-level RECORD.
 	reset := func(rows string) {
 		write(payloadPath, payload)
 		if rows == "" {
-			if err := os.Remove(filepath.Join(nestedInfo, "RECORD")); err != nil {
+			if err := os.Remove(filepath.Join(outerInfo, "RECORD")); err != nil {
 				t.Fatal(err)
 			}
 		} else {
-			writeNested(rows)
+			write(filepath.Join(outerInfo, "RECORD"), []byte(rows))
 		}
-		writeOuter(rows != "")
 	}
-	self := "tinyfix-1.0.dist-info/RECORD,,\n"
-	valid := "tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
-		"tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
-		// Parent-relative row inside the venv: refused only by a fence
-		// that wrongly locks every row to the vendor parent.
-		"../sibling/aux.py," + sha(aux) + "," + itoaForTest(len(aux)) + "\n" +
+	self := "tinyfix-outer-1.0.dist-info/RECORD,,\n"
+	valid := "vendor/tinyfix/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"vendor/tinyfix-1.0.dist-info/METADATA," + sha(metadata) + "," + itoaForTest(len(metadata)) + "\n" +
+		"vendor/tinyfix-1.0.dist-info/RECORD," + sha([]byte(nestedRecord)) + "," + itoaForTest(len(nestedRecord)) + "\n" +
 		self
 	reset(valid)
 	t.Run("valid", func(t *testing.T) {
@@ -1023,17 +1007,18 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 			want: "installed distribution has no readable RECORD",
 		},
 		"unhashed_non_self": {
-			rows: "tinyfix-1.0.dist-info/METADATA,,\n" + self,
+			rows: "vendor/tinyfix-1.0.dist-info/METADATA,,\n" + self,
 			want: "unhashed RECORD entry is unsupported",
 		},
 		"absolute_entry": {
 			rows: "/absolute/evil," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" + self,
 			want: "malformed RECORD entry",
 		},
-		// Five ../ steps from the vendor base cross the venv root to the
-		// existing sentinel beside it, so containment refuses before the read.
+		// Four ../ steps from the site-packages base cross the venv root to
+		// the existing sentinel beside it, so containment refuses before
+		// the read.
 		"escape_beyond_venv": {
-			rows: "../../../../../outside-sentinel.txt," + sha(sentinel) + "," + itoaForTest(len(sentinel)) + "\n" + self,
+			rows: "../../../../outside-sentinel.txt," + sha(sentinel) + "," + itoaForTest(len(sentinel)) + "\n" + self,
 			want: "RECORD entry escapes the materialized venv",
 		},
 	}
@@ -1047,6 +1032,64 @@ func TestNativeTargetAxisVenvRecordGateNested(t *testing.T) {
 				t.Fatalf("%s: got %v, want refusal %q", name, err, scenario.want)
 			}
 		})
+	}
+}
+
+// TestNativeTargetAxisVenvRecordGateVendoredRecord pins the top-level RECORD
+// as the only inventory: a vendored nested RECORD is package data whose
+// bytes the outer RECORD hashes. Its rows are never resolved, so they may
+// name files the vendored layout never materialized, and every refusal
+// below surfaces through the outer digest.
+func TestNativeTargetAxisVenvRecordGateVendoredRecord(t *testing.T) {
+	venv := t.TempDir()
+	site := filepath.Join(venv, "lib", "python3.13", "site-packages")
+	outerInfo := filepath.Join(site, "pkg-1.dist-info")
+	vendoredInfo := filepath.Join(site, "pkg", "_vendor", "x-1.dist-info")
+	vendoredPkg := filepath.Join(site, "pkg", "_vendor", "x")
+	for _, dir := range []string{outerInfo, vendoredInfo, vendoredPkg} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sha := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
+	}
+	write := func(path string, body []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload := []byte("VX = 1\n")
+	vendoredPath := filepath.Join(vendoredInfo, "RECORD")
+	payloadPath := filepath.Join(vendoredPkg, "__init__.py")
+	// Realistic vendored inventory kept as data: the wheel's bin script row
+	// first, naming the absent vendor bin/x, then the payload and self rows.
+	// bin/x is never materialized; the rows must not resolve as an inventory.
+	vendored := "bin/x," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"x/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"x-1.dist-info/RECORD,,\n"
+	write(vendoredPath, []byte(vendored))
+	write(payloadPath, payload)
+	outer := "pkg/_vendor/x/__init__.py," + sha(payload) + "," + itoaForTest(len(payload)) + "\n" +
+		"pkg/_vendor/x-1.dist-info/RECORD," + sha([]byte(vendored)) + "," + itoaForTest(len(vendored)) + "\n" +
+		"pkg-1.dist-info/RECORD,,\n"
+	write(filepath.Join(outerInfo, "RECORD"), []byte(outer))
+	if err := nativeTargetVerifyVenvRecords(venv); err != nil {
+		t.Fatalf("vendored RECORD rows must not resolve as an inventory; clean tree refused: %v", err)
+	}
+	// A same-size mutation of the vendored RECORD bytes refuses through the
+	// outer digest.
+	write(vendoredPath, []byte(strings.Replace(vendored, "x/__init__.py,", "y/__init__.py,", 1)))
+	if err := nativeTargetVerifyVenvRecords(venv); err == nil || !strings.Contains(err.Error(), "differs from its wheel RECORD digest") {
+		t.Fatalf("mutated vendored RECORD was admitted: %v", err)
+	}
+	// A tampered vendored payload refuses through the outer digest too.
+	write(vendoredPath, []byte(vendored))
+	write(payloadPath, []byte("VX = 2\n"))
+	if err := nativeTargetVerifyVenvRecords(venv); err == nil || !strings.Contains(err.Error(), "differs from its wheel RECORD digest") {
+		t.Fatalf("tampered vendored payload was admitted: %v", err)
 	}
 }
 

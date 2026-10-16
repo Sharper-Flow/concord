@@ -296,8 +296,8 @@ func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root str
 		return err
 	}
 	rootDir := filepath.Join(root, filepath.FromSlash(m.Root))
-	for _, pattern := range nativeTargetDiscoveryInputs(m.Runner) {
-		if err := removeNamedFiles(rootDir, pattern); err != nil {
+	if m.Runner == nativeTargetRunnerPytest {
+		if err := removeNamedFiles(rootDir, "conftest.py"); err != nil {
 			return err
 		}
 	}
@@ -319,19 +319,7 @@ func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root str
 	return nil
 }
 
-// nativeTargetDiscoveryInputs names the candidate files a runner would
-// auto-discover. All are removed before the pinned harness is written, so
-// only pinned bytes can define collection or grading.
-func nativeTargetDiscoveryInputs(runner string) []string {
-	switch runner {
-	case nativeTargetRunnerPytest:
-		return []string{"conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "test_*.py", "*_test.py"}
-	default:
-		return nil
-	}
-}
-
-func removeNamedFiles(dir, pattern string) error {
+func removeNamedFiles(dir, name string) error {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
@@ -341,12 +329,12 @@ func removeNamedFiles(dir, pattern string) error {
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			if err := removeNamedFiles(filepath.Join(dir, entry.Name()), pattern); err != nil {
+			if err := removeNamedFiles(filepath.Join(dir, entry.Name()), name); err != nil {
 				return err
 			}
 			continue
 		}
-		if ok, _ := filepath.Match(pattern, entry.Name()); ok {
+		if entry.Name() == name {
 			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {
 				return err
 			}

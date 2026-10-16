@@ -1135,3 +1135,192 @@ func itoaForTest(n int) string {
 	}
 	return digits
 }
+
+// One root config is selected by fixed name precedence among the files the
+// recipe declares at the root, the pinned dependency manifest is the
+// fallback, and every stage names it with the root as rootdir while
+// collection selects the declared .py harness files whole. Expected values
+// are literals per case; no expected value is derived from the manifest.
+func TestNativeTargetPytestScopeStages(t *testing.T) {
+	for _, root := range []string{".", "pyfix"} {
+		t.Run("root="+root, func(t *testing.T) {
+			cases := []struct {
+				name      string
+				config    string // the exact -c value the stages must carry
+				declared  string // root config name the recipe declares, "" for fallback
+				inHarness bool   // the declared config rides harness_files, else support_files
+				withRival bool   // also declare a root pytest.ini in support_files
+			}{
+				{"harness pytest.toml", "pytest.toml", "pytest.toml", true, false},
+				{"support .pytest.toml", ".pytest.toml", ".pytest.toml", false, false},
+				{"harness pytest.ini", "pytest.ini", "pytest.ini", true, false},
+				{"support .pytest.ini", ".pytest.ini", ".pytest.ini", false, false},
+				{"harness pyproject.toml", "pyproject.toml", "pyproject.toml", true, false},
+				{"support tox.ini", "tox.ini", "tox.ini", false, false},
+				{"harness setup.cfg", "setup.cfg", "setup.cfg", true, false},
+				{"precedence pytest.toml over support pytest.ini", "pytest.toml", "pytest.toml", true, true},
+				{"fallback to pinned manifest", "pyproject.toml", "", false, false},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					m, c := nativeTargetTestManifest()
+					m.Root, c.Cwd = root, root
+					m.HarnessFiles = []string{nativeTargetFixtureName(root, "tests/test_beta.py"), nativeTargetFixtureName(root, "tests/test_alpha.py")}
+					m.SupportFiles = []string{nativeTargetFixtureName(root, "support/app.py"), nativeTargetFixtureName(root, "support/pytest.ini")}
+					if tc.declared != "" {
+						if tc.inHarness {
+							m.HarnessFiles = append(m.HarnessFiles, nativeTargetFixtureName(root, tc.declared))
+						} else {
+							m.SupportFiles = append(m.SupportFiles, nativeTargetFixtureName(root, tc.declared))
+						}
+					}
+					if tc.withRival {
+						m.SupportFiles = append(m.SupportFiles, nativeTargetFixtureName(root, "pytest.ini"))
+					}
+					m.Cases = map[string][]string{"case:fixture": {"tests/test_beta.py::test_beta", "tests/test_alpha.py::test_alpha"}}
+					witnesses, err := nativeTargetCaseWitnesses(m, c)
+					if err != nil {
+						t.Fatalf("scope fixture witnesses refused: %v", err)
+					}
+					c.Argv = append([]string{"pytest"}, witnesses...)
+					if err := validateNativeTargetManifest(m, c); err != nil {
+						t.Fatalf("scope fixture refused: %v", err)
+					}
+					plan := &nativeTargetOraclePlan{Recipe: m}
+					pytestScopeAssertStages(t, root, "prepare", plan, witnesses, tc.config)
+					pytestScopeAssertStages(t, root, "execute", plan, witnesses, tc.config)
+				})
+			}
+		})
+	}
+}
+
+// pytestScopeAssertStages compares one phase plan against the literal stage
+// arrays: the unchanged uv prefix, the pinned config flags on every pytest
+// stage, and collection naming the two declared .py harness files whole.
+func pytestScopeAssertStages(t *testing.T, root, phase string, plan *nativeTargetOraclePlan, witnesses []string, config string) {
+	t.Helper()
+	want := []NativeOracleStage{
+		{Name: "metadata", Argv: []string{"uv", "sync", "--locked", "--offline", "--no-build", "--no-python-downloads", "--no-install-project", "--no-install-workspace", "--no-install-local", "--link-mode", "copy"}},
+		{Name: "toolcheck", Argv: append([]string{"pytest", "--version", "-p", "no:cacheprovider", "-q"}, "-c", config, "--rootdir=.")},
+	}
+	if phase == "prepare" {
+		want = append(want, NativeOracleStage{Name: "collect", Argv: append(append([]string{"pytest", "--collect-only", "-q", "-p", "no:cacheprovider"}, "-c", config, "--rootdir=."), "tests/test_beta.py", "tests/test_alpha.py")})
+	} else {
+		for i, witness := range witnesses {
+			want = append(want, NativeOracleStage{Name: "test", Argv: append([]string{"pytest", witness, "-ra", "-q", "-p", "no:cacheprovider", fmt.Sprintf("--junitxml=$scratch/junit-%d.xml", i)}, "-c", config, "--rootdir=.")})
+		}
+	}
+	stages, err := plan.stages(phase, witnesses)
+	if err != nil {
+		t.Fatalf("root %s %s refused: %v", root, phase, err)
+	}
+	if len(stages) != len(want) {
+		t.Fatalf("root %s %s rendered %d stages, want %d", root, phase, len(stages), len(want))
+	}
+	for i := range want {
+		if stages[i].Name != want[i].Name || !slicesEqualStrings(stages[i].Argv, want[i].Argv) {
+			t.Fatalf("root %s %s stage %d = %s %v, want %s %v", root, phase, i, stages[i].Name, stages[i].Argv, want[i].Name, want[i].Argv)
+		}
+	}
+}
+
+// TestNativeTargetPytestScopeAdmission pins the pytest collection capacity
+// decision at manifest admission: the whole-file .py harness population must
+// render inside the bounded command shape, support entries and non-Python
+// harness entries never add selectors, a conftest.py harness entry counts as
+// a selector, and the per-operand bound is the root-relative target, never
+// the full repository path. Every case keeps the fixture's single selected
+// witness so no witness or stage limit can decide the outcome, and every
+// expected outcome is a literal.
+func TestNativeTargetPytestScopeAdmission(t *testing.T) {
+	// pyHarness renders n .py harness targets under root: the fixture's
+	// selected witness file, a conftest entry, then padded test files.
+	pyHarness := func(root string, n int) []string {
+		names := []string{"tests/test_value.py", "tests/conftest.py"}
+		for i := len(names); i < n; i++ {
+			names = append(names, fmt.Sprintf("tests/test_extra_%02d.py", i))
+		}
+		out := make([]string, 0, n)
+		for _, rel := range names[:n] {
+			out = append(out, nativeTargetFixtureName(root, rel))
+		}
+		return out
+	}
+	// nonPyHarness and supportPy render plain data harness entries and
+	// .py-named support entries; neither group adds a collection selector.
+	nonPyHarness := func(root string, n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, nativeTargetFixtureName(root, fmt.Sprintf("support/data_%02d.txt", i)))
+		}
+		return out
+	}
+	supportPy := func(root string, n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, nativeTargetFixtureName(root, fmt.Sprintf("support/helper_%02d.py", i)))
+		}
+		return out
+	}
+	// longRoot renders a 305-byte nested root: six 50-character
+	// slash-separated segments, inside the 512-byte repository path bound.
+	segments := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		segments = append(segments, strings.Repeat("d", 50))
+	}
+	longRoot := strings.Join(segments, "/")
+	for _, tc := range []struct {
+		name     string
+		root     string
+		harness  []string
+		support  []string
+		admitted bool
+	}{
+		{"eight_py_dot_root", ".", pyHarness(".", 8), nil, true},
+		{"eight_py_rooted", "pyfix", pyHarness("pyfix", 8), nil, true},
+		{"nine_py", "pyfix", pyHarness("pyfix", 9), nil, false},
+		{"sixteen_py_inventory_max", "pyfix", pyHarness("pyfix", 16), nil, false},
+		{"sixteen_mixed_eight_py", "pyfix", append(pyHarness("pyfix", 8), nonPyHarness("pyfix", 8)...), nil, true},
+		{"sixteen_support_py_not_collected", "pyfix", pyHarness("pyfix", 1), supportPy("pyfix", 16), true},
+		{"target_operand_256_bytes", "pyfix", []string{
+			nativeTargetFixtureName("pyfix", "tests/test_value.py"),
+			nativeTargetFixtureName("pyfix", "dir/"+strings.Repeat("a", 249)+".py"),
+		}, nil, true},
+		{"target_operand_257_bytes", "pyfix", []string{
+			nativeTargetFixtureName("pyfix", "tests/test_value.py"),
+			nativeTargetFixtureName("pyfix", "dir/"+strings.Repeat("a", 250)+".py"),
+		}, nil, false},
+		{"long_root_short_operands", longRoot, pyHarness(longRoot, 2), nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, c := nativeTargetTestManifest()
+			m.Root, c.Cwd = tc.root, tc.root
+			m.HarnessFiles = append([]string{}, tc.harness...)
+			m.SupportFiles = append([]string{}, tc.support...)
+			err := validateNativeTargetManifest(m, c)
+			if !tc.admitted {
+				if err == nil {
+					t.Fatal("collection population admitted, want a refusal at manifest admission")
+				}
+				assertFailureKind(t, err, KindLimitExceeded)
+				if !strings.Contains(err.Error(), "pytest recipe collection") {
+					t.Fatalf("refusal does not name the pytest recipe collection bound: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("admitted collection population refused: %v", err)
+			}
+			// The admitted population must render the canonical prepare
+			// collection command inside the bounded argv shape.
+			argv, err := (&nativeTargetOraclePlan{Recipe: m}).prepareCommand(c)
+			if err != nil {
+				t.Fatalf("prepare command refused for an admitted population: %v", err)
+			}
+			if err := validateWorktreeVerifyCommand(argv); err != nil {
+				t.Fatalf("rendered collection exceeds the bounded argv shape: %v", err)
+			}
+		})
+	}
+}

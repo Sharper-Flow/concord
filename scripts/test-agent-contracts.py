@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, io, json, os, re, subprocess, tempfile, unittest, unittest.mock
+import copy, importlib.util, io, json, os, re, subprocess, sys, tempfile, unittest, unittest.mock
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -16,6 +16,26 @@ lane_registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
 packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
+
+_SCRIPTS_DIR = str(ROOT / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+
+def _load_cli_module(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+lanes_generator = _load_cli_module("cli_safety_lanes", "generate-agent-lanes.py")
+work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
+native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
+relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
+durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
+branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
+lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
 
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
@@ -2728,6 +2748,135 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
         frozen_member = payload_schema["$defs"]["worker_packet2"]["properties"]["inputs"]["properties"]["work_context"]
         self.assertEqual(frozen_member["$ref"], "#/$defs/work_context_view2")
         self.assertNotIn("research_findings", payload_schema["$defs"]["work_context_view2"]["properties"])
+
+
+class _WorkloadReached(Exception):
+    """Marks that a generator main entered its workload during a reach test."""
+
+
+class GeneratorCLISafetyTests(unittest.TestCase):
+    """Shared CLI contract for all eight generate-* main entry points.
+
+    Help must exit 0 with usage on stdout and perform no main-workload read,
+    write, mkdir, or subprocess work. Unrecognized arguments — abbreviations
+    of --check, bare positionals, unknown flags, and unknown flags mixed with
+    check or the contracts freeze flag — must exit 2 with an error on stderr
+    and perform no main work. Valid no-argument and --check invocations must
+    still reach the workload, and the contracts freeze flag must keep
+    dispatching the freeze, with its schema refs, before check.
+    """
+
+    # (script name, module, the first workload input the main reads)
+    GENERATORS = (
+        ("generate-agent-contracts.py", generator, "MANIFEST"),
+        ("generate-agent-lanes.py", lanes_generator, "MANIFEST"),
+        ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
+        ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
+        ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
+        ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
+        ("generate-branch-freshness.py", branch_freshness_generator, "DECLARATION"),
+        ("generate-lane-step-dispatch.py", lane_step_dispatch_generator, "JOIN"),
+    )
+    REFUSAL_ARGSETS = (
+        ("unknown-flag", ["--unknown-option"]),
+        ("positional", ["unexpected-positional"]),
+        ("check-abbreviation", ["--ch"]),
+        ("freeze-abbreviation", ["--freeze"]),
+        ("check-with-unknown", ["--check", "--unknown-option"]),
+    )
+
+    def _argv(self, script: str, args: list[str]):
+        return unittest.mock.patch.object(sys, "argv", [script, *args])
+
+    @staticmethod
+    def _refuse(action: str):
+        def guard(*args, **kwargs):
+            raise AssertionError(f"generator main attempted {action} before argument handling")
+        return guard
+
+    def _guard_main_work(self):
+        stack = ExitStack()
+        for target, action in (
+            ("pathlib.Path.read_text", "a file read"),
+            ("pathlib.Path.write_text", "a file write"),
+            ("pathlib.Path.mkdir", "a directory create"),
+            ("subprocess.run", "a subprocess"),
+        ):
+            stack.enter_context(unittest.mock.patch(target, self._refuse(action)))
+        return stack
+
+    def test_help_exits_zero_with_usage_and_no_main_work(self):
+        for script, module, _ in self.GENERATORS:
+            for flag in ("-h", "--help"):
+                with self.subTest(generator=script, flag=flag):
+                    with (
+                        redirect_stdout(io.StringIO()) as stdout,
+                        redirect_stderr(io.StringIO()),
+                        self._guard_main_work(),
+                        self._argv(script, [flag]),
+                        self.assertRaises(SystemExit) as exit,
+                    ):
+                        module.main()
+                    self.assertEqual(exit.exception.code, 0)
+                    self.assertIn("usage", stdout.getvalue().lower())
+
+    def test_invalid_arguments_exit_two_with_no_main_work(self):
+        for script, module, _ in self.GENERATORS:
+            for name, args in self.REFUSAL_ARGSETS:
+                with self.subTest(generator=script, args=name):
+                    with (
+                        redirect_stdout(io.StringIO()),
+                        redirect_stderr(io.StringIO()) as stderr,
+                        self._guard_main_work(),
+                        self._argv(script, args),
+                        self.assertRaises(SystemExit) as exit,
+                    ):
+                        module.main()
+                    self.assertEqual(exit.exception.code, 2)
+                    self.assertTrue(stderr.getvalue().strip())
+
+    def test_contracts_freeze_with_unknown_argument_refuses_without_work(self):
+        args = ["--freeze-historical-decoder", "--unknown-option"]
+        with (
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self._guard_main_work(),
+            self._argv("generate-agent-contracts.py", args),
+            self.assertRaises(SystemExit) as exit,
+        ):
+            generator.main()
+        self.assertEqual(exit.exception.code, 2)
+
+    def test_valid_modes_reach_the_workload(self):
+        for script, module, first_input in self.GENERATORS:
+            for args in ([], ["--check"]):
+                with self.subTest(generator=script, args=args):
+                    stub = unittest.mock.MagicMock()
+                    stub.read_text.side_effect = _WorkloadReached("workload reached")
+                    with (
+                        self._guard_main_work(),
+                        unittest.mock.patch.object(module, first_input, stub),
+                        self._argv(script, args),
+                        self.assertRaises(_WorkloadReached),
+                    ):
+                        module.main()
+
+    def test_contracts_freeze_dispatch_precedes_check(self):
+        schema_refs = {"current": ["alpha"], "historical": ["beta"]}
+        for args in (["--freeze-historical-decoder"], ["--check", "--freeze-historical-decoder"]):
+            with self.subTest(args=args):
+                load_mock = unittest.mock.MagicMock(return_value=([], [], {}, schema_refs))
+                freeze_mock = unittest.mock.MagicMock(return_value=0)
+                validate_mock = unittest.mock.MagicMock(
+                    side_effect=AssertionError("freeze dispatch reached the normal projection workload"))
+                with unittest.mock.patch.object(generator, "load_workflow_action_contracts", load_mock), \
+                        unittest.mock.patch.object(generator, "freeze_historical_decoder", freeze_mock), \
+                        unittest.mock.patch.object(generator, "validate_historical_decoder", validate_mock), \
+                        self._argv("generate-agent-contracts.py", args):
+                    self.assertEqual(generator.main(), 0)
+                load_mock.assert_called_once_with()
+                freeze_mock.assert_called_once_with(schema_refs)
+                validate_mock.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

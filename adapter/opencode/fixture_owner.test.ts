@@ -30,8 +30,8 @@
 // failing resolution, drain, or removal — are covered deterministically by
 // fixture-owner-fault-probe.py below the matrix. No model call happens
 // anywhere in this file.
-import { expect, test } from "bun:test"
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { afterEach, expect, test } from "bun:test"
+import { chmod, mkdtemp as rawMkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -46,6 +46,23 @@ const CASE_FILE = join(import.meta.dir, "fixture-owner.case.ts")
 // owner process itself must still be spawnable in every case.
 const PYTHON = (Bun.which("python3", { PATH: "/usr/bin:/bin" }) ?? Bun.which("python3")) as string
 const SIGNAL_NUMBERS: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9 }
+
+// Await the adoption probe without signalling it. Drain owners before removing
+// test-owned outer directories; never register discovered fixture roots here.
+const testDirectories: string[] = []
+const ownedChildren: Array<{ child: Bun.Subprocess; cancel: boolean }> = []
+async function mkdtemp(prefix: string): Promise<string> {
+  const directory = await rawMkdtemp(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+afterEach(async () => {
+  await Promise.all(ownedChildren.splice(0).map(async ({ child, cancel }) => {
+    if (cancel) child.kill("SIGTERM")
+    await child.exited
+  }))
+  await Promise.all(testDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+})
 
 const EXPECTED_EXIT: Record<string, number> = {
   success: 0,
@@ -268,6 +285,8 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push({ child, cancel: true })
+  try {
   const reader = new LineReader(child.stderr)
   // Readiness for an externally driven case, measured only from THIS run's
   // own publications: the cleanup-failure variants republish their findings
@@ -307,6 +326,10 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
   let findings: CaseFindings | undefined
   if (await pathExists(reportPath)) findings = JSON.parse(await readFile(reportPath, "utf8")) as CaseFindings
   return { exitCode, stdout, stderr, events: parseEvents(stderr), findings }
+  } finally {
+    if (child.exitCode === null) child.kill("SIGTERM")
+    await child.exited
+  }
 }
 
 async function assertScenario(result: OwnerRun, scenario: string, workDir: string, label: string): Promise<void> {
@@ -486,6 +509,7 @@ test("owner SIGKILL leaves an identifiable leftover that only the test-owned ado
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push({ child: probe, cancel: false })
   const [stdout, stderr, exited] = await Promise.all([new Response(probe.stdout).text(), new Response(probe.stderr).text(), probe.exited])
   const events = parseEvents(stderr)
   const root = eventAt(events, "probe_registered_root")?.root
@@ -575,6 +599,7 @@ test("startup failure — unresolvable or unspawnable bun — cleans the exact r
       stdout: "pipe",
       stderr: "pipe",
     })
+    ownedChildren.push({ child, cancel: true })
     const [stdout, stderr, exited] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
     const events = parseEvents(stderr)
     const root = eventAt(events, "allocated_root")?.root
@@ -607,6 +632,7 @@ test("startup cancellation — SIGTERM before the inner run starts — still dra
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push({ child, cancel: true })
   const reader = new LineReader(child.stderr)
   // allocated_root is journalled BEFORE the inner spawn: the moment it
   // appears, the owner is mid-startup and signal handling is already
@@ -642,6 +668,7 @@ test("a SIGTERM arriving during drain/removal preserves its conventional 143 sta
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push({ child, cancel: true })
   const reader = new LineReader(child.stderr)
   // The inner chain-writer run passes and exits on its own; the drain of its
   // six-link chain is the cleanup window this signal lands in.
@@ -678,6 +705,7 @@ test("launcher death with closed output pipes cannot abort the owner's cleanup",
     stdout: "pipe",
     stderr: "pipe",
   })
+  ownedChildren.push({ child, cancel: true })
   // Read just enough journal to learn the exact root, then give the pipe
   // away: this test deliberately keeps no copy of the owner's output.
   const streamReader = child.stderr.getReader()

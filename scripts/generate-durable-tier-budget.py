@@ -14,6 +14,7 @@ generators, so a budget edit that is not regenerated fails.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -44,7 +45,12 @@ const (
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on durable-tier budget drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         budget = json.loads(BUDGET.read_text(encoding="utf-8"))
         if budget.get("schema_version") != "1.0":
             raise ValueError("durable tier budget schema_version must be 1.0")
@@ -55,7 +61,7 @@ def main() -> int:
         content = subprocess.run(
             ["gofmt"], input=go_projection(budget), text=True, capture_output=True, check=True
         ).stdout
-        if "--check" in sys.argv[1:]:
+        if check:
             if not TARGET.is_file() or TARGET.read_text(encoding="utf-8") != content:
                 print(f"generated durable-tier budget drift: {TARGET.relative_to(ROOT)}", file=sys.stderr)
                 return 1

@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:26ff60dcf6dd50570e613aa9354fc9839f736510df83d8551fa4aa6bf39eeb55",
+  "sha256": "sha256:b1b954d1378b5790e530a801c021e82fce93b9fe3a93747c38f194ad377dd98d",
   "status": "accepted",
-  "summary": "Checks-mode ci-wait builds its PR check population from the gh pr view status-check rollup and queries gh pr checks only when that rollup holds the full 100-context page, where pagination still decides the set. This amends CD-0160 D4, which named gh pr checks as the PR selector's query. The poll interval stages on the elapsed time the state file already carries: 15 seconds for the first minute, 30 seconds until five minutes, and 60 seconds after. A gh command that reaches its timeout retries once after two seconds and then reports pending with a stall reason, because a stall carries no verdict about the checks; a non-timeout transport, authentication, or decode failure still reports error. The bounded slice, the state-carried deadline, merge mode, and the checks-mode and merge-mode terminal rules are unchanged.",
+  "summary": "Checks mode uses the gh pr view rollup and queries gh pr checks only at the full 100-context page boundary. Merge mode selects the newest attempt per check identity from the already-read rollup without another population query. Selected failures end the merge wait except in UNSTABLE, while lifecycle outcomes retain precedence. The staged poll interval, carried deadline, bounded slice, and stalled-command retry remain unchanged.",
   "tags": [
     "ci-wait",
     "cli",

@@ -108,7 +108,7 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 	applyWorkflowTestConditionAdded(t, s, workID, ownerRef, "condition:hold", authorityOp)
 	heldVersion := readWorkVersion(t, s, workID)
 
-	preflightErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: heldVersion, StepID: "execution",
 		ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: owner,
 	})
@@ -137,7 +137,7 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 func assertArchivedOpsRunbookRefusal(t *testing.T, s *Store, workID, stepID, actionID string, actor WorkflowActor) {
 	t.Helper()
 	before := readWorkVersion(t, s, workID)
-	err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: before, StepID: stepID, ActionID: actionID, Payload: json.RawMessage(`{}`), Actor: actor,
 	})
 	var failure *Failure

@@ -114,13 +114,10 @@ func TestResearchRetirementCascadesContent(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	pack := createSimplePack(t, s, "retirement-content", "owner")
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retirement-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retirement-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retirement-source"), PackID: pack.PackID, ExpectedVersion: 2, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("retirement-citation"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, FindingID: "finding", SourceID: "source"}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retirement-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"source"}, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	tables := []string{"active_research_packs", "active_research_revisions", "active_research_findings", "active_research_sources", "active_research_finding_sources", "active_research_finding_scopes"}
@@ -130,7 +127,7 @@ func TestResearchRetirementCascadesContent(t *testing.T) {
 		}
 	}
 	terminalizeResearchOwner(t, s, "owner")
-	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 4}}})
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 3}}})
 	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementRetired {
 		t.Fatalf("retirement=%+v err=%v", out, err)
 	}
@@ -151,9 +148,7 @@ func TestResearchRetirementActivePinsProtectAndTerminalReleaseFences(t *testing.
 			s := openTemp(t)
 			seedResearchWork(t, s, "owner", "consumer")
 			pack := createSimplePack(t, s, "retirement-pin", "owner")
-			if _, err := BindResearchConsumer(context.Background(), s, BindResearchConsumerRequest{Identity: researchIdentity("retirement-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: required}}); err != nil {
-				t.Fatal(err)
-			}
+			pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: required})
 			terminalizeResearchOwner(t, s, "owner")
 			req := RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 2}}}
 			out, err := retireResearchForTest(t, s, req)

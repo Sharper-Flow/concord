@@ -257,7 +257,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 				t.Fatalf("work pin supersede intent = %v, want agreement with availability %v", intent, tc.available)
 			}
 			if !tc.available {
-				if preflightErr := InspectWorkflowActionAdmission(context.Background(), f.s, WorkflowActionPreflightRequest{
+				if preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), f.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 					WorkID: f.workID, ExpectedVersion: pin.Version, ActionID: "supersede_contract", Actor: f.fixture.owner,
 				}); !hasFailureKind(preflightErr, KindInvalidOperation) {
 					t.Fatalf("payload-free supersede_contract preflight = %v, want the stale-contract recovery refusal", preflightErr)
@@ -344,7 +344,7 @@ func supersedeResearchWalledCorrection(t *testing.T, f crossAttemptFixture) {
 		t.Fatalf("work pin behind the walled correction offers no supersede intent: %#v", pin.NextValidIntents)
 	}
 	successor := json.RawMessage(`{"contract_version":2,"premise":"close the investigation as a source-only report that records its unknowns","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}],"required_evidence":["artifact"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","predecessor_contract_versions":[1],"supersede_reason":"two rejected research rounds and refusing no_ship reviews disproved the original premise; the requirement changed to a closed source-only report with recorded unknowns","audit_evidence":["evidence:` + f.workID + `-walled-supersede"]}`)
-	if err := InspectWorkflowActionAdmission(context.Background(), f.s, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: pin.Version, StepID: f.step, ActionID: "supersede_contract", Payload: successor, Actor: f.fixture.owner}); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), f.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: pin.Version, StepID: f.step, ActionID: "supersede_contract", Payload: successor, Actor: f.fixture.owner}); err != nil {
 		t.Fatalf("full supersede successor preflight at the walled step: %v", err)
 	}
 	if err := runIssue933OperatorAction(t, f.s, f.workID, "supersede_contract", successor, f.fixture.owner, f.fixture.operator); err != nil {

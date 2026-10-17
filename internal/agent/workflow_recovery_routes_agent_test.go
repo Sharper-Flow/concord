@@ -1136,7 +1136,7 @@ func runWorkflowRecoveryRouteArchivedRefusal(t *testing.T, tuple workflowRecover
 	}
 	// The read-only preflight answers the same refusal, so the agent can
 	// classify the parked instance before it attempts anything.
-	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "checkpoint_context", Payload: retryJSON(refusalAction["fields"]), Actor: grantActor}); err == nil {
+	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "checkpoint_context", Payload: retryJSON(refusalAction["fields"]), Actor: grantActor}); err == nil {
 		t.Fatal("archived-family preflight admitted the action")
 	}
 	afterStep, afterVersion, afterEvents, afterContracts := state()
@@ -1319,7 +1319,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		"fields": map[string]any{"diagnosis": "The accepted result fails the successor objective", "strategy": "Produce and verify a fresh result at " + tuple.Target, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{initialAttempt}},
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
+	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
 		t.Fatalf("correction preflight: %v", err)
 	}
 	requireRecoveryOK(t, "approved correction", approvedRecoveryAction(t, s, service, env, correction))

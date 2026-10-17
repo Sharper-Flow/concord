@@ -1247,7 +1247,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "spec_mandate": {
               "items": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               },
               "maxItems": 32,
               "type": "array",
@@ -1836,7 +1836,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "shared_law_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 64,
           "type": "array"
@@ -20529,7 +20529,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "law_modifies": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 32,
           "type": "array",

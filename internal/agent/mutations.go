@@ -1486,7 +1486,6 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		priority := in.Priority
 		urgency := in.Urgency
@@ -1528,7 +1527,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }
@@ -3883,7 +3882,6 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_id"] = r.Envelope.SelectedProductID
-	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "inspect_corrected_delivery", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
 		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
@@ -3904,7 +3902,7 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+2, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }

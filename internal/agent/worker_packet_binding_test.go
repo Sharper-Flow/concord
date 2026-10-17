@@ -802,21 +802,27 @@ func authorizedWorkerJobFor(t *testing.T, s *store.Store, workID, attemptID stri
 	return &job
 }
 
-// recordedAgentOracle reads the oracle under the dispatch's exact job binding.
+// recordedAgentOracle reads the oracle the job-recorded event retained under
+// the dispatch's exact job binding.
 func recordedAgentOracle(t *testing.T, s *store.Store, binding *store.WorkerJobBinding) *store.AcceptanceOracle {
 	t.Helper()
 	if binding == nil {
 		return nil
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), "work-1")
+	var raw sql.NullString
+	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, "work-1", store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("the authorized worker job has no recorded revision: %+v", binding)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, view := range views {
-		if view.Binding == *binding {
-			return view.AcceptanceOracle
-		}
+	if !raw.Valid {
+		return nil
 	}
-	t.Fatalf("the authorized worker job has no recorded revision: %+v", binding)
-	return nil
+	var oracle store.AcceptanceOracle
+	if err := json.Unmarshal([]byte(raw.String), &oracle); err != nil {
+		t.Fatal(err)
+	}
+	return &oracle
 }

@@ -144,26 +144,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "AwaitHealthForWork", run: func() error {
-			awaits, err := s.AwaitHealthForWork(ctx, "neighbor-work", time.Now())
-			if err != nil {
-				return err
-			}
-			if len(awaits) != 0 {
-				return fmt.Errorf("awaits=%+v, want none", awaits)
-			}
-			return nil
-		}},
-		{name: "OverdueAwaitsInProduct", run: func() error {
-			awaits, err := s.OverdueAwaitsInProduct(ctx, "prod", time.Now(), 10)
-			if err != nil {
-				return err
-			}
-			if len(awaits) != 0 {
-				return fmt.Errorf("awaits=%+v, want none", awaits)
-			}
-			return nil
-		}},
 		{name: "EntityVersion", run: func() error {
 			entityVersion, err := s.EntityVersion(ctx, SubjectProduct, "prod")
 			if err != nil {
@@ -285,9 +265,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ReadWorkRemovalAudit", absent: KindProjectionNotFound, run: func() error { _, err := s.ReadWorkRemovalAudit(ctx, "blocker"); return err }},
-		{name: "ReadWorkLiveness", run: func() error { _, err := s.ReadWorkLiveness(ctx, "blocker"); return err }},
-		{name: "DeriveWorkLiveness", run: func() error { _, err := DeriveWorkLiveness(ctx, s, "blocker"); return err }},
 		{name: "WorkflowEvaluationAuthority", run: func() error {
 			actorRef, err := WorkflowActorRef(actor)
 			if err != nil {
@@ -477,9 +454,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "WorkflowActionPreflightWithRegistry", run: func() error {
 			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), preflightRequest)
 		}},
-		{name: "InspectWorkflowActionAdmission", run: func() error {
-			return InspectWorkflowActionAdmission(ctx, s, preflightRequest)
-		}},
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
 		}},
@@ -535,11 +509,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 				return fmt.Errorf("packs=%d, want 1", len(page.Packs))
 			}
 			return nil
-		}},
-		{name: "ResearchFreshnessForPack", run: func() error { _, err := ResearchFreshnessForPack(ctx, s, pack.PackID); return err }},
-		{name: "RequiredResearchFreshness", absent: KindProjectionNotFound, run: func() error {
-			_, err := s.RequiredResearchFreshness(ctx, pack.PackID, "neighbor-research")
-			return err
 		}},
 
 		// Knowledge-home scope reads.
@@ -741,22 +710,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "UnreadMessageCount", run: func() error {
-			count, err := s.UnreadMessageCount(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if count != 0 {
-				return fmt.Errorf("count=%d, want 0", count)
-			}
-			return nil
-		}},
-		{name: "ActiveWorkInProduct", run: func() error {
-			// The fixture seeds needed work only; the list is legitimately
-			// empty, and the read contract under test is the unblocked SELECT.
-			_, err := s.ActiveWorkInProduct(ctx, "prod", 10)
-			return err
-		}},
 		{name: "ResolveContinuityWorkByDirectory", run: func() error {
 			resolution, err := s.ResolveContinuityWorkByDirectory(ctx, filepath.Join(toolRepo, "no-such-dir"))
 			if err != nil {
@@ -764,26 +717,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if resolution.WorkID != "" || resolution.ProjectID != "" {
 				return fmt.Errorf("resolution=%+v, want empty", resolution)
-			}
-			return nil
-		}},
-		{name: "WorkerJobRevisions", run: func() error {
-			revisions, err := s.WorkerJobRevisions(ctx, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if len(revisions) != 0 {
-				return fmt.Errorf("revisions=%+v, want none", revisions)
-			}
-			return nil
-		}},
-		{name: "ReadyWorkerJobRevisions", run: func() error {
-			revisions, err := s.ReadyWorkerJobRevisions(ctx, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if len(revisions) != 0 {
-				return fmt.Errorf("revisions=%+v, want none", revisions)
 			}
 			return nil
 		}},

@@ -43,27 +43,18 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 		ActionID: "record_proposal", Actor: secondSessionActor(),
 		Payload: json.RawMessage(`{"problem":"A bounded problem.","affected":["A bounded system."],"stakes":"A bounded consequence.","user_outcomes":["A bounded outcome."]}`),
 	}
-	for _, entrypoint := range []struct {
-		name    string
-		inspect func(context.Context, *Store, WorkflowActionPreflightRequest) error
-	}{
-		{"registry preflight", func(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
-			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
-		}},
-		{"builtin inspection", InspectWorkflowActionAdmission},
-	} {
-		t.Run(entrypoint.name, func(t *testing.T) {
-			if err := entrypoint.inspect(ctx, s, request); err != nil {
-				t.Fatalf("preflight while another connection holds the write lock: %v", err)
-			}
-			stale := request
-			stale.ExpectedVersion = version + 1
-			assertFailureKind(t, entrypoint.inspect(ctx, s, stale), KindVersionConflict)
-			malformed := request
-			malformed.Payload = json.RawMessage(`{}`)
-			assertFailureKind(t, entrypoint.inspect(ctx, s, malformed), KindInvalidPayload)
-		})
+	inspect := func(request WorkflowActionPreflightRequest) error {
+		return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
 	}
+	if err := inspect(request); err != nil {
+		t.Fatalf("preflight while another connection holds the write lock: %v", err)
+	}
+	stale := request
+	stale.ExpectedVersion = version + 1
+	assertFailureKind(t, inspect(stale), KindVersionConflict)
+	malformed := request
+	malformed.Payload = json.RawMessage(`{}`)
+	assertFailureKind(t, inspect(malformed), KindInvalidPayload)
 
 	// Inspection must not record the previously unseen actor or any event.
 	var afterEvents, actors int

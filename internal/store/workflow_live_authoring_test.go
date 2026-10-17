@@ -129,7 +129,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	before := events()
 
 	// The read-only preflight answers the same refusal the mutation applies.
-	preflightErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "checkpoint_context", Payload: json.RawMessage(`{}`), Actor: owner,
 	})
 	if !hasFailureKind(preflightErr, KindInvalidOperation) {
@@ -1209,10 +1209,8 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, id := range []string{"a-archived", "b-contract-only"} {
-		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind-" + id), PackID: pack.PackID, Revision: 1, ExpectedVersion: int64(i + 1), Consumer: ResearchConsumer{ConsumerWorkID: id, UseRole: UseContext, Required: true}}); err != nil {
-			t.Fatal(err)
-		}
+	for _, id := range []string{"a-archived", "b-contract-only"} {
+		pinResearch(t, s, id, ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 	}
 	before := map[string]workProjection{}
 	for _, id := range []string{"a-archived", "b-contract-only", "c-canonical", "d-terminal", "e-superseded-contract"} {

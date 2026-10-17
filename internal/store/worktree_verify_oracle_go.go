@@ -13,6 +13,7 @@ import (
 	"go/version"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -164,20 +165,36 @@ func resolveNativeGoEnvironment(ctx context.Context, pinned string) (nativeGoEnv
 	if err := nativeScratchDirectories(root); err != nil {
 		return e, err
 	}
-	// Only the standard installed module cache is shared. Host Go variables
-	// and persistent Go configuration never select compiler inputs.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return unavailable(err.Error())
+	// Only the module cache location comes from host Go configuration;
+	// compiler selection and build flags remain controlled.
+	e.ModuleCache = os.Getenv("GOMODCACHE")
+	if e.ModuleCache == "" {
+		gopath := os.Getenv("GOPATH")
+		if gopath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return unavailable(err.Error())
+			}
+			gopath = filepath.Join(home, "go")
+		}
+		e.ModuleCache = filepath.Join(filepath.SplitList(gopath)[0], "pkg", "mod")
 	}
-	e.ModuleCache = filepath.Join(home, "go", "pkg", "mod")
+	if !filepath.IsAbs(e.ModuleCache) {
+		return unavailable("module cache must be an absolute path")
+	}
+	e.ModuleCache = filepath.Clean(e.ModuleCache)
+	// A missing checksum proof must fail locally, not fall back to HTTPS.
+	sumdb := url.URL{Scheme: "file", Path: filepath.Join(e.ModuleCache, "cache", "download", "sumdb", "sum.golang.org")}
 	probe := func(toolchain string) (map[string]string, error) {
 		cmd := exec.CommandContext(ctx, goPath, "env", "-json", "GOVERSION", "GOROOT", "GOMODCACHE", "GOOS", "GOARCH") //nolint:gosec // installed command, fixed argv.
 		cmd.Dir = root
 		cmd.Env = nativeControlledEnv(e, root)
 		for i, value := range cmd.Env {
-			if strings.HasPrefix(value, "GOTOOLCHAIN=") {
+			switch {
+			case strings.HasPrefix(value, "GOTOOLCHAIN="):
 				cmd.Env[i] = "GOTOOLCHAIN=" + toolchain
+			case strings.HasPrefix(value, "GOSUMDB="):
+				cmd.Env[i] = "GOSUMDB=sum.golang.org " + sumdb.String()
 			}
 		}
 		var stderr bytes.Buffer

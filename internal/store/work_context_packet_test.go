@@ -336,9 +336,7 @@ func TestDispatchRefusesPacketMissingWorkContext(t *testing.T) {
 
 // A current view past its bounds refuses the dispatch with the reader's own
 // strict overflow error and zero dispatch effects, so the overflow is never
-// silently dropped or truncated into a packet. The work pin's own omitted
-// member on this state is a refusal boundary, not a desired behavior this
-// suite asserts.
+// silently dropped or truncated into a packet.
 func TestDispatchRefusesWorkContextViewOverflow(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-overflow")

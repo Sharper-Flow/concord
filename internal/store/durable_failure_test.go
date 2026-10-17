@@ -17,7 +17,7 @@ type commitErrorConnector struct {
 }
 
 func (c *commitErrorConnector) Connect(context.Context) (driver.Conn, error) {
-	conn, err := c.driver.Open(c.path)
+	conn, err := c.driver.Open(SQLiteFileURI(c.path))
 	if err != nil {
 		return nil, err
 	}

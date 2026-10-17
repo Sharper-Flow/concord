@@ -40,8 +40,26 @@ func TestRecordedOccupancyMigration89ReleaseAgreesWithReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range events {
+		if event.Kind == "project.locator_added" {
+			event.PayloadVersion = 1
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			t.Fatal(err)
+		}
+		if event.Kind == "project.locator_added" {
+			// Seed the recorded writer's projection, before its generation column existed.
+			p, err := decodeProjectLocator(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stamp := event.OccurredAt.Format(time.RFC3339Nano)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			if err := bumpVersion(ctx, tx, "projects", event, p.ExpectedVersion, p.ResultingVersion, "Project"); err != nil {
+				t.Fatal(err)
+			}
+			continue
 		}
 		if event.Kind != "work.worktree_created" {
 			if err := foldRegisteredEvent(ctx, tx, event); err != nil {

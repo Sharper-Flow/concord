@@ -335,19 +335,6 @@ func outsideRepairGitHubRepository(normalizedRemote string) (string, bool) {
 		}
 		return path, true
 	}
-	// The recorded locator is normalized by the store, which turns any
-	// scheme-carrying remote into an ssh form whose host carries the original
-	// scheme: an https://github.com origin reads `ssh://https/github.com/...`
-	// and an ssh://git@github.com origin reads `ssh://git@github.com/...` for
-	// a greater user prefix. Read the scheme-carrying host shape
-	// deterministically: the GitHub host follows the scheme marker, so the
-	// remaining path is the owner/repo.
-	if host == "https" || host == "http" {
-		trimmed, trimmedOK := strings.CutPrefix(path, "github.com/")
-		if trimmedOK && outsideRepairRepositoryPattern.MatchString(trimmed) {
-			return trimmed, true
-		}
-	}
 	return "", false
 }
 

@@ -607,3 +607,6 @@ graph. Product law approval does not authorize live-state cutover.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestBlockedSessionsRoutesAttentionUnderBurst|TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.
+- `python3 scripts/test-check-package-domains.py` proves the package-map checks.
+- `internal/store.TestPackageMapChangeKeepsRegistryPin` proves a map change leaves architecture-binding pins current.
+- `internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage` proves the footprint join and its order.

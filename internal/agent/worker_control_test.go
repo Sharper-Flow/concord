@@ -103,7 +103,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 	}
 	a.WorkID = "foreign-control-work"
 	a.Signature = ed25519.Sign(key, CanonicalWorkerControlAssertion(a))
-	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"work_id":"foreign-control-work","product_id":"product-1"}`)}
+	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"work_id":"foreign-control-work"}`)}
 	err := service.Store.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
 		return err
@@ -113,7 +113,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 	}
 }
 
-func TestWorkerControlScopeBindsProductSelectionToHeldPacket(t *testing.T) {
+func TestWorkerControlScopeUsesSignedHostProductWithoutInventingPacketFields(t *testing.T) {
 	service, a, _ := workerControlProofFixture(t, []Capability{"work_transition"})
 	events := []store.Event{
 		{EventID: "control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Control","priority":1}`)},
@@ -122,12 +122,12 @@ func TestWorkerControlScopeBindsProductSelectionToHeldPacket(t *testing.T) {
 	if err := store.ApplyOperation(context.Background(), service.Store, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, a.WorkID): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"product_id":"product-foreign"}`)}
+	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"work_id":"work-control","attempt_id":"attempt-control"}`)}
 	err := service.Store.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "Product selection differs from the held packet") {
-		t.Fatalf("worker control silently substituted its Product selection: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no authorized dispatch window exists") {
+		t.Fatalf("signed host Product did not reach dispatch validation with the published packet shape: %v", err)
 	}
 }

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"reflect"
 	"time"
 
@@ -85,12 +84,6 @@ func (s *Service) resolveAuthorizedWorkerControlTx(ctx context.Context, tx *stor
 	}
 	if err := validateWorkReferenceScope(CallEnvelope{SelectedProductID: a.ProductID}, authority, OperationMutation, []string{req.WorkID}, scopes); err != nil {
 		return store.WorkerControlPlan{}, err
-	}
-	var packet struct {
-		ProductID string `json:"product_id"`
-	}
-	if json.Unmarshal(req.Packet, &packet) != nil || packet.ProductID != a.ProductID {
-		return store.WorkerControlPlan{}, authorityRefusal("worker control Product selection differs from the held packet")
 	}
 	plan, err := store.ResolveWorkerControlTx(ctx, tx, req)
 	if err != nil {

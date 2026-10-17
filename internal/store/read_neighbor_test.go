@@ -412,18 +412,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "DeriveWorkflowReady", run: func() error {
-			result, err := DeriveWorkflowReady(ctx, s, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if !result.Ready {
-				return fmt.Errorf("ready=%v blocking=%v unknown=%v", result.Ready, result.BlockingConditions, result.UnknownConditions)
-			}
-			return nil
-		}},
-		{name: "DeriveWorkflowReadyWithReader", run: func() error {
-			result, err := DeriveWorkflowReadyWithReader(ctx, s, "neighbor-work", nil)
+		{name: "deriveWorkflowReady", run: func() error {
+			result, err := deriveWorkflowReady(ctx, s.DatabaseForTesting(), "neighbor-work")
 			if err != nil {
 				return err
 			}

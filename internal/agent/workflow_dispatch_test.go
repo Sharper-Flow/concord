@@ -796,9 +796,13 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if step != "execution" {
 		t.Fatalf("approved action current step=%s, want execution", step)
 	}
-	projection, err := store.ReadWorkflowProjection(context.Background(), s, store.WorkflowReadRequest{WorkID: "work-1"})
+	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	projection := workflowRead.Workflow
+	if projection == nil {
+		t.Fatal("Q7 omitted the recorded workflow")
 	}
 	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != pm1fixture.FixtureDomainRegistryContentHash || projection.ArchitectureBinding.HomeDomainID != pm1fixture.FixtureRootDomainID {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)

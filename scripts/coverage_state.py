@@ -60,6 +60,12 @@ ISSUE_STATE = ROOT / ".concord/docs/issue-state.v1.json"
 ISSUE_REPO = "Sharper-Flow/concord"
 REFRESH_COMMAND = "scripts/update-issue-state.py"
 
+
+def maturity_manifest_paths(root: Path) -> list[Path]:
+    """The file population shared by maturity checks and snapshot refresh."""
+    return sorted((root / ".concord/docs").glob("maturity-readiness*.json"))
+
+
 # Every manifest whose outstanding records point at an issue, named by the key
 # holding those records. One snapshot serves all of them. A per-plane snapshot
 # would let a plane be added without its pointers being covered, which is the
@@ -67,6 +73,7 @@ REFRESH_COMMAND = "scripts/update-issue-state.py"
 ISSUE_STATE_MANIFESTS = (
     (ROOT / ".concord/docs/knowledge/coverage", "records"),
     (ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions"),
+    *((path, "items") for path in maturity_manifest_paths(ROOT)),
 )
 
 LINEAR_ISSUE = re.compile(r"^[A-Z][A-Z0-9]*-[1-9][0-9]*$")

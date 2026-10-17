@@ -26,10 +26,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from coverage_state import valid_issue_pointer  # noqa: E402
+from coverage_state import (  # noqa: E402
+    check_outstanding_pointer,
+    load_issue_states,
+    maturity_manifest_paths,
+    valid_issue_pointer,
+)
 from evidence_anchors import check_anchor  # noqa: E402
 
-MANIFEST_GLOB = "maturity-readiness*.json"
 MANIFEST = ROOT / ".concord/docs/maturity-readiness.v1.json"
 SCHEMA_VERSION = "1.0"
 RUNGS = {"alpha": "a", "beta": "b", "production": "p"}
@@ -116,6 +120,7 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ITEMS:
         findings.append("manifest.items: must be a bounded non-empty array")
         return tally
+    issue_states = load_issue_states(findings)
     identifiers: set[str] = set()
     covered: set[str] = set()
     for number, item in enumerate(raw):
@@ -176,6 +181,8 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
                 findings.append(f"{where}: outstanding item must not carry reason")
             if not valid_issue_pointer(issue):
                 findings.append(f"{where}: outstanding item requires a tracking issue number or Linear issue identifier")
+            else:
+                check_outstanding_pointer(item, f"{where} ({identifier})", issue_states, findings)
             continue
         if issue is not None:
             findings.append(f"{where}: issue is only valid for an outstanding item")
@@ -244,7 +251,7 @@ def validate(data: object) -> tuple[list[str], dict[str, int], dict[str, list[st
 def main() -> int:
     # One file measures one rung (the schema says so); every file under the
     # glob is validated, and a rung may appear at most once across them.
-    paths = sorted((ROOT / ".concord/docs").glob(MANIFEST_GLOB))
+    paths = maturity_manifest_paths(ROOT)
     if not paths:
         print("maturity readiness manifest is missing", file=sys.stderr)
         return 1
@@ -254,12 +261,12 @@ def main() -> int:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"{path.name}: unreadable: {exc}", file=sys.stderr)
+            print(f"{path.relative_to(ROOT)}: unreadable: {exc}", file=sys.stderr)
             failed = True
             continue
         rung = data.get("rung", "unknown") if isinstance(data, dict) else "unknown"
         if rung in seen_rungs:
-            print(f"{path.name}: rung {rung} is already measured by another manifest", file=sys.stderr)
+            print(f"{path.relative_to(ROOT)}: rung {rung} is already measured by another manifest", file=sys.stderr)
             failed = True
             continue
         seen_rungs.add(rung)
@@ -272,7 +279,7 @@ def main() -> int:
         if findings:
             failed = True
             for finding in findings:
-                print(f"{path.name}: {finding}", file=sys.stderr)
+                print(f"{path.relative_to(ROOT)}: {finding}", file=sys.stderr)
             continue
         total = sum(tally.values())
         print(

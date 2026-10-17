@@ -74,7 +74,7 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 		t.Fatalf("read package directory: %v", err)
 	}
 	fset := token.NewFileSet()
-	var files []*ast.File
+	literals := 0
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
@@ -84,11 +84,6 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("parse %s: %v", name, parseErr)
 		}
-		files = append(files, file)
-	}
-	constants := stringConstants(files)
-	literals := 0
-	for _, file := range files {
 		for _, decl := range file.Decls {
 			function := ""
 			if fn, ok := decl.(*ast.FuncDecl); ok {
@@ -100,7 +95,7 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 					return true
 				}
 				for _, intent := range nextIntentLiterals(lit) {
-					tool, operation, literal := intentTarget(intent, constants)
+					tool, operation, literal := intentTarget(intent)
 					position := fset.Position(intent.Pos())
 					switch {
 					case !literal && derivations[function]:
@@ -147,70 +142,29 @@ func nextIntentLiterals(lit *ast.CompositeLit) []*ast.CompositeLit {
 	return nil
 }
 
-// stringConstants maps each package-level string constant to its value, so
-// an intent that names its operation through a constant is still checked.
-func stringConstants(files []*ast.File) map[string]string {
-	constants := map[string]string{}
-	for _, file := range files {
-		for _, decl := range file.Decls {
-			gen, ok := decl.(*ast.GenDecl)
-			if !ok || gen.Tok != token.CONST {
-				continue
-			}
-			for _, spec := range gen.Specs {
-				values, ok := spec.(*ast.ValueSpec)
-				if !ok || len(values.Names) != len(values.Values) {
-					continue
-				}
-				for i, name := range values.Names {
-					if lit, ok := values.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						if text, err := strconv.Unquote(lit.Value); err == nil {
-							constants[name.Name] = text
-						}
-					}
-				}
-			}
-		}
-	}
-	return constants
-}
-
 // intentTarget reads the Tool and Operation fields of an intent literal. It
-// reports literal=false unless both are string literals or string constants.
-func intentTarget(lit *ast.CompositeLit, constants map[string]string) (tool, operation string, literal bool) {
+// reports literal=false unless both are string literals.
+func intentTarget(lit *ast.CompositeLit) (tool, operation string, literal bool) {
 	for _, element := range lit.Elts {
 		kv, ok := element.(*ast.KeyValueExpr)
 		if !ok {
 			continue
 		}
 		key, ok := kv.Key.(*ast.Ident)
-		if !ok {
+		if !ok || (key.Name != "Tool" && key.Name != "Operation") {
 			continue
 		}
-		if key.Name != "Tool" && key.Name != "Operation" {
-			continue
-		}
-		var text string
-		switch value := kv.Value.(type) {
-		case *ast.BasicLit:
-			unquoted, err := strconv.Unquote(value.Value)
-			if value.Kind != token.STRING || err != nil {
-				return "", "", false
-			}
-			text = unquoted
-		case *ast.Ident:
-			constant, ok := constants[value.Name]
-			if !ok {
-				return "", "", false
-			}
-			text = constant
-		default:
+		value, ok := kv.Value.(*ast.BasicLit)
+		if !ok || value.Kind != token.STRING {
 			return "", "", false
 		}
-		switch key.Name {
-		case "Tool":
+		text, err := strconv.Unquote(value.Value)
+		if err != nil {
+			return "", "", false
+		}
+		if key.Name == "Tool" {
 			tool = text
-		case "Operation":
+		} else {
 			operation = text
 		}
 	}

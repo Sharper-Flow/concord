@@ -767,6 +767,68 @@ func TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligatio
 	}
 }
 
+func TestWorkerCompleteCLIRequiresObservedDirectory(t *testing.T) {
+	for _, explicitEmpty := range []bool{false, true} {
+		name := "omitted"
+		if explicitEmpty {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			dbPath := freshMigratedCLIDatabase(t)
+			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+			key := seedWorkerEvidenceClient(t)
+			lane := store.BuiltinLaneDefinitions()[0]
+			var out, diagnostic bytes.Buffer
+			if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-directory", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-directory")), &out, &diagnostic); code != 0 {
+				t.Fatalf("dispatch exit=%d: %s", code, diagnostic.String())
+			}
+			var request map[string]any
+			if err := json.Unmarshal([]byte(workerCompleteJSON(t, key, "complete-directory", "work-1", "attempt-1", preferredLaneModel(lane), "nonce-complete-directory", &lane)), &request); err != nil {
+				t.Fatal(err)
+			}
+			delete(request, "worker_directory")
+			if explicitEmpty {
+				request["worker_directory"] = ""
+			}
+			s, err := store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			var eventsBefore, noncesBefore int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay)`).Scan(&eventsBefore, &noncesBefore); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			diagnostic.Reset()
+			if code := runWithInput([]string{"worker-complete"}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code == 0 {
+				t.Fatalf("missing-directory completion recorded: %s", out.String())
+			}
+			var result struct {
+				OK    bool `json:"ok"`
+				Error struct {
+					Kind        string `json:"kind"`
+					EffectState string `json:"effect_state"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("missing typed completion refusal: %v; stderr=%s", err, diagnostic.String())
+			}
+			if result.OK || result.Error.Kind != string(store.KindUnauthorizedDispatch) || result.Error.EffectState != "none" {
+				t.Fatalf("completion refusal = %s", out.String())
+			}
+			var eventsAfter, noncesAfter int
+			var lifecycle string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay), lifecycle_state FROM worker_attempts WHERE attempt_id='attempt-1'`).Scan(&eventsAfter, &noncesAfter, &lifecycle); err != nil {
+				t.Fatal(err)
+			}
+			if eventsAfter != eventsBefore || noncesAfter != noncesBefore || lifecycle != "dispatched" {
+				t.Fatalf("refusal changed events/nonces/lifecycle: %d/%d/%s; before %d/%d/dispatched", eventsAfter, noncesAfter, lifecycle, eventsBefore, noncesBefore)
+			}
+		})
+	}
+}
+
 // TestWorkerEvidenceCannotChangeATerminalResult covers the acceptance clause a
 // signature alone does not deliver: once an attempt has an outcome, further
 // authenticated evidence is refused.

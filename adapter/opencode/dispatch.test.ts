@@ -1,10 +1,10 @@
-import { afterAll, afterEach, describe, test, expect } from "bun:test"
+import { afterAll, afterEach, describe, test, expect, spyOn } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
@@ -921,9 +921,34 @@ test("a worker transcript above the old export limit records completion", async 
   expect(recorded).toEqual(["worker-dispatch", "worker-complete"])
 })
 
-test("a transcript that outlives the readback page bound refuses typed", async () => {
-  // A reader that always advertises a next page simulates a transcript the
-  // page walk never reaches the head of; the walk refuses after its bound.
+test("completion reads a valid worker report beyond sixteen message pages", async () => {
+  const [opening, assistant] = transcript()
+  const messages = [opening, ...Array.from({ length: 16 * READBACK_MESSAGE_PAGE }, (_, index) => ({
+    info: { id: `message-intermediate-${index}`, sessionID: "session-1", role: "user", time: { created: index + 2 } },
+    parts: [{ type: "text", text: "intermediate worker context" }],
+  })), assistant]
+  const calls: Array<{ command: string; input: any }> = []
+  let pageReads = 0
+  const result = await complete(workerBody(), {
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages(_id, limit, before) {
+        pageReads++
+        const end = before === undefined ? messages.length : Number(before)
+        const start = Math.max(0, end - limit)
+        return okRoute(messages.slice(start, end), start ? `<http://host/session/session-1/message?limit=${limit}&before=${start}>; rel="next"` : undefined)
+      },
+    },
+    evidenceRunner: { async run(argv, input) { calls.push({ command: argv[1], input: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("ok")
+  expect(result.readback_model).toBe(READBACK_MODEL)
+  expect(pageReads).toBe(17)
+  expect(calls.map(({ command }) => command)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(calls.every(({ input }) => input.attempt_id === packet().attempt_id)).toBe(true)
+})
+
+test("a repeated readback cursor refuses typed", async () => {
   const session = { id: "session-1" }
   const alwaysMore: SessionReader = {
     async get() { return okRoute(session) },
@@ -932,10 +957,79 @@ test("a transcript that outlives the readback page bound refuses typed", async (
   const read = await readWorkerSessionBody(alwaysMore, "session-1", SIGNAL)
   expect(read.ok).toBe(false)
   if (read.ok || read.kind !== "readback_refusal") {
-    throw new Error("the page-bound walk refused with the wrong kind")
+    throw new Error("the repeated-cursor walk refused with the wrong kind")
   }
-  expect(read.predicate).toBe("readback_message_bound")
-  expect(read.message).toContain(`${MAX_READBACK_MESSAGE_PAGES} readback pages`)
+  expect(read.predicate).toBe("session_read")
+  expect(read.message).toContain("pagination repeated a cursor")
+})
+
+test.each([undefined, "retained-task"])("readback retains all identities, the exact opening and only the selected Task parts (%s)", async (taskPartID) => {
+  const [opening, assistant] = transcript()
+  const retainedPart = { id: "retained-task", type: "tool", tool: "task", state: { status: "completed", output: workerBody() } }
+  const newest = { ...assistant, info: { ...assistant.info, id: "message-newest" }, parts: [retainedPart, { type: "file", url: "data:image/png;base64," + "x".repeat(200_000) }] }
+  const middle = { ...assistant, parts: [{ type: "text", text: "discarded transcript context" }] }
+  const reader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      return before ? okRoute([opening, middle]) : okRoute([newest], '<http://host/session/session-1/message?before=oldest>; rel="next"')
+    },
+  }
+  const read = await readWorkerSessionBody(reader, "session-1", SIGNAL, taskPartID)
+  expect(read.ok).toBe(true)
+  if (!read.ok) throw new Error(read.message)
+  const evidence = JSON.parse(read.body)
+  expect(evidence.messages.map((message: any) => message.info)).toEqual([opening.info, middle.info, newest.info])
+  expect(evidence.messages[0]).toEqual(opening)
+  expect(evidence.messages[1].parts).toEqual([])
+  expect(evidence.messages[2].parts).toEqual(taskPartID ? [retainedPart] : [])
+  expect(Buffer.byteLength(read.body)).toBeLessThan(8_192)
+  expect(readExportSession(read.body, "session-1").ok).toBe(true)
+})
+
+test.each(["duplicate", "model"] as const)("readback checks %s identity across pages before completion", async (conflict) => {
+  const [opening, assistant] = transcript()
+  const newer = { ...assistant, info: { ...assistant.info, id: conflict === "duplicate" ? assistant.info.id : "message-other-model", ...(conflict === "model" ? { modelID: "different-model" } : {}) } }
+  const recorded: Array<{ command: string; input: any }> = []
+  const result = await complete(workerBody(), {
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages(_id, _limit, before) { return before ? okRoute([opening, assistant]) : okRoute([newer], '<http://host/session/session-1/message?before=oldest>; rel="next"') },
+    },
+    evidenceRunner: { async run(argv, input) { recorded.push({ command: argv[1], input: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.predicate).toBe(conflict === "duplicate" ? "export_message_identity" : "export_model_ambiguous")
+  expect(recorded.map(({ command }) => command)).toEqual(["worker-dispatch"])
+  expect(recorded[0].input.terminal).toBe("failed")
+})
+
+test.each(["caller", "deadline"] as const)("readback %s cancellation names reconciliation without terminal evidence", async (cause) => {
+  const caller = new AbortController()
+  const deadline = new AbortController()
+  const timeout = spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+  const recorded: string[] = []
+  try {
+    const result = await completeWorkerAttempt(lane, packet(), workerBody(), {
+      credentials: testCredentials, workerDirectory: WORKER_DIRECTORY, packetDigest: PACKET_DIGEST,
+      sessionReader: {
+        async get() { return okRoute({ id: "session-1" }) },
+        async messages(_id, _limit, _before, signal) {
+          expect(signal.aborted).toBe(false)
+          ;(cause === "caller" ? caller : deadline).abort(new DOMException(`synthetic ${cause} stop`, cause === "caller" ? "AbortError" : "TimeoutError"))
+          return okRoute(transcript(), '<http://host/session/session-1/message?before=older>; rel="next"')
+        },
+      },
+      evidenceRunner: { async run(argv) { recorded.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+    }, caller.signal)
+    expect(timeout).toHaveBeenCalledWith(30_000)
+    expect(result.outcome).toBe("error")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(`synthetic ${cause} stop`)
+    expect(result.error?.predicate).toBeUndefined()
+    expect(recorded).toEqual([])
+  } finally {
+    timeout.mockRestore()
+  }
 })
 
 test("readback refusal names its predicate and preserves the export digest", () => {

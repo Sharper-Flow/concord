@@ -17,6 +17,10 @@
       "value": "internal/store.TestTierAdmittedConflictRecordsTheContractRevisionLine"
     },
     {
+      "kind": "go_test",
+      "value": "internal/store.TestAmendmentPathRefusesADerivedRevisionOfALegislatedDeclaration"
+    },
+    {
       "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
     }

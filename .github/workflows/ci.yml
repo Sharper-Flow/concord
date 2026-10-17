@@ -331,7 +331,7 @@ jobs:
       - name: Validate cognitive-complexity budget
         run: python3 scripts/check-complexity.py
       - name: Test reachability and complexity checkers
-        run: python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
+        run: python3 scripts/test-reachability.py && python3 scripts/test-update-issue-state.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
 
   # Full suite without the race detector, split across runners.
   # internal/store alone took 798 s and cmd/concord 439 s of one 14-minute

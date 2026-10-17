@@ -1,14 +1,22 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-10-15T22:22:21Z",
+  "generated_at": "2026-10-17T05:20:16.688571Z",
+  "linear_read_at": {
+    "CON-1001": "2026-10-17T05:17:24.783Z",
+    "CON-1002": "2026-10-17T05:17:24.783Z",
+    "CON-1003": "2026-10-17T05:17:24.784Z",
+    "CON-24": "2026-10-17T05:17:24.784Z",
+    "CON-33": "2026-10-17T05:17:24.784Z",
+    "CON-34": "2026-10-17T05:17:24.784Z",
+    "CON-773": "2026-10-17T05:17:24.784Z"
+  },
   "issues": {
-    "CON-1001": "open",
-    "CON-1002": "open",
-    "CON-1003": "open",
-    "CON-24": "open",
-    "CON-33": "open",
-    "CON-34": "open",
-    "CON-773": "open",
-    "CON-797": "closed"
+    "CON-1001": "closed",
+    "CON-1002": "closed",
+    "CON-1003": "closed",
+    "CON-24": "closed",
+    "CON-33": "closed",
+    "CON-34": "closed",
+    "CON-773": "closed"
   }
 }

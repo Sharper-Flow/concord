@@ -327,3 +327,14 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 		t.Fatalf("anchors CD-0133=%d CD-0128=%d", len(architecture.Anchors["CD-0133"]), len(architecture.Anchors["CD-0128"]))
 	}
 }
+
+// TestFootprintCursorBindingSeparatesFields proves no split of one request's
+// bytes across behavior and paths reproduces another request's binding.
+func TestFootprintCursorBindingSeparatesFields(t *testing.T) {
+	t.Parallel()
+	joined := footprintCursorBinding(DomainFootprintRequest{Product: "p", Behavior: "a\x00b"}, []string{"c"})
+	split := footprintCursorBinding(DomainFootprintRequest{Product: "p", Behavior: "a"}, []string{"b", "c"})
+	if joined == split {
+		t.Fatal("distinct requests share one cursor binding")
+	}
+}

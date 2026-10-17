@@ -180,8 +180,16 @@ func validateDomainFootprintRequest(req DomainFootprintRequest) ([]string, error
 
 // footprintCursorBinding names the request a cursor continues, so a cursor
 // issued for other paths or another behavior refuses instead of paging them.
+// Each field is length-prefixed, so no split of one request's bytes across
+// fields reproduces another request's binding.
 func footprintCursorBinding(req DomainFootprintRequest, paths []string) string {
-	sum := sha256.Sum256([]byte(req.Product + "\x00" + req.Behavior + "\x00" + strings.Join(paths, "\x00")))
+	var key strings.Builder
+	for _, field := range append([]string{req.Product, req.Behavior}, paths...) {
+		key.WriteString(strconv.Itoa(len(field)))
+		key.WriteByte(':')
+		key.WriteString(field)
+	}
+	sum := sha256.Sum256([]byte(key.String()))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -267,7 +275,11 @@ func footprintBehaviorLaws(ctx context.Context, s *Store, home KnowledgeHome, be
 }
 
 func footprintIndexedLawKinds(ctx context.Context, q queryer, home KnowledgeHome) ([]string, error) {
-	return footprintStrings(ctx, q, `SELECT c.kind FROM knowledge_kind_coverage c JOIN knowledge_index_watermark w ON w.home_project_id=c.home_project_id AND w.home_locator_id=c.home_locator_id AND w.head_ref=c.head_ref AND w.scanned_commit_oid=c.scanned_commit_oid WHERE c.home_project_id=? AND c.home_locator_id=? AND c.head_ref=? AND c.kind IN (?,?,?) AND c.coverage='indexed' ORDER BY c.kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, footprintLawKinds[0], footprintLawKinds[1], footprintLawKinds[2])
+	args := []any{home.HomeProjectID, home.HomeLocatorID, home.HeadRef}
+	for _, kind := range footprintLawKinds {
+		args = append(args, kind)
+	}
+	return footprintStrings(ctx, q, `SELECT c.kind FROM knowledge_kind_coverage c JOIN knowledge_index_watermark w ON w.home_project_id=c.home_project_id AND w.home_locator_id=c.home_locator_id AND w.head_ref=c.head_ref AND w.scanned_commit_oid=c.scanned_commit_oid WHERE c.home_project_id=? AND c.home_locator_id=? AND c.head_ref=? AND c.kind IN (?`+strings.Repeat(",?", len(footprintLawKinds)-1)+`) AND c.coverage='indexed' ORDER BY c.kind`, args...)
 }
 
 type footprintCandidate struct {

@@ -72,8 +72,8 @@ func (p WorkflowContractPinRead) MarshalJSON() ([]byte, error) { return json.Mar
 
 // readWorkflowContractVersion reads one recorded contract version and every
 // enrichment keyed by it. It answers sql.ErrNoRows when the work never had
-// that version. The caller decides changes_product_truth: the active read
-// takes it from the instance, a historical read from the version's own pin.
+// that version. A verified pin answers changes_product_truth; the active
+// read overwrites it with the instance's flag.
 func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, version int64) (WorkflowReadContract, error) {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string

@@ -9,7 +9,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// AJ4 — read the contract a correction replaced (CON-974).
+// AJ4 — read the contract a correction replaced.
 //
 // bindAJ4HistoryOfASupersededContract approves contract v1, supersedes it
 // with v2 through the operator-approved correction route, then reads

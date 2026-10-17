@@ -38,7 +38,7 @@ func setHistoryContractPin(t *testing.T, s *Store, workID string, version int64,
 	}
 }
 
-// TestHistoryReadsASupersededContractVersion proves the CON-974 selector: on
+// TestHistoryReadsASupersededContractVersion proves the contract_version selector: on
 // a work item at contract v2, contract_version 1 returns v1 exactly as
 // recorded, with its approval, its successor, its own definition pin, and
 // the Product-truth flag that pin answers, while the instance fields stay

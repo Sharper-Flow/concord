@@ -1,0 +1,115 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestRemoteIdentityVersions(t *testing.T) {
+	for _, tc := range []struct{ raw, old, current string }{
+		{"https://github.com/o/r", "ssh://https/github.com/o/r", "https://github.com/o/r"},
+		{"http://host:8080/o/r", "ssh://http/host:8080/o/r", "http://host:8080/o/r"},
+		{"ssh://git@host/o/r", "ssh://ssh/git@host/o/r", "ssh://git@host/o/r"},
+		{"ssh://git@host:2222/o/r.git", "ssh://ssh/git@host:2222/o/r", "ssh://git@host:2222/o/r"},
+		{"git://host/o/r", "ssh://git/host/o/r", "git://host/o/r"},
+		{"git@github.com:o/r.git", "ssh://git@github.com/o/r", "ssh://git@github.com/o/r"},
+		{"host:o/r@v2.git", "ssh://host/o/r@v2", "ssh://host/o/r@v2"},
+		{"git:pw@host:a://b", "ssh://git/pw@host:a://b", "ssh://git/pw@host:a://b"},
+		{"file:///srv/o/r.git", "ssh://file/srv/o/r", ""},
+		{"git+ssh://git@host/o/r", "ssh://git+ssh/git@host/o/r", ""},
+		{"ftp://host/o/r", "ssh://ftp/host/o/r", ""},
+		{" HTTPS://GitHub.Com/O/R.git ", "ssh://https/github.com/o/r", "https://github.com/o/r"},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			got, err := normalizeRemote(tc.raw)
+			if err != nil || got != tc.current {
+				t.Errorf("current=%q err=%v want=%q", got, err, tc.current)
+			}
+			s := locatorReplayStore(t)
+			e := recordedLocatorEvent("old", string(LocatorGitRemote), tc.raw, tc.old)
+			insertHistoricalEvent(t, s, e)
+			before := histEventRows(t, s)
+			if err := RebuildFromLog(context.Background(), s); err != nil {
+				t.Fatal(err)
+			}
+			rows, err := s.ProjectLocators(context.Background(), "project-a")
+			if err != nil || len(rows) != 1 || rows[0].NormalizedValue != tc.old {
+				t.Fatalf("historical rows=%+v err=%v want=%q", rows, err, tc.old)
+			}
+			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+				t.Fatal("rebuild rewrote historical journal")
+			}
+		})
+	}
+}
+
+func TestUnsupportedOriginUsesOnlyRegisteredPath(t *testing.T) {
+	for _, raw := range []string{"file:///srv/o/r.git", "git+ssh://git@host/o/r", "ftp://host/o/r"} {
+		t.Run(raw, func(t *testing.T) {
+			ctx := context.Background()
+			s := locatorReplayStore(t)
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: raw})
+			if err != nil || host.Remote != "" || host.Host.GitRemote != "" {
+				t.Fatalf("host=%+v err=%v", host, err)
+			}
+			_, err = s.MatchResolvedProjectHost(ctx, host)
+			assertFailureKind(t, err, KindUnknownScope)
+			if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "path", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
+				t.Fatal(err)
+			}
+			for _, rebuild := range []bool{false, true} {
+				if rebuild {
+					if err := RebuildFromLog(ctx, s); err != nil {
+						t.Fatal(err)
+					}
+				}
+				resolved, err := s.MatchResolvedProjectHost(ctx, host)
+				if err != nil || resolved.ProjectID != "project-a" || len(resolved.Locators) != 1 || resolved.Locators[0].Kind != LocatorCanonicalPath {
+					t.Fatalf("resolved=%+v err=%v", resolved, err)
+				}
+			}
+			before := histEventRows(t, s)
+			for _, mutate := range []func(context.Context, string, ProjectLocator, int64) error{s.AddProjectLocator, s.UpdateProjectLocator} {
+				err := mutate(ctx, "project-a", ProjectLocator{ID: "path", Kind: LocatorGitRemote, Value: raw}, 2)
+				assertFailureKind(t, err, KindInvalidFilter)
+				var failure *Failure
+				if !errors.As(err, &failure) || !strings.Contains(failure.RecoveryAction, "canonical_path") {
+					t.Fatalf("missing path recovery: %v", err)
+				}
+			}
+			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+				t.Fatal("unsupported locator mutation wrote an event")
+			}
+		})
+	}
+}
+
+func TestLiveRemoteAppendCannotBypassAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, normalized string
+		version               int
+		kind                  FailureKind
+	}{
+		{"old writer", "https://host/o/r", "ssh://https/host/o/r", 1, KindInvalidPayload},
+		{"credentials", "https://TOKEN@host/o/r", "https://host/o/r", 2, KindInvalidFilter},
+		{"unsupported", "file:///srv/o/r", "ssh://file/srv/o/r", 2, KindInvalidPayload},
+		{"tampered", "https://host/o/r", "https://host/other/r", 2, KindInvalidPayload},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			before := histEventRows(t, s)
+			e := recordedLocatorEvent("attempt", string(LocatorGitRemote), tc.raw, tc.normalized)
+			e.PayloadVersion = tc.version
+			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+			assertFailureKind(t, err, tc.kind)
+			assertTableCount(t, s, "project_locators", 0)
+			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+				t.Fatal("refused generic append changed journal")
+			}
+		})
+	}
+}

@@ -289,10 +289,10 @@ func TestRemoteAdmissionPreservesNormalizedIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ remote, normalized string }{
 		{"git@github.com:o/r.git", "ssh://git@github.com/o/r"},
-		{"ssh://git@host/o/r", "ssh://ssh/git@host/o/r"},
-		{"git://git@host/o/r", "ssh://git/git@host/o/r"},
-		{"https://github.com/o/r", "ssh://https/github.com/o/r"},
-		{"http://github.com/o/r", "ssh://http/github.com/o/r"},
+		{"ssh://git@host/o/r", "ssh://git@host/o/r"},
+		{"git://git@host/o/r", "git://git@host/o/r"},
+		{"https://github.com/o/r", "https://github.com/o/r"},
+		{"http://github.com/o/r", "http://github.com/o/r"},
 		{"host:o/r@v2.git", "ssh://host/o/r@v2"},
 		{"git:pw@host:a://b", "ssh://git/pw@host:a://b"},
 		{"git:pw@host:o/r.git", "ssh://git/pw@host:o/r"},
@@ -328,9 +328,7 @@ func TestRecordedRemoteReplayPreservesAdmissionBoundary(t *testing.T) {
 	s := locatorReplayStore(t)
 	ctx := context.Background()
 	event := recordedLocatorEvent("recorded-remote", string(LocatorGitRemote), "https://TOKEN@github.com/o/r", "ssh://https/token@github.com/o/r")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}}); err != nil {
-		t.Fatal(err)
-	}
+	insertHistoricalEvent(t, s, event)
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -861,7 +859,9 @@ func TestRecordedCanonicalPathNegativeControls(t *testing.T) {
 func TestRecordedRemoteNormalizationDeterministic(t *testing.T) {
 	t.Parallel()
 	s := locatorReplayStore(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+	event := recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")
+	event.PayloadVersion = 2
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 	if err == nil || !strings.Contains(err.Error(), "normalization is not deterministic") {
 		t.Fatalf("tampered remote normalization err=%v", err)
 	}

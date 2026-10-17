@@ -57,7 +57,7 @@ func TestMutationEnrichmentRefusesAPinThatDisagreesWithItsChangedRef(t *testing.
 }
 
 // CD-0113 D3: next_valid_intents for a work mutation are derived from the pin
-// and the step definition, never written by hand. A hand-written intent may
+// and the workflow admission, never written by hand. A hand-written intent may
 // name a read that verifies a write, or a research-pack mutation, whose result
 // names no work item and so carries no pin to derive from. Every other
 // construction of a NextIntent is the derivation itself.

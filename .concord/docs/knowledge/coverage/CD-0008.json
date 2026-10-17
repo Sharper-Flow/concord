@@ -3,6 +3,14 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestAuthorizeRefusesMutationOnMainWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNewerPayloadVersionReplayRefusesBeforeMutation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPayloadVersionsDeclareClass"
     }
   ],
   "id": "CD-0008",

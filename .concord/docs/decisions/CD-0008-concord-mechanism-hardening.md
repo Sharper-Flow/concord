@@ -7,6 +7,8 @@
 **Amended by operator:** 2026-08-06 — SQLite confirmed; alternative-engine
 comparison is falsifier-only. CD-0011 records the completed 2026-08-07
 post-falsifier review and retains SQLite.
+**Amended by operator:** 2026-10-17 — D6 states when a payload version bump
+needs a Breaking migration and requires each bump to declare its class.
 **Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
 attempt fencing, external conditions, worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
@@ -240,6 +242,17 @@ after checking the owning authority.
   replay tests.
 - A newer-than-supported event or workflow definition fails closed; no downcast or
   silent skip.
+- A payload version bump is not a schema migration. A bump that keeps the name,
+  type, and meaning of every field that an admitted older release reads from
+  stored payloads outside the event registry needs no Breaking migration and
+  leaves the compatibility floor (CD-0111 D3) unchanged. An admitted older
+  release is one that the floor in force before the bump ships still lets open
+  the store. After a release writes the new version, an older release's
+  full-log replay (backup verification, restore, and fold-guard recovery)
+  refuses before any mutation; the remedy is a release that reads that version.
+  A bump that removes, renames, retypes, or redefines such a field ships with a
+  Breaking migration. Each bump declares its class: replay-only, or the Breaking
+  migration that raises the floor for it.
 - Projection migration normally rebuilds from the retained event log.
 - Active workflow executions remain pinned to their accepted workflow version; idle
   work adopts the current version. Completion always records the pinned version even

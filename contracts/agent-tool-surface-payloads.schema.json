@@ -1824,13 +1824,13 @@
           ],
           "properties": {
             "old_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
             "accepted_successor_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "accepted_successor_content_hash": {
               "$ref": "#/$defs/digest"

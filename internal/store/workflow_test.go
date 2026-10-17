@@ -437,7 +437,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	result, err := DeriveWorkflowReady(context.Background(), s, "ready-unreadable")
+	result, err := deriveWorkflowReady(context.Background(), s.DatabaseForTesting(), "ready-unreadable")
 	if err != nil || result.Ready || len(result.UnknownConditions) != 1 || result.UnknownConditions[0] != "condition:gate" {
 		t.Fatalf("ready result=%+v err=%v", result, err)
 	}

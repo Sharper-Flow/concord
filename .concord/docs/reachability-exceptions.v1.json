@@ -26,18 +26,6 @@
       "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
-      "id": "workflow-read-projection-law-only",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.DeriveWorkflowReady",
-        "internal/store.DeriveWorkflowReadyWithReader",
-        "internal/store.ReadWorkflowProjection",
-        "internal/store.parkedDeliveryRead",
-        "internal/store.workflowRecordedStalenessWarnings"
-      ],
-      "reason": "CD-0166 D4 requires parked_delivery in the workflow read, and the published workflow_read schema requires impact_notices and completion_warnings. ReadWorkflowProjection is the only reader that fills them: PM1.Q7 reads through readWorkflowSummaryTx, which omits parked_delivery and stale_law_revision and always emits those arrays empty. The readiness derivation and its reader seam serve only this projection, so deleting them would delete the only implementation of current law. A tracked follow-up folds this projection into the transaction-scoped Q7 reader."
-    },
-    {
       "id": "workflow-outcome-strength-evaluator-unwired",
       "state": "out_of_scope",
       "functions": [

@@ -183,12 +183,6 @@ func (e workflowScenarioGap) Error() string { return "workflow fixture input: " 
 
 var corpusNow = time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
 
-type unreadableCorpusAuthority struct{}
-
-func (unreadableCorpusAuthority) Readable(context.Context, ExternalCondition) error {
-	return fmt.Errorf("authority is unreadable")
-}
-
 func hasCorpusFault(setup workflowCorpusSetup, kind string) bool {
 	for _, fault := range setup.Faults {
 		if fault.Kind == kind {
@@ -1100,11 +1094,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	}
 
 	if action == "derive_ready" {
-		var reader ConditionAuthorityReader
-		if hasCorpusFault(setup, "unreadable_authority") {
-			reader = unreadableCorpusAuthority{}
-		}
-		ready, readErr := DeriveWorkflowReadyWithReader(ctx, s, workID, reader)
+		ready, readErr := deriveWorkflowReady(ctx, s.DatabaseForTesting(), workID)
 		if readErr != nil {
 			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
 		}
@@ -1612,8 +1602,22 @@ func applyCorpusFaultAdapters(ctx context.Context, s *Store, setup workflowCorpu
 				return err
 			}
 		case "unreadable_authority":
-			// The declared adapter is consumed by DeriveWorkflowReadyWithReader;
-			// it must not rewrite the persisted condition projection.
+			conditionID, _ := fault.Input["condition_id"].(string)
+			removed, _ := fault.Input["removed"].(bool)
+			if !removed || conditionID == "" {
+				return workflowScenarioGap{"unreadable_authority must name a removed condition authority"}
+			}
+			var authority string
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&authority); err != nil {
+				return err
+			}
+			const prefix = "durable_operation:"
+			if !strings.HasPrefix(authority, prefix) || len(authority) == len(prefix) {
+				return workflowScenarioGap{"unreadable_authority condition lacks a durable operation"}
+			}
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM durable_operations WHERE op_id=?`, strings.TrimPrefix(authority, prefix)); err != nil {
+				return err
+			}
 		case "mismatched_commit":
 			// The completion boundary reads the declared commit pair and refuses
 			// before any terminal event is appended.

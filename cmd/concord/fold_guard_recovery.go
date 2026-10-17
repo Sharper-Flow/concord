@@ -38,7 +38,7 @@ func runRecoverFoldGuardCommand(args []string, in io.Reader, out, errOut io.Writ
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		writeOperatorDiagnostic(errOut, "recover-fold-guard", err.Error())
+		writeOperatorDiagnostic(errOut, "recover-fold-guard", diagnosticText(err))
 		return 1
 	}
 	var trailing any
@@ -50,13 +50,13 @@ func runRecoverFoldGuardCommand(args []string, in io.Reader, out, errOut io.Writ
 	if path == "" {
 		path, err = databasePath()
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "recover-fold-guard", err.Error())
+			writeOperatorDiagnostic(errOut, "recover-fold-guard", diagnosticText(err))
 			return 1
 		}
 	}
 	report, err := store.RecoverFoldGuard(context.Background(), path)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "recover-fold-guard", unstampedRefusalDiagnostic(err, filepath.Dir(path)).Error())
+		writeOperatorDiagnostic(errOut, "recover-fold-guard", diagnosticText(unstampedRefusalDiagnostic(err, filepath.Dir(path))))
 		return 1
 	}
 	_, _ = fmt.Fprintf(out, "recover-fold-guard: cleared the stranded guard; rebuilt %d event(s) of projections at %s\n", report.Events, path)

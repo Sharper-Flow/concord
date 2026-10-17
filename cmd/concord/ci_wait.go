@@ -129,7 +129,7 @@ type ciWaitState struct {
 func runCiWait(raw []byte, out, errOut io.Writer) int {
 	var request ciWaitRequest
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "ci-wait", err.Error())
+		writeOperatorDiagnostic(errOut, "ci-wait", diagnosticText(err))
 		return 1
 	}
 

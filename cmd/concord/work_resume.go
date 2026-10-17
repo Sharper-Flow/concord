@@ -81,7 +81,7 @@ const workResumeRefusalExit = 2
 func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workResumeInput
 	if err := decodeObject(raw, &input); err != nil {
-		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return workResumeRefusalExit
 	}
 	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.ProjectID) || !sessionPrepareID.MatchString(input.WorkID) {
@@ -96,7 +96,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return storeFailureExit(err)
 	}
 	if resolution.ProjectID != input.ProjectID {
@@ -107,18 +107,18 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	if err != nil {
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
-			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
 		}
 		var ref string
 		if !resolution.MainWorktree {
 			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 				return storeFailureExit(err)
 			}
 			ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
 			if err != nil {
-				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 				return storeFailureExit(err)
 			}
 		}
@@ -126,7 +126,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref, SessionRef: input.SessionRef,
 		}, nil)
 		if bootstrapErr != nil {
-			writeOperatorDiagnostic(errOut, "work-resume", bootstrapErr.Error())
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(bootstrapErr))
 			return storeFailureExit(bootstrapErr)
 		}
 		entry = result.Entry
@@ -137,13 +137,13 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	// to a resume that leaves a different worktree.
 	if !resolution.MainWorktree && !samePath(cwd, entry.Path) {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
 		}
 	}
 	restoration, err := s.RestoreResumeWorktree(ctx, input.WorkID, entry, nil)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return storeFailureExit(err)
 	}
 	output := workResumeOutput{
@@ -157,7 +157,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	if err != nil {
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.Kind != store.KindUnknownScope {
-			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
 		}
 	} else {
@@ -179,7 +179,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	// other failures refuse the resume.
 	handoff, err := store.ReadPendingProjectHandoffForProject(ctx, s, input.WorkID, input.ProjectID, input.SessionRef)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 		return storeFailureExit(err)
 	}
 	if handoff != nil {

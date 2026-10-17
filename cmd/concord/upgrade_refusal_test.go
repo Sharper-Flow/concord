@@ -38,6 +38,12 @@ func TestActionableUpgradeRefusalNamesOlderHoldingSessions(t *testing.T) {
 	if !errors.Is(err, refusal) && err.Error() != refusal.Error() && !strings.Contains(message, refusal.Error()) {
 		t.Fatalf("enriched refusal %q lost the original message %q", message, refusal.Error())
 	}
+	// The enriched refusal stays typed, so stderr still carries the store's
+	// recovery, once and last.
+	refusal.RecoveryAction = "run concord upgrade; it refuses while a live session holds a release that predates migration 93"
+	if text := diagnosticText(err); !strings.HasSuffix(text, "\nrecovery: "+refusal.RecoveryAction) || strings.Count(text, "recovery: ") != 1 {
+		t.Fatalf("enriched refusal renders %q, want the store recovery once as its last line", text)
+	}
 }
 
 // Every other failure passes through unchanged, and an upgrade-required

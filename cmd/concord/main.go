@@ -445,7 +445,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	if issueKey, issueURL, ok := linearIssueReference(work); ok {
 		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL, project, inherited)
 		if err != nil {
-			writeDiagnostic(errOut, "concord zl: "+err.Error())
+			writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
 			return 1
 		}
 		work, product := resolvedWork, resolvedProduct
@@ -453,7 +453,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	product, err := resolveForwardedProduct(work, project, inherited)
 	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
+		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
 		return 1
 	}
 	return forwardSession(product, work, prompt, project, in, out, errOut)
@@ -554,12 +554,12 @@ func resolveForwardedProduct(work, project, preferredProduct string) (string, er
 func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
 	cmd, err := sessionCommand(sessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: defaultSessionAgent})
 	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
+		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
 		return 1
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
 	if err := cmd.Run(); err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
+		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
 		return 1
 	}
 	return 0
@@ -594,7 +594,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 		return 1
 	}
 	if err := validateRequiredCommandFields(name, raw); err != nil {
-		writeOperatorDiagnostic(errOut, name, err.Error())
+		writeOperatorDiagnostic(errOut, name, diagnosticText(err))
 		return inputRefusalExit
 	}
 	return handler(raw, out, errOut)
@@ -613,7 +613,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return 1
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return inputRefusalExit
 	}
 	// Predecessor inventory reads only the operator-supplied snapshot file and
@@ -624,17 +624,17 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	}
 	path, err := databasePath()
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	defer func() {
 		if err := s.Close(); err != nil && exitCode == 0 {
-			writeDiagnostic(errOut, "concord: cannot close store: "+err.Error())
+			writeDiagnostic(errOut, "concord: cannot close store: "+diagnosticText(err))
 			exitCode = 1
 		}
 	}()
@@ -667,7 +667,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "work-shelve", "work-cancel":
 		var request store.WorkRemovalRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if command == "work-shelve" {
@@ -677,7 +677,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		}
 		receipt, err := s.RemoveWork(context.Background(), request)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, receipt, errOut)
@@ -856,16 +856,16 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-dispatch":
 		var request workerDispatchRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		lane, err := store.LookupLane(request.LaneID, request.LaneVersion, request.LaneDigest)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ValidateWorkerHostProvenance(request.HostProvenance); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.HostProvenance == nil {
@@ -911,7 +911,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding.Version = attributionVersion
@@ -919,7 +919,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		if len(request.AuthorizedPacket) != 0 {
 			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
-				writeOperatorDiagnostic(errOut, command, err.Error())
+				writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 				writeWorkerEvidenceFailure(out, errOut, err, nil)
 				return 1
 			}
@@ -928,7 +928,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.EvidenceOrigin == "" {
@@ -947,12 +947,12 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-fail":
 		var request workerFailRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding := agent.WorkerEvidenceBinding{
@@ -969,12 +969,12 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-abandon":
 		var request workerAbandonRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding := agent.WorkerEvidenceBinding{
@@ -998,7 +998,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // A match appends nothing and consumes no second dispatch authorization.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
 	if err := s.RequireActionableWork(ctx, binding.WorkID, command); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		writeWorkerEvidenceFailure(out, errOut, err, nil)
 		return 1
 	}
@@ -1020,7 +1020,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	if binding.Verb == agent.WorkerEvidenceVerbComplete {
 		preparation, preparationErr := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: binding.WorkID, AttemptID: binding.AttemptID, EventID: event.EventID})
 		if preparationErr != nil {
-			writeOperatorDiagnostic(errOut, command, preparationErr.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(preparationErr))
 			writeWorkerEvidenceFailure(out, errOut, preparationErr, nil)
 			return 1
 		}
@@ -1107,7 +1107,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		return nil
 	})
 	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		// An uncertain durable commit can leave the very event a retry will
 		// reconcile. The typed result carries the event identities then, so
 		// the adapter reports a possible effect instead of a bare refusal.
@@ -1209,7 +1209,7 @@ func decodeObject(data []byte, value any) error {
 func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut io.Writer) int {
 	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return inputRefusalExit
 	}
 	return writeJSON(out, response, errOut)
@@ -1228,7 +1228,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		ExpectedVersion int64  `json:"expected_version"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	var result store.ApplyOperationResult
@@ -1255,7 +1255,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		})
 	}
 	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1278,7 +1278,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
@@ -1292,7 +1292,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1306,7 +1306,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		caps := make([]agent.Capability, len(request.Capabilities))
@@ -1314,7 +1314,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			caps[i] = agent.Capability(v)
 		}
 		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1327,7 +1327,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		caps := make([]agent.Capability, len(request.Capabilities))
@@ -1335,7 +1335,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			caps[i] = agent.Capability(v)
 		}
 		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1346,7 +1346,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			PublicKey string `json:"public_key"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
@@ -1355,7 +1355,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		if err := service.RotateClientKey(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key)}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1364,11 +1364,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ClientRef string `json:"client_ref"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := service.RevokeClient(ctx, request.ClientRef); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1381,7 +1381,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64             `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		method := s.AddProjectLocator
@@ -1389,7 +1389,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			method = s.UpdateProjectLocator
 		}
 		if err := method(ctx, request.ProjectID, store.ProjectLocator{ID: request.LocatorID, Kind: request.Kind, Value: request.Value}, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1400,11 +1400,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := s.RemoveProjectLocator(ctx, request.ProjectID, request.LocatorID, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1420,7 +1420,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			MembershipReason   string `json:"reason"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.CreateProductWithProject(ctx, store.ProductCreation{
@@ -1429,7 +1429,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1453,7 +1453,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedProductVersion  int64           `json:"expected_product_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
@@ -1465,7 +1465,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			OwnerPurpose: request.OwnerPurpose, OwnerEnvironments: request.OwnerEnvironments,
 			ExpectedProductVersion: request.ExpectedProductVersion, Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1479,7 +1479,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedResourceVersion int64    `json:"expected_resource_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
@@ -1487,7 +1487,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1500,7 +1500,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Attachments     []store.DomainProjectAttachment `json:"attachments"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
@@ -1508,7 +1508,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1521,7 +1521,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Attachments     []store.DomainResourceAttachment `json:"attachments"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ReplaceDomainResourceAttachments(ctx, s, store.DomainResourceAttachmentsRequest{
@@ -1529,7 +1529,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1543,7 +1543,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedProductVer int64  `json:"expected_product_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.CreateProjectForProduct(ctx, store.ProjectCreation{
@@ -1551,7 +1551,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Role: request.Role, Reason: request.Reason, ExpectedProductVersion: request.ExpectedProductVer,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}, {EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1564,7 +1564,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.AddProductProjectMembership(ctx, store.ProductMembershipAddition{
@@ -1572,7 +1572,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1587,7 +1587,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion         int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.ChangeProductStage(ctx, store.ProductStageChange{
@@ -1595,7 +1595,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1604,7 +1604,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Destination string `json:"destination"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.Destination == s.Path() {
@@ -1613,11 +1613,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		manifest, err := store.Backup(ctx, s, request.Destination)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, manifest, errOut)
@@ -1635,7 +1635,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Destination string `json:"destination"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.Destination == s.Path() {
@@ -1644,8 +1644,9 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			// The source is a backup file, not a data root's store: no owner.
-			writeOperatorDiagnostic(errOut, command, unstampedRefusalDiagnostic(err, "").Error())
+			// The source is a backup file, not a data root's store, so the
+			// refusal names no owner.
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, report, errOut)
@@ -1665,7 +1666,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 		SnapshotPath string `json:"snapshot_path"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
 		return 1
 	}
 	if request.SnapshotPath == "" {
@@ -1678,7 +1679,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 			writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot file does not exist: %s", request.SnapshotPath))
 			return 1
 		}
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot path is unavailable: %s", statErr.Error()))
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", "snapshot path is unavailable: "+diagnosticText(statErr))
 		return 1
 	}
 	if info.IsDir() {
@@ -1687,7 +1688,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 	}
 	snapshot, err := predecessor.Load(request.SnapshotPath)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
 		return 1
 	}
 	report := predecessor.Inventory(snapshot)
@@ -1719,7 +1720,7 @@ func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs
 	for _, ref := range refs {
 		version, err := s.EntityVersion(context.Background(), ref.EntityKind, ref.ID)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		changed = append(changed, operatorChangedRef{EntityKind: string(ref.EntityKind), ID: ref.ID, Version: strconv.FormatInt(version, 10)})
@@ -1741,7 +1742,7 @@ func writeOperatorDiagnostic(out io.Writer, command, message string) {
 func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 	data, err := json.Marshal(value)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	if len(data) > agent.MaxEnvelopeBytes {
@@ -1750,7 +1751,7 @@ func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 	}
 	_, err = fmt.Fprintln(out, string(data))
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	return 0
@@ -1760,4 +1761,20 @@ func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 // and a refusal that names every blocking session is only actionable in full.
 func writeDiagnostic(out io.Writer, message string) {
 	_, _ = fmt.Fprintln(out, message)
+}
+
+// diagnosticText renders an error for stderr. Failure.Error omits the recovery
+// the store decided, so a store refusal's recovery is added here as the last
+// line, once, however the refusal was wrapped. A route that has no refusal to
+// carry its recovery formats the line with recoveryLine.
+func diagnosticText(err error) string {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.RecoveryAction != "" {
+		return err.Error() + "\n" + recoveryLine(failure.RecoveryAction)
+	}
+	return err.Error()
+}
+
+func recoveryLine(action string) string {
+	return "recovery: " + action
 }

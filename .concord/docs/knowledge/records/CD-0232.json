@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e768f43d2de7e10475ba9885ef067f417a20c1cbcbc6530e144f7ecd56c20656",
+  "sha256": "sha256:96f22bb0df713c1438a414012846e5c2e7287c7c09a8edf71461c1ef3c9efcca",
   "status": "accepted",
   "summary": "Each merge poll reads the newest merge-queue timeline event. The first answer is the baseline. A later removal that is not a merge ends an open wait on the watched head as failure, before check failures and despite UNSTABLE. Failed merge-group runs are best-effort detail. A queue read failure is an error. gh api calls are fixed queries, and repo must be owner/name.",
   "tags": [

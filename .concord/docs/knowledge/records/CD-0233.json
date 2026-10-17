@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d459705d3e4dd95f105953c15e1c7fbfb3c783ee59bb62b47d71911cf8634ee7",
+  "sha256": "sha256:6030246b19756d60e4ff30e04ea05174ffd2abf5b168eade9e638ab0d5150662",
   "status": "accepted",
   "summary": "Checks mode reads the base branch's required status check contexts from both rulesets and classic protection, caches the union per base in the wait state, and adds each unobserved required context to the population as pending. A failed read is an error and a stalled read is pending. Merge mode reads no requiredness.",
   "tags": [

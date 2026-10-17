@@ -11,8 +11,10 @@
   deadlines, and the closed report statuses
 - **Related:** [CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md),
   [CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md)
-- **Approval:** The coordinator accepted the design on 2026-10-17, including
-  the fail-closed read and its stated evidence limits.
+- **Approval:** The requesting coordinator accepted the design on 2026-10-17,
+  including the fail-closed read and its stated evidence limits. It ruled the
+  record not serious under P12, because it holds a partial green set open
+  inside one Domain with no new status, input, or report field.
 
 ## Context
 
@@ -27,7 +29,7 @@ the active ruleset rules for a branch. A `required_status_checks` rule lists
 its contexts. The [branch endpoint](https://docs.github.com/en/rest/branches/branches)
 returns a `protection` summary whose `required_status_checks` lists the
 classic protection contexts. The branch endpoint returns that summary for an
-unprotected branch too, with empty lists.
+unprotected branch too.
 
 ## Decision
 
@@ -54,7 +56,7 @@ with no required context keeps the earlier behavior.
 
 The state file caches the union with the base it was read for. A later slice
 reads both sources again only when the base changes. The cost is two REST
-requests per wait, not per poll.
+reads per base branch, plus any further ruleset pages, not per poll.
 
 ### D3. A failed read fails closed
 
@@ -86,11 +88,13 @@ D2: it adds no requiredness read.
 A wait whose token cannot read the rules or branch endpoints now ends every
 checks wait as `error`. The classic read was proven only with an
 administrator token. Whether a read-only token sees `protection` was not
-verified. A wait on such a token fails closed instead of reporting a partial
-success.
+verified. Such a token fails closed only when GitHub refuses the read or
+omits `protection`. A summary that omits `required_status_checks` counts as
+no classic context, and the wait then judges only the ruleset contexts.
 
 A required context that another app reports under the same name satisfies the
-requirement here, although GitHub might not accept it. A required context that
+requirement here. A ruleset rule can name the integration the status must
+originate from, and then GitHub does not accept that report. A required context that
 never reports leaves the wait pending until the deadline.
 
 ## Verification

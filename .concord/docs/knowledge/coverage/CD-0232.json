@@ -31,6 +31,10 @@
     {
       "kind": "go_test",
       "value": "cmd/concord.TestCiWaitRepoMustBeOwnerName"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitResumedStateMustNameAValidSubject"
     }
   ],
   "id": "CD-0232",

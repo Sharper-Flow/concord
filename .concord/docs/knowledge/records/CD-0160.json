@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:277c2956bd23d8755245216af918490b3cd83da69df29cf7e331d98b720147ed",
+  "sha256": "sha256:773336480e6a2274a1cef252c4daa87f3d0099943f5b9d86ddcd16324891d315",
   "status": "accepted",
   "summary": "Moves the ci-wait wait into a store-free concord ci-wait CLI verb that polls, enforces the 1800-second deadline from durable state, classifies terminal outcomes from observed results, supersedes a changed pull request head, and reports gh failures as explicit errors. The utility allowance narrows to the verb and the model-maintained poll loop is removed.",
   "tags": [

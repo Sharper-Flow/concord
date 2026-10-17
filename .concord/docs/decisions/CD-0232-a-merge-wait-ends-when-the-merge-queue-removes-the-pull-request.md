@@ -14,9 +14,12 @@
   carried deadlines, and the closed report statuses
 - **Related:** [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md),
   [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md)
-- **Approval:** The coordinator accepted the design and its decisions on
-  2026-10-17: a removal that predates the wait stays pending, and a manual
-  dequeue reports failure.
+- **Approval:** The requesting coordinator accepted the design and its
+  decisions on 2026-10-17: a removal that predates the wait stays pending,
+  and a manual dequeue reports failure. It ruled the record not serious under
+  P12, because it adds a terminal case inside one Domain with no new status,
+  input, or report field. The D5 `repo` check came after that ruling; it
+  refuses no value the `concord_ci_watch` input schema admits.
 
 ## Context
 
@@ -24,11 +27,11 @@ A repository with a merge queue tests a merge-group commit, not the pull
 request head. A failed queue run therefore never reaches the head's
 status-check rollup. When the queue removes the pull request, a merge wait
 sees an open pull request with passing head checks. It stays pending until
-the deadline, although nothing will merge the pull request.
+the deadline, although the queue has dropped the pull request.
 
 `gh pr view` exports no merge-queue field. The pull request timeline does
 record the queue. GitHub's
-[GraphQL object reference](https://docs.github.com/en/graphql/reference/objects)
+[GraphQL pulls reference](https://docs.github.com/en/graphql/reference/pulls)
 defines `AddedToMergeQueueEvent` and `RemovedFromMergeQueueEvent`. A
 removal carries `reason`, "The reason this pull request was removed from the
 queue", and `beforeCommit`, the before commit of the event. In an observed
@@ -54,8 +57,8 @@ The wait ends as `failure` when one answer shows all of these facts:
 Otherwise the poll continues to the check classification. A removal on a
 closed, merged, or changed head is left to the next `gh pr view`, which
 reports `closed`, `merged`, or `superseded`. A newest event that is an
-enqueue keeps the wait pending, so a re-enqueue after a removal is not a
-drop.
+enqueue is not a drop, so a re-enqueue after a removal does not end the
+wait.
 
 A removal that predates the wait never ends it. An older removal can precede
 a fresh enqueue that the wait has not observed yet. Such a wait stays pending
@@ -103,7 +106,9 @@ invocation stays a query.
 The `repo` input now names API paths, so it must be exactly two plain
 segments: an owner and a repository name joined by one slash. Each segment
 holds only ASCII letters, digits, `.`, `_`, and `-`, and is never `.` or
-`..`. Any other value is `refused` before a `gh` call.
+`..`. A request with any other value is `refused`. Every poll repeats the
+`repo` and selector checks, so a resumed state file with an invalid subject
+ends as `error`. Neither case reaches a `gh` call.
 
 ## Alternatives considered
 
@@ -119,7 +124,8 @@ holds only ASCII letters, digits, `.`, `_`, and `-`, and is never `.` or
 ## Consequences
 
 Each merge poll costs one GraphQL request more. A merge wait on a repository
-without a merge queue reads an empty timeline and behaves as before.
+without a merge queue reads an empty timeline and behaves as before, except
+that a failed queue read is an `error`.
 
 Only the reasons `failed_checks` and `merged` have been observed. Every other
 reason counts as a drop. GitHub's auto-merge state after a removal was not
@@ -128,6 +134,7 @@ The queue run list names runs of the merge-group commit. It cannot prove that
 a listed failure caused the removal.
 
 A `repo` value with other characters, such as a host prefix, is now refused.
+The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification
 
@@ -144,4 +151,6 @@ A `repo` value with other characters, such as a host prefix, is now refused.
   manual dequeue reports `failure` and run naming stays best effort.
 - `cmd/concord.TestCiWaitPRMergeModeQueueReadFailureIsError` and
   `cmd/concord.TestCiWaitPRMergeModeStalledQueueReadIsPending` prove D4.
-- `cmd/concord.TestCiWaitRepoMustBeOwnerName` proves the `repo` boundary.
+- `cmd/concord.TestCiWaitRepoMustBeOwnerName` and
+  `cmd/concord.TestCiWaitResumedStateMustNameAValidSubject` prove the D5
+  subject checks for a request and for a resumed state file.

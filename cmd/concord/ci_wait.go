@@ -244,16 +244,21 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 
 // ciWaitPoll reads the current state once and classifies it. The observation
 // comes from gh; the classification derives from it and nothing else.
+//
+// A resumed state file skips the request checks, yet its repo and selector
+// value become gh arguments, API path segments, and a GraphQL variable, so
+// every poll checks them again before any gh call.
 func ciWaitPoll(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
+	if err := ciWaitSubjectError(state.Repo, state.Selector); err != nil {
+		return ciWaitReport{}, false, fmt.Errorf("the state file names an invalid subject: %w", err)
+	}
 	switch state.Selector.Kind {
 	case "pr":
 		return ciWaitPollPR(ctx, state)
 	case "sha":
 		return ciWaitPollSHA(ctx, state)
-	case "run":
-		return ciWaitPollRun(ctx, state)
 	default:
-		return ciWaitReport{}, false, fmt.Errorf("selector.kind must be one of pr, sha, or run")
+		return ciWaitPollRun(ctx, state)
 	}
 }
 
@@ -431,15 +436,6 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		report.Reason = "the pull request is closed without a merge"
 		return report, true, nil
 	}
-	if state.Mode == "merge" {
-		removal, err := ciWaitMergeQueueRemoval(ctx, state)
-		if err != nil {
-			return ciWaitReport{}, false, err
-		}
-		if removal != nil {
-			return ciWaitQueueRemovalReport(ctx, state, report, removal), true, nil
-		}
-	}
 	// Checks mode needs the complete population at the full-page boundary,
 	// so it fetches the paginated `pr checks` snapshot there. Merge mode
 	// classifies only the rollup entries already observed.
@@ -493,6 +489,13 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	}
 	report.Checks = counts
 	if state.Mode == "merge" {
+		removal, err := ciWaitMergeQueueRemoval(ctx, state)
+		if err != nil {
+			return ciWaitReport{}, false, err
+		}
+		if removal != nil {
+			return ciWaitQueueRemovalReport(ctx, state, report, removal), true, nil
+		}
 		// GitHub's MergeStateStatus documents UNSTABLE as "Mergeable with
 		// non-passing commit status", so an observed failure there keeps
 		// the merge possible and the wait stays pending.
@@ -985,24 +988,8 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 	if request.Selector == nil {
 		return nil, "", fmt.Errorf("selector is required: one of pr, sha, or run with its value")
 	}
-	if !ciWaitRepoValid(request.Repo) {
-		return nil, "", fmt.Errorf("repo is required as owner/name")
-	}
-	switch request.Selector.Kind {
-	case "pr":
-		if !ciWaitDigitsOnly(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a pr selector value must be a pull request number")
-		}
-	case "sha":
-		if !ciWaitHex40(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a sha selector value must be a 40-character commit SHA")
-		}
-	case "run":
-		if !ciWaitDigitsOnly(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a run selector value must be a run id")
-		}
-	default:
-		return nil, "", fmt.Errorf("selector.kind must be one of pr, sha, or run")
+	if err := ciWaitSubjectError(request.Repo, *request.Selector); err != nil {
+		return nil, "", err
 	}
 	mode := request.Mode
 	if mode == "" {
@@ -1114,6 +1101,31 @@ func ciWaitDigitsOnly(value string) bool {
 		}
 	}
 	return true
+}
+
+// ciWaitSubjectError checks the repository and selector a wait names. Both
+// reach gh as arguments, so a value outside these shapes never runs.
+func ciWaitSubjectError(repo string, selector ciWaitSelector) error {
+	if !ciWaitRepoValid(repo) {
+		return fmt.Errorf("repo is required as owner/name")
+	}
+	switch selector.Kind {
+	case "pr":
+		if !ciWaitDigitsOnly(selector.Value) {
+			return fmt.Errorf("a pr selector value must be a pull request number")
+		}
+	case "sha":
+		if !ciWaitHex40(selector.Value) {
+			return fmt.Errorf("a sha selector value must be a 40-character commit SHA")
+		}
+	case "run":
+		if !ciWaitDigitsOnly(selector.Value) {
+			return fmt.Errorf("a run selector value must be a run id")
+		}
+	default:
+		return fmt.Errorf("selector.kind must be one of pr, sha, or run")
+	}
+	return nil
 }
 
 // ciWaitRepoValid admits exactly two plain path segments. The repository

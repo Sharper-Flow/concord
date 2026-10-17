@@ -116,6 +116,28 @@ func TestCiWaitRepoMustBeOwnerName(t *testing.T) {
 	}
 }
 
+func TestCiWaitResumedStateMustNameAValidSubject(t *testing.T) {
+	// A resumed state file skips the request checks, so the poll repeats the
+	// repo and selector checks before any gh call.
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	for _, tc := range []struct{ repo, kind, value string }{
+		{"o/r/../x", "pr", "5"},
+		{"o/r", "pr", "@state.json"},
+		{"o/r", "run", "--web"},
+		{"o/r", "sha", "HEAD"},
+	} {
+		file := filepath.Join(t.TempDir(), "state.json")
+		ciWaitSaveState(&ciWaitState{
+			SchemaVersion: 1, Selector: ciWaitSelector{Kind: tc.kind, Value: tc.value}, Repo: tc.repo, Mode: "checks",
+			BudgetSeconds: 1800, StartedAt: time.Now().UTC(), DeadlineAt: time.Now().UTC().Add(time.Hour),
+		}, file)
+		code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{StateFile: file}))
+		if code != 1 || report.Status != "error" || strings.Contains(report.Reason, "gh ") {
+			t.Fatalf("state %+v: want an error before any gh call, got code=%d report=%+v", tc, code, report)
+		}
+	}
+}
+
 // --- deadline enforcement ---
 
 func TestCiWaitZeroBudgetTerminatesWithTimeout(t *testing.T) {
@@ -588,7 +610,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
 				*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"`+tc.state+`","mergedAt":"`+tc.mergedAt+`","mergeStateStatus":"`+tc.name+`"}';;
 				*"pr checks"*) exit 97;;
-			`+ciWaitQuietReads+`esac`))
+			esac`))
 			_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 			}))
@@ -1249,7 +1271,7 @@ func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
 		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"newsha","url":"u"}';;
 		*"pr checks"*) echo '[]';;
-	`+ciWaitQuietReads+`esac`))
+	esac`))
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	state := ciWaitState{SchemaVersion: 1, Selector: ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r",
 		BudgetSeconds: 1800, StartedAt: time.Now().UTC(), DeadlineAt: time.Now().UTC().Add(time.Hour), HeadSHA: "oldsha"}
@@ -1360,7 +1382,7 @@ func TestCiWaitSHAFailureRunURL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := `case "$*" in
 	*"run list"*) echo '` + ciWaitJSON(t, tc.runs) + `';;
-` + ciWaitQuietReads + `esac`
+esac`
 			ghStubPath(t, ghStubDir(t, stub))
 			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),

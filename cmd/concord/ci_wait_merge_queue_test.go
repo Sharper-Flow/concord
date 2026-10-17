@@ -122,6 +122,9 @@ func TestCiWaitPRMergeModeQueueRemovalEndsTheWait(t *testing.T) {
 	if report.HeadSHA != ciWaitQueueHead || report.MergeState != "BLOCKED" {
 		t.Fatalf("the report must carry the observed head and merge state, got %+v", report)
 	}
+	if report.Checks == nil || report.Checks.Total != 1 || report.Checks.Passing != 1 {
+		t.Fatalf("the removal report keeps checks from the head rollup, got %+v", report.Checks)
+	}
 	if !strings.Contains(captured, "run list --repo o/r --commit "+ciWaitQueueMergeGroup) {
 		t.Fatalf("the failed queue run must come from the merge-group commit, calls=%q", captured)
 	}

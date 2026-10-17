@@ -131,8 +131,9 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	}
 }
 
-// TestHistoryContractVersionRefusals proves a version the work never had
-// refuses unknown_scope and a cursor never carries a page across selectors.
+// TestHistoryContractVersionRefusals proves a version the work never had,
+// or a selector on work outside a workflow, refuses unknown_scope, and a
+// cursor never carries a page across selectors.
 func TestHistoryContractVersionRefusals(t *testing.T) {
 	t.Parallel()
 	s, workID := historyContractFixture(t, "history-contract-refusals")
@@ -151,6 +152,16 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
 		assertFailureKind(t, err, KindInvalidCursor)
 	}
+
+	plain := openTemp(t)
+	t.Cleanup(func() { plain.Close() })
+	const plainWork = "history-outside-workflow"
+	seedWork(t, plain, plainWork)
+	if out, err := plain.QueryQ7(ctx, Q7Request{Work: plainWork}); err != nil || out.Workflow != nil {
+		t.Fatalf("history outside a workflow = %+v, %v; want events without a workflow", out.Workflow, err)
+	}
+	_, err = plain.QueryQ7(ctx, Q7Request{Work: plainWork, ContractVersion: 1})
+	assertFailureKind(t, err, KindUnknownScope)
 }
 
 // TestHistoryContractVersionWithoutAVerifiedPin proves a version recorded

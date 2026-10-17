@@ -110,7 +110,7 @@ type Q7Request struct {
 	Limit      int
 	Cursor     string
 	// ContractVersion, when nonzero, selects the recorded contract version
-	// the workflow summary describes instead of the active one.
+	// the workflow read describes instead of the active one.
 	ContractVersion int64
 }
 

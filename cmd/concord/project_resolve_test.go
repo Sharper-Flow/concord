@@ -118,3 +118,54 @@ func TestProjectResolveRequiresDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectResolveVersionedRemoteAndPathOnlyOrigins(t *testing.T) {
+	for _, raw := range []string{"https://github.com/owner/repo.git", "file:///srv/owner/repo.git"} {
+		t.Run(raw, func(t *testing.T) {
+			repo := initLocatorRepo(t)
+			cmd := exec.Command("git", "-C", repo, "remote", "set-url", "origin", raw)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("set origin: %v\n%s", err, output)
+			}
+			s := openResolveStore(t)
+			seedLocatorAuthority(t, s, repo)
+			wantRemote, wantKind := "", "canonical_path"
+			if strings.HasPrefix(raw, "https:") {
+				wantRemote, wantKind = "https://github.com/owner/repo", "git_remote"
+				if err := s.AddProjectLocator(context.Background(), "project-wl", store.ProjectLocator{ID: "remote-wl", Kind: store.LocatorGitRemote, Value: raw}, 2); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.RemoveProjectLocator(context.Background(), "project-wl", "path-wl", 3); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, rebuild := range []bool{false, true} {
+				if rebuild {
+					if err := store.RebuildFromLog(context.Background(), s); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var out, errOut bytes.Buffer
+				request, _ := json.Marshal(map[string]string{"directory": repo})
+				if code := runProjectResolve(request, s, &out, &errOut); code != 0 {
+					t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+				}
+				var got struct {
+					ProjectID  string `json:"project_id"`
+					Repository struct {
+						GitRemote string `json:"git_remote"`
+					} `json:"repository"`
+					Locators []struct {
+						Kind string `json:"kind"`
+					} `json:"locators"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+					t.Fatal(err)
+				}
+				if got.ProjectID != "project-wl" || got.Repository.GitRemote != wantRemote || len(got.Locators) != 1 || got.Locators[0].Kind != wantKind {
+					t.Fatalf("resolution=%+v", got)
+				}
+			}
+		})
+	}
+}

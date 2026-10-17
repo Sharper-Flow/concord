@@ -448,6 +448,36 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 	}
 }
 
+// TestPublishedWorkflowReadQualifiedContractLaw proves the workflow read
+// contract admits a mandate and a pinned law revision in the source-qualified
+// <home project>/<law> form that approve_contract accepts and a registered
+// source set produces.
+func TestPublishedWorkflowReadQualifiedContractLaw(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{"spec_mandate", "law_revisions"} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			projection := fullyPopulatedWorkflowReadProjection()
+			if field == "spec_mandate" {
+				projection.Contract.SpecMandate = []string{"project-1/spec-1"}
+			} else {
+				projection.Contract.LawRevisions[0].LawID = "project-1/spec-1"
+			}
+			shaped, err := publishedWorkflowRead(&projection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(shaped)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+				t.Fatalf("qualified %s violates the published workflow_read contract: %v", field, err)
+			}
+		})
+	}
+}
+
 // enrichmentPinFixture opens a real store whose work item carries a real
 // workflow pin, the exact subject the mutation enrichment reads through a
 // transaction. The pin is what the runtime stamps onto every mutation result

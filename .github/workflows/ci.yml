@@ -308,7 +308,7 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Check Go formatting
-        run: test -z "$(gofmt -l .)"
+        run: unformatted="$(gofmt -l .)" || exit 1; printf '%s\n' "$unformatted"; test -z "$unformatted"
       - name: Tidy Go modules
         run: go mod tidy
       - name: Check module diff

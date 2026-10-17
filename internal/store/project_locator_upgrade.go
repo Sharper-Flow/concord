@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"time"
 )
 
@@ -53,7 +52,7 @@ func planRemoteLocatorUpgrade(ctx context.Context, tx *sql.Tx) ([]remoteLocatorC
 		}
 		c.target, err = normalizeRemote(l.Value)
 		if err != nil {
-			return nil, err
+			return nil, wrapFailure(KindInvalidFilter, "migrate", "invalid remote for locator "+l.ID+" of Project "+l.ProjectID, false, "repair the locator with the active release before upgrade", err)
 		}
 		if c.target == "" {
 			remaining[l.ProjectID]--
@@ -61,7 +60,7 @@ func planRemoteLocatorUpgrade(ctx context.Context, tx *sql.Tx) ([]remoteLocatorC
 			continue
 		}
 		if err := checkRemoteCredentials(l.Value); err != nil {
-			return nil, err
+			return nil, wrapFailure(KindInvalidFilter, "migrate", "invalid remote for locator "+l.ID+" of Project "+l.ProjectID, false, "remove credentials from the locator with the active release before upgrade", err)
 		}
 		if other := targets[c.target]; other != "" {
 			return nil, newFailure(KindMembershipConflict, "migrate", "remote target collision between locators "+other+" and "+l.ID, false, "resolve the locator collision with the active release")
@@ -121,7 +120,7 @@ func upgradeRemoteLocators(ctx context.Context, tx *sql.Tx, at time.Time) error 
 		if err != nil {
 			return err
 		}
-		op.Events = append(op.Events, Event{EventID: fmt.Sprintf("%s:%s", remoteLocatorUpgradeName, l.ID), Kind: kind, SubjectType: SubjectProject, SubjectID: l.ProjectID, Actor: "operator", OccurredAt: at, PayloadVersion: payloadVersion, Payload: payload})
+		op.Events = append(op.Events, Event{EventID: remoteLocatorUpgradeName + ":" + l.ID, Kind: kind, SubjectType: SubjectProject, SubjectID: l.ProjectID, Actor: "operator", OccurredAt: at, PayloadVersion: payloadVersion, Payload: payload})
 		versions[l.ProjectID]++
 	}
 	if _, err := applyOperationTx(ctx, tx, op, newFoldScope(tx), false); err != nil {

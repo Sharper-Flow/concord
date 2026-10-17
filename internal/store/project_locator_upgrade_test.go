@@ -222,7 +222,7 @@ func TestRemoteLocatorUpgradePreflightPrecedesWrites(t *testing.T) {
 }
 
 func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
-	for _, mode := range []string{"collision", "credential", "reference", "mid-append"} {
+	for _, mode := range []string{"collision", "credential", "invalid", "reference", "mid-append"} {
 		t.Run(mode, func(t *testing.T) {
 			locators := []ProjectLocator{{ID: "a", Kind: LocatorGitRemote, Value: "https://host/o/r"}, {ID: "b", Kind: LocatorGitRemote, Value: "file:///srv/o/r"}, {ID: "path", Kind: LocatorCanonicalPath, Value: t.TempDir()}}
 			switch mode {
@@ -230,6 +230,8 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 				locators[0].Value, locators[1].Value = "git@host:o/r", "ssh://git@host/o/r"
 			case "credential":
 				locators[0].Value = "https://TOKEN@host/o/r"
+			case "invalid":
+				locators[0].Value = "https://host"
 			}
 			s := remoteUpgradeFixture(t, locators...)
 			if mode == "reference" {
@@ -247,8 +249,11 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 			if err == nil {
 				t.Fatal("unsafe upgrade succeeded")
 			}
-			wantKind := map[string]FailureKind{"collision": KindMembershipConflict, "credential": KindInvalidFilter, "reference": KindProjectionConflict, "mid-append": KindUnavailable}[mode]
+			wantKind := map[string]FailureKind{"collision": KindMembershipConflict, "credential": KindInvalidFilter, "invalid": KindInvalidFilter, "reference": KindProjectionConflict, "mid-append": KindUnavailable}[mode]
 			assertFailureKind(t, err, wantKind)
+			if (mode == "credential" || mode == "invalid") && (!strings.Contains(err.Error(), "locator a") || !strings.Contains(err.Error(), "Project project-a")) {
+				t.Fatalf("refusal omits repair target: %v", err)
+			}
 			if remoteUpgradeSnapshot(t, s) != before {
 				t.Fatal("refused upgrade changed schema/journal/locators/versions")
 			}
@@ -325,5 +330,67 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 	}
 	if before != remoteUpgradeSnapshot(t, s) {
 		t.Fatal("historical transient collision changed replay")
+	}
+}
+
+func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
+	useStampedBuild(t)
+	ctx := context.Background()
+	s := remoteUpgradeFixture(t,
+		ProjectLocator{ID: "https", Kind: LocatorGitRemote, Value: "https://host/o/r"},
+		ProjectLocator{ID: "file", Kind: LocatorGitRemote, Value: "file:///srv/o/r"},
+		ProjectLocator{ID: "path", Kind: LocatorCanonicalPath, Value: t.TempDir()})
+	before := remoteUpgradeSnapshot(t, s)
+	oldEvents := histEventRows(t, s)
+	oldSchema, err := readSchemaManifestVersion(ctx, s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	manifest, err := BackupDatabase(ctx, s.path, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != oldSchema || manifest.EventWatermark != oldEvents[len(oldEvents)-1].Seq {
+		t.Fatalf("snapshot did not retain original schema/journal: %+v", manifest)
+	}
+	stage := filepath.Join(t.TempDir(), "stage.db")
+	if err := runOnlineRestore(ctx, snapshot, stage); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := verifyRestoredStage(ctx, stage, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.SchemaVersion != CurrentSchemaVersion() || inventory.EventWatermark != manifest.EventWatermark+2 {
+		t.Fatalf("staging upgrade did not record both corrections: %+v", inventory)
+	}
+	restored, err := openUnmigrated(ctx, stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	rows, err := restored.ProjectLocators(ctx, "project-a")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("restored rows=%+v err=%v", rows, err)
+	}
+	for _, l := range rows {
+		if l.ID == "file" || l.ID == "https" && l.NormalizedValue != "https://host/o/r" {
+			t.Fatalf("wrong restored locator: %+v", l)
+		}
+	}
+	if before != remoteUpgradeSnapshot(t, s) {
+		t.Fatal("backup/staging verification changed the source")
+	}
+}
+
+func TestRemoteLocatorUpgradeBackupLastLocatorRefusal(t *testing.T) {
+	useStampedBuild(t)
+	s := remoteUpgradeFixture(t, ProjectLocator{ID: "file", Kind: LocatorGitRemote, Value: "file:///srv/o/r"})
+	before := remoteUpgradeSnapshot(t, s)
+	_, err := BackupDatabase(context.Background(), s.path, filepath.Join(t.TempDir(), "snapshot.db"))
+	assertFailureKind(t, err, KindProjectionConflict)
+	if before != remoteUpgradeSnapshot(t, s) {
+		t.Fatal("staging last-locator refusal changed the source")
 	}
 }

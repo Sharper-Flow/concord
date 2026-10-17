@@ -168,8 +168,8 @@ re-litigate them silently.
   version, GitHub Releases plus a Concord installer, and public-repository authority
   after the audited bootstrap tag.
 - **Execution status:** the contract was accepted on 2026-08-06, and bootstrap
-  execution was authorized on 2026-08-07. Issue #600 shipped through pull request
-  #605. CD-0089 now governs Concord development coordination;
+  execution was authorized on 2026-08-07.
+  CD-0089 now governs Concord development coordination;
   [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D2 points to the
   owning release, maturity, and development-authority requirements.
 

@@ -308,7 +308,7 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Check Go formatting
-        run: test -z "$(gofmt -l .)"
+        run: unformatted="$(gofmt -l .)" || exit 1; printf '%s\n' "$unformatted"; test -z "$unformatted"
       - name: Tidy Go modules
         run: go mod tidy
       - name: Check module diff
@@ -386,7 +386,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test every package without its own shard job
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -434,7 +434,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -506,7 +506,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -578,7 +578,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -650,7 +650,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 1 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -698,7 +698,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 2 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product

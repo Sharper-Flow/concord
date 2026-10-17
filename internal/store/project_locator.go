@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -158,6 +159,27 @@ func normalizePath(value string) (string, error) {
 		return "", wrapFailure(KindGitUnreachable, "project_locator", "cannot resolve repository path", true, "restore access to the repository and retry", err)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+var remoteURLFormPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+
+func checkRemoteCredentials(value string) error {
+	value = strings.TrimSpace(value)
+	credentials := false
+	if remoteURLFormPattern.MatchString(value) {
+		u, err := url.Parse(value)
+		if err != nil {
+			return newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
+		}
+		if u.User != nil {
+			_, password := u.User.Password()
+			credentials = password || u.Scheme == "http" || u.Scheme == "https"
+		}
+	}
+	if credentials {
+		return newFailure(KindInvalidFilter, "project_locator", "git remote contains credentials", false, "remove credentials from the remote URL; use a git credential helper")
+	}
+	return nil
 }
 
 func normalizeRemote(value string) (string, error) {
@@ -422,6 +444,11 @@ func (s *Store) applyLocatorEvent(ctx context.Context, projectID, kind string, l
 		locator.ID = hex.EncodeToString(raw)
 	}
 	if kind != "project.locator_removed" {
+		if locator.Kind == LocatorGitRemote {
+			if err := checkRemoteCredentials(locator.Value); err != nil {
+				return err
+			}
+		}
 		normalized, err := NormalizeProjectLocator(locator.Kind, locator.Value)
 		if err != nil {
 			return err
@@ -558,6 +585,9 @@ func ResolveProjectHost(ctx context.Context, directory, worktree string, runner 
 	remoteOut, remoteErr := runner.Run(ctx, canonical, "config", "--get", "remote.origin.url")
 	remote := ""
 	if remoteErr == nil && strings.TrimSpace(string(remoteOut)) != "" {
+		if err := checkRemoteCredentials(string(remoteOut)); err != nil {
+			return ResolvedProjectHost{}, err
+		}
 		remote, err = normalizeRemote(string(remoteOut))
 		if err != nil {
 			return ResolvedProjectHost{}, err

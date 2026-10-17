@@ -568,7 +568,7 @@ func revalidateDispatchProofAtRejectEntry(ctx context.Context, tx *sql.Tx, workI
 // family both dispatch the implementation lane, and the review lane is the
 // severity-rated reviewer of exactly that delivery.
 func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
-	return definition.Ref == "workflow.implementation" || definition.Ref == "workflow.break_fix"
+	return workflowCapabilities(definition).has(WorkflowCapabilityProducesDelivery)
 }
 
 // validateReviewAcceptedDeliveryTx joins the review subject to the latest

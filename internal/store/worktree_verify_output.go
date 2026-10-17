@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const nativeOracleStreamLimit = 2 * 1024 * 1024
@@ -83,26 +85,56 @@ func (w nativeCaptureWriter) Write(b []byte) (int, error) {
 }
 
 // Each child owns a process group. Cancellation and stream overflow stop it.
+// The stage reads its own output pipes because os/exec reports a stream that
+// WaitDelay cut only when the child exited successfully.
 func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, stdin io.Reader, capture *nativeStreamCapture, launched func()) (int, error) {
 	if err := validateWorktreeVerifyCommand(argv); err != nil {
 		return -1, err
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var readers, writers []*os.File
+	defer func() {
+		for _, f := range append(readers, writers...) {
+			_ = f.Close()
+		}
+	}()
+	for range 2 {
+		r, w, err := os.Pipe()
+		if err != nil {
+			return -1, err
+		}
+		readers, writers = append(readers, r), append(writers, w)
+	}
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...) //nolint:gosec // producer-generated bounded argv, no shell.
 	cmd.Dir, cmd.Env, cmd.Stdin = dir, env, stdin
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = worktreeVerifyFinalizeTimeout
-	cmd.Stdout = nativeCaptureWriter{capture: capture, cancel: cancel}
-	cmd.Stderr = nativeCaptureWriter{capture: capture, stderr: true, cancel: cancel}
-	if err := cmd.Start(); err != nil {
+	cmd.Stdout, cmd.Stderr = writers[0], writers[1]
+	err := cmd.Start()
+	for _, w := range writers {
+		_ = w.Close()
+	}
+	writers = nil
+	if err != nil {
 		return -1, err
+	}
+	copied := make(chan error, len(readers))
+	for i, r := range readers {
+		w := nativeCaptureWriter{capture: capture, stderr: i == 1, cancel: cancel}
+		go func() {
+			_, err := io.Copy(w, r)
+			copied <- err
+		}()
 	}
 	if launched != nil {
 		launched()
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
+	if !drainNativeStreams(copied, readers) {
+		capture.complete = false
+	}
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	if runCtx.Err() != nil {
 		return -1, runCtx.Err()
@@ -115,6 +147,27 @@ func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, s
 		return -1, err
 	}
 	return 0, nil
+}
+
+// drainNativeStreams reports whether every stream reached end of file. A
+// stream still open the finalize delay after the child exited is cut.
+func drainNativeStreams(copied <-chan error, readers []*os.File) bool {
+	timer := time.NewTimer(worktreeVerifyFinalizeTimeout)
+	defer timer.Stop()
+	complete := true
+	for pending := len(readers); pending > 0; {
+		select {
+		case err := <-copied:
+			pending--
+			complete = complete && err == nil
+		case <-timer.C:
+			complete = false
+			for _, r := range readers {
+				_ = r.Close()
+			}
+		}
+	}
+	return complete
 }
 
 func nativeStreamDescriptor(runRef, stream string, b []byte, complete bool) NativeOracleStream {

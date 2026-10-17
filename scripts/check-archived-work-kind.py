@@ -8,14 +8,12 @@ import re
 import sys
 from pathlib import Path
 
+from migration_source import migration_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = Path("contracts/concord-knowledge-index.v1.schema.json")
 SCHEMA_SOURCE = Path("internal/store/schema.go")
-MIGRATION_RE = re.compile(
-    r'Version:\s+56,\s+Name:\s+"archived_work_kind_vocabulary",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
-    re.S,
-)
 
 
 def load_json(root: Path, relative: Path, findings: list[str]) -> object | None:
@@ -77,11 +75,11 @@ def check(root: Path) -> list[str]:
     except (OSError, UnicodeDecodeError) as exc:
         findings.append(f"migration-source: {SCHEMA_SOURCE}: cannot read: {exc}")
         return findings
-    migration = MIGRATION_RE.search(source)
+    migration = migration_sql(source, 56, "archived_work_kind_vocabulary")
     if migration is None:
         findings.append("migration-source: missing migration 56 archived_work_kind_vocabulary")
         return findings
-    sql = migration.group("sql")
+    sql = migration.sql
     for name in ("archived_work_kind_insert", "archived_work_kind_update"):
         block = trigger_block(sql, name)
         if block is None:

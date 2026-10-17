@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+from migration_source import migration_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SURFACE = Path("contracts/agent-tool-surface.v1.json")
@@ -21,18 +23,6 @@ def load_json(root: Path, relative: Path, findings: list[str]) -> object:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         findings.append(f"json-load: {relative}: invalid JSON: {exc}")
         return None
-
-
-def migration_match(source: str, version: int, name: str) -> re.Match[str] | None:
-    return re.search(
-        r'Version:\s+'
-        + str(version)
-        + r',\s+Name:\s+"'
-        + re.escape(name)
-        + r'",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
-        source,
-        re.S,
-    )
 
 
 def check_values(table_sql: str, table: str) -> list[str] | None:
@@ -95,13 +85,12 @@ def check(root: Path) -> list[str]:
         findings.append(f"schema-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
 
-    migration = migration_match(source, 55, "approval_consequence_surface_closure")
+    migration = migration_sql(source, 55, "approval_consequence_surface_closure")
     if migration is None:
         findings.append("migration-coverage: missing migration 55 approval_consequence_surface_closure")
         return findings
-    migration_sql = migration.group("sql")
     for table in EXPECTED_TABLES:
-        actual = check_values(migration_sql, table)
+        actual = check_values(migration.sql, table)
         if actual is None:
             findings.append(f"migration-consequence-closure: missing CHECK for {table}")
         elif sorted(actual) != expected or len(actual) != len(set(actual)):
@@ -109,10 +98,10 @@ def check(root: Path) -> list[str]:
                 f"migration-consequence-closure: {table} expected {expected}, got {sorted(actual)}"
             )
 
-    legacy = migration_match(source, 9, "agent_authority_and_approvals")
-    allowed_ranges = [migration.span("sql")]
+    legacy = migration_sql(source, 9, "agent_authority_and_approvals")
+    allowed_ranges = [migration.span]
     if legacy is not None:
-        allowed_ranges.append(legacy.span("sql"))
+        allowed_ranges.append(legacy.span)
     all_checks = re.finditer(
         r"consequence\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*consequence\s+IN\s*\((?P<values>.*?)\)\s*\)",
         source,

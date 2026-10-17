@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from migration_source import migration_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VOCABULARY = Path("contracts/work-kinds.v1.json")
@@ -47,11 +49,6 @@ def enum_at(surface: object, path: list[str], findings: list[str]) -> list[str]:
         findings.append(f"schema-enum: {'/'.join(path)}: missing string array")
         return []
     return value
-
-
-def migration_block(source: str) -> str | None:
-    match = re.search(r'Version:\s+49,\s+Name:\s+"work_kind_and_native_run_vocabularies",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},', source, re.S)
-    return match.group("sql") if match else None
 
 
 def migration_rows(sql: str, table: str) -> dict[tuple[str, ...], tuple[int, ...]]:
@@ -168,10 +165,11 @@ def check(root: Path) -> list[str]:
     except OSError as exc:
         findings.append(f"migration-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
-    sql = migration_block(source)
-    if sql is None:
+    migration = migration_sql(source, 49, "work_kind_and_native_run_vocabularies")
+    if migration is None:
         findings.append("migration-coverage: missing migration 49 work_kind_and_native_run_vocabularies")
         return findings
+    sql = migration.sql
     rows = migration_rows(sql, "work_kinds")
     expected_rows = { (name,): values for name, values in expected.items() }
     if rows != expected_rows:

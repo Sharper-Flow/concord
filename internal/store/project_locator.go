@@ -190,6 +190,12 @@ func normalizeRemoteVersion(value string, version int) (string, error) {
 	if version != 1 && version != 2 {
 		return "", newFailure(KindUnsupportedPayloadVersion, "project_locator", "remote normalization version is unsupported", false, "use a supported locator event version")
 	}
+	if version == 2 {
+		// No identity must not admit malformed input refused by the legacy codec.
+		if _, err := normalizeRemoteVersion(value, 1); err != nil {
+			return "", err
+		}
+	}
 	value = strings.TrimSpace(value)
 	if value == "" || strings.ContainsRune(value, '\x00') {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is empty or contains NUL", false, "supply a valid git remote")
@@ -210,18 +216,19 @@ func normalizeRemoteVersion(value string, version int) (string, error) {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
 	}
 	scheme := strings.ToLower(u.Scheme)
-	if scheme != "ssh" && scheme != "git" && scheme != "http" && scheme != "https" {
-		if version == 2 {
-			return "", nil
-		}
+	supported := scheme == "ssh" || scheme == "git" || scheme == "http" || scheme == "https"
+	path := strings.Trim(strings.TrimSpace(u.EscapedPath()), "/")
+	path = strings.TrimSuffix(path, ".git")
+	if version == 2 && (!supported || u.Hostname() == "" || path == "") {
+		return "", nil
+	}
+	if !supported {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote scheme is not supported", false, "use ssh, git, http, or https")
 	}
 	if u.Host == "" {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
 	}
 	host := strings.ToLower(u.Host)
-	path := strings.Trim(strings.TrimSpace(u.EscapedPath()), "/")
-	path = strings.TrimSuffix(path, ".git")
 	if path == "" || strings.Contains(path, "..") {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote path is invalid", false, "supply a repository remote")
 	}

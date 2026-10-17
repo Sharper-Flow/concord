@@ -16,6 +16,11 @@ import (
 
 func remoteUpgradeFixture(t *testing.T, locators ...ProjectLocator) *Store {
 	t.Helper()
+	return remoteUpgradeFixtureForProject(t, "project-a", locators...)
+}
+
+func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...ProjectLocator) *Store {
+	t.Helper()
 	index := len(migrations)
 	for i, m := range migrations {
 		if m.Name == "project_locator_remote_identity_v2" {
@@ -24,7 +29,7 @@ func remoteUpgradeFixture(t *testing.T, locators ...ProjectLocator) *Store {
 	}
 	path := filepath.Join(t.TempDir(), "remote-upgrade.db")
 	s := &Store{db: openMigratedTo(t, path, index), path: path}
-	events := []Event{locatorProductEvent("product-a"), locatorProjectEvent("project-a"), locatorMembershipEvent("product-a", "project-a")}
+	events := []Event{locatorProductEvent("product-a"), locatorProjectEvent(projectID), locatorMembershipEvent("product-a", projectID)}
 	for i, l := range locators {
 		normalized, err := normalizeRemoteVersion(l.Value, 1)
 		if l.Kind == LocatorCanonicalPath {
@@ -33,9 +38,9 @@ func remoteUpgradeFixture(t *testing.T, locators ...ProjectLocator) *Store {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := projectLocatorPayload{ProjectID: "project-a", LocatorID: l.ID, Kind: l.Kind, Value: l.Value, NormalizedValue: normalized, ExpectedVersion: int64(i + 1), ResultingVersion: int64(i + 2)}
+		p := projectLocatorPayload{ProjectID: projectID, LocatorID: l.ID, Kind: l.Kind, Value: l.Value, NormalizedValue: normalized, ExpectedVersion: int64(i + 1), ResultingVersion: int64(i + 2)}
 		raw, _ := json.Marshal(p)
-		events = append(events, Event{EventID: "historical-" + l.ID, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: time.Unix(int64(i+2), 0).UTC(), PayloadVersion: 1, Payload: raw})
+		events = append(events, Event{EventID: "historical-" + l.ID, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Unix(int64(i+2), 0).UTC(), PayloadVersion: 1, Payload: raw})
 	}
 	for _, e := range events {
 		insertHistoricalEvent(t, s, e)
@@ -165,11 +170,49 @@ func TestRemoteLocatorUpgradeRecordedCutover(t *testing.T) {
 	}
 }
 
+func TestRemoteLocatorUpgradeIncompleteURLRelinquishment(t *testing.T) {
+	for _, tc := range []struct{ raw, legacy string }{{"https://host", "ssh://https/host"}, {"https:///o/r", "ssh://https/o/r"}} {
+		t.Run(tc.raw, func(t *testing.T) {
+			ctx := context.Background()
+			s := remoteUpgradeFixture(t, ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.raw}, ProjectLocator{ID: "path", Kind: LocatorCanonicalPath, Value: t.TempDir()})
+			rows, err := s.ProjectLocators(ctx, "project-a")
+			if err != nil || len(rows) != 2 || rows[1].NormalizedValue != tc.legacy {
+				t.Fatalf("legacy rows=%+v err=%v", rows, err)
+			}
+			before := histEventRows(t, s)
+			if err := Migrate(ctx, s.db); err != nil {
+				t.Fatal(err)
+			}
+			rows, err = s.ProjectLocators(ctx, "project-a")
+			if err != nil || len(rows) != 1 || rows[0].ID != "path" {
+				t.Fatalf("surviving rows=%+v err=%v", rows, err)
+			}
+			after := histEventRows(t, s)
+			if len(after) != len(before)+1 || !reflect.DeepEqual(before, after[:len(before)]) || after[len(before)].Kind != "project.locator_removed" {
+				t.Fatalf("expected one recorded removal, events=%+v", after)
+			}
+			snapshot := remoteUpgradeSnapshot(t, s)
+			if err := RebuildFromLog(ctx, s); err != nil {
+				t.Fatal(err)
+			}
+			if remoteUpgradeSnapshot(t, s) != snapshot {
+				t.Fatal("rebuild changed removal projection or journal")
+			}
+		})
+	}
+}
+
 func TestRemoteLocatorUpgradeLastLocatorWritesNothing(t *testing.T) {
-	for _, count := range []int{1, 2} {
-		t.Run(fmt.Sprint(count), func(t *testing.T) {
-			locators := []ProjectLocator{{ID: "file", Kind: LocatorGitRemote, Value: "file:///srv/o/r"}, {ID: "ftp", Kind: LocatorGitRemote, Value: "ftp://host/o/r"}}
-			s := remoteUpgradeFixture(t, locators[:count]...)
+	for _, tc := range []struct {
+		name string
+		raw  []string
+	}{{"unsupported", []string{"file:///srv/o/r"}}, {"aggregate", []string{"file:///srv/o/r", "ftp://host/o/r"}}, {"pathless", []string{"https://host"}}, {"hostless", []string{"https:///o/r"}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var locators []ProjectLocator
+			for i, raw := range tc.raw {
+				locators = append(locators, ProjectLocator{ID: fmt.Sprint(i), Kind: LocatorGitRemote, Value: raw})
+			}
+			s := remoteUpgradeFixture(t, locators...)
 			before := remoteUpgradeSnapshot(t, s)
 			err := Migrate(context.Background(), s.db)
 			assertFailureKind(t, err, KindProjectionConflict)
@@ -231,7 +274,7 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 			case "credential":
 				locators[0].Value = "https://TOKEN@host/o/r"
 			case "invalid":
-				locators[0].Value = "https://host"
+				locators[0].Value = "https://host:abc/o/r"
 			}
 			s := remoteUpgradeFixture(t, locators...)
 			if mode == "reference" {

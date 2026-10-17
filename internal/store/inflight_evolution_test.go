@@ -224,3 +224,55 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatalf("re-running the migration on in-flight work failed: %v", err)
 	}
 }
+
+func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
+	ctx := context.Background()
+	s := remoteUpgradeFixtureForProject(t, "project", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: "https://host/o/r"})
+	if err := ensureInstallationKey(ctx, s.db); err != nil {
+		t.Fatal(err)
+	}
+	beforeVersion, err := readSchemaManifestVersion(ctx, s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workID = "remote-upgrade-inflight-work"
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	if err := Migrate(ctx, s.db); err != nil {
+		t.Fatal(err)
+	}
+	afterVersion, err := readSchemaManifestVersion(ctx, s.db)
+	if err != nil || afterVersion <= beforeVersion || afterVersion != CurrentSchemaVersion() {
+		t.Fatalf("schema %d -> %d err=%v", beforeVersion, afterVersion, err)
+	}
+	locators, err := s.ProjectLocators(ctx, "project")
+	if err != nil || len(locators) != 1 || locators[0].NormalizedValue != "https://host/o/r" {
+		t.Fatalf("remote not corrected for in-flight Project: %+v err=%v", locators, err)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil || pin.ProjectID != "project" || pin.Step != "proposal" || pin.Version != version {
+		t.Fatalf("work after migration: %+v err=%v", pin, err)
+	}
+	next, err := continuityAction(t, s, workID, version, "record_proposal", "remote-upgrade-proposal", map[string]any{}, actor)
+	if err != nil || next <= version {
+		t.Fatalf("in-flight action version=%d err=%v", next, err)
+	}
+	pin, err = ReadWorkPin(ctx, s, workID)
+	if err != nil || pin.Step != "alignment" || pin.Version != next {
+		t.Fatalf("work did not advance: %+v err=%v", pin, err)
+	}
+	ref, pinnedVersion, digest := workflowInstancePin(t, s, workID)
+	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
+		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
+	}
+	before := projectionSnapshot(t, s)
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	if projectionSnapshot(t, s) != before {
+		t.Fatal("rebuild drifted remote or in-flight workflow projections")
+	}
+}

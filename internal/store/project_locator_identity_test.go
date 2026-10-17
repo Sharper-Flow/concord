@@ -21,6 +21,15 @@ func TestRemoteIdentityVersions(t *testing.T) {
 		{"file:///srv/o/r.git", "ssh://file/srv/o/r", ""},
 		{"git+ssh://git@host/o/r", "ssh://git+ssh/git@host/o/r", ""},
 		{"ftp://host/o/r", "ssh://ftp/host/o/r", ""},
+		{"https://host", "ssh://https/host", ""},
+		{"http://host/", "ssh://http/host", ""},
+		{"git://host", "ssh://git/host", ""},
+		{"ssh://host", "ssh://ssh/host", ""},
+		{"https:///o/r", "ssh://https/o/r", ""},
+		{"http:///o/r", "ssh://http/o/r", ""},
+		{"git:///o/r", "ssh://git/o/r", ""},
+		{"ssh:///o/r", "ssh://ssh/o/r", ""},
+		{"ssh://:2222/o/r", "ssh://ssh/:2222/o/r", ""},
 		{" HTTPS://GitHub.Com/O/R.git ", "ssh://https/github.com/o/r", "https://github.com/o/r"},
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
@@ -46,8 +55,8 @@ func TestRemoteIdentityVersions(t *testing.T) {
 	}
 }
 
-func TestUnsupportedOriginUsesOnlyRegisteredPath(t *testing.T) {
-	for _, raw := range []string{"file:///srv/o/r.git", "git+ssh://git@host/o/r", "ftp://host/o/r"} {
+func TestRemoteNoIdentityOriginUsesOnlyRegisteredPath(t *testing.T) {
+	for _, raw := range []string{"file:///srv/o/r.git", "git+ssh://git@host/o/r", "ftp://host/o/r", "https://host", "http://host/", "git://host", "ssh://host", "https:///o/r", "http:///o/r", "git:///o/r", "ssh:///o/r", "ssh://:2222/o/r"} {
 		t.Run(raw, func(t *testing.T) {
 			ctx := context.Background()
 			s := locatorReplayStore(t)
@@ -88,6 +97,20 @@ func TestUnsupportedOriginUsesOnlyRegisteredPath(t *testing.T) {
 	}
 }
 
+func TestRemoteNoIdentityKeepsMalformedRefusals(t *testing.T) {
+	for _, raw := range []string{"https:///o/../r", "https://../", "ftp://host/o/../r", "https:///o\\r", "https:///o/\nr", "https://"} {
+		t.Run(raw, func(t *testing.T) {
+			for _, version := range []int{1, 2} {
+				_, err := normalizeRemoteVersion(raw, version)
+				assertFailureKind(t, err, KindInvalidFilter)
+			}
+			root := t.TempDir()
+			_, err := ResolveProjectHost(context.Background(), root, root, &locatorGitStub{root: root, remote: raw})
+			assertFailureKind(t, err, KindInvalidFilter)
+		})
+	}
+}
+
 func TestLiveRemoteAppendCannotBypassAdmission(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw, normalized string
@@ -97,6 +120,8 @@ func TestLiveRemoteAppendCannotBypassAdmission(t *testing.T) {
 		{"old writer", "https://host/o/r", "ssh://https/host/o/r", 1, KindInvalidPayload},
 		{"credentials", "https://TOKEN@host/o/r", "https://host/o/r", 2, KindInvalidFilter},
 		{"unsupported", "file:///srv/o/r", "ssh://file/srv/o/r", 2, KindInvalidPayload},
+		{"pathless", "https://host", "ssh://https/host", 2, KindInvalidPayload},
+		{"hostless", "https:///o/r", "ssh://https/o/r", 2, KindInvalidPayload},
 		{"tampered", "https://host/o/r", "https://host/other/r", 2, KindInvalidPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

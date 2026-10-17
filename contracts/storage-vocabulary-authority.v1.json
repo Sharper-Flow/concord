@@ -288,6 +288,11 @@
       "authority": "check"
     },
     {
+      "table": "work_size_assessments",
+      "column": "size_class",
+      "authority": "check"
+    },
+    {
       "table": "worker_attempts",
       "column": "capability_class",
       "authority": "check"

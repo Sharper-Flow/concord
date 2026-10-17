@@ -6330,7 +6330,7 @@ CREATE TABLE work_size_assessments (
     work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     sequence INTEGER NOT NULL CHECK(typeof(sequence)='integer' AND sequence >= 1),
     model_version INTEGER NOT NULL CHECK(typeof(model_version)='integer' AND model_version >= 1),
-    size TEXT NOT NULL CHECK(size IN ('small','larger','crucial')),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
     inputs_json TEXT NOT NULL CHECK(json_valid(inputs_json) AND json_type(inputs_json)='object'),
     footprint_json TEXT NOT NULL CHECK(json_valid(footprint_json) AND json_type(footprint_json)='object'),
     recorded_at TEXT NOT NULL,

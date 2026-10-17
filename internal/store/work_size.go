@@ -95,7 +95,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode the footprint snapshot", false, "repair the event payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size,inputs_json,footprint_json,recorded_at)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at)
 		VALUES(?,?,(SELECT coalesce(max(sequence),0)+1 FROM work_size_assessments WHERE work_id=?),?,?,?,?,?)`,
 		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size record", true, "retry once the database is writable", err)
@@ -152,7 +152,7 @@ func (s *Store) WorkSize(ctx context.Context, workID string) (WorkSizeRecord, bo
 func readWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeRecord, bool, error) {
 	record := WorkSizeRecord{WorkID: workID}
 	var size, inputs, footprint string
-	err := q.QueryRowContext(ctx, `SELECT sequence,model_version,size,inputs_json,footprint_json,recorded_at FROM work_size_assessments WHERE work_id=? ORDER BY sequence DESC LIMIT 1`, workID).
+	err := q.QueryRowContext(ctx, `SELECT sequence,model_version,size_class,inputs_json,footprint_json,recorded_at FROM work_size_assessments WHERE work_id=? ORDER BY sequence DESC LIMIT 1`, workID).
 		Scan(&record.Sequence, &record.ModelVersion, &size, &inputs, &footprint, &record.RecordedAt)
 	if err == sql.ErrNoRows {
 		return WorkSizeRecord{}, false, nil

@@ -473,6 +473,7 @@ def test_outstanding_linear_pointer_must_be_live() -> None:
     try:
         snapshot_document = json.loads(originals[1])
         snapshot_document["issues"]["CON-901"] = "closed"
+        snapshot_document["linear_read_at"]["CON-901"] = snapshot_document["generated_at"]
         snapshot.write_text(json.dumps(snapshot_document, indent=2) + "\n", encoding="utf-8")
 
         def run_with_issue(identifier: str) -> subprocess.CompletedProcess:

@@ -56,6 +56,8 @@ def test_closing_phrase_is_rejected_even_with_related_line() -> None:
     ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
     assert not ok, "a closing phrase must fail the check"
     assert "CON-999" in detail, detail
+    assert "CD-0213 D5 leaves issue status" in detail, detail
+    assert "Linear MCP server or the operator" in detail, detail
 
 
 # Linear's closing magic words, verbatim from https://linear.app/docs/github.
@@ -170,6 +172,8 @@ def test_a_closing_phrase_in_the_title_is_rejected() -> None:
     assert not ok, "a work pull request titled with a closing phrase must be rejected"
     assert "title" in detail, detail
     assert "CON-427" in detail, detail
+    assert "CD-0213 D5 leaves issue status" in detail, detail
+    assert "Linear MCP server or the operator" in detail, detail
 
 
 def test_every_linear_closing_word_is_rejected_in_the_title() -> None:

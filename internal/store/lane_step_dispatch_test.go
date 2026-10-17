@@ -498,8 +498,8 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 29 {
-		t.Fatalf("current break-fix version = %d, want 29", current.Definition.Version)
+	if want := builtinWorkflowCurrentVersions["workflow.break_fix"]; current.Definition.Version != want {
+		t.Fatalf("current break-fix version = %d, want %d", current.Definition.Version, want)
 	}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-repin", Definition: current, Actor: fixture.owner, Now: time.Unix(50, 0).UTC()})

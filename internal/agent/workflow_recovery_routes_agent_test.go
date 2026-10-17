@@ -110,9 +110,9 @@ const (
 // live journeys run on; the store's live-authoring owner pins the same
 // versions.
 var workflowRecoveryCanonicalHeads = map[string]int64{
-	"workflow.implementation": 32,
-	"workflow.break_fix":      29,
-	"workflow.research":       19,
+	"workflow.implementation": 33,
+	"workflow.break_fix":      30,
+	"workflow.research":       20,
 }
 
 // workflowRecoveryArchivedFamilies names the families whose live authoring
@@ -819,6 +819,61 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v19-complete",
 		},
+		// The first composed heads: the same six live journeys run at the
+		// v33/v30/v20 pins, whose compiled route tables equal their
+		// predecessors' tables.
+		{
+			Ref: "workflow.implementation", Version: 33,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v33-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 33,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v33-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 30,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v30-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 30,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v30-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 20,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v20-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 20,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v20-complete",
+		},
 		// The CD-0218 predecessor heads keep their released route tables
 		// covered after the canonical heads advanced: the registry retains
 		// every released pin, so the v30/v27/v17 rows stay in the table as
@@ -887,8 +942,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 84 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 84 (72 prior rows + the six retained predecessor-head rows + the six CON-911 head rows)", len(tuples))
+	if len(tuples) != 90 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 90 (72 prior rows + the six retained predecessor-head rows + six rows for each of the two later head generations)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -976,12 +1031,12 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: the six live
-	// canonical journeys run at the current heads (v32/v29/v19), the
+	// canonical journeys run at the current heads (v33/v30/v20), the
 	// retained-family released pins plus every retained predecessor-head row
-	// (v31/v28/v18 now among them) as recorded history, and the 32
+	// (v32/v29/v19 now among them) as recorded history, and the 32
 	// retired-family rows as archived-refusal coverage.
-	if live != 6 || history != 46 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/46/32", live, history, refusals)
+	if live != 6 || history != 52 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/52/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -1973,6 +2028,20 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v29-complete-supersede",
+		},
+		// The composed heads republish the same complete-step supersede
+		// routes.
+		{
+			Ref: "workflow.implementation", Version: 33,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v33-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 30,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v30-complete-supersede",
 		},
 		// The CD-0218 predecessor heads keep their released complete-step
 		// supersede routes covered after the canonical heads advanced; the

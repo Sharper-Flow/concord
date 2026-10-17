@@ -41,12 +41,11 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	// canonical implementation head removes the discovery step, so the
 	// alignment step's single forward exit lands on design.
 	cases := []struct {
-		ref         string
-		afterStep   string
-		nextStep    string
-		wantVersion int64
+		ref       string
+		afterStep string
+		nextStep  string
 	}{
-		{"workflow.implementation", "proposal", "design", 32},
+		{"workflow.implementation", "proposal", "design"},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -54,8 +53,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 			t.Fatalf("%s does not resolve: %v", testCase.ref, err)
 		}
 		definition := registered.Definition
-		if definition.Version != testCase.wantVersion {
-			t.Fatalf("%s resolved version %d, want %d", testCase.ref, definition.Version, testCase.wantVersion)
+		if want := builtinWorkflowCurrentVersions[testCase.ref]; definition.Version != want {
+			t.Fatalf("%s resolved version %d, want %d", testCase.ref, definition.Version, want)
 		}
 		if got := workflowNextStep(definition, testCase.afterStep); got != "alignment" {
 			t.Fatalf("%s routes %s to %q, want alignment", testCase.ref, testCase.afterStep, got)

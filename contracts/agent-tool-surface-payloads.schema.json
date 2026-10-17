@@ -1468,7 +1468,7 @@
           "maxItems": 32,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "law_revisions": {
@@ -1484,7 +1484,7 @@
             ],
             "properties": {
               "law_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               },
               "content_hash": {
                 "$ref": "#/$defs/digest"
@@ -1497,7 +1497,7 @@
           "maxItems": 32,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "rigor_class": {
@@ -3676,7 +3676,7 @@
               "maxItems": 32,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               }
             },
             "pending_operator_decision": {
@@ -9700,7 +9700,7 @@
           "type": "array",
           "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "resolution_state": {

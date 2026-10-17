@@ -17,8 +17,8 @@ method plus tx-scoped-core pairs — an exported `func (s *Store) X` delegating
 to `func X(ctx, s, req)` — so grepping for `.X(` misses every call through the
 core and reports live code as dead. deadcode resolves the callgraph properly.
 
-Not every unreachable function is a defect. CD-0013 D11 keeps the workflow
-action surface reserved until the engine ships, so its unreachability is
+Not every unreachable function is a defect. CD-0008 permits read-only
+point-in-time reconstruction with no operator verb, so its unreachability is
 accepted law working as intended. The manifest is how the two categories are
 told apart, and declaring an exception is a deliberate act with a reason
 attached rather than an absence nobody noticed.

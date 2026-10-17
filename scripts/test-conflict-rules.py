@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -63,8 +62,8 @@ def table() -> dict:
             {"row": "Arch", "column": "Speed", "rule": "S"},
         ],
         "a2": [
-            {"row": 1, "actors": ["agent"], "follow_up_label": "rule:A2-1", **gap()},
-            {"row": 2, "actors": ["agent", "operator"], **gap()},
+            {"row": 1, "sizes": {"small": ["R1"], "larger": ["R1"], "crucial": ["R1"]}, "actors": ["agent"], "follow_up_label": "rule:A2-1", **gap()},
+            {"row": 2, "sizes": {"small": ["P12", "R3"], "larger": ["P12", "R3"], "crucial": []}, "actors": ["agent", "operator"], **gap()},
         ],
         "duties": [
             {"id": "follow-up-label", **gap()},
@@ -101,6 +100,31 @@ def test_missing_a2_row_is_refused() -> None:
     value["a2"] = value["a2"][:1]
     findings, _ = validate(value)
     assert any("A2 row 2" in finding for finding in findings), findings
+
+
+def test_a2_sizes_must_cite_each_goals_size_cell() -> None:
+    value = table()
+    value["a2"][1]["sizes"]["crucial"] = ["R3"]
+    findings, _ = validate(value)
+    assert any("A2-2" in finding and "sizes" in finding for finding in findings), findings
+    value = table()
+    del value["a2"][0]["sizes"]
+    findings, _ = validate(value)
+    assert any("A2-1" in finding and "sizes" in finding for finding in findings), findings
+
+
+def test_a2_row_must_be_an_integer() -> None:
+    value = table()
+    value["a2"][0]["row"] = True
+    findings, _ = validate(value)
+    assert any("row must be an integer" in finding for finding in findings), findings
+
+
+def test_label_duty_must_be_listed() -> None:
+    value = table()
+    value["duties"] = []
+    findings, _ = validate(value)
+    assert any("follow-up-label" in finding for finding in findings), findings
 
 
 def test_rule_named_by_goals_but_absent_from_table_is_refused() -> None:

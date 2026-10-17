@@ -40,6 +40,7 @@ SCHEMA_VERSION = "1.0"
 MECHANISMS = ("programmed_check", "recorded_decision", "operator_boundary")
 ACTORS = ("agent", "coordinator", "operator", "decision_model")
 SIZES = ("Small", "Larger", "Crucial")
+SAME = "Same"
 
 # The rules and A2 rows whose goals.md text files follow-up items. This reads
 # the goals text at the recorded hash; a goals.md edit refuses the table until
@@ -50,11 +51,13 @@ FOLLOW_UP_ROWS = frozenset({1, 5, 6})
 RULE_ID = re.compile(r"\b(?:R[1-9][0-9]*|P[1-9][0-9]*|S|U)\b")
 RULE_DEFINITION = re.compile(r"^- ((?:R|P)[1-9][0-9]*|S|U)\b", re.MULTILINE)
 DUTY_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+# CD-0230 D6: the label duty is listed until a check enforces the label.
+REQUIRED_DUTIES = frozenset({"follow-up-label"})
 
 ALLOWED_ROOT = {"schema_version", "source", "rules", "a1", "a2", "duties"}
 MECHANISM_FIELDS = {"state", "mechanism", "evidence", "issue"}
 ALLOWED_RULE = {"id", "actors", "follow_up_label"} | MECHANISM_FIELDS
-ALLOWED_ROW = {"row", "actors", "follow_up_label"} | MECHANISM_FIELDS
+ALLOWED_ROW = {"row", "sizes", "actors", "follow_up_label"} | MECHANISM_FIELDS
 ALLOWED_DUTY = {"id"} | MECHANISM_FIELDS
 
 
@@ -79,8 +82,8 @@ def table_rows(text: str) -> list[list[str]]:
     return rows
 
 
-def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, set[str]], set[str], list[str]]:
-    """The A1 cells, A2 rows with the rule IDs their size cells cite, and every rule ID Appendix A names."""
+def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, dict[str, list[str]]], set[str], list[str]]:
+    """The A1 cells, the rule IDs each A2 size cell cites ("Same" cites the Small cell), and every rule ID Appendix A names."""
     findings: list[str] = []
     appendix = section(goals, "Appendix A.", "##")
     a1_rows = table_rows(section(appendix, "A1.", "###"))
@@ -97,7 +100,7 @@ def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, se
             for column, value in zip(columns, row[1:]):
                 if value:
                     cells[(name, column)] = value
-    rows: dict[int, set[str]] = {}
+    rows: dict[int, dict[str, list[str]]] = {}
     if a2_rows:
         header = a2_rows[0]
         size_columns = [header.index(size) for size in SIZES if size in header]
@@ -107,9 +110,13 @@ def parse_appendix(goals: str) -> tuple[dict[tuple[str, str], str], dict[int, se
             if not row[0].isdigit():
                 findings.append(f"goals.md A2 row {row[0]!r} is not numbered")
                 continue
-            rows[int(row[0])] = {rule for index in size_columns for rule in RULE_ID.findall(row[index])}
+            sizes: dict[str, list[str]] = {}
+            for size, index in zip(SIZES, size_columns):
+                cell = row[index] if index < len(row) else ""
+                sizes[size.lower()] = sizes["small"] if cell == SAME and "small" in sizes else sorted(set(RULE_ID.findall(cell)))
+            rows[int(row[0])] = sizes
     rules = set(cells.values()) | set(RULE_DEFINITION.findall(appendix))
-    rules.update(rule for cited in rows.values() for rule in cited)
+    rules.update(rule for sizes in rows.values() for cited in sizes.values() for rule in cited)
     return cells, rows, rules, findings
 
 
@@ -209,6 +216,9 @@ def validate(
         if not check_entry_shape(rule, ALLOWED_RULE, prefix, findings):
             continue
         identifier = rule.get("id")
+        if not isinstance(identifier, str):
+            findings.append(f"{prefix}: id must be a string")
+            continue
         if identifier in seen_rules:
             findings.append(f"{prefix}: duplicate rule")
         seen_rules.add(identifier)
@@ -225,6 +235,9 @@ def validate(
         if not check_entry_shape(cell, {"row", "column", "rule"}, f"a1[{index}]", findings):
             continue
         key = (cell.get("row"), cell.get("column"))
+        if not all(isinstance(part, str) for part in key):
+            findings.append(f"a1[{index}]: row and column must be strings")
+            continue
         if key in seen_cells:
             findings.append(f"A1 cell {key[0]}/{key[1]}: duplicate")
         seen_cells[key] = cell.get("rule")
@@ -243,11 +256,16 @@ def validate(
         prefix = f"A2-{number}" if isinstance(number, int) and not isinstance(number, bool) else f"a2[{index}]"
         if not check_entry_shape(row, ALLOWED_ROW, prefix, findings):
             continue
+        if not prefix.startswith("A2-"):
+            findings.append(f"{prefix}: row must be an integer")
+            continue
         if number in seen_rows:
             findings.append(f"{prefix}: duplicate row")
         seen_rows.add(number)
         if number not in rows:
             findings.append(f"{prefix}: goals.md A2 has no such row")
+        elif row.get("sizes") != rows[number]:
+            findings.append(f"{prefix}: sizes must cite the rule IDs of each goals.md size cell, {rows[number]}, got {row.get('sizes')!r}")
         check_actors(row, prefix, findings)
         check_label(row, prefix, f"rule:{prefix}", number in follow_up_rows, findings)
         if check_mechanism(row, prefix, issue_states, findings):
@@ -262,9 +280,11 @@ def validate(
         identifier = duty.get("id")
         if not isinstance(identifier, str) or not DUTY_ID.fullmatch(identifier) or identifier in seen_duties:
             findings.append(f"{prefix}: id must be a distinct lowercase hyphenated name")
+            continue
         seen_duties.add(identifier)
         if check_mechanism(duty, prefix, issue_states, findings):
             gaps.append(f"duty {identifier} -> {duty.get('issue')}")
+    findings.extend(f"duty {identifier}: required but absent from the table" for identifier in sorted(REQUIRED_DUTIES - seen_duties))
     return findings, gaps
 
 

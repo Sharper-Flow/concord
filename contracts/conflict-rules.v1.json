@@ -50,7 +50,8 @@
     {
       "id": "P1",
       "actors": [
-        "agent"
+        "agent",
+        "operator"
       ],
       "state": "outstanding",
       "issue": "CON-1097"
@@ -58,7 +59,8 @@
     {
       "id": "P2",
       "actors": [
-        "agent"
+        "agent",
+        "operator"
       ],
       "state": "outstanding",
       "issue": "CON-1097"
@@ -261,6 +263,17 @@
   "a2": [
     {
       "row": 1,
+      "sizes": {
+        "small": [
+          "R1"
+        ],
+        "larger": [
+          "R1"
+        ],
+        "crucial": [
+          "R1"
+        ]
+      },
       "actors": [
         "agent"
       ],
@@ -270,6 +283,17 @@
     },
     {
       "row": 2,
+      "sizes": {
+        "small": [
+          "R2"
+        ],
+        "larger": [
+          "R2"
+        ],
+        "crucial": [
+          "R2"
+        ]
+      },
       "actors": [
         "coordinator"
       ],
@@ -278,6 +302,17 @@
     },
     {
       "row": 3,
+      "sizes": {
+        "small": [
+          "P12",
+          "R3"
+        ],
+        "larger": [
+          "P12",
+          "R3"
+        ],
+        "crucial": []
+      },
       "actors": [
         "agent",
         "operator"
@@ -287,6 +322,13 @@
     },
     {
       "row": 4,
+      "sizes": {
+        "small": [],
+        "larger": [],
+        "crucial": [
+          "P12"
+        ]
+      },
       "actors": [
         "agent"
       ],
@@ -295,6 +337,11 @@
     },
     {
       "row": 5,
+      "sizes": {
+        "small": [],
+        "larger": [],
+        "crucial": []
+      },
       "actors": [
         "agent",
         "coordinator"
@@ -305,6 +352,11 @@
     },
     {
       "row": 6,
+      "sizes": {
+        "small": [],
+        "larger": [],
+        "crucial": []
+      },
       "actors": [
         "coordinator"
       ],
@@ -314,6 +366,17 @@
     },
     {
       "row": 7,
+      "sizes": {
+        "small": [
+          "U"
+        ],
+        "larger": [
+          "U"
+        ],
+        "crucial": [
+          "U"
+        ]
+      },
       "actors": [
         "operator"
       ],
@@ -322,6 +385,11 @@
     },
     {
       "row": 8,
+      "sizes": {
+        "small": [],
+        "larger": [],
+        "crucial": []
+      },
       "actors": [
         "decision_model",
         "coordinator"
@@ -331,6 +399,17 @@
     },
     {
       "row": 9,
+      "sizes": {
+        "small": [
+          "S"
+        ],
+        "larger": [
+          "S"
+        ],
+        "crucial": [
+          "S"
+        ]
+      },
       "actors": [
         "agent"
       ],

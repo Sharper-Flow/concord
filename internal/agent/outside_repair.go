@@ -22,12 +22,10 @@ import (
 
 const (
 	OutsideRepairOperationDisposition = "outside_repair"
-	OutsideRepairOperationReconcile   = "outside_repair_reconcile"
 
 	OutsideRepairModeCompleted = "completed"
 	OutsideRepairModeResume    = "resume"
 
-	outsideRepairHoldIntent      = "close_outside_repair"
 	outsideRepairRefreshedIntent = "refresh_outside_repair"
 	outsideRepairVerifiedIntent  = "verify_outside_repair"
 )
@@ -945,8 +943,6 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", ReasonCode: outsideRepairVerifiedIntent, RequiredFields: []string{"work_id"}}}
 		case OutsideRepairModeResume:
 			intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", ReasonCode: outsideRepairRefreshedIntent, RequiredFields: []string{"work_id"}}}
-		default:
-			intents = []NextIntent{{Tool: "concord_work_transition", Operation: OutsideRepairOperationReconcile, ReasonCode: outsideRepairHoldIntent, RequiredFields: []string{"mode"}}}
 		}
 		return mutationPayload(changed, intents), result.EventIDs, changed, nil
 	}

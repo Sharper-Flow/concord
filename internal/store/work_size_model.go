@@ -7,15 +7,6 @@ import "fmt"
 // unknown version refuses rather than falling back, and no agent-proposed
 // size is ever an input. The size never lowers a CD-0006 obligation band.
 
-// WorkSize is one value of the closed size vocabulary.
-type WorkSize string
-
-const (
-	WorkSizeSmall   WorkSize = "small"
-	WorkSizeLarger  WorkSize = "larger"
-	WorkSizeCrucial WorkSize = "crucial"
-)
-
 // WorkSizeModelVersion is the version a new size record is decided under.
 const WorkSizeModelVersion = 1
 

@@ -290,7 +290,8 @@
     {
       "table": "work_size_assessments",
       "column": "size_class",
-      "authority": "check"
+      "authority": "contract",
+      "validator": "scripts/check-work-sizes.py"
     },
     {
       "table": "worker_attempts",

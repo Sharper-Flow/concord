@@ -167,7 +167,7 @@ describe("primary role guard", () => {
       const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
       const granted = new Set<string>()
       if (lane?.capabilities.includes("read_repository")) granted.add("concord_worker_read")
-      if (lane?.capabilities.includes("inspect_diff")) granted.add("concord_worker_diff")
+      if (lane?.capabilities.some((capability) => capability === "inspect_diff")) granted.add("concord_worker_diff")
       if (lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))) granted.add("concord_worker_check")
       const expected = CATALOG.filter((tool) => !granted.has(tool))
       expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(expected)

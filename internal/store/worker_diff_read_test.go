@@ -142,7 +142,7 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 		if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 			t.Fatal(err)
 		}
-		views, err := j.s.WorkerJobRevisions(context.Background(), j.workID)
+		views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
 		if err != nil {
 			t.Fatal(err)
 		}

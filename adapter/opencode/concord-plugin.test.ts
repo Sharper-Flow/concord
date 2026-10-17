@@ -854,6 +854,8 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
 // and leaves it bound changes what every later test file sees when the runner
 // shares one process, so every binding is undone as soon as its test ends.
 afterEach(() => {
+  dispatchWindows().close("session-plugin")
+  dispatchWindows().takeInFlight("session-plugin")
   hostControlPlane().bind(undefined)
   configureCiWatch({ reset: true })
   bindCiWatchClient(undefined)
@@ -865,4 +867,7 @@ afterEach(() => {
 // The factory claims a host lease at load, which fails against the unstamped
 // repository placeholder and closes the adapter transport. Later test files
 // share this process, so the factory tests leave the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(() => {
+  expect(dispatchWindows().inFlightAttempt("session-plugin")).toBeNull()
+  configureHostLease({ reset: true })
+})

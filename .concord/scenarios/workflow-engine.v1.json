@@ -2767,7 +2767,7 @@
         "state": "running",
         "approved_outcome": "check:approved"
       },
-      "action": "replace_outcome",
+      "action": "approve_contract",
       "expected": {
         "assertions": [
           {
@@ -3009,7 +3009,7 @@
           "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
         },
         "expected_version": 10,
-        "action_id": "replace_outcome",
+        "action_id": "approve_contract",
         "fields": {
           "payload": {
             "work": "work-alpha",
@@ -3029,8 +3029,32 @@
             "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "expected_result": "pass"
           },
-          "evidence_refs": [
-            "evidence-verification"
+          "route_conventions": [
+            "route:implementation"
+          ],
+          "architecture_binding": {
+            "domain_registry_content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "home_domain_id": "domain/corpus-main",
+            "affected_domain_ids": [
+              "domain/corpus-main"
+            ],
+            "domain_modifies": [],
+            "domain_relation_modifies": [],
+            "law_additions": [],
+            "verification_obligations": []
+          },
+          "outcome_predicates": [
+            {
+              "predicate_id": "predicate:primary",
+              "ordinal": 0,
+              "outcome_kind": "check",
+              "outcome_payload": {
+                "kind": "check",
+                "check_ref": "check:replacement",
+                "immutable_subject_ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "expected_result": "pass"
+              }
+            }
           ]
         },
         "idempotency": {
@@ -8039,9 +8063,9 @@
       "scenario_number": 22,
       "mechanism": "committed checkpoint is resume boundary",
       "initial_state": {
-        "work": "work-ops",
+        "work": "work-alpha",
         "checkpoint": "cp-1",
-        "uncommitted_step": "step-2"
+        "uncommitted_step": "proposal"
       },
       "action": "rebuild_after_interrupt",
       "expected": {
@@ -8050,7 +8074,7 @@
             "target": "state",
             "path": "resume_step",
             "op": "eq",
-            "value": "step-2"
+            "value": "proposal"
           },
           {
             "target": "state",
@@ -8063,18 +8087,23 @@
             "path": "resume_boundary.source",
             "op": "eq",
             "value": "event_log"
+          },
+          {
+            "target": "effects",
+            "path": "workflow.action_completed",
+            "op": "absent"
           }
         ]
       },
       "setup": {
         "fixture_refs": {
-          "work_item": "work-ops",
+          "work_item": "work-alpha",
           "actors": [
             "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
           ],
           "definitions": [
-            "workflow.ops_runbook"
+            "workflow.implementation"
           ],
           "evidence": [
             "evidence-verification",
@@ -8084,23 +8113,22 @@
         },
         "event_history": [
           {
-            "event_id": "work-ops-created",
+            "event_id": "wf22-checkpoint-resume-created",
             "kind": "work.created",
-            "work_id": "work-ops",
+            "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
               "work_kind": "task",
-              "title": "work-ops fixture",
-              "priority": 1,
-              "work_id": "work-ops"
+              "title": "WF22-checkpoint-resume fixture",
+              "priority": 1
             }
           },
           {
-            "event_id": "work-ops-actor",
+            "event_id": "wf22-checkpoint-resume-created-actor",
             "kind": "workflow.actor_recorded",
-            "work_id": "work-ops",
+            "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
@@ -8111,224 +8139,51 @@
               "agent_ref": "agent-engineer",
               "session_ref": "session-executor",
               "actor_class": "agent",
-              "work_id": "work-ops",
+              "work_id": "work-alpha",
               "expected_version": 2,
               "resulting_version": 3
             }
           },
           {
-            "event_id": "work-ops-definition",
+            "event_id": "wf22-checkpoint-resume-created-definition",
             "kind": "workflow.definition_selected",
-            "work_id": "work-ops",
+            "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
             "payload": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-              "work_kind": "ops_runbook",
-              "work_id": "work-ops",
+              "ref": "workflow.implementation",
+              "version": 2,
+              "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89",
+              "work_kind": "implementation",
+              "work_id": "work-alpha",
               "expected_version": 3,
               "resulting_version": 4
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-plan",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "plan",
-              "action_id": "approve_contract",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 4,
-              "resulting_version": 5
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-approval",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "approval",
-              "action_id": "approve_operation",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 5,
-              "resulting_version": 6
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-execute",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "execute",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 6,
-              "resulting_version": 7
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-health",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "health",
-              "action_id": "record_health",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 7,
-              "resulting_version": 8
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-rollback_optional",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "rollback_optional",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 8,
-              "resulting_version": 9
-            }
-          },
-          {
-            "event_id": "WF22-checkpoint-resume-work-ops-walk-cleanup",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "cleanup",
-              "action_id": "confirm_premise",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 9,
-              "resulting_version": 10
-            }
-          },
-          {
-            "event_id": "work-ops-started",
-            "kind": "workflow.action_started",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "complete",
-              "action_id": "complete",
-              "attempt_epoch": 1,
-              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "idempotency_identity": "work-ops-setup",
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 10,
-              "resulting_version": 11
-            }
-          },
-          {
-            "event_id": "work-ops-checkpoint",
-            "kind": "workflow.action_checkpointed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "complete",
-              "step_kind": "internal_sqlite",
-              "attempt_epoch": 1,
-              "checkpoint_payload": {
-                "checkpoint": {
-                  "action_id": "checkpoint_context",
-                  "cursor": "step-2"
-                }
-              },
-              "resume_cursor": "step-2",
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "request_id": "wf22-checkpoint-request",
-              "checkpoint_id": "cp-1",
-              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "idempotency_identity": "wf22-checkpoint",
-              "work_id": "work-ops",
-              "expected_version": 11,
-              "resulting_version": 12
             }
           }
         ],
         "projection": {
-          "version": 12,
-          "state": "running",
-          "current_step": "complete",
-          "lifecycle": "running"
+          "version": 4,
+          "state": "planned",
+          "current_step": "proposal",
+          "lifecycle": "planned"
         },
         "faults": []
       },
       "request": {
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
         "definition_pin": {
-          "ref": "workflow.ops_runbook",
-          "version": 1,
-          "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
+          "ref": "workflow.implementation",
+          "version": 2,
+          "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
         },
-        "expected_version": 12,
+        "expected_version": 4,
         "action_id": "rebuild_after_interrupt",
         "fields": {
           "payload": {
-            "work": "work-ops",
+            "work": "work-alpha",
             "checkpoint": "cp-1",
-            "uncommitted_step": "step-2"
+            "uncommitted_step": "proposal"
           },
           "title": "WF22-checkpoint-resume title",
           "value_statement": "fixture value statement",
@@ -8344,7 +8199,7 @@
             {
               "event_id": "wf22-checkpoint-resume-created",
               "kind": "work.created",
-              "work_id": "work-ops",
+              "work_id": "work-alpha",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "occurred_at": "2026-08-09T00:00:00Z",
               "payload_version": 2,
@@ -8377,7 +8232,7 @@
         "operation": {
           "op_id": "wf22-checkpoint-resume-operation",
           "attempt_epoch": 1,
-          "step_id": "complete",
+          "step_id": "proposal",
           "step_kind": "internal_sqlite",
           "state": "pending"
         }
@@ -8388,7 +8243,7 @@
             "target": "state",
             "path": "resume_step",
             "op": "eq",
-            "value": "step-2"
+            "value": "proposal"
           }
         ]
       }
@@ -8898,7 +8753,8 @@
       "scenario_number": 25,
       "mechanism": "takeover requires valid approval_ref",
       "initial_state": {
-        "work": "work-ops",
+        "work": "work-alpha",
+        "lifecycle": "cancelled",
         "stuck": true,
         "approval_ref": null
       },
@@ -8921,237 +8777,68 @@
       },
       "setup": {
         "fixture_refs": {
-          "work_item": "work-ops",
+          "work_item": "work-alpha",
           "actors": [
             "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
           ],
           "definitions": [
-            "workflow.ops_runbook"
+            "workflow.implementation"
           ],
           "evidence": [
-            "evidence-verification",
             "evidence-review"
           ],
           "relations": []
         },
         "event_history": [
           {
-            "event_id": "work-ops-created",
+            "event_id": "wf25-created",
             "kind": "work.created",
-            "work_id": "work-ops",
+            "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 2,
             "payload": {
               "work_kind": "task",
-              "title": "work-ops fixture",
-              "priority": 1,
-              "work_id": "work-ops"
+              "title": "WF25 compaction publication",
+              "priority": 1
             }
           },
           {
-            "event_id": "work-ops-actor",
-            "kind": "workflow.actor_recorded",
-            "work_id": "work-ops",
+            "event_id": "wf25-cancelled",
+            "kind": "work.transitioned",
+            "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
             "payload_version": 1,
             "payload": {
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "principal_ref": "principal:operator",
-              "client_ref": "client:concord-1",
-              "agent_ref": "agent-engineer",
-              "session_ref": "session-executor",
-              "actor_class": "agent",
-              "work_id": "work-ops",
-              "expected_version": 2,
-              "resulting_version": 3
-            }
-          },
-          {
-            "event_id": "work-ops-definition",
-            "kind": "workflow.definition_selected",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "ref": "workflow.ops_runbook",
-              "version": 1,
-              "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
-              "work_kind": "ops_runbook",
-              "work_id": "work-ops",
-              "expected_version": 3,
-              "resulting_version": 4
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-plan",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "plan",
-              "action_id": "approve_contract",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 4,
-              "resulting_version": 5
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-approval",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "approval",
-              "action_id": "approve_operation",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 5,
-              "resulting_version": 6
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-execute",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "execute",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 6,
-              "resulting_version": 7
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-health",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "health",
-              "action_id": "record_health",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 7,
-              "resulting_version": 8
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-rollback_optional",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "rollback_optional",
-              "action_id": "record_delivery",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 8,
-              "resulting_version": 9
-            }
-          },
-          {
-            "event_id": "WF25-operator-takeover-approval-work-ops-walk-cleanup",
-            "kind": "workflow.action_completed",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "cleanup",
-              "action_id": "confirm_premise",
-              "attempt_epoch": 1,
-              "result_evidence_refs": [],
-              "changed_refs": [
-                "work-ops"
-              ],
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 9,
-              "resulting_version": 10
-            }
-          },
-          {
-            "event_id": "work-ops-started",
-            "kind": "workflow.action_started",
-            "work_id": "work-ops",
-            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-            "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
-            "payload": {
-              "step_id": "complete",
-              "action_id": "complete",
-              "attempt_epoch": 1,
-              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "idempotency_identity": "work-ops-setup",
-              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
-              "work_id": "work-ops",
-              "expected_version": 10,
-              "resulting_version": 11
+              "from": "needed",
+              "to": "cancelled",
+              "reason": "fixture terminal",
+              "expected_version": 1,
+              "resulting_version": 2
             }
           }
         ],
         "projection": {
-          "version": 11,
-          "state": "running",
-          "current_step": "complete",
-          "lifecycle": "running"
+          "version": 2,
+          "state": "cancelled",
+          "lifecycle": "cancelled"
         },
         "faults": []
       },
       "request": {
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
         "definition_pin": {
-          "ref": "workflow.ops_runbook",
-          "version": 1,
-          "digest": "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6"
+          "ref": "workflow.implementation",
+          "version": 2,
+          "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
         },
-        "expected_version": 11,
+        "expected_version": 2,
         "action_id": "takeover_attempt",
         "fields": {
           "payload": {
-            "work": "work-ops",
+            "work": "work-alpha",
             "stuck": true,
             "approval_ref": null
           },
@@ -9183,19 +8870,14 @@
         },
         "approval": {
           "required": true,
-          "approval_ref": "approval:wf25-operator-takeover-approval",
-          "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "consequence": "internal_sqlite",
-          "approving_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
-          "evidence_refs": [
-            "evidence-review"
-          ]
+          "approval_ref": null,
+          "consequence": "cross_authority"
         },
         "operation": {
           "op_id": "wf25-operator-takeover-approval-operation",
           "attempt_epoch": 1,
-          "step_id": "complete",
-          "step_kind": "internal_sqlite",
+          "step_id": "git_proof",
+          "step_kind": "cross_authority",
           "state": "pending"
         }
       },

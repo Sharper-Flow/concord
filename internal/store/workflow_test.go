@@ -285,9 +285,30 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if state != "completed" {
 		t.Fatalf("workflow state = %q, want completed", state)
 	}
+	// A replay of the complete action reaches the action boundary's exact-replay
+	// hook, which commits through the durable commit owner and never runs the
+	// action again.
 	beforeReplay := s.DurableCommits()
-	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
+	replayRan := false
+	replay := WorkflowActionPreflightRequest{WorkID: "complete-work", ExpectedVersion: finalVersion, ActionID: "complete"}
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, BuiltinWorkflowRegistry(), replay, nil, time.Time{}, func(transaction *Transaction) (bool, error) {
+		tx, err := transactionSQL(transaction, "completion-replay")
+		if err != nil {
+			return false, err
+		}
+		var completed int
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE event_id=? AND kind=?`, completion.EventID, WorkflowCompleted).Scan(&completed); err != nil {
+			return false, err
+		}
+		return completed == 1, nil
+	}, nil, func(*Transaction) error {
+		replayRan = true
+		return nil
+	}); err != nil {
 		t.Fatalf("completion replay: %v", err)
+	}
+	if replayRan {
+		t.Fatal("completion replay ran the complete action a second time")
 	}
 	if after := s.DurableCommits(); after != beforeReplay+1 {
 		t.Fatalf("completion replay bypassed the durable commit owner: %d -> %d", beforeReplay, after)

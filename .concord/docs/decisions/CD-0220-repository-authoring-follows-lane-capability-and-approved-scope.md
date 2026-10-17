@@ -123,10 +123,9 @@ Host permission resolution and independent review remain separate evidence oblig
 - `python3 scripts/check-doc-contract.py` checks the decision outline and prose; it does not prove author approval.
 - `python3 scripts/check-knowledge-closure.py --strict` checks registration closure; it does not prove author approval.
 - `python3 scripts/check-knowledge-index.py` checks record identity and content proofs; independent review checks approval and the actual source delta.
-- `bun test adapter/opencode/lane_capabilities.test.ts` exercises native and nested MCP
+- `adapter/opencode/lane_capabilities.test.ts` exercises native and nested MCP
   denials, worktree targeting, opening-packet identity, single-child binding,
   agent changes, and attempt retirement.
 - Check-helper verification must prove selection of only recorded executable
-  controls through the existing lease and producer, with producer regressions in
-  `go test ./internal/store -run NativeOracle`. No ordinary check string may
-  become executable authority.
+  controls through the existing lease and producer. No ordinary check string
+  may become executable authority.

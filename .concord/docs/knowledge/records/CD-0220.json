@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:da43cef7814a4dd197172765651a2ae95b8cbf1cdfca8fd4eac40e4f9d34bc9a",
+  "sha256": "sha256:961203fef809191fdbc73fc0c88fdec25ef581b36525329250626b83cc33e5a2",
   "status": "accepted",
   "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native shell and named editors. A closed capability ceiling authenticates the dispatched child and attempt before native or nested MCP execution, without overriding narrower host permissions. Non-editing checks select only recorded executable controls through the existing execution owner. Ordinary check strings grant no execution authority. Product-law approval, review, unmanaged host work, and the absence of a filesystem or network sandbox remain explicit boundaries.",
   "tags": [

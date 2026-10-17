@@ -21,6 +21,15 @@ def lane_projection(lane, report=None):
     return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA)
 
 
+def bound_worker_tools(capabilities):
+    granted = set()
+    if "read_repository" in capabilities:
+        granted.add("concord_worker_read")
+    if {"run_tests", "run_targeted_checks", "run_validators"} & set(capabilities):
+        granted.add("concord_worker_check")
+    return granted
+
+
 class CapabilityToolProjectionTests(unittest.TestCase):
     def test_non_authoring_lanes_cannot_inherit_shell_or_file_authoring_tools(self):
         manifest, _ = generator.load_manifest()
@@ -133,10 +142,10 @@ class AgentProjectionTests(unittest.TestCase):
         for entry in entries:
             path = ROOT / ".opencode/agents" / f"concord-{entry['id']}.md"
             text = path.read_text(encoding="utf-8")
-            reader_allowed = entry in manifest["lanes"] and "read_repository" in entry.get("capabilities", [])
+            granted = bound_worker_tools(entry.get("capabilities", [])) if entry in manifest["lanes"] else set()
             for tool_id in generator.concord_tool_ids():
                 denial = f"\n  {tool_id}: false\n"
-                if reader_allowed and tool_id == "concord_worker_read":
+                if tool_id in granted:
                     self.assertNotIn(denial, text)
                 else:
                     self.assertIn(denial, text, f"{path.name} does not deny {tool_id}")
@@ -246,13 +255,18 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("never by silently ignoring the checkpoint", normalized)
 
     def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
-        # The registry declares a per-lane time budget, and the body must
-        # project it: a verify attempt that widens to a full Go package suite
-        # runs for minutes, and a worker left to guess shell timeouts loses
-        # the run at the host's 120-second default.
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("## Command duration", projection)
         self.assertIn("1200 seconds", projection)
+        self.assertIn("General shell execution is unavailable", projection)
+        self.assertIn("`concord_worker_check`", projection)
+        self.assertIn("The host supplies the recorded", projection)
+        self.assertIn("native execution and its deadline", projection)
+        self.assertNotIn("`timeout`", projection)
+
+    def test_editing_projection_requires_an_explicit_shell_timeout(self):
+        lane = dict(self.LANE, capabilities=["edit_scoped_files", "run_tests"])
+        projection = lane_projection(lane, REPORT_SCHEMA)
         self.assertIn("`timeout`", projection)
         self.assertIn("milliseconds", projection)
 
@@ -263,7 +277,8 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertNotIn("1200 seconds", projection)
 
     def test_projection_treats_full_go_suites_as_able_to_exceed_400_seconds(self):
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        lane = dict(self.LANE, capabilities=["edit_scoped_files", "run_tests"])
+        projection = lane_projection(lane, REPORT_SCHEMA)
         self.assertIn("full Go package suites", projection)
         self.assertIn("exceed 400 seconds", projection)
         self.assertIn("go test ./...", projection)
@@ -999,8 +1014,8 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             for entry in entries:
                 agent = f"concord-{entry['id']}"
                 denied = self.ts_role_map()[agent]
-                reader_allowed = kind == "lane" and "read_repository" in entry.get("capabilities", [])
-                expected = [tool for tool in catalog if not (reader_allowed and tool == "concord_worker_read")]
+                granted = bound_worker_tools(entry.get("capabilities", [])) if kind == "lane" else set()
+                expected = [tool for tool in catalog if tool not in granted]
                 self.assertEqual(sorted(denied["tools"]), expected)
                 # The boundary names the role class; the guard composes the
                 # agent name and the tool in front of it.

@@ -125,17 +125,13 @@ func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceRe
 	return readStep(ctx, tx, opID, true)
 }
 
-// ClaimStep starts the next fenced attempt. The connection's _txlock=immediate
-// setting makes this transaction BEGIN IMMEDIATE across all callers. The claim
-// commits durably (CD-0050 D3): a claim lost to power failure could permit a
-// duplicate cross-authority dispatch on retry.
-func ClaimStep(ctx context.Context, s *Store, req ClaimRequest) (FenceResult, error) {
-	return claimStepObservedAuthorized(ctx, s, req, true, nil, nil)
-}
-
-// ClaimStepAuthorized runs an authorization callback in the same transaction
-// that creates the durable claim. It is used when approval consumption must be
-// committed together with the durable operation identity.
+// ClaimStepAuthorized starts the next fenced attempt. The connection's
+// _txlock=immediate setting makes this transaction BEGIN IMMEDIATE across all
+// callers. The claim commits durably (CD-0050 D3): a claim lost to power
+// failure could permit a duplicate cross-authority dispatch on retry. A
+// non-nil authorize runs in the same transaction that creates the durable
+// claim, so approval consumption commits together with the durable operation
+// identity.
 func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*Transaction) error) (FenceResult, error) {
 	if authorize == nil {
 		return claimStepObservedAuthorized(ctx, s, req, true, nil, nil)
@@ -316,7 +312,7 @@ func OperatorTakeover(ctx context.Context, s *Store, req ClaimRequest, approvalR
 	scope["approval_ref"] = approval
 	encoded, _ := json.Marshal(scope)
 	req.AcceptedScopeSnapshot = string(encoded)
-	return ClaimStep(ctx, s, req)
+	return ClaimStepAuthorized(ctx, s, req, nil)
 }
 
 type idempotencyRow struct {

@@ -144,7 +144,7 @@ func durableNeighborOperations() []neighborOperation {
 			claim := testClaim("neighbor-fence", "neighbor-claim")
 			var epoch int64
 			if name == "CompleteStep" {
-				claimed, err := ClaimStep(ctx, s, claim)
+				claimed, err := ClaimStepAuthorized(ctx, s, claim, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

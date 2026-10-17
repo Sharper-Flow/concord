@@ -75,6 +75,14 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDerivedDispositionRefusesTheDisposedLaneCheckpoint"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDerivedDispositionWriterLosesThePenAtTheNextDispatch"
     }
   ],
   "id": "CD-0218",

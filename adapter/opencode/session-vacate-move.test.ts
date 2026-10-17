@@ -61,7 +61,7 @@ async function fakeHost(post: (body: any) => { status: number; body: any }, get:
         },
       },
     } as never,
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   })
 }
 

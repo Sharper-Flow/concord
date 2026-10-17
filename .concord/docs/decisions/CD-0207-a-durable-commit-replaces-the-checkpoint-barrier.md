@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-06
+- **Amended:** 2026-10-17. D2 withdraws the standalone workflow completion
+  family and D3 drops `ClaimStep`. No shipped route reached either site.
 - **Scope:** The mechanism that makes a CD-0050 consequential acknowledgement
   durable, the CD-0050 D3 enumeration, and the CD-0050 D4 placement rule
 - **Amends:** CD-0050 D1, the mechanism; CD-0050 D3, the family list;
@@ -18,6 +20,8 @@
 - **Approval:** The operator approved the repair in pull request 1558 under
   the CD-0122 defect-repair route, with law to follow. The operator approved
   the work item contract that carries this record on 2026-10-06.
+  The Snowball coordinator approved the 2026-10-17 amendment under the
+  operator's delegation.
 
 ## Context
 
@@ -74,12 +78,15 @@ before pull request 1558, but D3 never named them. The enumeration adds them:
 | Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
 | Fold-guard recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery clears a stranded fold guard and rebuilds every projection in one transaction. Its acknowledgement admits ordinary writes again. |
 
-The five CD-0050 D3 families remain. The site column of the cross-authority
+Four of the five CD-0050 D3 families remain. The standalone workflow
+completion family is withdrawn: `CompleteWorkflowWithRegistry` had no shipped
+caller, and every shipped completion commits inside the workflow action
+dispatch boundary family. The site column of the cross-authority
 row now names the fence entry points of D3 of this record.
 
 ### D3. The public fence entry points commit durably
 
-`ClaimStep`, `ClaimStepAuthorized`, and `CompleteStep` in
+`ClaimStepAuthorized` and `CompleteStep` in
 `internal/store/fence.go` commit durably. A durable commit waits for no WAL
 reader, so the CD-0050 D4 failure mode does not occur.
 

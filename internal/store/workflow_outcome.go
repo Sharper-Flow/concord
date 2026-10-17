@@ -403,10 +403,6 @@ func CompareWorkflowPredicates(approved, delivered OutcomePredicate) (WorkflowSt
 	}
 }
 
-func CompareOutcomeStrength(approved, delivered OutcomePredicate) (WorkflowStrength, error) {
-	return CompareWorkflowPredicates(approved, delivered)
-}
-
 func compareSubjectSets(approved, delivered []string) WorkflowStrength {
 	approvedSet, deliveredSet := predicateStringSet(approved), predicateStringSet(delivered)
 	if setContains(deliveredSet, approvedSet) {

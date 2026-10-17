@@ -46,7 +46,9 @@ no timer (CD-0166 D1/D4, CD-0028 D5).
 The plugin delivers the terminal report through the client the host handed
 the plugin, which reaches the server in process when no listener exists. The
 delivery is one `prompt_async` call with a synthetic text part and the
-session's persisted agent and model.
+session's persisted agent, model, and model variant. Every post the watcher
+makes carries that identity, because the host persists each prompt's choice
+for later turns.
 
 ### D3. Delivery survives the lost-wake defects
 

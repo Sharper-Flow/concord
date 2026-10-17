@@ -55,6 +55,27 @@ class WorkKindsFixture(unittest.TestCase):
     def test_clean_fixture_passes(self) -> None:
         self.assertEqual(self.findings(), [])
 
+    def test_migration_spacing_passes(self) -> None:
+        source = self.root / "internal/store/schema.go"
+        original = source.read_text(encoding="utf-8")
+        header = (
+            'Version:  49,\n\t\tName:     "work_kind_and_native_run_vocabularies",\n'
+            '\t\tBreaking: true,\n\t\tSQL: `'
+        )
+        self.assertEqual(original.count(header), 1)
+        before, body = original.split(header)
+        sql, after = body.split("`", 1)
+        after = after.replace(",\n\t},", " ,\t } ,", 1)
+        for replacement in (
+            'Version:49,Name:"work_kind_and_native_run_vocabularies",Breaking:true,SQL:`',
+            'Version \t: 49 , Name \t: "work_kind_and_native_run_vocabularies" , Breaking : true , SQL : `',
+            'Version:\t\t49,\n\t\tName:\t\t"work_kind_and_native_run_vocabularies",\n\t\tBreaking:\ttrue,\n\t\tSQL:\t\t`',
+        ):
+            with self.subTest(header=replacement):
+                text = before + replacement + sql + "`" + after
+                source.write_text(text, encoding="utf-8")
+                self.assertEqual(self.findings(), [])
+
     def test_capture_enum_drift_is_reported(self) -> None:
         surface = self.read_json("contracts/agent-tool-surface-payloads.schema.json")
         surface["$defs"]["work_kind"]["enum"].remove("bug")

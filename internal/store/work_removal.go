@@ -341,7 +341,7 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	var state string
 	err = tx.QueryRowContext(ctx, `SELECT state FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&state)
 	if err == nil {
-		stored, readErr := readWorkRemovalAuditQ(ctx, tx, "operation_id", req.OperationID)
+		stored, readErr := readWorkRemovalAuditQ(ctx, tx, req.OperationID)
 		if readErr != nil {
 			return WorkRemovalReceipt{}, readErr
 		}
@@ -670,27 +670,19 @@ func projectionDeleteFailure(table string, err error) error {
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("cannot remove %s projection", table), false, "reconcile the projection before removal", err)
 }
 
-// ReadWorkRemovalAudit returns the durable receipt without exposing a live
-// WorkItem or a resume action.
-func (s *Store) ReadWorkRemovalAudit(ctx context.Context, workID string) (WorkRemovalReceipt, error) {
-	if s == nil || s.db == nil {
-		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_audit", "store is not open", false, "open the authority database")
-	}
-	return readWorkRemovalAuditQ(ctx, s.db, "work_id", workID)
-}
-
+// readWorkRemovalAuditByOperation returns the durable receipt without
+// exposing a live WorkItem or a resume action.
 func (s *Store) readWorkRemovalAuditByOperation(ctx context.Context, operationID string) (WorkRemovalReceipt, error) {
 	if s == nil || s.db == nil {
 		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_audit", "store is not open", false, "open the authority database")
 	}
-	return readWorkRemovalAuditQ(ctx, s.db, "operation_id", operationID)
+	return readWorkRemovalAuditQ(ctx, s.db, operationID)
 }
 
-func readWorkRemovalAuditQ(ctx context.Context, q queryer, column, identity string) (WorkRemovalReceipt, error) {
+func readWorkRemovalAuditQ(ctx context.Context, q queryer, operationID string) (WorkRemovalReceipt, error) {
 	var receipt WorkRemovalReceipt
 	var handoff, linearRaw string
-	// column is selected only from the two fixed call sites above.
-	err := q.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE `+column+`=?`, identity).Scan(&receipt.OperationID, &receipt.IdempotencyKey, &receipt.WorkID, &receipt.ExpectedVersion, &receipt.Reason, &receipt.Actor, &receipt.ProductID, &linearRaw, &handoff, &receipt.HandoffDigest, &receipt.State, &receipt.EventID)
+	err := q.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE operation_id=?`, operationID).Scan(&receipt.OperationID, &receipt.IdempotencyKey, &receipt.WorkID, &receipt.ExpectedVersion, &receipt.Reason, &receipt.Actor, &receipt.ProductID, &linearRaw, &handoff, &receipt.HandoffDigest, &receipt.State, &receipt.EventID)
 	if err == sql.ErrNoRows {
 		return WorkRemovalReceipt{}, newFailure(KindProjectionNotFound, "work_removal_audit", "removal receipt does not exist", false, "supply a removed work identity")
 	}
@@ -739,24 +731,6 @@ type WorkLiveness struct {
 	Attempts     int      `json:"attempts"`
 	OpenWaits    int      `json:"open_waits"`
 	LastProgress string   `json:"last_progress,omitempty"`
-}
-
-func DeriveWorkLiveness(ctx context.Context, s *Store, workID string) (WorkLiveness, error) {
-	if s == nil || s.db == nil {
-		return WorkLiveness{}, newFailure(KindUnavailable, "work_liveness", "store is not open", false, "open the authority database")
-	}
-	var exists int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, workID).Scan(&exists); err != nil {
-		return WorkLiveness{}, err
-	}
-	if exists == 0 {
-		return WorkLiveness{}, newFailure(KindProjectionNotFound, "work_liveness", "work item does not exist", false, "supply an existing work item")
-	}
-	return deriveWorkLivenessQ(ctx, s.db, workID)
-}
-
-func (s *Store) ReadWorkLiveness(ctx context.Context, workID string) (WorkLiveness, error) {
-	return DeriveWorkLiveness(ctx, s, workID)
 }
 
 func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {

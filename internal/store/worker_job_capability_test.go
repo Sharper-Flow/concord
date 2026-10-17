@@ -37,7 +37,7 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, fields); err != nil {
 				t.Fatal(err)
 			}
-			ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+			ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 			if err != nil || len(ready) != 1 {
 				t.Fatalf("ready jobs = %#v, error = %v, want one recorded revision", ready, err)
 			}
@@ -163,7 +163,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
 				t.Fatalf("superseded %s job error = %v, want readiness refusal", lane.ID, err)
 			}
-			allViews, err := s.WorkerJobRevisions(context.Background(), workID)
+			allViews, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 			var views []WorkerJobRevisionView
 			for _, view := range allViews {
 				if view.Binding.JobID == job.JobID {

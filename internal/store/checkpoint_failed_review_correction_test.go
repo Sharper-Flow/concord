@@ -236,11 +236,11 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 
 // requestCorrectionPreflightRefusalClass classifies the refusal the owning
 // transactional preflight returns for request_correction: the surface behind
-// InspectWorkflowActionAdmission and the boundary coordinator.
+// WorkflowActionPreflightWithRegistry and the boundary coordinator.
 func requestCorrectionPreflightRefusalClass(t *testing.T, s *Store, workID string, actor WorkflowActor) (FailureKind, string) {
 	t.Helper()
 	payload := json.RawMessage(`{"diagnosis":"the delivered subject still mismatches","strategy":"repair and re-verify","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: actor})
+	err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: actor})
 	if err == nil {
 		return "", ""
 	}
@@ -386,7 +386,7 @@ func TestCheckpointFailedReviewConsumedVerdictCannotReopenCorrection(t *testing.
 			if kind != KindInvalidOperation || !strings.Contains(detail, "current non-ok verification verdict") {
 				t.Fatalf("stale-verdict refusal = %s %q, want the verdict class", kind, detail)
 			}
-			if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: tc.workID, ActionID: "request_correction", Payload: correction, Actor: fixture.owner}); err == nil {
+			if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: tc.workID, ActionID: "request_correction", Payload: correction, Actor: fixture.owner}); err == nil {
 				t.Fatal("preflight admitted the consumed failed-review correction")
 			}
 			if err := runIssue933OperatorAction(t, s, tc.workID, "request_correction", correction, fixture.owner, fixture.operator); err == nil {

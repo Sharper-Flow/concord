@@ -201,28 +201,6 @@ type ResearchSourceRequest struct {
 	Source          ResearchSource           `json:"source"`
 }
 
-type BindResearchConsumerRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	Revision        int64                    `json:"revision"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	Consumer        ResearchConsumer         `json:"consumer"`
-}
-
-type UnbindResearchConsumerRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	Revision        int64                    `json:"revision"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	ConsumerWorkID  string                   `json:"consumer_work_id"`
-}
-
-type ResearchPackMutationRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	ExpectedVersion int64                    `json:"expected_version"`
-}
-
 type SetResearchFreshnessRequest struct {
 	Identity        ResearchMutationIdentity `json:"identity"`
 	PackID          string                   `json:"pack_id"`
@@ -233,25 +211,8 @@ type SetResearchFreshnessRequest struct {
 	Revision int64 `json:"revision,omitempty"`
 }
 
-type ResearchFindingSourceRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	Revision        int64                    `json:"revision"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	FindingID       string                   `json:"finding_id"`
-	SourceID        string                   `json:"source_id"`
-}
-
-type ResearchFreshnessResult struct {
-	Status  ResearchFreshness `json:"status"`
-	Blocked bool              `json:"blocked"`
-	Reasons []string          `json:"reasons,omitempty"`
-}
-
 type researchResult struct {
-	PackID   string            `json:"pack_id"`
-	Revision int64             `json:"revision,omitempty"`
-	ID       string            `json:"id,omitempty"`
-	Count    int               `json:"count,omitempty"`
-	Consumer *ResearchConsumer `json:"consumer,omitempty"`
+	PackID   string `json:"pack_id"`
+	Revision int64  `json:"revision,omitempty"`
+	ID       string `json:"id,omitempty"`
 }

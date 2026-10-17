@@ -76,11 +76,11 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("replayed work rows = %d, want 0", count)
 	}
-	audit, err := s.ReadWorkRemovalAudit(ctx, "remove-work-1")
+	audit, err := s.readWorkRemovalAuditByOperation(ctx, req.OperationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if audit.Reason != "shelved" || audit.State != "committed" {
+	if audit.WorkID != "remove-work-1" || audit.Reason != "shelved" || audit.State != "committed" {
 		t.Fatalf("audit = %+v", audit)
 	}
 	shelveReq := removalTestRequest()

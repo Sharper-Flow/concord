@@ -55,8 +55,11 @@ for later turns.
 The watcher delivers only to an idle session. After the injection it confirms
 that an assistant reply follows the injected message. Any failure to deliver
 or to confirm queues the report, and the next `chat.message` carries the
-queued report into the session as a synthetic part. The watcher logs every
-delivery failure and swallows none.
+queued report into the session as a synthetic part. Each queued report also
+gets one more try through the same confirmed delivery: at once when the host
+reports the session idle as the report is queued, and otherwise when the host
+next reports the session idle. A report that try does not confirm stays
+queued. The watcher logs every delivery failure and swallows none.
 
 ### D4. The utility is removed in this change, behind the live proof
 

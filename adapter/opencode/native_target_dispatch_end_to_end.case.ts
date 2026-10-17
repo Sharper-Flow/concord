@@ -26,6 +26,7 @@ import type { CredentialStore } from "./credentials"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
+import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 
 // The route test drives the real core through its own runner, so argv[0] is
 // replaced there. Bind the nominal path the transport resolves instead of the
@@ -616,7 +617,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const runner = realStoreRunner(binary, dbPath, calls, worktree)

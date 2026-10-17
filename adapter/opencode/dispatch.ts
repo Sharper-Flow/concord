@@ -726,9 +726,8 @@ export interface AgentResultEnvelope {
   // back so the coordinator sees the tie the fold enforces without
   // re-deriving it from the worker output.
   predicate_discharge?: Array<{ predicate_ids: string[]; obligation: string }>
-  // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
-  // dispatch reports that the window is open and the host must now issue the
-  // Task call. A completed attempt never carries this field.
+  // CD-0102 D1. An authorized dispatch waits for host Task execution and
+  // completion. A completed attempt never carries this field.
   dispatch_state?: "awaiting_worker"
   // CD-0198 D5: the combined rejection route preserves the committed
   // rejection's mutation receipt beside the Task directive, so the caller
@@ -812,17 +811,10 @@ export const defaultRunner: DispatchRunner = {
   },
 }
 
-// The host `opencode export` CLI truncated its output and exited before the
-// pipe drained, which is why the readback spawned a subprocess at all. The
-// readback now reads the worker session in process through the host session
-// API: one session record, then a bounded walk of the message pages from the
-// newest page back toward the oldest. No child process exists to truncate or
-// strand, and the byte ceiling on the exported body is gone — the bound is
-// the message-page count.
-//
-// WorkerSessionRead is one readback attempt. A host_failure is a transport or
-// route fault (the stderr analog rides the message); a readback_refusal is a
-// typed predicate refusal over the body the host actually returned.
+// WorkerSessionRead holds one unsanitized session API read: the session record
+// and a bounded walk of its message pages. Identity and opening-packet checks
+// must inspect that same body. Transport faults and predicate refusals remain
+// distinct so recovery can identify the failed boundary.
 export type WorkerSessionRead =
   | { ok: true; body: string; status: number; request: string[] }
   | { ok: false; kind: "host_failure"; leg: string; message: string; status: number; request: string[] }
@@ -853,8 +845,7 @@ export async function readWorkerSessionBody(sessionReader: SessionReader, worker
     return { ok: false, kind: "host_failure", leg: "session.get", message: `the host session read failed: ${error instanceof Error ? error.message : String(error)}`, status: 0, request }
   }
   if (!session.response.ok) {
-    // A host answer with an error status refuses the readback the way a dead
-    // export child did: the attempt is born failed and stays reconcilable.
+    // A refused readback leaves the attempt reconcilable.
     return { ok: false, kind: "readback_refusal", predicate: "session_read", message: `the host session read answered ${session.response.status}`, status: session.response.status, request, body: "" }
   }
   const messagesRequest = ["session.messages", workerSessionID, `limit=${READBACK_MESSAGE_PAGE}`]
@@ -1194,15 +1185,9 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
   return result.ok ? result.metadata : null
 }
 
-// readExportOpeningPacket verifies that the worker session opens with the
-// authorized dispatch packet (CD-0102). The sanitized export used for model
-// readback cannot serve here: the host's sanitizer replaces every non-empty
-// text part with a redaction placeholder, so the opening prompt survives only
-// in the unsanitized export this predicate reads. The authorized dispatch
-// writes the packet as the Task prompt verbatim, and completion re-serializes
-// the same packet object the window recorded, so byte equality is exact on the
-// authorized path and refuses every substitution — caller-composed prose, a
-// packet for another attempt, or a session opened by anything else.
+// Identity and opening-packet checks consume the same unsanitized host body.
+// The opening must contain the exact serialized packet the window authorized,
+// not caller-authored prose, another attempt, or a redaction placeholder.
 //
 // The opening message is exactly one text part. The host resolves an @agent
 // mention in a Task prompt into an agent part and a synthetic instruction, so
@@ -1236,12 +1221,8 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
 }
 
 
-// The core compares the worker session's directory against the work item's
-// active worktree claim, so the value it receives must be a real path. The
-// session export runs with --sanitize, which replaces that directory with a
-// redaction placeholder. Worker completion receives the real directory from
-// the dispatch window. readSessionDirectory reads one session's directory
-// from the host control plane through the getSessionInfo helper.
+// The core compares this absolute host directory against the active claim.
+// A redacted or relative directory cannot establish worktree identity.
 export function readSessionDirectory(stdout: string, sessionID: string): string | null {
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
@@ -1267,17 +1248,17 @@ export function readRunTextParts(stdout: string): string[] {
 
 export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: string | null }
 
-export function readWorkerReport(stdout: string, packet?: AgentLanePacket): WorkerReportScan {
+export function readWorkerReport(stdout: string, packet?: AgentLanePacket, readbackModel?: string): WorkerReportScan {
   const collected = readWorkerReportTexts(stdout, { protocol: packet?.inputs.report_protocol })
   if (collected.detail !== undefined) return { report: null, malformed: collected.detail }
-  return scanReportTexts(collected.texts, packet)
+  return scanReportTexts(collected.texts, packet, readbackModel)
 }
 
-export function scanReportTexts(texts: string[], packet?: AgentLanePacket): WorkerReportScan {
+export function scanReportTexts(texts: string[], packet?: AgentLanePacket, readbackModel?: string): WorkerReportScan {
   const selected = selectWorkerReport(texts, {
     protocol: packet?.inputs.report_protocol,
     maxBytes: MAX_OUTPUT_BYTES,
-    isReport: (candidate) => validateAgentLaneReport(workerContent(candidate, packet)),
+    isReport: (candidate) => validateAgentLaneReport(workerContent(candidate, packet, readbackModel)),
   })
   return selected.kind === "selected"
     ? { report: selected.report, malformed: null }
@@ -1328,13 +1309,14 @@ function normalizeWorkerReport(report: Record<string, unknown>): Record<string, 
 
 // Legacy candidate selection and admission use the same dispatch-derived shape,
 // including oracle receipt subjects rebound before the closed schema sees them.
-function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket): Record<string, unknown> {
+function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket, readbackModel?: string): Record<string, unknown> {
   const stripped = { ...report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
   const rebound = packet ? rebindOracleReceiptSubjects(stripped, packet) : stripped
   return normalizeWorkerReport({
     ...rebound,
     schema_version: packet?.schema_version ?? report.schema_version,
+    ...(readbackModel !== undefined ? { readback_model: readbackModel } : {}),
     ...(packet ? packetWorkerJobBinding(packet) : {}),
   })
 }
@@ -1426,13 +1408,13 @@ export function contextFindingsAggregateRefusal(findings: unknown, maxArrayBytes
 // refuses every other property the worker was not asked for. Identity reaches
 // the canonical terminal report exclusively from the authorized dispatch
 // packet.
-function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
+function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket, readbackModel: string): { report: CanonicalLaneReport } | { detail: string } {
   if (!scan.report) {
     return { detail: scan.malformed !== null
       ? `worker report selection refused: ${scan.malformed}`
       : "worker output carried no agent-lane-report.v1 report" }
   }
-  const normalized = workerContent(scan.report, packet)
+  const normalized = { ...workerContent(scan.report, packet), readback_model: readbackModel }
   const failures: string[] = []
   if (!validateAgentLaneReport(normalized, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
@@ -1493,15 +1475,15 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
 }
 
 // resolveWorkerReport admits a report from a worker run's captured output.
-export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
-  return admitWorkerReport(readWorkerReport(stdout, packet), packet)
+export function resolveWorkerReport(stdout: string, packet: AgentLanePacket, readbackModel: string): { report: CanonicalLaneReport } | { detail: string } {
+  return admitWorkerReport(readWorkerReport(stdout, packet, readbackModel), packet, readbackModel)
 }
 
 // resolveWorkerReportFromText admits a report from one message body, which is
 // what the native task route carries: the host has already resolved the
 // worker's final text part before it renders the result (CD-0102 D5).
-export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
-  return admitWorkerReport(scanReportTexts([text], packet), packet)
+export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket, readbackModel: string): { report: CanonicalLaneReport } | { detail: string } {
+  return admitWorkerReport(scanReportTexts([text], packet, readbackModel), packet, readbackModel)
 }
 
 // workerReportedFailureDetail renders a `failed` report's own evidence as the
@@ -2904,7 +2886,7 @@ async function completeWorkerSession(
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
   // or bound to another packet is a typed failure, never a completion.
-  const resolution = resolveWorkerReportFromText(resultBody, packet)
+  const resolution = resolveWorkerReportFromText(resultBody, packet, readback.readback_model)
   const base = baseEnvelope(lane, packet, "ok")
   base.readback_model = readback.readback_model
   base.session_id = readback.session_id

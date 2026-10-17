@@ -4,6 +4,7 @@ import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
+import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
@@ -284,6 +285,18 @@ if (
 if (JSON.stringify(ciWatchRoot.required) !== JSON.stringify(["repo", "selector"])) fail("concord_ci_watch does not require repo and selector")
 const ciWatchSelector = object(ciWatchProperties.selector, "ci watch selector")
 if (JSON.stringify(ciWatchSelector.required) !== JSON.stringify(["kind", "value"])) fail("concord_ci_watch selector does not require kind and value")
+
+const reader = workerReadTool({ authorize: async () => null }, async () => { throw new Error("the schema probe must not read worker sources") })
+const readerDefinition = {
+  description: reader.description,
+  parameters: {},
+  jsonSchema: publishedArgsSchema(reader.args, "worker reading registration schema"),
+}
+await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerDefinition)
+const readerRoot = object(readerDefinition.jsonSchema, "published worker reading schema")
+if (JSON.stringify(readerRoot) !== JSON.stringify(hostToolSchemas.concord_worker_read)) fail("concord_worker_read differs from its closed authored contract")
+inspect(readerRoot)
+registrationBytes.concord_worker_read = Buffer.byteLength(JSON.stringify(readerRoot), "utf8")
 
 // Opt-in real-host permission-merge evidence: `--host-merge <agents-dir>
 // <summary.json> [binary]` resolves every generated role's permissions

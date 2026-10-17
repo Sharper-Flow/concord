@@ -29,6 +29,7 @@ import {
   publishRequestDefinition,
   takeWorkNotices,
   configureSessionOpener,
+  readBoundWorkerSource,
 } from "./concord"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
@@ -41,6 +42,8 @@ import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -96,25 +99,25 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   const instanceDirectory = input?.directory
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
+  const workerCapabilities = createWorkerCapabilityGuard()
+  // Concord entries retain their structured managed-parent refusals. Native
+  // and nested MCP calls pass the worker capability ceiling instead.
+  const tools = guardPrimaryRoles({
+    concord_product_view: product_view,
+    concord_work_browse: work_browse,
+    concord_work_trace: work_trace,
+    concord_knowledge: knowledge,
+    concord_work_define: work_define,
+    concord_domain: domain,
+    concord_work_transition: work_transition,
+    concord_work_relate: work_relate,
+    concord_work_compact: work_compact,
+    concord_work_start: work_start,
+    concord_ci_watch: ciWatchTool(ciPeer.id),
+    concord_worker_read: workerReadTool(workerCapabilities, readBoundWorkerSource),
+  })
   return {
-    // Every registration passes the primary role guard, which refuses a tool
-    // the step agent's named profile denies before any transport runs.
-    tool: guardPrimaryRoles({
-      concord_product_view: product_view,
-      concord_work_browse: work_browse,
-      concord_work_trace: work_trace,
-      concord_knowledge: knowledge,
-      concord_work_define: work_define,
-      concord_domain: domain,
-      concord_work_transition: work_transition,
-      concord_work_relate: work_relate,
-      concord_work_compact: work_compact,
-      concord_work_start: work_start,
-      // The registration is the watcher tool's only name: its module lives
-      // in the custom tools directory, where nothing but the plugin may name
-      // a tool.
-      concord_ci_watch: ciWatchTool(ciPeer.id),
-    }),
+    tool: tools,
     "chat.message": async (
       input: { sessionID: string; messageID?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },
@@ -126,6 +129,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // treat the notice as an operator turn. Skip those when every part
       // carries the notice marker.
       if (isCiWatchNoticeMessage(output?.parts)) return
+      await workerCapabilities.observe(input.sessionID)
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and
@@ -145,6 +149,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishRequestDefinition(definitionInput, output)
       await publishWorkStartDefinition(definitionInput, output)
       await publishCiWatchDefinition(definitionInput, output)
+      await publishWorkerReadDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
       const result = await failDispatchedWorker(event)
@@ -161,25 +166,28 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       if (input.tool === "question" && questionRequiresNormalChat(input.sessionID)) {
         throw new Error(TURN_MOVE_QUESTION_REFUSAL)
       }
-      if (input.tool !== TASK_TOOL_ID) return
+      if (input.tool !== TASK_TOOL_ID) {
+        if (!Object.hasOwn(tools, input.tool)) await workerCapabilities.before(input, output)
+        return
+      }
       const windows = dispatchWindows()
+      const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
+      if (concordUtility) {
+        if (await hostControlPlane().hasManagedParent(input.sessionID)) {
+          throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
+        }
+        return
+      }
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
       // A lane runs only inside the window an authorized dispatch_worker
       // opened. Without one, a direct lane Task is exactly the coordinator
       // Task-list competition the registry forbids: the call is refused with
       // the correcting route instead of consuming a lane's attempt unbound.
       if (concordLane && !windows.has(input.sessionID)) {
-        throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; issue the dispatch_worker action first, then repeat this Task call inside the window it opens`)
+        throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
       }
       if (windows.has(input.sessionID)) {
         await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
-        return
-      }
-      const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
-      if (concordUtility) {
-        if (await hostControlPlane().hasManagedParent(input.sessionID)) {
-          throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
-        }
         return
       }
       const scope = await hostControlPlane().taskScope(input.sessionID)
@@ -203,7 +211,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     // coordinator.
     "tool.execute.after": async (
       input: { tool: string; sessionID: string; callID: string; args: unknown },
-      output: { title: string; output: string; metadata: unknown },
+      output: { title: string; output: string; metadata: unknown } | undefined,
     ) => {
       await completeDispatchedWorker(input, output)
     },

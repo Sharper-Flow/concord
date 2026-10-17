@@ -13,7 +13,7 @@ import { manifestDigest } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import { resetClaimedWorktrees } from "./claimed-worktree"
-import { hostControlPlane } from "./move-session"
+import { hostControlPlane, SESSION_MESSAGES_ROUTE } from "./move-session"
 import { abandonWorkerAttempt, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
@@ -66,6 +66,7 @@ const retryPacket = () => ({
 })
 
 let workspace = "/reject-retry-unset"
+let queuedSubtasks: unknown[] = []
 
 const contextFor = (directory = workspace): any => ({ sessionID: SESSION, messageID: "message-1", agent: "agent-1", worktree: directory, directory, abort: new AbortController().signal, ask: () => {} })
 
@@ -122,9 +123,16 @@ const invokeCalls = (calls: string[]) => calls.filter(command => command === "in
 
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "reject-retry-launch-"))
+  queuedSubtasks = []
   hostControlPlane().bind({
     get: async () => ({ data: { id: SESSION, directory: workspace }, response: new Response(null, { status: 200 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
+    post: async request => {
+      expect(request.url).toBe(SESSION_MESSAGES_ROUTE)
+      const body = request.body as { agent: string; noReply: boolean; parts: unknown[] }
+      expect(body.noReply).toBe(true)
+      queuedSubtasks.push(...body.parts)
+      return { data: { info: { id: "queued-message", sessionID: SESSION, agent: body.agent }, parts: body.parts }, response: new Response(null, { status: 200 }) }
+    },
   })
   resetClaimedWorktrees()
   dispatchWindows().close(SESSION)
@@ -149,6 +157,7 @@ test("a combined rejection arms one window and the host Task spawn consumes the 
   expect(invokeCalls(calls)).toHaveLength(1)
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(queuedSubtasks).toHaveLength(1)
   // The acknowledged envelope preserves the committed rejection's mutation
   // receipt beside the Task directive: the rejection's changed_refs and next
   // intents under their core names, and the core result receipt with the
@@ -176,12 +185,14 @@ test("a replayed combined response never launches twice and names the exact orig
   const answer = () => ({ exitCode: 0, stdout: JSON.stringify(combinedOkEnvelope()), stderr: "" })
   const first = await runTransition([answer])
   expect(first.result.dispatch_state).toBe("awaiting_worker")
+  expect(queuedSubtasks).toHaveLength(1)
   expect(dispatchWindows().has(SESSION)).toBe(true)
   // The first response was lost after the window armed; the coordinator
   // reconciles and the combined response replays. The open window must not
   // be duplicated and the committed attempt identity must surface.
   const replay = await runTransition([answer])
   expect(replay.result.outcome).toBe("error")
+  expect(queuedSubtasks).toHaveLength(1)
   expect(replay.result.error?.message).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(true)
   // The window the first response armed is still the original one: the next
@@ -193,6 +204,7 @@ test("a replayed combined response never launches twice and names the exact orig
   // attempt and cannot launch a second worker.
   const third = await runTransition([answer])
   expect(third.result.outcome).toBe("error")
+  expect(queuedSubtasks).toHaveLength(1)
   expect(third.result.error?.message).toContain(RETRY_ATTEMPT)
   expect(dispatchWindows().has(SESSION)).toBe(false)
 })

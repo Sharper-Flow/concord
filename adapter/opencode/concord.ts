@@ -22,6 +22,7 @@ import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-bound
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
+import type { WorkerReadingRequest } from "./worker_source"
 
 type ToolContext = {
   sessionID: string
@@ -607,6 +608,15 @@ function singleJSON(text: string): any {
   const parsed = JSON.parse(value)
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("core stdout was not a JSON object")
   return parsed
+}
+
+export async function readBoundWorkerSource(request: WorkerReadingRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  const leaseFault = hostLeaseFault()
+  if (leaseFault) throw new Error(`${leaseFault}; no source read ran`)
+  const result = await runner.run([concordBinaryPath(), "worker-read"], JSON.stringify(request), signal, { cwd: directory })
+  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || "the core refused the pinned source read")
+  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error("pinned source page exceeded its transport bound")
+  return singleJSON(result.stdout)
 }
 
 function saneWorkID(value: unknown): value is string {

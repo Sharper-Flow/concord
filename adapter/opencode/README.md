@@ -173,27 +173,23 @@ JSON-stdin boundary but are not capability-gated agent tools and do not expand T
 The public `concord_work_transition.workflow_action` route accepts
 `action_id: dispatch_worker` with `fields.lane_id`. The adapter builds the
 closed lane packet from recorded state, obtains core authorization, and opens
-one window for the next native Task call. The plugin replaces that call's
-agent and prompt with the authorized packet. OpenCode owns the native worker
-card, child session, progress, and cancellation. See
+one single-use window. After the host permits the Task, the adapter queues a
+native subtask in the calling session. No model-authored Task call is required.
+The plugin binds the host's Task to the authorized packet. OpenCode owns the
+native worker card, child session, progress, and cancellation. See
 [CD-0102](../../.concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
 
-The adapter selects the registered `concord-<lane>` agent, not a model.
-OpenCode resolves the model from host configuration. The worker ends with its
-closed `agent-lane-report.v1` report as its final text part. The dispatch
-window pins the worker directory, so the report carries none of it. The host's
-Task result supplies the child session identity. The completion hook first
-exports
-that session unsanitized and refuses the attempt unless it opens with the exact
-authorized packet; the sanitizer redacts text parts, so only the unsanitized
-export can carry that check. It then exports with `opencode export <session>
---sanitize`, verifies the executing agent, and records host-derived model
-readback. Worker-supplied identity is not a substitute for that readback.
+The adapter selects the registered `concord-<lane>` agent. OpenCode resolves
+its model and provider from the operator's host configuration. The
+[native Task queue](move-session.ts) supplies no worker model override.
+The worker returns its closed `agent-lane-report.v1` report as its final text
+part. [Completion](dispatch.ts) reads the child through the host session API,
+verifies its authorized opening and executing identity, and supplies canonical
+report identity itself. Worker-supplied identity cannot replace host evidence.
 
 The adapter derives `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`
-from the authorized dispatch packet. A model report cannot supply them: a report
-that carries any of those fields is refused as `invalid_report`, whatever value
-it names. An admitted completed report becomes `worker-complete` evidence. A
+from the authorized dispatch packet. An admitted completed report becomes
+`worker-complete` evidence. A
 missing, invalid, or failed report follows the typed worker-failure route.
 Workers return reports; they do not own workflow transitions, verdicts, operator
 approvals, or completion.

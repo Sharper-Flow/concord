@@ -126,7 +126,7 @@ test("a previously committed completion reuses its historical terminal event id"
   expect(calls[1].input.event_id).toBe("historical-random-completion")
 })
 
-test.each(["parent", "part", "unfinished", "packet", "agent", "readback-agent", "model", "report-model", "report", "directory", "work", "attempt"])("retained recovery refuses mismatched %s before evidence", async (fault) => {
+test.each(["parent", "part", "unfinished", "packet", "agent", "readback-agent", "missing-model", "report", "directory", "work", "attempt"])("retained recovery refuses mismatched %s before evidence", async (fault) => {
   const { reader, parent, child } = host()
   let work = packet.work_id, attempt = packet.attempt_id
   switch (fault) {
@@ -136,8 +136,7 @@ test.each(["parent", "part", "unfinished", "packet", "agent", "readback-agent", 
     case "packet": parent.messages[0].parts[0].state.input.prompt = serializeLanePacket({ ...packet, attempt_id: "another-attempt" }); break
     case "agent": parent.messages[0].parts[0].state.input.subagent_type = "general"; break
     case "readback-agent": child.messages[1].info.agent = "general"; break
-    case "model": child.messages[1].info.modelID = "different-model"; break
-    case "report-model": parent.messages[0].parts[0].state.output = wrap.replace('"readback_model":"openai/test-model"', '"readback_model":"openai/other-model"'); break
+    case "missing-model": delete child.messages[1].info.modelID; break
     case "report": parent.messages[0].parts[0].state.output = wrap.replace('"status":"completed"', '"status":"failed"'); break
     case "directory": child.info.directory = "/"; break
     case "work": work = "another-work"; break
@@ -156,6 +155,25 @@ test.each(["parent", "part", "unfinished", "packet", "agent", "readback-agent", 
     expect(result.outcome).toBe("error")
   } catch (error) { expect(error).toBeInstanceOf(Error) }
   expect(calls).toEqual([])
+})
+
+test.each([undefined, "openai/forged-model", { provider: "forged" }])("recovery derives terminal model identity from the host instead of worker value %j", async (supplied) => {
+  const { reader, parent, child } = host()
+  const carried = { ...report, readback_model: supplied }
+  parent.messages[0].parts[0].state.output = wrap.replace(JSON.stringify(report), JSON.stringify(carried))
+  child.messages[1].info.modelID = "actual-terminal-model"
+  const calls: { verb: string; request: Record<string, unknown> }[] = []
+  const result = await reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", {
+    sessionReader: reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
+    evidenceRunner: { async run(argv, input) {
+      calls.push({ verb: argv[1], request: JSON.parse(input) })
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  }, new AbortController().signal)
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(calls.map(call => call.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(calls[0].request.readback_model).toBe(model)
+  expect(calls[1].request.readback_model).toBe("openai/actual-terminal-model")
 })
 
 test("recovery preserves distinct recorded dispatch and original terminal models", async () => {

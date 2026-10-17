@@ -85,6 +85,49 @@ afterEach(async () => {
 })
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 
+test("the worker reader transport uses only the held request and dispatched directory", async () => {
+  const request: Parameters<typeof adapter.readBoundWorkerSource>[0] = {
+    work_id: "read-work", attempt_id: "read-attempt", worktree_identity: "bound-identity",
+    packet: {
+      schema_version: "1.0", work_id: "read-work", attempt_id: "read-attempt", step_id: "verify",
+      lane_id: "verify", lane_version: 1, lane_digest: "bound-lane",
+      inputs: { task: "Read the declared source", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
+    },
+    ordinal: 0, offset: 0, length: 6,
+  }
+  const calls: unknown[] = []
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ runner: { run: async (argv, input, signal, options) => {
+    calls.push({ argv, request: JSON.parse(input), signal, options })
+    return { exitCode: 0, stdout: '{"data":"c291cmNl"}\n', stderr: "" }
+  } } })
+  const signal = new AbortController().signal
+  try {
+    expect(await adapter.readBoundWorkerSource(request, signal, "/dispatched-worktree")).toEqual({ data: "c291cmNl" })
+    expect(calls).toEqual([{ argv: ["concord", "worker-read"], request, signal, options: { cwd: "/dispatched-worktree" } }])
+  } finally {
+    adapter.configureConcordAdapter({ reset: true })
+  }
+})
+
+test("the worker reader transport refuses failed, oversized, or non-single-object output", async () => {
+  configureHostLease({ reset: true })
+  for (const result of [
+    { exitCode: 1, stdout: '{"data":"forbidden"}', stderr: "source registration changed" },
+    { exitCode: 0, stdout: '{"data":"' + "x".repeat(16_384) + '"}', stderr: "" },
+    { exitCode: 0, stdout: '{}\n{}\n', stderr: "" },
+    { exitCode: 0, stdout: '[]\n', stderr: "" },
+  ]) {
+    adapter.configureConcordAdapter({ runner: { run: async () => result } })
+    try {
+      // This transport test never enters the store or authenticates a packet.
+      await expect(adapter.readBoundWorkerSource({} as Parameters<typeof adapter.readBoundWorkerSource>[0], new AbortController().signal, "/dispatched-worktree")).rejects.toThrow()
+    } finally {
+      adapter.configureConcordAdapter({ reset: true })
+    }
+  }
+})
+
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1]).filter((name) => name !== "work_start")
   expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact"])

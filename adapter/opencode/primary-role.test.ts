@@ -1,9 +1,6 @@
-// Registered roles hold disjoint Concord authority: the coordinator denies its
-// mutating tools, the operator denies none, and every lane and utility denies
-// the complete catalog. Frontmatter denials are host permissions, and session
-// permissions merge over them, so the plugin refuses off-role tools by the
-// step agent the host supplies with each tool call. The denied set is
-// generated from both role registries.
+// Registered roles hold disjoint Concord authority. Lanes have no workflow
+// tools. Capability-bound helpers authenticate the held dispatch separately
+// from the generated role ceiling.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
@@ -12,20 +9,15 @@ import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+import { WorkerCapabilityError } from "./lane_capabilities"
 
 syntheticHostVersionFixture()
 
 const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 const WATCHING = ["concord_ci_watch"]
-// The complete registered catalog. REFUSED_BEFORE names the tools that denied
-// an unidentified step before the denial map covered every registered role;
-// REFUSED_SINCE_WIDENING names the read and watch tools the widening added.
-// Keep both cohorts explicit: if either half goes green on a narrowed map,
-// the widening did not land.
-const REFUSED_BEFORE = MUTATING
-const REFUSED_SINCE_WIDENING = [...READS, ...WATCHING]
-const CATALOG = [...MUTATING, ...READS, ...WATCHING].sort()
+const WORKFLOW_CATALOG = [...MUTATING, ...READS, ...WATCHING].sort()
+const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read"].sort()
 const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
 const UTILITY_AGENTS = agentUtilities.map((utility) => `concord-${utility.id}`)
 
@@ -47,7 +39,7 @@ beforeAll(async () => {
 })
 
 describe("primary role guard", () => {
-  test("the registration is exactly the eleven-tool catalog", () => {
+  test("the registration is exactly the declared tool catalog", () => {
     expect(registered).toEqual(CATALOG)
   })
 
@@ -98,9 +90,9 @@ describe("primary role guard", () => {
     }
   })
 
-  test("every lane and utility is refused every registered Concord tool before transport", async () => {
+  test("every lane and utility is refused every workflow tool before transport", async () => {
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
-      for (const toolID of registered) {
+      for (const toolID of WORKFLOW_CATALOG) {
         const { calls, definition } = recording()
         const guarded = guardPrimaryRole(toolID, definition)
         await expect(guarded.execute({ request: {} }, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
@@ -109,18 +101,28 @@ describe("primary role guard", () => {
     }
   })
 
-  test("a step with no agent identity is refused every registered tool, both cohorts explicit", async () => {
-    for (const agent of [undefined, "", 7]) {
-      // The five mutating tools denied an unidentified step before the denial
-      // map covered every registered role.
-      for (const toolID of REFUSED_BEFORE) {
-        const { calls, definition } = recording()
-        await expect(guardPrimaryRole(toolID, definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+  test("the bounded reader passes the role ceiling only for lanes with repository read capability", async () => {
+    for (const lane of agentLanes) {
+      const { calls, definition } = recording()
+      const call = guardPrimaryRole("concord_worker_read", definition).execute({}, context(`concord-${lane.id}`))
+      if (lane.capabilities.includes("read_repository")) {
+        expect(await call).toBe("ran")
+        expect(calls).toHaveLength(1)
+      } else {
+        await expect(call).rejects.toBeInstanceOf(PrimaryRoleRefusal)
         expect(calls).toEqual([])
       }
-      // The six reads and the watcher denied an unidentified step only once
-      // lanes and utilities entered the same registry projection.
-      for (const toolID of REFUSED_SINCE_WIDENING) {
+    }
+    for (const agent of UTILITY_AGENTS) {
+      const { calls, definition } = recording()
+      await expect(guardPrimaryRole("concord_worker_read", definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+      expect(calls).toEqual([])
+    }
+  })
+
+  test("a step with no agent identity is refused every registered tool", async () => {
+    for (const agent of [undefined, "", 7]) {
+      for (const toolID of CATALOG) {
         const { calls, definition } = recording()
         await expect(guardPrimaryRole(toolID, definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
         expect(calls).toEqual([])
@@ -146,7 +148,9 @@ describe("primary role guard", () => {
     expect(roleDeniedConcordTools["concord-operator"].tools).toEqual([])
     expect(roleDeniedConcordTools["concord-coordinator"].boundary).toContain("operator")
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
-      expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(CATALOG)
+      const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
+      const expected = lane?.capabilities.includes("read_repository") ? WORKFLOW_CATALOG : CATALOG
+      expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(expected)
       expect(roleDeniedConcordTools[agent].boundary.length).toBeGreaterThan(0)
     }
   })
@@ -156,12 +160,12 @@ describe("primary role guard", () => {
       const definition = Reflect.get(plugin!.tool, toolID)
       await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-coordinator"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
     }
-    // A lane agent is refused before the managed-ancestry boundary runs, so
-    // the refusal is the typed role refusal for every registered tool.
-    for (const toolID of registered) {
+    for (const toolID of WORKFLOW_CATALOG) {
       const definition = Reflect.get(plugin!.tool, toolID)
       await expect(definition.execute({ request: {} }, context("concord-implement"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
     }
+    // An agent name alone supplies no attempt or source-reading authority.
+    await expect(plugin!.tool.concord_worker_read.execute({ ordinal: 0, offset: 0, length: 1 }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)
   })
 })
 

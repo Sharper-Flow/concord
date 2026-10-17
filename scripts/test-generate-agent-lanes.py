@@ -21,6 +21,29 @@ def lane_projection(lane, report=None):
     return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA)
 
 
+class CapabilityToolProjectionTests(unittest.TestCase):
+    def test_non_authoring_lanes_cannot_inherit_shell_or_file_authoring_tools(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            if "edit_scoped_files" in lane["capabilities"]:
+                continue
+            with self.subTest(lane=lane["id"]):
+                projection = lane_projection(lane)
+                tools = projection.split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+                for tool_id in ("bash", "edit", "write", "patch", "apply_patch", "morph_edit"):
+                    self.assertIn(f"  {tool_id}: false\n", tools + "\n")
+
+    def test_authoring_ceiling_does_not_override_host_tool_denials(self):
+        manifest, _ = generator.load_manifest()
+        lane = copy.deepcopy(manifest["lanes"][0])
+        lane["capabilities"].extend(["edit_scoped_files", "run_tests"])
+        projection = lane_projection(lane)
+        tools = projection.split("\ntools:\n", 1)[1].split("\npermission:\n", 1)[0]
+        for tool_id in ("bash", "edit", "write", "patch", "apply_patch", "morph_edit"):
+            self.assertTrue(generator.lane_tool_grants(lane)[tool_id])
+            self.assertNotIn(f"  {tool_id}:", tools)
+
+
 class LaneDigestRetentionTests(unittest.TestCase):
     def test_generation_refuses_a_replaced_digest_without_retention(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
@@ -99,19 +122,25 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn(f"\n  {tool_id}: false\n", projection)
         self.assertIn("## Concord context boundary", projection)
 
-    def test_every_lane_and_utility_definition_denies_every_concord_tool(self):
+    def test_every_lane_and_utility_definition_denies_workflow_tools_without_positive_grants(self):
         # generate-agent-lanes.py --check keeps these files equal to the
         # projections, so this covers every lane and utility the manifest
         # declares. Named primary profiles hold Concord authority by role and
         # are covered by PrimaryProfileProjectionTests.
         manifest, _ = generator.load_manifest()
-        ids = [entry["id"] for entry in manifest["lanes"] + manifest["utilities"]]
-        definitions = [ROOT / ".opencode/agents" / f"concord-{agent_id}.md" for agent_id in ids]
-        self.assertTrue(definitions)
-        for path in definitions:
+        entries = manifest["lanes"] + manifest["utilities"]
+        self.assertTrue(entries)
+        for entry in entries:
+            path = ROOT / ".opencode/agents" / f"concord-{entry['id']}.md"
             text = path.read_text(encoding="utf-8")
+            reader_allowed = entry in manifest["lanes"] and "read_repository" in entry.get("capabilities", [])
             for tool_id in generator.concord_tool_ids():
-                self.assertIn(f"\n  {tool_id}: false\n", text, f"{path.name} does not deny {tool_id}")
+                denial = f"\n  {tool_id}: false\n"
+                if reader_allowed and tool_id == "concord_worker_read":
+                    self.assertNotIn(denial, text)
+                else:
+                    self.assertIn(denial, text, f"{path.name} does not deny {tool_id}")
+                self.assertNotIn(f"\n  {tool_id}: true\n", text)
 
     def test_projection_reads_report_bounds_from_schema(self):
         changed = copy.deepcopy(REPORT_SCHEMA)
@@ -119,7 +148,7 @@ class AgentProjectionTests(unittest.TestCase):
         changed["properties"]["evidence"]["maxItems"] = 11
         changed["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"] = 23
         projection = lane_projection(self.LANE, changed)
-        self.assertIn("maxLength=77", projection)
+        self.assertNotIn("maxLength=77", projection)
         self.assertIn("maxItems=11", projection)
         self.assertIn("maxLength=23", projection)
 
@@ -180,7 +209,10 @@ class AgentProjectionTests(unittest.TestCase):
         normalized = " ".join(projection.split())
         self.assertIn("When `inputs.work_context` is present, read it first", normalized)
         self.assertIn("`required_reading` in order", normalized)
-        self.assertIn("at its pinned `commit_oid` through git, not from the changed checkout", normalized)
+        self.assertIn("with `concord_worker_read`", normalized)
+        self.assertIn("zero-based `ordinal`", normalized)
+        self.assertIn("Continue at `next_offset` until `eof`", normalized)
+        self.assertIn("original pinned source, not the changed checkout or the network", normalized)
         self.assertIn("`domain_groups`", normalized)
         self.assertIn("Record new conclusions, rejected routes, and open questions as report `context_findings`", normalized)
         view = PACKET_SCHEMA["$defs"]["lane_work_context_view"]
@@ -285,6 +317,8 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`target_runner_v1` recipe", normalized)
         self.assertIn("Ordinary test output does not acquire a qualified oracle receipt", normalized)
         self.assertIn("A timeout is `unavailable` evidence, never a measured failure", normalized)
+        self.assertIn("Workers gain no general Concord tools", normalized)
+        self.assertNotIn("Managed workers gain no Concord tools", normalized)
 
     def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
@@ -318,19 +352,13 @@ class AgentProjectionTests(unittest.TestCase):
         )
         self.assertIn("Never return multiple report candidates", normalized)
 
-    def test_projection_directs_omission_of_packet_owned_report_identity(self):
-        # `schema_version` and `worker_job` are opaque packet-owned identity:
-        # the adapter derives both from the packet. The lane definition must
-        # carry no instruction to copy either field, while `readback_model`
-        # stays worker-authored.
+    def test_projection_requests_worker_content_without_host_or_packet_identity(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertNotIn("Set `schema_version` to", normalized)
-        self.assertIn("omit `schema_version` rather than copying it", normalized)
-        self.assertIn("the dispatch packet owns those fields", normalized)
-        self.assertIn("`worker_job`", normalized)
-        self.assertIn("the adapter derives this identity and worker_job binding from the packet", normalized)
-        self.assertIn("Set `readback_model` to", normalized)
+        self.assertNotIn("readback_model", normalized)
+        self.assertIn("required=[\"status\", \"evidence\"]", normalized)
+        self.assertIn("The adapter supplies report identity from the dispatch packet and host readback", normalized)
 
     def test_projection_keeps_the_file_change_rules_for_editing_lanes(self):
         # The dispatched packet carries the approved contract's bound law and
@@ -965,17 +993,19 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertEqual(sorted(self.ts_role_map()), sorted(self.registered_role_ids()))
         self.assertNotIn("concord-repair", self.ts_role_map())
 
-    def test_ts_projection_denies_every_registered_tool_for_every_lane_and_utility(self):
+    def test_ts_projection_denies_workflow_tools_and_gates_the_bound_reader_by_capability(self):
         catalog = generator.concord_tool_ids()
         for kind, entries in (("lane", self.manifest["lanes"]), ("utility", self.manifest["utilities"])):
             for entry in entries:
                 agent = f"concord-{entry['id']}"
                 denied = self.ts_role_map()[agent]
-                self.assertEqual(sorted(denied["tools"]), catalog)
+                reader_allowed = kind == "lane" and "read_repository" in entry.get("capabilities", [])
+                expected = [tool for tool in catalog if not (reader_allowed and tool == "concord_worker_read")]
+                self.assertEqual(sorted(denied["tools"]), expected)
                 # The boundary names the role class; the guard composes the
                 # agent name and the tool in front of it.
                 self.assertIn(kind, denied["boundary"])
-                self.assertIn("no Concord tool access", denied["boundary"])
+                self.assertIn("no general Concord tool access" if kind == "lane" else "no Concord tool access", denied["boundary"])
 
     def test_ts_projection_keeps_the_profile_entries(self):
         role = self.ts_role_map()["concord-coordinator"]

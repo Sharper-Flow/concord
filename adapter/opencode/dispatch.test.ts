@@ -1489,6 +1489,31 @@ test("the readback shape is recorded verbatim regardless of host configuration",
   expect(result.readback_model).toBe(hostExecuted)
 })
 
+test("report admission derives model identity only from host readback", async () => {
+  const hostExecuted = "zai-coding-plan/glm-5.3"
+  for (const supplied of [undefined, "openai/forged-model", null, 42, { provider: "forged" }]) {
+    const carried: Record<string, unknown> = report({ readback_model: supplied })
+    if (supplied === undefined) delete carried.readback_model
+    const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet(), hostExecuted)
+    expect(admitted).toEqual({ report: canonicalReport({ readback_model: hostExecuted }) })
+
+    const recorded: Record<string, unknown>[] = []
+    const result = await complete(workerBody(carried), {
+      sessionReader: readbackSessionReader(hostExecuted),
+      evidenceRunner: {
+        async run(_argv, input) {
+          recorded.push(JSON.parse(input))
+          return { exitCode: 0, stdout: "", stderr: "" }
+        },
+      },
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.readback_model).toBe(hostExecuted)
+    expect(recorded).toHaveLength(2)
+    expect(recorded.every(event => event.readback_model === hostExecuted)).toBe(true)
+  }
+})
+
 test("an unknown readback is recorded as-is and not refused", async () => {
   const hostExecuted = "openai/not-declared"
   const result = await complete(workerBody(report({}, hostExecuted)), { sessionReader: readbackSessionReader(hostExecuted) })
@@ -2116,7 +2141,10 @@ test("a refused readback that cannot bind provenance records no born-failed evid
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison, type AgentLaneReportContextFinding } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport as admitRunReport, resolveWorkerReportFromText as admitTextReport, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison, type AgentLaneReportContextFinding } from "./dispatch"
+
+const resolveWorkerReport = (text: string, p: AgentLanePacket, hostModel = READBACK_MODEL) => admitRunReport(text, p, hostModel)
+const resolveWorkerReportFromText = (text: string, p: AgentLanePacket, hostModel = READBACK_MODEL) => admitTextReport(text, p, hostModel)
 
 test("legacy report identity forbids a worker-job claim", () => {
   const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
@@ -2611,7 +2639,7 @@ test("attribution-worker-report: an admitted failed report rides as worker_repor
   expect(observed.sources).toHaveLength(1)
   expect(observed.sources[0].kind).toBe("admitted_report")
   expect(observed.sources[0].locator).toBeUndefined()
-  const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet())
+  const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet(), READBACK_MODEL)
   expect("report" in admitted).toBe(true)
   if ("report" in admitted) {
     const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify(admitted.report), "utf8").digest("hex")

@@ -617,7 +617,7 @@ test("a malformed checkpoint refuses the packet", async () => {
   }
 })
 
-test("installed agents project the report schema bounds", async () => {
+test("installed agents project worker-authored report bounds and leave model identity to the adapter", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()
   const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
@@ -626,8 +626,9 @@ test("installed agents project the report schema bounds", async () => {
   expect(agent).toContain(`additionalProperties=${agentLaneReportSchema.additionalProperties}`)
   expect(agent).toContain(`maxItems=${reportProperties.evidence.maxItems}`)
   expect(agent).toContain(`maxLength=${reportEntry.properties.detail.maxLength}`)
-  expect(agent).toContain(`maxLength=${reportProperties.readback_model.maxLength}`)
-  expect(agent).toContain(reportProperties.readback_model.pattern)
+  expect(agent).toContain("The adapter supplies report identity from the dispatch packet and host readback.")
+  expect(agent).not.toContain("readback_model:")
+  expect(agentLaneReportSchema.required).toContain("readback_model")
   expect(agent).toContain("evidence_entry.predicate_ids: optional array; type=array, minItems=0, maxItems=8")
   expect(agent).toContain("omit it or use an empty array on an entry that proves no declared predicate")
   expect(agent).toContain("Both forms mean no predicate tie")

@@ -1808,6 +1808,20 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
         fail("concord_ci_watch time_seconds_max must be an integer bounded 0..1800")
 
 
+def validate_worker_read_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    fields = ["ordinal", "offset", "length"]
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_read host schema must be a closed object")
+    if list(properties) != fields or args.get("required") != fields:
+        fail("concord_worker_read must require only ordinal, offset, and length")
+    for name, minimum, maximum in (("ordinal", 0, 9007199254740991), ("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
+
+
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
@@ -1815,6 +1829,7 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
     "concord_ci_watch": validate_ci_watch_host_tool,
+    "concord_worker_read": validate_worker_read_host_tool,
 }
 
 

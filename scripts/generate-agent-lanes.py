@@ -233,19 +233,10 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     resolved_findings = review["properties"]["resolved_findings"]
     resolved_finding = report_schema["$defs"]["resolved_finding"]
     lines = [
-        "Canonical report top-level shape (the adapter adds identity): "
+        "Worker report content shape (the adapter adds identity): "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
-        f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
-        "schema_version: "
-        f"enum={json.dumps(properties['schema_version']['enum'], ensure_ascii=False)}; "
-        "the adapter derives this identity and worker_job binding from the packet; "
-        "omit both fields from worker-authored content.",
-        "readback_model: "
-        f"type={properties['readback_model']['type']}, "
-        f"minLength={properties['readback_model']['minLength']}, "
-        f"maxLength={properties['readback_model']['maxLength']}, "
-        f"pattern={json.dumps(properties['readback_model']['pattern'], ensure_ascii=False)}.",
+        f"required={json.dumps([field for field in report_schema['required'] if field not in {'schema_version', 'readback_model'}], ensure_ascii=False)}.",
         "status: "
         f"enum={json.dumps(properties['status']['enum'], ensure_ascii=False)}.",
         "evidence: "
@@ -469,6 +460,7 @@ def ts_projection(manifest: dict, manifest_digest: str, packet_schema: dict, rep
 export const laneRegistryManifestDigest = %s as const;
 export const agentLanes = %s as const;
 export const agentUtilities = %s as const;
+export const laneToolRequirements = %s as const;
 export const agentLanePacketSchema = %s as const;
 export const agentLaneReportSchema = %s as const;
 export const workerScopeAssignments = %s as const;
@@ -496,7 +488,7 @@ export function laneForIdentity(laneId: string, laneVersion: number, laneDigest:
   const legacy = (laneLegacyDigests as Record<string, readonly string[]>)[`${laneId}:${laneVersion}`];
   return legacy?.includes(laneDigest) ? lane : null;
 }
-""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments, json.dumps(manifest["legacy_lane_digests"], ensure_ascii=False, indent=2))
+""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(lane_tool_requirements(), ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments, json.dumps(manifest["legacy_lane_digests"], ensure_ascii=False, indent=2))
 
 
 def packet_refusal_instructions() -> str:
@@ -518,6 +510,58 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 def edits_scoped_files(lane: dict) -> bool:
     """Whether the lane's declared capabilities grant scoped repository edits."""
     return "edit_scoped_files" in lane.get("capabilities", [])
+
+
+def lane_tool_requirements() -> dict[str, list[list[str]]]:
+    bindings = {
+        "read_repository": [
+            "read", "glob", "grep", "list", "lsp", "concord_worker_read",
+            "lgrep_get_file_outline", "lgrep_get_file_tree", "lgrep_get_repo_outline",
+            "lgrep_get_symbol", "lgrep_get_symbols", "lgrep_index_semantic",
+            "lgrep_index_symbols_folder", "lgrep_search_references",
+            "lgrep_search_semantic", "lgrep_search_symbols", "lgrep_search_text",
+            "lgrep_status_semantic",
+        ],
+        "search_public_sources": [
+            "webfetch", "websearch", "context7_query-docs", "context7_resolve-library-id",
+            "exa_web_fetch_exa", "exa_web_search_exa", "github_get_commit",
+            "github_get_file_contents", "github_get_latest_release", "github_get_release_by_tag",
+            "github_get_tag", "github_list_branches", "github_list_commits",
+            "github_list_releases", "github_list_tags", "github_search_code",
+            "github_search_commits", "github_search_repositories",
+        ],
+        "edit_scoped_files": ["edit", "write", "patch", "apply_patch", "morph_edit"],
+        "run_tests": ["worker_check"],
+        "run_targeted_checks": ["worker_check"],
+        "run_validators": ["worker_check"],
+    }
+    requirements = {tool_id: [[]] for tool_id in ("execute", "skill", "todowrite")}
+    for capability, tool_ids in bindings.items():
+        for tool_id in tool_ids:
+            requirements.setdefault(tool_id, []).append([capability])
+    requirements["bash"] = [
+        ["edit_scoped_files", execution]
+        for execution in ("run_tests", "run_targeted_checks", "run_validators")
+    ]
+    return requirements
+
+
+def lane_tool_grants(lane: dict) -> dict[str, bool]:
+    capabilities = set(lane.get("capabilities", []))
+    requirements = lane_tool_requirements()
+    return {
+        tool_id: any(set(required) <= capabilities for required in requirements[tool_id])
+        for tool_id in ("bash", "edit", "write", "patch", "apply_patch", "morph_edit")
+    }
+
+
+def lane_denied_concord_tools(lane: dict) -> list[str]:
+    capabilities = set(lane.get("capabilities", []))
+    requirements = lane_tool_requirements()
+    return [
+        tool_id for tool_id in concord_tool_ids()
+        if not any(set(required) <= capabilities for required in requirements.get(tool_id, []))
+    ]
 
 
 def repository_edit_boundary(lane: dict) -> str:
@@ -662,15 +706,13 @@ def concord_tool_ids() -> list[str]:
 
 
 def concord_context_boundary_instructions() -> str:
-    # The lane holds no Concord tool access (CD-0017 D4), so the packet is the
-    # only Concord state the lane can read. Law and Domains ride the packet's
-    # typed law context with repository paths, and the Domain registry path
-    # names the file that carries Domain structure.
+    # Bound capability helpers consume the held packet, never fresh workflow
+    # context. General Concord tools remain unavailable to every lane.
     return """## Concord context boundary
 
-The dispatched packet is your complete Concord context. Concord tools are
-unavailable to this lane: the lane definition denies them, and a `concord_*`
-call from a lane session is refused with no effect. Read law from the
+The dispatched packet is your complete Concord context. General Concord tools
+are unavailable. `concord_worker_read` reads only original declared sources
+through the held dispatch and grants no workflow authority. Read law from the
 repository paths the packet names, and read Domain structure from the file
 `inputs.law_context.registry_path` names. Report missing context in your
 evidence, and return `status` `failed` when the missing context blocks the
@@ -679,19 +721,21 @@ assigned result.
 
 
 def work_context_instructions(packet_schema: dict) -> str:
-    # CON-887: when the packet carries the typed work context, the worker
-    # reads it before the objective's own sources, walks the readings in
-    # order at the pinned commits, and records new typed findings on the
-    # report. The bounds the block states are read off the packet schema,
-    # never restated as literals.
+    # Readings retain their declared order and immutable source identity.
     view = packet_schema["$defs"]["lane_work_context_view"]
     readings_max = view["properties"]["required_reading"]["maxItems"]
     findings_max = view["properties"]["findings"]["maxItems"]
+    host_tools = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text(encoding="utf-8"))["tools"]
+    reader = next(tool for tool in host_tools if tool["name"] == "concord_worker_read")
+    page_max = reader["args"]["properties"]["length"]["maximum"]
     return f"""## Work context
 
-When `inputs.work_context` is present, read it first. Walk `required_reading`
-in order: a `repository_file` source is read at its pinned `commit_oid`
-through git, not from the changed checkout. Then read the findings in the
+When `inputs.work_context` is present, read it first. Walk `required_reading` in
+order with `concord_worker_read`: select its zero-based `ordinal`, start at
+`offset` 0, and request at most {page_max} bytes. Continue at `next_offset` until
+`eof`. The host reads the original pinned source, not the changed checkout or
+the network. `data` retains exact base64 bytes; `text` is a UTF-8 preview.
+Then read the findings in the
 order `domain_groups` groups them by Domain. Reuse a finding your evidence
 still supports, and investigate where one drifted or contradicts. Record new
 conclusions, rejected routes, and open questions as report `context_findings`
@@ -773,7 +817,7 @@ materializer and runner axes) materializes its pinned dependencies offline
 and runs only its collection or check-input stage. Unsupported families and
 materializer/runner pairs are unavailable. Execution requires the exact
 persisted job, attempt, epoch, packet digest, control, preparation
-reference, and recorded raw subject. Managed workers gain no Concord tools.
+reference, and recorded raw subject. Workers gain no general Concord tools.
 Do not replace this producer with your own argument vector, automatic
 preparation, a preferred test, or a model assertion. Ordinary test output
 does not acquire a qualified oracle receipt.
@@ -831,8 +875,10 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
     report_properties = report_schema["properties"]
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
-    concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())
-    edit_denies = "" if edits_scoped_files(lane) else "  edit: deny\n  morph_edit: deny\n"
+    concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in lane_denied_concord_tools(lane))
+    # A capability is a ceiling, not a grant over the operator's host policy.
+    tool_grants = "\n".join(f"  {tool_id}: false" for tool_id, allowed in lane_tool_grants(lane).items() if not allowed)
+    edit_denies = "" if edits_scoped_files(lane) else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
     if discharged:
         obligation_rule = (
             "A successful report must carry at least one entry for every obligation below "
@@ -872,6 +918,7 @@ mode: all
 hidden: true
 tools:
   task: false
+{tool_grants}
 {concord_denies}
 permission:
 {edit_denies}  task:
@@ -909,11 +956,8 @@ own line. Return the entire frame as one final text part. Do not repeat the fram
 quote a frame example, use duplicate JSON keys, or put report content after it.
 For a historical packet without `inputs.report_protocol`, return one plain JSON
 report object as your final text part. Never return multiple report candidates.
-Do not include `attempt_id`, `lane_id`, `lane_version`, `lane_digest`, `work_id`,
-`step_id`, or `worker_job`: the dispatch packet owns those fields. Report schema
-identity also comes from the packet; omit `schema_version` rather than copying it.
-Set `readback_model` to the `provider/model` identifier you are running as, and
-`status` to one of {report_statuses}.
+The adapter supplies report identity from the dispatch packet and host readback.
+Set `status` to one of {report_statuses}.
 
 Report contract constraints:
 {report_constraints}
@@ -1144,7 +1188,7 @@ PRIMARY_PROFILE_REFUSAL_BOUNDARIES = {
     "concord-coordinator": "that role supervises live sessions and holds no Concord execution authority; a repository-local operator session makes this call",
     "concord-operator": "",
 }
-LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no Concord tool access: its dispatch packet is its complete Concord context"
+LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context"
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 
 
@@ -1156,7 +1200,7 @@ def primary_ts_projection(profiles: dict, manifest: dict) -> str:
             raise ValueError(f"primary profile {profile['id']} denies Concord tools but declares no role-refusal boundary")
         roles.append((profile["id"], PRIMARY_PROFILE_REFUSAL_BOUNDARIES.get(profile["id"], ""), list(profile["denied_concord_tools"])))
     for lane in manifest["lanes"]:
-        roles.append((f"concord-{lane['id']}", LANE_REFUSAL_BOUNDARY, list(tool_ids)))
+        roles.append((f"concord-{lane['id']}", LANE_REFUSAL_BOUNDARY, lane_denied_concord_tools(lane)))
     for utility in manifest["utilities"]:
         roles.append((f"concord-{utility['id']}", UTILITY_REFUSAL_BOUNDARY, list(tool_ids)))
     entries = ",\n".join(

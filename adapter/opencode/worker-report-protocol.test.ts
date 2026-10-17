@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test"
 import { agentLanes } from "./generated-agent-lanes"
-import { resolveWorkerReport, resolveWorkerReportFromText, validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
+import { resolveWorkerReport as admitRunReport, resolveWorkerReportFromText as admitTextReport, validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
+
+const resolveWorkerReport = (text: string, p: AgentLanePacket) => admitRunReport(text, p, "provider/host-model")
+const resolveWorkerReportFromText = (text: string, p: AgentLanePacket) => admitTextReport(text, p, "provider/host-model")
 
 const lane = agentLanes[0]
 const protocol = "concord-worker-result-v1"
@@ -10,7 +13,7 @@ const packet = (current = true): AgentLanePacket => ({
   inputs: { task: "Report bounded findings.", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" }, ...(current ? { report_protocol: protocol } : {}) },
 })
 const report = () => ({
-  readback_model: "provider/model", status: "completed", evidence: lane.evidence_obligations.map(obligation => ({ obligation, detail: "Bounded fixture evidence." })),
+  status: "completed", evidence: lane.evidence_obligations.map(obligation => ({ obligation, detail: "Bounded fixture evidence." })),
 })
 const frame = (body = JSON.stringify(report()), info = protocol) => `\`\`\`${info}\n${body}\n\`\`\``
 const run = (texts: string[]) => [

@@ -11,6 +11,22 @@ import (
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
+	var out WorkflowReadProjection
+	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
+		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
+	}
+	var err error
+	err = s.readSnapshot(ctx, func(q queryer) error {
+		out, err = readWorkflowProjectionTx(ctx, q, request)
+		return err
+	})
+	if err == nil && out.WorkID == "" {
+		return out, newFailure(KindProjectionNotFound, "workflow_read", "workflow instance is not recorded", false, "reread_entities")
+	}
+	return out, err
+}
+
 // workflowFixtureRef names the test-only workflow family that fold, projection,
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a

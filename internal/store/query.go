@@ -1523,11 +1523,11 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	out.Events = raw
 	out.Result = &Q7ResultPayload{Events: out.Events}
-	if workflow, workflowErr := readWorkflowSummaryTx(ctx, tx, req.Work); workflowErr != nil {
+	if workflow, workflowErr := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work}); workflowErr != nil {
 		return out, workflowErr
-	} else if workflow != nil {
-		out.Workflow = workflow
-		out.Result.Workflow = workflow
+	} else if workflow.WorkID != "" {
+		out.Workflow = &workflow
+		out.Result.Workflow = &workflow
 	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
 	return out, err

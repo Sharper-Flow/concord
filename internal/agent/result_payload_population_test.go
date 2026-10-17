@@ -448,6 +448,66 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 	}
 }
 
+// TestPublishedReadsQualifiedContractLaw proves the published read refs filled
+// from contract law IDs admit the source-qualified <home project>/<law> form
+// that approve_contract accepts and a registered source set produces. Each case
+// qualifies one published field, so each output ref fails on its own.
+func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
+	t.Parallel()
+	const qualified = "project-1/spec-1"
+	workflowRead := func(t *testing.T, qualify func(*store.WorkflowReadProjection)) error {
+		projection := fullyPopulatedWorkflowReadProjection()
+		qualify(&projection)
+		shaped, err := publishedWorkflowRead(&projection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(shaped)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ValidatePayloadSchema("workflow_read", raw)
+	}
+	result := func(t *testing.T, tool, operation string, payload any) error {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ValidateOperationPayload(tool, operation, raw, true)
+	}
+	for _, testCase := range []struct {
+		field    string
+		validate func(*testing.T) error
+	}{
+		{field: "workflow_read contract.spec_mandate", validate: func(t *testing.T) error {
+			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.SpecMandate = []string{qualified} })
+		}},
+		{field: "workflow_read contract.law_revisions[].law_id", validate: func(t *testing.T) error {
+			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.LawRevisions[0].LawID = qualified })
+		}},
+		{field: "workflow_read contract.law_modifies", validate: func(t *testing.T) error {
+			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.LawModifies = []string{qualified} })
+		}},
+		{field: "continuity pinned.spec_mandate", validate: func(t *testing.T) error {
+			snapshot := fullyPopulatedContinuitySnapshot()
+			snapshot.SpecMandate = []string{qualified}
+			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
+		}},
+		{field: "domain overlaps pairs[].shared_law_ids", validate: func(t *testing.T) error {
+			overlaps := fullyPopulatedDomainPayloads(t).overlaps
+			overlaps.Pairs[0].SharedLawIDs = []string{qualified}
+			return result(t, "concord_domain", "overlaps", overlaps)
+		}},
+	} {
+		t.Run(testCase.field, func(t *testing.T) {
+			t.Parallel()
+			if err := testCase.validate(t); err != nil {
+				t.Fatalf("qualified %s violates its published contract: %v", testCase.field, err)
+			}
+		})
+	}
+}
+
 // enrichmentPinFixture opens a real store whose work item carries a real
 // workflow pin, the exact subject the mutation enrichment reads through a
 // transaction. The pin is what the runtime stamps onto every mutation result

@@ -56,7 +56,7 @@ async function fakeHost(runner: DispatchRunner) {
         }),
       },
     },
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   } as never)
 }
 

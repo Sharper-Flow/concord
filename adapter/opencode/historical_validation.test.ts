@@ -1,11 +1,19 @@
 // Imports must exist in the baseline pinned by scripts/test-workflow-history.py.
 import { afterAll, test } from "bun:test"
+import { existsSync } from "node:fs"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { payloadSchemas } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
 
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(async () => {
+  configureHostLease({ reset: true })
+  // The replay runs this file in a baseline without the watcher module.
+  if (existsSync(new URL("./ci-watch.ts", import.meta.url))) {
+    const { configureCiWatch } = await import("./ci-watch")
+    configureCiWatch({ reset: true })
+  }
+})
 
 function repro(name: string, message: string): never {
   console.error(JSON.stringify({ historical_repro: name, message }))

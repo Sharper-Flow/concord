@@ -222,11 +222,11 @@ func TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder(t *testing.
 	if !bytes.Equal(event.Payload, original) || upcasted.PayloadVersion != 2 {
 		t.Fatal("upcast mutated the source event or did not advance version")
 	}
-	var current compactionLinkPayload
-	if err := json.Unmarshal(upcasted.Payload, &current); err != nil {
+	var v2 compactionLinkPayloadV2
+	if err := json.Unmarshal(upcasted.Payload, &v2); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(current.DomainIDs, []string{"z-domain", "a-domain"}) || strings.Contains(string(upcasted.Payload), "component_ids") {
+	if !reflect.DeepEqual(v2.DomainIDs, []string{"z-domain", "a-domain"}) || v2.ResultingVersion != 2 || strings.Contains(string(upcasted.Payload), "component_ids") {
 		t.Fatalf("upcast payload = %s", upcasted.Payload)
 	}
 }

@@ -48,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:10e28d86aef06ea94555aa7a434933b43a7313509bd41f0657e4d38574b6d9e3",
+  "sha256": "sha256:2521e31478a16239e5b56b435258af8475b18852a9dbab63b406542fdd88ef15",
   "status": "accepted",
   "summary": "An operator-approved typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. Operator session entry creates a fresh ad-hoc branch and worktree without a managed pin. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
   "tags": [

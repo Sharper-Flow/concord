@@ -275,12 +275,12 @@ func TestLegacyCompactionEventRemainsFoldable(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	seedEventDerivedLocator(t, s, "p", "l", repo)
 	seedKnowledgeWork(t, s, "work-done", "Completed legacy work")
-	payload, err := json.Marshal(compactionLinkPayload{
+	payload, err := json.Marshal(compactionLinkPayloadV2{compactionLinkPayload: compactionLinkPayload{
 		ID: "work-done", Type: "work_note", Title: "Completed legacy work", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
 		LessonTags: []string{}, TerminalState: "completed", Summary: "Legacy durable summary", ProductIDs: []string{}, ProjectIDs: []string{},
 		DomainIDs: []string{}, TagIDs: []string{}, HomeProjectID: "p", HomeLocatorID: "l", NotePath: "docs/work/legacy.md",
-		CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "Verified legacy compaction", ExpectedVersion: 3, ResultingVersion: 4,
-	})
+		CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "Verified legacy compaction", ExpectedVersion: 3,
+	}, ResultingVersion: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestLegacyCompactionEventRemainsFoldable(t *testing.T) {
 	}
 	defer func() { _ = scope.close(ctx) }()
 	event := Event{EventID: "legacy-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: payload}
-	if err := foldCompactionLinkPublished(ctx, tx, event); err != nil {
+	if err := foldRecordedEvent(ctx, tx, event, scope); err != nil {
 		t.Fatalf("existing legacy compaction event cannot fold: %v", err)
 	}
 }

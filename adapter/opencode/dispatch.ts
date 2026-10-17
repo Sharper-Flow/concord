@@ -833,8 +833,35 @@ export function nextBeforeCursor(response: Response): string | undefined {
   }
 }
 
+const readbackControllers = new WeakMap<AbortSignal, AbortController>()
+
+export async function withWorkerReadbackScope<T>(signal: AbortSignal, operation: (signal: AbortSignal, controller: AbortController) => Promise<T>): Promise<T> {
+  const existing = readbackControllers.get(signal)
+  if (existing) return operation(signal, existing)
+  const controller = new AbortController()
+  const abort = () => controller.abort(signal.reason)
+  if (signal.aborted) abort()
+  else signal.addEventListener("abort", abort, { once: true })
+  readbackControllers.set(controller.signal, controller)
+  try { return await operation(controller.signal, controller) }
+  finally {
+    readbackControllers.delete(controller.signal)
+    signal.removeEventListener("abort", abort)
+  }
+}
+
 export async function readWorkerSessionBody(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal, taskPartID?: string): Promise<WorkerSessionRead> {
-  signal = AbortSignal.any([signal, AbortSignal.timeout(READBACK_TIMEOUT_MS)])
+  return withWorkerReadbackScope(signal, async (signal, controller) => {
+    const deadline = AbortSignal.timeout(READBACK_TIMEOUT_MS)
+    const abort = () => controller.abort(deadline.reason)
+    if (deadline.aborted) abort()
+    else deadline.addEventListener("abort", abort, { once: true })
+    try { return await readWorkerSessionBodyWithSignal(sessionReader, workerSessionID, signal, taskPartID) }
+    finally { deadline.removeEventListener("abort", abort) }
+  })
+}
+
+async function readWorkerSessionBodyWithSignal(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal, taskPartID?: string): Promise<WorkerSessionRead> {
   const request = ["session.get", workerSessionID]
   let session: RouteResult
   try {

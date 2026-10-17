@@ -10,7 +10,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/dispatch.test.ts#a transcript that outlives the readback page bound refuses typed"
+      "value": "adapter/opencode/dispatch.test.ts#completion reads a valid worker report beyond sixteen message pages"
     },
     {
       "kind": "adapter_test",

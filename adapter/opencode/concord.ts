@@ -9,7 +9,7 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
-import { abandonWorkerAttempt, hostAbandonmentObservation, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
+import { abandonWorkerAttempt, hostAbandonmentObservation, hostSessionReader, withWorkerReadbackScope, type WorkerRecoveryContext } from "./dispatch"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
@@ -2042,6 +2042,7 @@ export const work_transition = tool({ description: "Concord work transition. Use
     if (typeof seconds === "number" && Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= declaration.supported_budget_seconds) {
       context = { ...context, abort: AbortSignal.any([context.abort, AbortSignal.timeout(seconds * 1_000)]) }
     }
+    return withWorkerReadbackScope(context.abort, abort => guardedWorkTransition(args, { ...context, abort }))
   }
   return guardedWorkTransition(args, context)
 } })

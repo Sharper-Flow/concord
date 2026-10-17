@@ -4,7 +4,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, withWorkerReadbackScope, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
@@ -1034,6 +1034,7 @@ test.each(["caller", "deadline"] as const)("readback %s cancellation names recon
       sessionReader: {
         async get() { return okRoute({ id: "session-1" }) },
         async messages(_id, _limit, _before, signal) {
+          if (!signal) throw new Error("readback request has no abort signal")
           expect(signal.aborted).toBe(false)
           ;(cause === "caller" ? caller : deadline).abort(new DOMException(`synthetic ${cause} stop`, cause === "caller" ? "AbortError" : "TimeoutError"))
           return okRoute(transcript(), '<http://host/session/session-1/message?before=older>; rel="next"')
@@ -1047,6 +1048,45 @@ test.each(["caller", "deadline"] as const)("readback %s cancellation names recon
     expect(result.error?.message).toContain(`synthetic ${cause} stop`)
     expect(result.error?.predicate).toBeUndefined()
     expect(recorded).toEqual([])
+  } finally {
+    timeout.mockRestore()
+  }
+})
+
+test("readback reuses the operation signal without leaking completed read deadlines", async () => {
+  const caller = new AbortController()
+  const first = new AbortController()
+  const second = new AbortController()
+  let deadlines = 0
+  const timeout = spyOn(AbortSignal, "timeout").mockImplementation(() => deadlines++ === 0 ? first.signal : second.signal)
+  const observed = new Set<AbortSignal>()
+  const reader: SessionReader = {
+    async get(_id, signal) {
+      if (!signal) throw new Error("session read has no abort signal")
+      observed.add(signal)
+      return okRoute({ id: "session-1" })
+    },
+    async messages(_id, _limit, _before, signal) {
+      if (!signal) throw new Error("message read has no abort signal")
+      observed.add(signal)
+      return okRoute(transcript())
+    },
+  }
+  try {
+    await withWorkerReadbackScope(caller.signal, async signal => {
+      observed.add(signal)
+      expect((await readWorkerSessionBody(reader, "session-1", signal)).ok).toBe(true)
+      first.abort(new DOMException("finished read deadline", "TimeoutError"))
+      expect(signal.aborted).toBe(false)
+      expect((await readWorkerSessionBody(reader, "session-1", signal)).ok).toBe(true)
+      second.abort(new DOMException("finished read deadline", "TimeoutError"))
+      expect(signal.aborted).toBe(false)
+      expect(observed.size).toBe(1)
+      caller.abort(new DOMException("caller stopped recovery", "AbortError"))
+      expect(signal.aborted).toBe(true)
+      expect(signal.reason).toBe(caller.signal.reason)
+    })
+    expect(timeout).toHaveBeenCalledTimes(2)
   } finally {
     timeout.mockRestore()
   }

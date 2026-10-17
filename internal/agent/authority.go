@@ -1268,26 +1268,44 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	if err := s.authorityReady("agent_approval_consume"); err != nil {
 		return err
 	}
-	if tx == nil || len(ref) != 64 {
+	if tx == nil {
 		return transactionInvalid("agent_approval_consume")
+	}
+	// Every reference that names no usable approval for this exact check is
+	// an invalid approval (workflow-engine contract §11 step 4), whichever
+	// caller reaches it. Store faults keep their own kind.
+	if len(ref) != 64 {
+		return approvalInvalid("approval reference malformed")
 	}
 	approval, err := store.ReadApprovalTx(ctx, tx, ref)
 	if err != nil {
-		return errors.New("approval not found")
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+			return approvalInvalid("approval not found")
+		}
+		return err
 	}
 	approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
 	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
-		return errors.New("approval binding invalid")
+		return approvalInvalid("approval binding invalid")
 	}
 	wantScope, _ := json.Marshal(check.Scope)
 	wantVersions, _ := json.Marshal(check.Versions)
 	if string(wantScope) != approval.ScopeJSON || string(wantVersions) != approval.VersionJSON {
-		return errors.New("approval scope or version invalid")
+		return approvalInvalid("approval scope or version invalid")
 	}
 	if err := store.ConsumeApprovalTx(ctx, tx, ref, s.now().Format(time.RFC3339Nano)); err != nil {
-		return errors.New("approval was already consumed")
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionConflict {
+			return approvalInvalid("approval was already consumed")
+		}
+		return err
 	}
 	return nil
+}
+
+func approvalInvalid(message string) error {
+	return newRuntimeFailure("approval_invalid", message, "request_approval", false)
 }
 
 // ApprovalAuthorityActorTx derives the operator actor from durable core-owned

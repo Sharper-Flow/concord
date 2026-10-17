@@ -54,7 +54,10 @@ sources. See
 Review every added comment and committed document against the conduct rule that
 opens "Commit only durable content." in `.concord/instructions/change.md`.
 Report each violation as a review finding whose `detail` starts with
-`committed-content:`.
+`committed-content:`. Read the committed delta through `concord_worker_diff`,
+supplying only a byte offset and length from 1 to 4096; continue pages until
+EOF. Missing base history or job path scope is a blocking gap, not permission to
+guess a base.
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying

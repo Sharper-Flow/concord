@@ -6,6 +6,7 @@ import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
+import { workerDiffTool, publishWorkerDiffDefinition } from "./worker_diff"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
@@ -306,6 +307,14 @@ const checkRoot = object(checkDefinition.jsonSchema, "published worker check sch
 if (JSON.stringify(checkRoot) !== JSON.stringify(hostToolSchemas.concord_worker_check)) fail("concord_worker_check differs from its closed authored contract")
 inspect(checkRoot)
 registrationBytes.concord_worker_check = Buffer.byteLength(JSON.stringify(checkRoot), "utf8")
+
+const diff = workerDiffTool({ authorize: async () => null }, async () => { throw new Error("the schema probe must not read diffs") })
+const diffDefinition = { description: diff.description, parameters: {}, jsonSchema: publishedArgsSchema(diff.args, "worker diff registration schema") }
+await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffDefinition)
+const diffRoot = object(diffDefinition.jsonSchema, "published worker diff schema")
+if (JSON.stringify(diffRoot) !== JSON.stringify(hostToolSchemas.concord_worker_diff)) fail("concord_worker_diff differs from its closed authored contract")
+inspect(diffRoot)
+registrationBytes.concord_worker_diff = Buffer.byteLength(JSON.stringify(diffRoot), "utf8")
 
 // Opt-in real-host permission-merge evidence: `--host-merge <agents-dir>
 // <summary.json> [binary]` resolves every generated role's permissions

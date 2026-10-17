@@ -100,6 +100,19 @@
       }
     },
     {
+      "name": "concord_worker_diff",
+      "description": "Read one byte page of the authorized review's committed diff. Supply only offset and length. The host binds the first editing dispatch subject under this contract, the held review subject, and the pinned job's literal path scope. Returns both commits, whole-diff hash, byte offsets, EOF, base64 data, and text when the page is complete UTF-8. No worker-selected path or ref, replacement packet, mutable-checkout fallback, or workflow authority.",
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Nonnegative raw-byte offset."},
+          "length": {"type": "integer", "minimum": 1, "maximum": 4096, "description": "Page length in raw bytes, from 1 through 4096."}
+        },
+        "required": ["offset", "length"]
+      }
+    },
+    {
       "name": "concord_worker_check",
       "description": "Execute one recorded native control for the calling authorized worker. Supply only control_id from the original worker job's acceptance_oracle.controls. The host binds the actual child, packet, job, preparation, subject, and worktree and returns the existing native producer's result. Ordinary job checks strings are requirements, not executable controls. No argv, cwd, runner, state inventory, or workflow authority.",
       "args": {

@@ -25,6 +25,8 @@ def bound_worker_tools(capabilities):
     granted = set()
     if "read_repository" in capabilities:
         granted.add("concord_worker_read")
+    if "inspect_diff" in capabilities:
+        granted.add("concord_worker_diff")
     if {"run_tests", "run_targeted_checks", "run_validators"} & set(capabilities):
         granted.add("concord_worker_check")
     return granted

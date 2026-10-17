@@ -23,6 +23,7 @@ import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pending
 import { ensureConductLink } from "./project-link"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
 import type { WorkerReadingRequest } from "./worker_source"
+import type { WorkerDiffRequest } from "./worker_diff"
 import { canonicalWorkerControl, type WorkerCheckContext, type WorkerControlRequest } from "./worker_control"
 
 type ToolContext = {
@@ -612,9 +613,17 @@ function singleJSON(text: string): any {
 }
 
 export async function readBoundWorkerSource(request: WorkerReadingRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  return readBoundWorkerPage("worker-read", request, signal, directory)
+}
+
+export async function readBoundWorkerDiff(request: WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  return readBoundWorkerPage("worker-diff", request, signal, directory)
+}
+
+async function readBoundWorkerPage(verb: "worker-read" | "worker-diff", request: WorkerReadingRequest | WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
   const leaseFault = hostLeaseFault()
   if (leaseFault) throw new Error(`${leaseFault}; no source read ran`)
-  const result = await runner.run([concordBinaryPath(), "worker-read"], JSON.stringify(request), signal, { cwd: directory })
+  const result = await runner.run([concordBinaryPath(), verb], JSON.stringify(request), signal, { cwd: directory })
   if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || "the core refused the pinned source read")
   if (Buffer.byteLength(result.stdout) > 16_384) throw new Error("pinned source page exceeded its transport bound")
   return singleJSON(result.stdout)

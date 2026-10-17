@@ -531,6 +531,7 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
             "github_search_commits", "github_search_repositories",
         ],
         "edit_scoped_files": ["edit", "write", "patch", "apply_patch", "morph_edit"],
+        "inspect_diff": ["concord_worker_diff"],
         "run_tests": ["concord_worker_check"],
         "run_targeted_checks": ["concord_worker_check"],
         "run_validators": ["concord_worker_check"],
@@ -613,6 +614,9 @@ def committed_content_instructions(lane: dict) -> str:
         text = (
             f"Review every added comment and committed document against {rule}. Report "
             "each violation as a review finding whose `detail` starts with `committed-content:`."
+            " Read the committed delta through `concord_worker_diff`, supplying only a "
+            "byte offset and length from 1 to 4096; continue pages until EOF. Missing "
+            "base history or job path scope is a blocking gap, not permission to guess a base."
         )
     else:
         return ""

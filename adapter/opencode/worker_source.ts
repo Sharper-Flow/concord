@@ -22,9 +22,15 @@ type Selectors = Pick<WorkerReadingRequest, "ordinal" | "offset" | "length">
 function renderPage(value: unknown, selectors: Selectors): string {
   const keys = ["ordinal", "source_identity", "content_hash", "offset", "next_offset", "total_bytes", "eof", "data"]
   if (!record(value) || Object.keys(value).length !== keys.length || !keys.every((key) => Object.hasOwn(value, key)) ||
-      value.ordinal !== selectors.ordinal || value.offset !== selectors.offset ||
-      typeof value.source_identity !== "string" || !value.source_identity ||
-      typeof value.content_hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value.content_hash) ||
+      value.ordinal !== selectors.ordinal ||
+      typeof value.source_identity !== "string" || !value.source_identity) {
+    throw new WorkerCapabilityError("pinned reader returned an invalid source identity")
+  }
+  return renderBoundedBytePage(value, selectors)
+}
+
+export function renderBoundedBytePage(value: Record<string, unknown>, selectors: { offset: number; length: number }): string {
+  if (value.offset !== selectors.offset || typeof value.content_hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value.content_hash) ||
       typeof value.data !== "string" || typeof value.eof !== "boolean" ||
       !Number.isSafeInteger(value.next_offset) || !Number.isSafeInteger(value.total_bytes)) {
     throw new WorkerCapabilityError("pinned reader returned an invalid page")

@@ -75,3 +75,49 @@ func TestWorkerReadCLIDoesNotReturnARefusedPage(t *testing.T) {
 		t.Fatalf("refused page escaped the CLI: code=%d out=%s error=%s", code, out.String(), errOut.String())
 	}
 }
+
+func TestWorkerDiffCLIClosedRequestAndBytePage(t *testing.T) {
+	input := workerReadCLIInput()
+	delete(input, "ordinal")
+	raw, _ := json.Marshal(input)
+	var out, diagnostic bytes.Buffer
+	code := runWorkerDiff(raw, func(_ context.Context, request store.WorkerDiffRequest) (store.WorkerDiffPage, error) {
+		if request.WorkID != "work-1" || request.AttemptID != "attempt-1" || request.Offset != 0 || request.Length != 7 || request.Runner != nil {
+			t.Fatalf("unexpected diff request: %+v", request)
+		}
+		return store.WorkerDiffPage{BaseCommit: strings.Repeat("a", 40), SubjectCommit: strings.Repeat("b", 40), Data: []byte("+delta"), EOF: true}, nil
+	}, &out, &diagnostic)
+	var page store.WorkerDiffPage
+	if code != 0 || diagnostic.Len() != 0 || json.Unmarshal(out.Bytes(), &page) != nil || string(page.Data) != "+delta" {
+		t.Fatalf("diff response = %d %s %s", code, out.String(), diagnostic.String())
+	}
+	for _, field := range []string{"base_commit", "subject_commit", "path", "ref", "runner", "ordinal"} {
+		input[field] = "caller input"
+		raw, _ = json.Marshal(input)
+		out.Reset()
+		diagnostic.Reset()
+		called := false
+		code = runWorkerDiff(raw, func(context.Context, store.WorkerDiffRequest) (store.WorkerDiffPage, error) {
+			called = true
+			return store.WorkerDiffPage{}, nil
+		}, &out, &diagnostic)
+		if code != inputRefusalExit || called || out.Len() != 0 {
+			t.Fatalf("caller field %s reached diff read: %d %v %s", field, code, called, out.String())
+		}
+		delete(input, field)
+	}
+}
+
+func TestWorkerDiffCLIRoutesUnboundAttemptWithoutAlias(t *testing.T) {
+	t.Setenv("CONCORD_DB_PATH", filepath.Join(t.TempDir(), "authority.db"))
+	input := workerReadCLIInput()
+	delete(input, "ordinal")
+	raw, _ := json.Marshal(input)
+	var out, diagnostic bytes.Buffer
+	if code := runWithInput([]string{"worker-diff"}, bytes.NewReader(raw), &out, &diagnostic); code != 1 || out.Len() != 0 || !strings.Contains(diagnostic.String(), "authorized dispatch window") {
+		t.Fatalf("unbound diff route = %d %s %s", code, out.String(), diagnostic.String())
+	}
+	if _, _, ok := routeCommand([]string{"worker", "diff"}); ok {
+		t.Fatal("worker diff acquired an undeclared alias")
+	}
+}

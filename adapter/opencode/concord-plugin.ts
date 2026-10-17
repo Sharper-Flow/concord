@@ -30,6 +30,7 @@ import {
   takeWorkNotices,
   configureSessionOpener,
   readBoundWorkerSource,
+  readBoundWorkerDiff,
   executeBoundWorkerControl,
 } from "./concord"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
@@ -46,6 +47,7 @@ import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_R
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
+import { workerDiffTool, publishWorkerDiffDefinition } from "./worker_diff"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -118,6 +120,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     concord_ci_watch: ciWatchTool(ciPeer.id),
     concord_worker_read: workerReadTool(workerCapabilities, readBoundWorkerSource),
     concord_worker_check: workerCheckTool(workerCapabilities, executeBoundWorkerControl),
+    concord_worker_diff: workerDiffTool(workerCapabilities, readBoundWorkerDiff),
   })
   return {
     tool: tools,
@@ -154,6 +157,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishCiWatchDefinition(definitionInput, output)
       await publishWorkerReadDefinition(definitionInput, output)
       await publishWorkerCheckDefinition(definitionInput, output)
+      await publishWorkerDiffDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
       const result = await failDispatchedWorker(event)

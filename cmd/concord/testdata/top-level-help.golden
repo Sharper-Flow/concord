@@ -34,6 +34,15 @@ Commands read one strict JSON object from stdin:
     required: event_id, work_id, attempt_id, detail
     optional: failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2
     accepted values: the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt
+  concord worker-read < JSON stdin
+    required: work_id, attempt_id, worktree_identity, packet, ordinal, offset, length
+    accepted values: read-only host capability; original authorized packet only; ordinal and offset nonnegative; length 1-4096 raw bytes; data is base64; no path, ref, command, or workflow mutation
+  concord worker-diff < JSON stdin
+    required: work_id, attempt_id, worktree_identity, packet, offset, length
+    accepted values: read-only inspect_diff capability; original live review packet and pinned job scope only; first editing subject under the active contract to held review subject; offset nonnegative; length 1-4096 raw bytes; no caller-selected path or ref
+  concord worker-control < JSON stdin
+    required: work_id, project_id, attempt_id, worktree_identity, packet, control_id, assertion
+    accepted values: private host ingress; signed actual child execution policy and original packet; recorded native control only; no caller-authored argv, cwd, runner, actor, or workflow mutation
   concord client-register < JSON stdin
   concord client register < JSON stdin
     required: client_ref, key_id, principal_ref, public_key, capabilities, product_scope, project_scope, agent_scope

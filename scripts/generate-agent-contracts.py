@@ -1822,6 +1822,19 @@ def validate_worker_read_host_tool(tool: dict) -> None:
             fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
 
 
+def validate_worker_diff_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_diff host schema must be a closed object")
+    if list(properties) != ["offset", "length"] or args.get("required") != ["offset", "length"]:
+        fail("concord_worker_diff must require only offset and length")
+    for name, minimum, maximum in (("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_diff {name} must be an integer bounded {minimum}..{maximum}")
+
+
 def validate_worker_check_host_tool(tool: dict) -> None:
     args = tool.get("args", {})
     properties = args.get("properties", {})
@@ -1845,6 +1858,7 @@ HOST_TOOL_VALIDATORS = {
     "concord_ci_watch": validate_ci_watch_host_tool,
     "concord_worker_read": validate_worker_read_host_tool,
     "concord_worker_check": validate_worker_check_host_tool,
+    "concord_worker_diff": validate_worker_diff_host_tool,
 }
 
 

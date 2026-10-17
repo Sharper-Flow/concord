@@ -426,6 +426,11 @@ export const laneToolRequirements = {
       "edit_scoped_files"
     ]
   ],
+  "concord_worker_diff": [
+    [
+      "inspect_diff"
+    ]
+  ],
   "concord_worker_check": [
     [
       "run_tests"

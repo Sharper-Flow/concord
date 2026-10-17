@@ -107,6 +107,9 @@ test("the worker reader transport uses only the held request and dispatched dire
   try {
     expect(await adapter.readBoundWorkerSource(request, signal, "/dispatched-worktree")).toEqual({ data: "c291cmNl" })
     expect(calls).toEqual([{ argv: ["concord", "worker-read"], request, signal, options: { cwd: "/dispatched-worktree" } }])
+    const { ordinal: _ordinal, ...diffRequest } = request
+    expect(await adapter.readBoundWorkerDiff(diffRequest, signal, "/dispatched-worktree")).toEqual({ data: "c291cmNl" })
+    expect(calls[1]).toEqual({ argv: ["concord", "worker-diff"], request: diffRequest, signal, options: { cwd: "/dispatched-worktree" } })
   } finally {
     adapter.configureConcordAdapter({ reset: true })
   }
@@ -124,6 +127,7 @@ test("the worker reader transport refuses failed, oversized, or non-single-objec
     try {
       // This transport test never enters the store or authenticates a packet.
       await expect(adapter.readBoundWorkerSource({} as Parameters<typeof adapter.readBoundWorkerSource>[0], new AbortController().signal, "/dispatched-worktree")).rejects.toThrow()
+      await expect(adapter.readBoundWorkerDiff({} as Parameters<typeof adapter.readBoundWorkerDiff>[0], new AbortController().signal, "/dispatched-worktree")).rejects.toThrow()
     } finally {
       adapter.configureConcordAdapter({ reset: true })
     }

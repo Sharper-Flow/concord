@@ -124,14 +124,18 @@ class ToolDescriptionTests(unittest.TestCase):
 
 
 class WorkerReadingHostContractTests(unittest.TestCase):
+    TOOL = "concord_worker_read"
+    FIELDS = ["ordinal", "offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_read_host_tool)
+
     def setUp(self):
         self.host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
         self.schema = json.loads((ROOT / "contracts/host-tool-surface.schema.json").read_text())
-        self.tool = next(tool for tool in self.host["tools"] if tool["name"] == "concord_worker_read")
+        self.tool = next(tool for tool in self.host["tools"] if tool["name"] == self.TOOL)
 
     def test_the_shipped_reader_is_a_named_closed_host_tool(self):
         generator.validate_host_manifest(self.host, self.schema)
-        self.assertEqual(list(self.tool["args"]["properties"]), ["ordinal", "offset", "length"])
+        self.assertEqual(list(self.tool["args"]["properties"]), self.FIELDS)
 
     def test_no_source_execution_or_binding_selector_can_enter_the_host_contract(self):
         for name in ("path", "ref", "command", "runner", "packet", "work_id", "attempt_id", "worktree_identity"):
@@ -139,21 +143,27 @@ class WorkerReadingHostContractTests(unittest.TestCase):
                 tool = copy.deepcopy(self.tool)
                 tool["args"]["properties"][name] = {"type": "string"}
                 with self.assertRaises(ValueError):
-                    generator.validate_worker_read_host_tool(tool)
+                    self.VALIDATOR(tool)
 
     def test_ranges_requiredness_and_closure_cannot_drift(self):
-        for name in ("ordinal", "offset", "length"):
+        for name in self.FIELDS:
             for bound in ("minimum", "maximum"):
                 with self.subTest(name=name, bound=bound):
                     tool = copy.deepcopy(self.tool)
                     tool["args"]["properties"][name][bound] += 1
                     with self.assertRaises(ValueError):
-                        generator.validate_worker_read_host_tool(tool)
-        for change in ({"additionalProperties": True}, {"required": ["ordinal", "offset"]}):
+                        self.VALIDATOR(tool)
+        for change in ({"additionalProperties": True}, {"required": self.FIELDS[:-1]}):
             tool = copy.deepcopy(self.tool)
             tool["args"].update(change)
             with self.assertRaises(ValueError):
-                generator.validate_worker_read_host_tool(tool)
+                self.VALIDATOR(tool)
+
+
+class WorkerDiffHostContractTests(WorkerReadingHostContractTests):
+    TOOL = "concord_worker_diff"
+    FIELDS = ["offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_diff_host_tool)
 
 
 class ResultRequirednessTests(unittest.TestCase):

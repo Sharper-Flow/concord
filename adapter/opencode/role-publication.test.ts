@@ -17,6 +17,7 @@ import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { publishWorkerReadDefinition } from "./worker_source"
 import { publishWorkerCheckDefinition } from "./worker_control"
+import { publishWorkerDiffDefinition } from "./worker_diff"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
@@ -64,6 +65,11 @@ const checkOutput = { description: "", parameters: {}, jsonSchema: undefined as 
 await publishWorkerCheckDefinition({ toolID: "concord_worker_check" }, checkOutput)
 expect(checkOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_check)
 registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(checkOutput.jsonSchema), "utf8"))
+const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
+expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
+const diffBytes = Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8")
+registeredBytes.set("concord_worker_diff", diffBytes)
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -130,20 +136,21 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 481 }
   const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 826 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch", "concord_worker_check", "concord_worker_read"].sort(), bytes: 19_281 }
-  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 121_484 }
+  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch", "concord_worker_check", "concord_worker_diff", "concord_worker_read"].sort(), bytes: 19_281 + diffBytes }
+  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 121_484 + diffBytes }
   expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
   expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
   for (const lane of agentLanes) {
     const role = `concord-${lane.id}`
     const executes = lane.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
-    expect(projectedBytes(role), role).toEqual(executes ? CHECKER_BUDGET : lane.capabilities.includes("read_repository") ? READER_BUDGET : EMPTY_BUDGET)
+    const expected = executes ? CHECKER_BUDGET : lane.capabilities.includes("read_repository") ? READER_BUDGET : EMPTY_BUDGET
+    expect(projectedBytes(role), role).toEqual(lane.capabilities.some(capability => capability === "inspect_diff") ? { allowed: [...expected.allowed, "concord_worker_diff"].sort(), bytes: expected.bytes + diffBytes } : expected)
   }
   for (const role of UTILITY_AGENTS) {
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(121_484)
+  expect(registeredTotal).toBe(121_484 + diffBytes)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
@@ -179,6 +186,8 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
       await publishWorkerReadDefinition({ toolID: tool }, output)
     } else if (tool === "concord_worker_check") {
       await publishWorkerCheckDefinition({ toolID: tool }, output)
+    } else if (tool === "concord_worker_diff") {
+      await publishWorkerDiffDefinition({ toolID: tool }, output)
     } else {
       await adapter.publishRequestDefinition({ toolID: tool }, output)
     }

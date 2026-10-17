@@ -31,6 +31,7 @@ tools:
   concord_work_trace: false
   concord_work_transition: false
   concord_worker_check: false
+  concord_worker_diff: false
   concord_worker_read: false
 permission:
   bash:

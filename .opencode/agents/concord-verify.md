@@ -22,6 +22,7 @@ tools:
   concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
+  concord_worker_diff: false
 permission:
   bash: deny
   edit: deny

@@ -41,8 +41,9 @@ and must retain kind-compatible active status (`accepted` for decisions/specs,
 manifest. Self edges, duplicates, reverse conflict declarations, directed
 cycles, and supersession edges that disagree with `successor` are rejected.
 `conflicts_with` is normalized as one unordered projection pair and never
-implies precedence. Relations are authored only by an operator-approved Git
-manifest/spec/decision delta.
+implies precedence. The projected pair records the endpoint whose record
+declared it, because only that record can withdraw the conflict. Relations are
+authored only by an operator-approved Git manifest/spec/decision delta.
 
 Amended 2026-10-01 by CD-0200: a relation target outside the declaring
 manifest names its source Project through a structured `source_project_id`

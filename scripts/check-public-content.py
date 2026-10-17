@@ -12,14 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_FINDINGS = 200
 SKIP = {"scripts/check-public-content.py", "scripts/check-doc-links.py", "scripts/check-json.py"}
 TEXT_NAMES = {".editorconfig", ".gitattributes", ".gitignore", "LICENSE", "oc-test"}
-TEXT_SUFFIXES = {".go", ".json", ".md", ".py", ".toml", ".txt", ".yml", ".yaml"}
+TEXT_SUFFIXES = {".go", ".js", ".json", ".md", ".mjs", ".py", ".toml", ".ts", ".txt", ".yml", ".yaml"}
 
 PATTERNS = [
     ("private filesystem path", re.compile(r"(?:/home/|/Users/|[A-Za-z]:[\\/]Users[\\/]|/tmp/opencode/|/private/|/var/run/)")),
     ("private host", re.compile(r"(?:\blocalhost\b|\b127\.0\.0\.1\b|\b0\.0\.0\.0\b|\b10\.(?:\d{1,3}\.){2}\d{1,3}\b|\b192\.168\.(?:\d{1,3}\.)\d{1,3}\b|\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b|\b[a-z0-9-]+\.(?:local|internal|lan)\b)")),
     ("private port", re.compile(r"(?:\bport\s*[:=]?\s*\d{2,5}\b|\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}\b)")),
     ("credential shape", re.compile(r"\b(?:gh[pousr]_|github_pat_|sk-|xox[baprs]-|AKIA[0-9A-Z]{12}|eyJ[A-Za-z0-9_-]{20,}\.)[A-Za-z0-9_./+=-]{12,}")),
-    ("credential assignment", re.compile(r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|private[_ -]?key)\b\s*[:=]\s*[\"']?(?!<|\$\{|REDACTED\b|example\b|your[-_]|changeme\b)[A-Za-z0-9+/=_-]{16,}", re.IGNORECASE)),
+    ("credential assignment", re.compile(
+        r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|private[_ -]?key)\b\s*[:=]\s*"
+        r"(?P<quote>[\"'])?(?!<|\$\{|REDACTED\b|example\b|your[-_]|changeme\b)[A-Za-z0-9+/=_-]{16,}"
+        # Quoted values stay literal. An unquoted callee is not a value;
+        # the token boundary prevents backtracking into a shorter prefix.
+        # Credential shapes in its arguments are still scanned independently.
+        r"(?(quote)|(?![A-Za-z0-9+/=_-]|\s*(?:\.\s*[A-Za-z_$][\w$]*)*\s*\())",
+        re.IGNORECASE,
+    )),
 ]
 
 

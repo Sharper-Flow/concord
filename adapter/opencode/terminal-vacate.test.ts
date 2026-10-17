@@ -88,7 +88,7 @@ async function fakeHost(getDirectory: string, runnerOpts?: { landingFails?: bool
         get: async () => ({ data: { directory: getDirectory }, response: new Response(null, { status: 200 }) }),
       },
     } as never,
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   })
 }
 

@@ -2299,8 +2299,6 @@ func workflowFailureObservationKind(err error) string {
 	if !failureAs(err, &failure) {
 		return err.Error()
 	}
-	// The agent envelope's kind for each store failure (internal/agent
-	// runtime.go's failure mapping) that a recorded scenario asserts.
 	switch failure.Kind {
 	case KindStaleAttempt:
 		return string(KindOperationConflict)

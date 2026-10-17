@@ -553,7 +553,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -897,7 +897,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, fixture.store, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

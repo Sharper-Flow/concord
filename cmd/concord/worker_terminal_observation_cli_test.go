@@ -651,7 +651,7 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 
 	t.Run("rebuild after removing the fixture repository performs no git lookup", func(t *testing.T) {
 		dbPath := freshMigratedCLIDatabase(t)
-		record(t, dbPath)
+		_, _, _, _, head := record(t, dbPath)
 		_, recordedPayload := rawWorkerPayloadJSON(t, dbPath, "complete-replay")
 		if !strings.Contains(recordedPayload, "observed_delivery") {
 			t.Fatalf("the recorded completion lost the observation: %s", recordedPayload)
@@ -665,6 +665,10 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 		replayDBPath := freshMigratedCLIDatabase(t)
 		replayStore, err := store.Open(context.Background(), replayDBPath)
 		if err != nil {
+			t.Fatal(err)
+		}
+		// Seeding the witness is a live append; only the later rebuild is replay.
+		if _, err := replayStore.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project-1','claim-replay','work/replay',?,?,'repo-1','active','now','{}')`, store.WorktreeSetID("work-1"), head, cliFixtureWorktree(t, dbPath)); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.ApplyOperation(context.Background(), replayStore, store.Operation{Events: events}); err != nil {

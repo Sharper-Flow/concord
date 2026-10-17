@@ -794,7 +794,7 @@ func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, 
 		Payload: request.Payload, Actor: request.Actor, SessionWorktree: request.SessionWorktree,
 	}
 	var result WorkflowActionExecutionResult
-	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		var inner error
 		result, inner = ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
 		return inner
@@ -1478,7 +1478,7 @@ func seedWorkerEvidenceForAttempt(t *testing.T, s *Store, workID, attemptID, lab
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": packetDigest, "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: label + "-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(21, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: label + "-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(21, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	return ApplyOperation(ctx, s, Operation{Events: []Event{dispatched, completed}})
 }
 

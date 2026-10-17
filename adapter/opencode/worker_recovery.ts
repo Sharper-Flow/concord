@@ -33,7 +33,7 @@ export async function reconcileRetainedWorker(
   }
   const reader = options.sessionReader
   if (!reader) throw new Error("the host session reader is unavailable")
-  const parentRead = await readWorkerSessionBody(reader, recovery.coordinator_session, signal)
+  const parentRead = await readWorkerSessionBody(reader, recovery.coordinator_session, signal, taskPartID)
   if (!parentRead.ok) throw new Error(parentRead.message)
   const parent = JSON.parse(parentRead.body)
   if (!object(parent.info) || parent.info.id !== recovery.coordinator_session || !Array.isArray(parent.messages)) throw new Error("original coordinator host identity is missing")

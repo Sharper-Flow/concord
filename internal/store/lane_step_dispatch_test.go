@@ -447,7 +447,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	completed := workerCompleteEventForLane(workID, "join-checkpoint-completed-"+workID, attemptID, lane, time.Unix(40, 0).UTC())
+	completed := workerCompleteEventForLane(workID, "join-checkpoint-completed-"+workID, attemptID, lane, time.Unix(40, 0).UTC(), workerFixtureDirectory(t, s, workID))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}

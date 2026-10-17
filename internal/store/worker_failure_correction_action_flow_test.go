@@ -271,7 +271,7 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 		Tool: "concord_work_transition", IdempotencyKey: "request-correction-attribution-key", RequestID: "req-request-correction-attribution",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: time.Unix(45, 0).UTC(),
 	}
-	err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		_, inner := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), execution)
 		return inner
 	})

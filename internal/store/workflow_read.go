@@ -98,9 +98,13 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	}
 	contract.DefinitionPin.Read = true
 	if pin.Ref != "" {
-		_, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
+		registered, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
 		pin.Verified = verifyErr == nil
 		contract.DefinitionPin.Pin = &pin
+		if pin.Verified {
+			changes := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+			contract.ChangesProductTruth = &changes
+		}
 	}
 	if contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
@@ -115,21 +119,6 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 		return contract, err
 	}
 	return contract, nil
-}
-
-// pinnedProductTruth answers whether a contract version's own pinned
-// definition changes Product truth. A version with no pin, or a pin the
-// registry no longer verifies, has no answer.
-func pinnedProductTruth(pin *WorkflowContractDefinitionPin) *bool {
-	if pin == nil {
-		return nil
-	}
-	registered, err := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
-	if err != nil {
-		return nil
-	}
-	changes := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	return &changes
 }
 
 type WorkflowReadPredicate struct {
@@ -319,7 +308,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	case err != nil:
 		return out, err
 	case request.ContractVersion != 0:
-		contract.ChangesProductTruth = pinnedProductTruth(contract.DefinitionPin.Pin)
 		out.ChangesProductTruth = contract.ChangesProductTruth != nil && *contract.ChangesProductTruth
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract

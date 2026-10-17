@@ -2,12 +2,15 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The footprint read joins the designated knowledge home's package map with
@@ -98,6 +101,7 @@ type DomainFootprintResult struct {
 	Laws                  []FootprintLaw          `json:"laws"`
 	PackageChecks         []FootprintPackageCheck `json:"package_checks"`
 	offset                int
+	binding               string
 }
 
 // DomainFootprintPayload is the wire projection of a footprint result; see
@@ -132,7 +136,7 @@ func (r DomainFootprintResult) LimitPage(_ DomainFootprintRequest, limit int) (D
 		return r, err
 	}
 	r.Laws = r.Laws[:limit]
-	next := encodeFootprintCursor(r.KnowledgeCommit, r.offset+limit)
+	next := encodeFootprintCursor(r.KnowledgeCommit, r.binding, r.offset+limit)
 	r.NextCursor = &next
 	return r, nil
 }
@@ -143,7 +147,7 @@ func footprintInvalid(message, recovery string) error {
 
 // validFootprintPath admits a normalized relative repository path.
 func validFootprintPath(value string) bool {
-	if value == "" || len(value) > footprintMaxPath || path.IsAbs(value) || path.Clean(value) != value {
+	if value == "" || utf8.RuneCountInString(value) > footprintMaxPath || path.IsAbs(value) || path.Clean(value) != value {
 		return false
 	}
 	return value != "." && value != ".." && !strings.HasPrefix(value, "../")
@@ -159,7 +163,7 @@ func validateDomainFootprintRequest(req DomainFootprintRequest) ([]string, error
 	if len(req.Paths) > footprintMaxPaths {
 		return nil, footprintInvalid("footprint accepts at most 64 paths", "split the paths across calls")
 	}
-	if len(req.Behavior) > footprintMaxBehavior {
+	if utf8.RuneCountInString(req.Behavior) > footprintMaxBehavior {
 		return nil, footprintInvalid("footprint behavior is longer than 256 characters", "shorten the behavior phrase")
 	}
 	for _, value := range req.Paths {
@@ -174,11 +178,18 @@ func validateDomainFootprintRequest(req DomainFootprintRequest) ([]string, error
 	return paths, nil
 }
 
-func encodeFootprintCursor(commit string, offset int) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(commit + "\x1f" + strconv.Itoa(offset)))
+// footprintCursorBinding names the request a cursor continues, so a cursor
+// issued for other paths or another behavior refuses instead of paging them.
+func footprintCursorBinding(req DomainFootprintRequest, paths []string) string {
+	sum := sha256.Sum256([]byte(req.Product + "\x00" + req.Behavior + "\x00" + strings.Join(paths, "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
-func decodeFootprintCursor(cursor, commit string) (int, error) {
+func encodeFootprintCursor(commit, binding string, offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(commit + "\x1f" + binding + "\x1f" + strconv.Itoa(offset)))
+}
+
+func decodeFootprintCursor(cursor, commit, binding string) (int, error) {
 	if cursor == "" {
 		return 0, nil
 	}
@@ -186,12 +197,18 @@ func decodeFootprintCursor(cursor, commit string) (int, error) {
 	if err != nil {
 		return 0, newFailure(KindInvalidCursor, footprintQueryID, "footprint cursor is malformed", false, "restart_query")
 	}
-	cursorCommit, rawOffset, found := strings.Cut(string(raw), "\x1f")
-	offset, err := strconv.Atoi(rawOffset)
-	if !found || err != nil || offset < 1 {
+	parts := strings.Split(string(raw), "\x1f")
+	offset := 0
+	if len(parts) == 3 {
+		offset, err = strconv.Atoi(parts[2])
+	}
+	if len(parts) != 3 || err != nil || offset < 1 {
 		return 0, newFailure(KindInvalidCursor, footprintQueryID, "footprint cursor is malformed", false, "restart_query")
 	}
-	if cursorCommit != commit {
+	if parts[1] != binding {
+		return 0, newFailure(KindInvalidCursor, footprintQueryID, "footprint cursor was issued for another request", false, "restart_query")
+	}
+	if parts[0] != commit {
 		return 0, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved since the footprint cursor was issued", true, "restart_query")
 	}
 	return offset, nil
@@ -224,11 +241,7 @@ func (s *Store) QueryDomainFootprint(ctx context.Context, req DomainFootprintReq
 		return out, wrapFailure(KindUnavailable, footprintQueryID, "cannot open the footprint snapshot", true, "retry once the database is readable", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	out, err = queryDomainFootprintTx(ctx, tx, req, home, paths, behaviorLaws, behaviorCommit, limit)
-	if err != nil {
-		return out, err
-	}
-	return out, nil
+	return queryDomainFootprintTx(ctx, tx, req, home, paths, behaviorLaws, behaviorCommit, limit)
 }
 
 // footprintBehaviorLaws runs Q9 over the designated home's indexed law kinds
@@ -248,25 +261,13 @@ func footprintBehaviorLaws(ctx context.Context, s *Store, home KnowledgeHome, be
 	}
 	laws := make([]string, 0, len(result.Items))
 	for _, item := range result.Items {
-		if item.HomeProjectID == home.HomeProjectID && item.HomeLocatorID == home.HomeLocatorID {
-			laws = append(laws, item.ID)
-		}
+		laws = append(laws, item.ID)
 	}
 	return laws, result.IndexWatermark, nil
 }
 
 func footprintIndexedLawKinds(ctx context.Context, q queryer, home KnowledgeHome) ([]string, error) {
-	kinds := make([]string, 0, len(footprintLawKinds))
-	for _, kind := range footprintLawKinds {
-		var indexed bool
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_kind_coverage c JOIN knowledge_index_watermark w ON w.home_project_id=c.home_project_id AND w.home_locator_id=c.home_locator_id AND w.head_ref=c.head_ref AND w.scanned_commit_oid=c.scanned_commit_oid WHERE c.home_project_id=? AND c.home_locator_id=? AND c.head_ref=? AND c.kind=? AND c.coverage='indexed')`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, kind).Scan(&indexed); err != nil {
-			return nil, wrapFailure(KindUnavailable, footprintQueryID, "cannot read knowledge kind coverage", true, "retry once the database is readable", err)
-		}
-		if indexed {
-			kinds = append(kinds, kind)
-		}
-	}
-	return kinds, nil
+	return footprintStrings(ctx, q, `SELECT c.kind FROM knowledge_kind_coverage c JOIN knowledge_index_watermark w ON w.home_project_id=c.home_project_id AND w.home_locator_id=c.home_locator_id AND w.head_ref=c.head_ref AND w.scanned_commit_oid=c.scanned_commit_oid WHERE c.home_project_id=? AND c.home_locator_id=? AND c.head_ref=? AND c.kind IN (?,?,?) AND c.coverage='indexed' ORDER BY c.kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, footprintLawKinds[0], footprintLawKinds[1], footprintLawKinds[2])
 }
 
 type footprintCandidate struct {
@@ -289,7 +290,8 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	if behaviorCommit != "" && behaviorCommit != commit {
 		return out, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved between the behavior match and the join", true, "retry the footprint read")
 	}
-	offset, err := decodeFootprintCursor(req.Cursor, commit)
+	binding := footprintCursorBinding(req, paths)
+	offset, err := decodeFootprintCursor(req.Cursor, commit, binding)
 	if err != nil {
 		return out, err
 	}
@@ -401,7 +403,7 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	page := ordered[offset:]
 	if len(page) > limit {
 		page = page[:limit]
-		next := encodeFootprintCursor(commit, offset+limit)
+		next := encodeFootprintCursor(commit, binding, offset+limit)
 		out.NextCursor = &next
 	}
 	for index := range page {
@@ -430,6 +432,7 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	}
 	out.Laws = page
 	out.offset = offset
+	out.binding = binding
 	out.KnowledgeCommit = commit
 	out.RegistryContentHash = registry.ContentHash
 	out.PackageMapContentHash = mapHash

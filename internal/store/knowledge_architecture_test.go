@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -345,5 +346,25 @@ func TestCommittedPackageMapAndCoverageParseUnderTheStoreRules(t *testing.T) {
 	}
 	if !sort.StringsAreSorted(paths) {
 		t.Fatal("prepared packages are not sorted by path")
+	}
+}
+
+// TestCoverageShardReasonCountsCharacters proves the store bounds a coverage
+// reason in characters, as scripts/coverage_state.py does, so a reason the
+// validator admits never refuses the index rebuild.
+func TestCoverageShardReasonCountsCharacters(t *testing.T) {
+	t.Parallel()
+	shard := func(reason string) []byte {
+		data, err := json.Marshal(map[string]any{"id": "CD-0001", "state": "unmeasured", "reason": reason})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	if _, _, err := parseKnowledgeCoverageShard("CD-0001.json", shard(strings.Repeat("é", maxCoverageReason))); err != nil {
+		t.Fatalf("reason of %d multibyte characters refused: %v", maxCoverageReason, err)
+	}
+	if _, _, err := parseKnowledgeCoverageShard("CD-0001.json", shard(strings.Repeat("é", maxCoverageReason+1))); err == nil {
+		t.Fatalf("reason of %d characters admitted", maxCoverageReason+1)
 	}
 }

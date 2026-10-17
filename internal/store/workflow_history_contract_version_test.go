@@ -95,8 +95,12 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if !reflect.DeepEqual(contract.LawModifies, nonNilStrings(wantModifies)) || !reflect.DeepEqual(contract.LawRevisions, wantRevisions) || !reflect.DeepEqual(contract.ArchitectureBinding, wantBinding) || !reflect.DeepEqual(workflow.ArchitectureBinding, wantBinding) {
 		t.Fatalf("selected contract law and binding = %+v %+v %+v, want v1's %+v %+v %+v", contract.LawModifies, contract.LawRevisions, contract.ArchitectureBinding, wantModifies, wantRevisions, wantBinding)
 	}
-	wantTruth := pinnedProductTruth(wantPin)
-	if wantTruth == nil || contract.ChangesProductTruth == nil || *contract.ChangesProductTruth != *wantTruth || workflow.ChangesProductTruth != *wantTruth {
+	registered, ok := BuiltinWorkflowRegistry().Lookup(pinRef, pinVersion)
+	if !ok || registered.Definition.ChangesProductTruth == nil {
+		t.Fatalf("fixture pin %s v%d is not a registered definition with a Product-truth flag", pinRef, pinVersion)
+	}
+	wantTruth := registered.Definition.ChangesProductTruth
+	if contract.ChangesProductTruth == nil || *contract.ChangesProductTruth != *wantTruth || workflow.ChangesProductTruth != *wantTruth {
 		t.Fatalf("selected Product-truth flag = %v (top %v), want v1's pinned %v", contract.ChangesProductTruth, workflow.ChangesProductTruth, wantTruth)
 	}
 	if workflow.OperatorQuestion != nil || workflow.WithheldOperatorQuestion != nil {

@@ -869,12 +869,6 @@ func (r runtime) readDomainFootprint(ctx context.Context, base Envelope, input [
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	if in.ProductID == "" {
-		return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
-	}
 	if err := r.freshenProductKnowledge(ctx, in.ProductID); err != nil {
 		return failureEnvelope(base, err), nil
 	}

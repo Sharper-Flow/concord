@@ -159,10 +159,10 @@ func TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage(t *testing.T) {
 	}
 }
 
-// TestDomainFootprintPagesAreStableAndCursorsBindTheCommit proves a page
-// boundary, a captured-page shrink, and the refusal of a cursor whose
-// knowledge commit has moved.
-func TestDomainFootprintPagesAreStableAndCursorsBindTheCommit(t *testing.T) {
+// TestDomainFootprintPagesAreStableAndCursorsBindTheirRequest proves a page
+// boundary, a captured-page shrink, and the refusal of a cursor replayed
+// against other paths or behavior, or whose knowledge commit has moved.
+func TestDomainFootprintPagesAreStableAndCursorsBindTheirRequest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, home, repo := footprintFixtureStore(t, true)
@@ -204,6 +204,15 @@ func TestDomainFootprintPagesAreStableAndCursorsBindTheCommit(t *testing.T) {
 	if !reflect.DeepEqual(footprintLawViews(append(shrunk.Laws, tail.Laws...)), footprintLawViews(full.Laws)) {
 		t.Fatal("the shrunk page's cursor does not continue where the page stopped")
 	}
+
+	foreignPaths := rest
+	foreignPaths.Paths = []string{"internal/alpha/a.go"}
+	_, err = s.QueryDomainFootprint(ctx, foreignPaths)
+	assertFailureKind(t, err, KindInvalidCursor)
+	foreignBehavior := rest
+	foreignBehavior.Behavior = ""
+	_, err = s.QueryDomainFootprint(ctx, foreignBehavior)
+	assertFailureKind(t, err, KindInvalidCursor)
 
 	writeKnowledgeFile(t, repo, "README.md", "moved\n")
 	writeKnowledgeFile(t, repo, knowledgeCoverageTreeDir+"CD-0002.json", footprintCoverage("CD-0002", `{"kind":"go_test","value":"internal/alpha.TestRoot"}`))
@@ -256,6 +265,18 @@ func TestDomainFootprintRefusesMalformedSelectors(t *testing.T) {
 	}
 	_, err := s.QueryDomainFootprint(context.Background(), DomainFootprintRequest{Product: "no-such-product", Paths: []string{"a.go"}})
 	assertFailureKind(t, err, KindUnknownScope)
+
+	// The published schema bounds paths and behavior in characters, so a
+	// multibyte selector at the bound is admitted, not refused for its bytes.
+	_, err = s.QueryDomainFootprint(context.Background(), DomainFootprintRequest{
+		Product:  footprintProduct,
+		Paths:    []string{strings.Repeat("é", footprintMaxPath)},
+		Behavior: strings.Repeat("é", footprintMaxBehavior),
+	})
+	var failure *Failure
+	if failureAs(err, &failure) && failure.Kind == KindInvalidInput {
+		t.Fatalf("multibyte selectors at the character bound refused: %v", err)
+	}
 }
 
 // TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign proves the

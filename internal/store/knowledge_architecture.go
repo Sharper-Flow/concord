@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // The package map and the coverage anchors are architecture data, not law
@@ -220,7 +221,7 @@ func parseKnowledgeCoverageShard(name string, data []byte) (string, []knowledgeC
 		return shard.ID, nil, nil
 	case "reason":
 		var reason string
-		if json.Unmarshal(shard.Reason, &reason) != nil || strings.TrimSpace(reason) == "" || len(reason) > maxCoverageReason {
+		if json.Unmarshal(shard.Reason, &reason) != nil || strings.TrimSpace(reason) == "" || utf8.RuneCountInString(reason) > maxCoverageReason {
 			return "", nil, coverageShardFailure(name, "reason must be a bounded nonempty string")
 		}
 		return shard.ID, nil, nil

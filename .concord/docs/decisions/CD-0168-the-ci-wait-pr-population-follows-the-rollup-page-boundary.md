@@ -49,6 +49,9 @@ reports `UNSTABLE`. Failure takes precedence over pending peers, but not over
 head supersession, merged, or closed outcomes. A full rollup page suffices to
 establish an observed failure, without establishing population completeness.
 An empty population stays pending. Checks-mode terminal rules remain unchanged.
+Under [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md),
+checks mode then adds each required context the population lacks as a
+pending entry. That read is not a population query.
 
 ### D2. The poll interval stages on the wait's elapsed time
 

@@ -169,9 +169,10 @@ re-litigate them silently.
   version, GitHub Releases plus a Concord installer, and public-repository authority
   after the audited bootstrap tag.
 - **Execution status:** the contract was accepted on 2026-08-06, and bootstrap
-  execution was authorized on 2026-08-07. Issue #600 shipped through pull request
-  #605. CD-0089 now governs Concord development coordination; replacement readiness
-  remains an evidence claim.
+  execution was authorized on 2026-08-07.
+  CD-0089 now governs Concord development coordination;
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D2 points to the
+  owning release, maturity, and development-authority requirements.
 
 ### C2. Storage model for Concord-owned state
 - **✅ RESOLVED 2026-08-05 by [`CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3.**
@@ -342,9 +343,6 @@ re-litigate them silently.
   `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
   bounding a delegated result is necessary but not sufficient if the result has nowhere
   durable to land.
-- **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
-  workflow expected to run longer than one window, and it should be settled before a
-  replacement-readiness claim. This does not block Concord development under CD-0089.
 - **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are

@@ -10,7 +10,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -34,11 +33,6 @@ type WorkflowActionPreflightRequest struct {
 	// SessionWorktree is the host worktree boundary. It is checked only for
 	// dispatch_worker, whose worker must run in the active claimed worktree.
 	SessionWorktree string
-	// Consequential boundaries may supply the same explicit resolver used by
-	// ResolveWorkflowCondition. A zero time disables boundary resolution rather
-	// than inventing a clock observation.
-	ConditionResolver ConditionResolver
-	BoundaryNow       time.Time
 }
 
 func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
@@ -123,29 +117,30 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
 	}
 	defer func() { _ = readTx.Rollback() }()
-	_, err = workflowActionPreflightTx(ctx, readTx, registry, request, true)
+	_, err = workflowActionPreflightTx(ctx, readTx, registry, request)
 	return err
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
-// coordinator. Condition resolution, the second preflight, authorization, and
-// the persisted action callback all share one transaction and one fold guard.
-// A callback error or mutation failure rolls back every condition event.
-func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
-	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, resolver, now, nil, authorize, mutate)
+// coordinator. The preflight, authorization, and the persisted action callback
+// share one transaction and one fold guard, so a callback error or mutation
+// failure commits nothing. The boundary resolves no external condition
+// (CD-0234 D1): an open condition answers the admission refusal.
+func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, nil, authorize, mutate)
 }
 
 // AuthorizeWorkflowActionAtBoundaryWithPreflightTx lets an owning dispatcher
 // inspect durable idempotency before the version-sensitive preflight. This
 // preserves exact replay when concurrent requests share one action key.
-func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
 	if beforePreflight == nil {
-		return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, resolver, now, authorize, mutate)
+		return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, authorize, mutate)
 	}
-	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, resolver, now, beforePreflight, authorize, mutate)
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, beforePreflight, authorize, mutate)
 }
 
-func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) (retErr error) {
+func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_boundary", "store is not open", false, "open the authority database")
 	}
@@ -183,7 +178,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 			return nil
 		}
 	}
-	entry, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, false)
+	entry, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request)
 	if err != nil {
 		return err
 	}
@@ -196,24 +191,6 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.Actor.SessionRef); err != nil {
 			return err
 		}
-		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot inspect consequential conditions", true, "retry once the database is readable", err)
-		}
-		if open != 0 {
-			if resolver == nil || now.IsZero() {
-				return newFailure(KindNotTerminal, "workflow_action_boundary", "consequential action requires an explicit condition resolver", false, "reread_entities")
-			}
-			if _, err := resolveWorkflowConditionsAtBoundaryTx(ctx, tx.Tx, request.WorkID, resolver, now); err != nil {
-				return err
-			}
-			if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&request.ExpectedVersion); err != nil {
-				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot reread workflow version after condition resolution", true, "retry once the database is readable", err)
-			}
-		}
-	}
-	if _, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, true); err != nil {
-		return err
 	}
 	if authorize != nil {
 		if err := authorize(transaction); err != nil {
@@ -248,7 +225,7 @@ func workflowImpactBoundary(actionID string, consequence ActionConsequence) bool
 	return consequence == ActionCrossAuthority || consequence == ActionExternalEffect || actionID == "complete"
 }
 
-func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest, requireTerminalConditions bool) (RegisteredDefinition, error) {
+func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (RegisteredDefinition, error) {
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return RegisteredDefinition{}, err
@@ -284,11 +261,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) && !decision.ApprovalRequired {
-		if requireTerminalConditions || !decision.ConsequentialConditions {
-			return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
-		}
-		// The owning boundary resolves the open external conditions and
-		// re-preflights, where the consequential refusal applies.
+		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	staleRecovery := decision.RecoveryRoute
 	lateVerdictRecovery := false

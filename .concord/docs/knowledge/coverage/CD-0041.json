@@ -30,14 +30,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/agent.TestComponentInputsAreProhibitedOnTheAgentSurface"
     },
     {

@@ -1,5 +1,5 @@
 {
   "id": "priorities",
-  "reason": "The operating envelope and the standing law decide which capabilities belong in Concord and what each goal requires of a change. The envelope and the goal-level statements are judgements applied by a reader to a proposed change, not propositions about a running system; the mechanisms they cite carry their own coverage through the decision records. Declared prose-only rather than left unmeasured.",
-  "state": "out_of_scope"
+  "issue": "CON-981",
+  "state": "outstanding"
 }

@@ -92,9 +92,11 @@ def test_missing_partial_input_lists_identifiers():
 
 
 def test_bad_files_and_closed_document_shape_never_write():
-    for text in ("{", "[]", '{"schema_version":"1.0","schema_version":"1.0","observations":[]}',
-                 '{"schema_version":"2.0","observations":[]}',
-                 '{"schema_version":"1.0","observations":{},"extra":true}'):
+    rows = json.dumps([observation()])
+    for text in ("{", "[]", f'{{"schema_version":"1.0","schema_version":"1.0","observations":{rows}}}',
+                 f'{{"schema_version":"2.0","observations":{rows}}}',
+                 f'{{"schema_version":"1.0","observations":{rows},"extra":true}}',
+                 '{"schema_version":"1.0","observations":{}}'):
         with fixture() as (input_path, snapshot):
             input_path.write_text(text)
             code, output = run("--linear-observations", input_path)

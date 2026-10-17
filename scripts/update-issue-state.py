@@ -2,7 +2,7 @@
 """Refresh the offline pointer snapshot from Linear MCP observations and GitHub.
 
 Agents capture raw Linear status types through MCP into an observation file.
-This script validates that closed input and normalizes states; it never
+This script validates that fixed-shape input and normalizes states; it never
 contacts Linear. CI validates the resulting snapshot without network lookups.
 
 It covers every plane in coverage_state.ISSUE_STATE_MANIFESTS at once. A
@@ -113,9 +113,7 @@ def main() -> int:
             return 1
         states[str(number)] = state
 
-    generated_at = (
-        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    )
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     write_issue_state(states, generated_at, read_times)
     print(
         f"wrote {ISSUE_STATE.relative_to(ROOT)} covering "

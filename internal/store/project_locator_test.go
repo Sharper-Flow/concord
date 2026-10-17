@@ -170,7 +170,6 @@ func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
 		{"git password", "git://git:pw@host/o/r"},
 		{"other scheme password", "custom://git:pw@host/o/r"},
 		{"empty password", "ssh://git:@host/o/r"},
-		{"scp password", "git:pw@host:o/r.git"},
 	} {
 		for _, update := range []bool{false, true} {
 			name := "add/"
@@ -193,7 +192,7 @@ func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
 					method, id = s.UpdateProjectLocator, "remote"
 				}
 				err := method(ctx, "project-a", ProjectLocator{ID: id, Kind: LocatorGitRemote, Value: tc.remote}, 2)
-				assertRemoteCredentialFailure(t, err, tc.remote)
+				assertRemoteAdmissionFailure(t, err, tc.remote, "remove credentials from the remote URL; use a git credential helper")
 				assertTableCount(t, s, "domain_events", before)
 				locators, err := s.ProjectLocators(ctx, "project-a")
 				if err != nil || len(locators) != 1 || locators[0].Value != "git@github.com:o/r.git" {
@@ -204,32 +203,85 @@ func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
 	}
 }
 
-func assertRemoteCredentialFailure(t *testing.T, err error, remote string) {
+func assertRemoteAdmissionFailure(t *testing.T, err error, remote, recovery string) {
 	t.Helper()
 	assertFailureKind(t, err, KindInvalidFilter)
 	var failure *Failure
-	if !errors.As(err, &failure) {
-		t.Fatal("expected typed credential refusal")
-	}
-	if failure.RecoveryAction != "remove credentials from the remote URL; use a git credential helper" {
+	errors.As(err, &failure)
+	if failure.RecoveryAction != recovery {
 		t.Errorf("recovery action=%q", failure.RecoveryAction)
 	}
 	if strings.Contains(err.Error(), strings.TrimSpace(remote)) {
 		t.Error("credential refusal exposes the remote")
 	}
+	for _, diagnostic := range []string{failure.Detail, failure.RecoveryAction} {
+		for _, credential := range []string{"TOKEN", "pw", "pass", "p#ss"} {
+			if strings.Contains(diagnostic, credential) {
+				t.Errorf("remote refusal diagnostic exposes %q", credential)
+			}
+		}
+	}
 }
 
 func TestResolveProjectHostRefusesRemoteCredentials(t *testing.T) {
 	t.Parallel()
-	for _, remote := range []string{"https://TOKEN@github.com/o/r", "https://user:pass@github.com/o/r", "ssh://git:pw@host/o/r", "git:pw@host:o/r.git"} {
+	for _, remote := range []string{"https://TOKEN@github.com/o/r", "https://user:pass@github.com/o/r", "ssh://git:pw@host/o/r"} {
 		t.Run(remote, func(t *testing.T) {
 			root := t.TempDir()
 			host, err := ResolveProjectHost(context.Background(), root, root, &locatorGitStub{root: root, remote: remote})
-			assertRemoteCredentialFailure(t, err, remote)
+			assertRemoteAdmissionFailure(t, err, remote, "remove credentials from the remote URL; use a git credential helper")
 			if host != (ResolvedProjectHost{}) {
 				t.Fatal("credential refusal returned host data")
 			}
 		})
+	}
+}
+
+func TestRemoteAdmissionRefusesURLParseErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, remote string }{
+		{"malformed userinfo", "https://user:p#ss@github.com/o/r"},
+		{"invalid port", "https://host:badport/o/r"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			ctx := context.Background()
+			var before int
+			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1)
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			assertTableCount(t, s, "domain_events", before)
+			assertTableCount(t, s, "project_locators", 0)
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			if host != (ResolvedProjectHost{}) {
+				t.Fatal("parse-error refusal returned host data")
+			}
+		})
+	}
+}
+
+func TestRemoteURLFormClassification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		remote string
+		url    bool
+	}{
+		{"https://github.com/o/r", true},
+		{"HTTPS://TOKEN@github.com/o/r", true},
+		{"git+ssh://host/o/r", true},
+		{"g1.t-x://host/o/r", true},
+		{"host:o/r@v2.git", false},
+		{"git:pw@host:a://b", false},
+		{"git:pw@host:o/r.git", false},
+		{"1http://host/o/r", false},
+	} {
+		if got := remoteURLFormPattern.MatchString(tc.remote); got != tc.url {
+			t.Errorf("URL form for %q = %v, want %v", tc.remote, got, tc.url)
+		}
 	}
 }
 
@@ -241,6 +293,9 @@ func TestRemoteAdmissionPreservesNormalizedIdentity(t *testing.T) {
 		{"git://git@host/o/r", "ssh://git/git@host/o/r"},
 		{"https://github.com/o/r", "ssh://https/github.com/o/r"},
 		{"http://github.com/o/r", "ssh://http/github.com/o/r"},
+		{"host:o/r@v2.git", "ssh://host/o/r@v2"},
+		{"git:pw@host:a://b", "ssh://git/pw@host:a://b"},
+		{"git:pw@host:o/r.git", "ssh://git/pw@host:o/r"},
 	} {
 		t.Run(tc.remote, func(t *testing.T) {
 			s := locatorReplayStore(t)

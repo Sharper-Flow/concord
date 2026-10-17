@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -160,20 +161,20 @@ func normalizePath(value string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+var remoteURLFormPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+
 func checkRemoteCredentials(value string) error {
 	value = strings.TrimSpace(value)
 	credentials := false
-	if strings.Contains(value, "://") {
+	if remoteURLFormPattern.MatchString(value) {
 		u, err := url.Parse(value)
 		if err != nil {
 			return newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
 		}
 		if u.User != nil {
 			_, password := u.User.Password()
-			credentials = password || strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
+			credentials = password || u.Scheme == "http" || u.Scheme == "https"
 		}
-	} else if user, _, ok := strings.Cut(value, "@"); ok {
-		credentials = strings.Contains(user, ":")
 	}
 	if credentials {
 		return newFailure(KindInvalidFilter, "project_locator", "git remote contains credentials", false, "remove credentials from the remote URL; use a git credential helper")

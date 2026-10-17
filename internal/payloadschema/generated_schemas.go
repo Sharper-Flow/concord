@@ -20543,7 +20543,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/digest"
               },
               "law_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               }
             },
             "required": [
@@ -20615,7 +20615,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "spec_mandate": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 32,
           "type": "array",

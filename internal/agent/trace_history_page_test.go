@@ -199,3 +199,21 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		t.Fatalf("history contract_version 9 = outcome %s error %+v, want unknown_scope", refused.Outcome, refused.Error)
 	}
 }
+
+// TestTraceHistoryContractVersionInputBounds proves the published input
+// refuses a selector outside 1..2147483647 before the handler runs. The
+// store reads a zero selector as the active contract, so a zero that
+// reached the handler would answer the active contract instead of refusing.
+func TestTraceHistoryContractVersionInputBounds(t *testing.T) {
+	t.Parallel()
+	for _, valid := range []string{`{"work_id":"work-1"}`, `{"work_id":"work-1","contract_version":1}`, `{"work_id":"work-1","contract_version":2147483647}`} {
+		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(valid), false); err != nil {
+			t.Fatalf("valid history input refused: %s: %v", valid, err)
+		}
+	}
+	for _, invalid := range []string{`{"work_id":"work-1","contract_version":0}`, `{"work_id":"work-1","contract_version":-1}`, `{"work_id":"work-1","contract_version":2147483648}`, `{"work_id":"work-1","contract_version":"1"}`, `{"work_id":"work-1","contract_version":null}`} {
+		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(invalid), false); err == nil {
+			t.Fatalf("history input accepted: %s", invalid)
+		}
+	}
+}

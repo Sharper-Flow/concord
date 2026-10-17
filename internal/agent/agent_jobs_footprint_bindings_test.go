@@ -90,3 +90,39 @@ func bindAJ5FootprintOfAChange(t *testing.T, sc jobScenario) jobObservation {
 	}
 	return obs
 }
+
+// TestDomainFootprintInputSchemaBounds proves the published footprint input
+// refuses an empty selector and out-of-bound paths or behavior before the
+// handler runs.
+func TestDomainFootprintInputSchemaBounds(t *testing.T) {
+	t.Parallel()
+	sixtyFive := make([]string, 65)
+	for i := range sixtyFive {
+		sixtyFive[i] = "p" + strings.Repeat("a", i)
+	}
+	cases := []struct {
+		input map[string]any
+		valid bool
+	}{
+		{map[string]any{"product_id": "product-1", "paths": []string{"internal/store/store.go"}}, true},
+		{map[string]any{"product_id": "product-1", "behavior": "sqlite"}, true},
+		{map[string]any{"product_id": "product-1", "paths": sixtyFive[:64], "behavior": strings.Repeat("b", 256)}, true},
+		{map[string]any{"product_id": "product-1"}, false},
+		{map[string]any{"product_id": "product-1", "paths": []string{}}, false},
+		{map[string]any{"product_id": "product-1", "paths": sixtyFive}, false},
+		{map[string]any{"product_id": "product-1", "paths": []string{"a", "a"}}, false},
+		{map[string]any{"product_id": "product-1", "paths": []string{""}}, false},
+		{map[string]any{"product_id": "product-1", "behavior": ""}, false},
+		{map[string]any{"product_id": "product-1", "behavior": strings.Repeat("b", 257)}, false},
+		{map[string]any{"paths": []string{"a"}}, false},
+	}
+	for _, testCase := range cases {
+		raw, err := json.Marshal(testCase.input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateOperationPayload("concord_domain", "footprint", raw, false); (err == nil) != testCase.valid {
+			t.Fatalf("footprint input %s: valid=%t, err=%v", raw, testCase.valid, err)
+		}
+	}
+}

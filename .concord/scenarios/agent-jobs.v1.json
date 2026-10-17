@@ -549,6 +549,67 @@
    }
   },
   {
+   "id": "AJ4-history-of-a-superseded-contract",
+   "job_id": "AJ4",
+   "instruction": "Work-1's contract was corrected. Show what contract version 1 required and which approval and correction events made each version.",
+   "initial_state": {
+    "fixture": "workflow"
+   },
+   "expected": {
+    "assertions": [
+     {
+      "target": "result",
+      "path": "selected_contract_version",
+      "op": "eq",
+      "value": 1
+     },
+     {
+      "target": "result",
+      "path": "selected_contract_superseded_by",
+      "op": "eq",
+      "value": 2
+     },
+     {
+      "target": "result",
+      "path": "definition_pin_verified",
+      "op": "eq",
+      "value": true
+     },
+     {
+      "target": "result",
+      "path": "contract_events",
+      "op": "set_eq",
+      "value": [
+       "workflow.contract_approved:1",
+       "workflow.contract_superseded:2<-1"
+      ]
+     },
+     {
+      "target": "communication",
+      "path": "unknown_version_error_kind",
+      "op": "eq",
+      "value": "unknown_scope"
+     },
+     {
+      "target": "effects",
+      "path": "history_mutation",
+      "op": "absent"
+     },
+     {
+      "target": "authority",
+      "path": "status",
+      "op": "eq",
+      "value": "authoritative"
+     }
+    ],
+    "invariants": [
+     "correct_scope",
+     "canonical_authority",
+     "bounded_context"
+    ]
+   }
+  },
+  {
    "id": "AJ5-resolve-domain-overlap",
    "job_id": "AJ5",
    "instruction": "Authorize work-1 and work-2 to proceed concurrently after confirming their current Domain overlap is compatible.",

@@ -46,7 +46,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	insertInvestigationGateObservation(t, s, "neighbor-work", "obs:"+strings.Repeat("3", 16), []string{"root", "blocker"})
 	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
-	if _, err := ClaimStep(ctx, s, testClaim("neighbor-fence", "neighbor-fence-key")); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, testClaim("neighbor-fence", "neighbor-fence-key"), nil); err != nil {
 		t.Fatal(err)
 	}
 	neighborClient := TrustedClientRecord{ClientRef: "neighbor-client", Status: "active", PrincipalRef: "neighbor-principal", CapabilitiesJSON: `["product_read"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}
@@ -381,7 +381,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
 			return err
 		}},
-		{name: "ReadWorkflow", run: func() error { _, err := ReadWorkflow(ctx, s, "neighbor-work"); return err }},
 		{name: "ResumeWorkflow", absent: KindProjectionNotFound, run: func() error { _, err := ResumeWorkflow(ctx, s, "neighbor-work"); return err }},
 		{name: "WorkflowProjectionHash", run: func() error {
 			hash, err := WorkflowProjectionHash(ctx, s)

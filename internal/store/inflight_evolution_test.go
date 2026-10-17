@@ -268,11 +268,14 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
 		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
 	}
-	before := projectionSnapshot(t, s)
+	snapshot := func() string {
+		return projectionSnapshot(t, s) + remoteUpgradeSnapshot(t, s) + fullWorkflowProjectionSnapshot(t, s)
+	}
+	before := snapshot()
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	if projectionSnapshot(t, s) != before {
+	if snapshot() != before {
 		t.Fatal("rebuild drifted remote or in-flight workflow projections")
 	}
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,4 +79,155 @@ DELETE FROM fold_guard;`, WorktreeSetID(workID), "project-1", "claim-1", "change
 	if err != nil {
 		t.Fatalf("insert worktree entry: %v", err)
 	}
+}
+
+func TestValidateWorkerCompletionWorktreeBindsAttemptProject(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		directory  string
+		fault      string
+		wantKind   string
+		boundaries bool
+	}{
+		{name: "own Project", directory: "own"},
+		{name: "own Project symlink", directory: "alias"},
+		{name: "other Project", directory: "other", wantKind: string(KindUnauthorizedDispatch), boundaries: true},
+		{name: "generic mismatch before missing authorization", directory: "outside", fault: "no authorization", wantKind: string(KindUnauthorizedDispatch), boundaries: true},
+		{name: "missing authorization", directory: "other", fault: "no authorization", wantKind: string(KindUnauthorizedDispatch)},
+		{name: "missing original identity", directory: "other", fault: "no identity", wantKind: string(KindUnauthorizedDispatch)},
+		{name: "inactive own claim", directory: "other", fault: "inactive", wantKind: string(KindUnauthorizedDispatch)},
+		{name: "missing own claim", directory: "other", fault: "missing", wantKind: string(KindWorktreeOwnershipConflict)},
+		{name: "unresolvable active claim", directory: "other", fault: "unreadable", wantKind: string(KindUnavailable)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTemp(t)
+			own, other := seedWorkerCompletionProjectClaims(t, s, tc.fault != "no authorization", tc.fault != "no identity")
+			directory := own
+			switch tc.directory {
+			case "other":
+				directory = other
+			case "alias":
+				directory = filepath.Join(t.TempDir(), "alias")
+				if err := os.Symlink(own, directory); err != nil {
+					t.Fatal(err)
+				}
+			case "outside":
+				directory = t.TempDir()
+			}
+			var faultSQL string
+			switch tc.fault {
+			case "inactive":
+				faultSQL = `UPDATE worktree_entries SET state='reclaimed' WHERE project_id='project-1'`
+			case "missing":
+				faultSQL = `DELETE FROM worktree_entries WHERE project_id='project-1'`
+			case "unreadable":
+				if err := os.Remove(own); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if faultSQL != "" {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + faultSQL + `; DELETE FROM fold_guard`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			err = validateWorkerCompletionWorktree(context.Background(), tx, "work-completion", "attempt-completion", directory)
+			if tc.wantKind == "" {
+				if err != nil {
+					t.Fatalf("own Project claim refused: %v", err)
+				}
+				return
+			}
+			var failure *Failure
+			if !failureAs(err, &failure) || string(failure.Kind) != tc.wantKind {
+				t.Fatalf("completion directory failure = %v, want %s", err, tc.wantKind)
+			}
+			for _, path := range []string{own, other, directory} {
+				if strings.Contains(failure.Detail, path) {
+					t.Fatalf("failure leaked a machine path: %q", failure.Detail)
+				}
+			}
+			if tc.boundaries && (!strings.Contains(failure.Detail, "expected") || !strings.Contains(failure.Detail, "session boundary")) {
+				t.Fatalf("failure omitted the worktree boundaries: %q", failure.Detail)
+			}
+		})
+	}
+}
+
+func TestValidateWorkerCompletionWorktreePreservesStorageFailure(t *testing.T) {
+	s := openTemp(t)
+	own, _ := seedWorkerCompletionProjectClaims(t, s, true, true)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	err = validateWorkerCompletionWorktree(context.Background(), tx, "work-completion", "attempt-completion", own)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindUnavailable {
+		t.Fatalf("closed transaction failure = %v, want unavailable", err)
+	}
+}
+
+func seedWorkerCompletionProjectClaims(t *testing.T, s *Store, withAuthorization, withIdentity bool) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	own, other := filepath.Join(root, "own"), filepath.Join(root, "other")
+	for _, path := range []string{own, other} {
+		if err := os.Mkdir(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertWorkerWorktreeEntry(t, s, "work-completion", own)
+	canonical, err := canonicalWorkerWorktreePath(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
+SELECT set_id,'project-2','claim-2',branch,base_sha,?,'repo-2',state,verified_at,git_facts FROM worktree_entries WHERE set_id=? AND project_id='project-1'`, other, WorktreeSetID("work-completion")); err != nil {
+		t.Fatal(err)
+	}
+	actions := []struct {
+		id, kind string
+		payload  map[string]any
+	}{
+		{id: "completion-window-started", kind: WorkflowActionStarted, payload: map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1}},
+		{id: "completion-window-finished", kind: WorkflowActionCompleted, payload: map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1, "worker_attempt_id": "attempt-completion", "worker_worktree_identity": workerWorktreeIdentity(canonical)}},
+	}
+	if !withIdentity {
+		delete(actions[1].payload, "worker_worktree_identity")
+	}
+	if !withAuthorization {
+		actions = nil
+	}
+	for _, action := range actions {
+		raw, err := json.Marshal(action.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-completion','actor:test','2026-09-05T00:00:00Z',?,?)`, action.id, action.kind, eventKindRegistry[action.kind].CurrentVersion, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return own, other
 }

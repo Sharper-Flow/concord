@@ -1,0 +1,156 @@
+{
+  "packages": [
+    {
+      "domain_ids": [
+        "agent-surface",
+        "operator-surface",
+        "product-memory",
+        "workflow-engine"
+      ],
+      "path": "adapter/opencode"
+    },
+    {
+      "domain_ids": [
+        "repository-verification"
+      ],
+      "path": "bin"
+    },
+    {
+      "domain_ids": [
+        "agent-surface",
+        "durable-authority",
+        "operator-surface",
+        "product-memory",
+        "work-coordination",
+        "workflow-engine"
+      ],
+      "path": "cmd/concord"
+    },
+    {
+      "domain_ids": [
+        "agent-surface",
+        "durable-authority",
+        "operator-surface",
+        "product-memory",
+        "repository-verification",
+        "work-coordination",
+        "workflow-engine"
+      ],
+      "path": "internal/agent"
+    },
+    {
+      "domain_ids": [
+        "repository-verification"
+      ],
+      "path": "internal/gittest"
+    },
+    {
+      "domain_ids": [
+        "operator-surface"
+      ],
+      "path": "internal/hostlease"
+    },
+    {
+      "domain_ids": [
+        "agent-surface"
+      ],
+      "path": "internal/payloadschema"
+    },
+    {
+      "domain_ids": [
+        "product-memory"
+      ],
+      "path": "internal/pm1fixture"
+    },
+    {
+      "domain_ids": [
+        "operator-surface"
+      ],
+      "path": "internal/predecessor"
+    },
+    {
+      "domain_ids": [
+        "operator-surface"
+      ],
+      "path": "internal/receipt"
+    },
+    {
+      "domain_ids": [
+        "operator-surface"
+      ],
+      "path": "internal/sessionboot"
+    },
+    {
+      "domain_ids": [
+        "agent-surface",
+        "durable-authority",
+        "operator-surface",
+        "product-memory",
+        "repository-verification",
+        "work-coordination",
+        "workflow-engine"
+      ],
+      "path": "internal/store"
+    },
+    {
+      "domain_ids": [
+        "durable-authority"
+      ],
+      "path": "internal/store/storetest"
+    },
+    {
+      "domain_ids": [
+        "durable-authority"
+      ],
+      "path": "internal/store/storetest/neighbor"
+    },
+    {
+      "domain_ids": [
+        "repository-verification"
+      ],
+      "path": "internal/testenv"
+    },
+    {
+      "domain_ids": [
+        "agent-surface"
+      ],
+      "path": "internal/testutil/schemawire"
+    },
+    {
+      "domain_ids": [
+        "operator-surface"
+      ],
+      "path": "internal/version"
+    },
+    {
+      "domain_ids": [
+        "workflow-engine"
+      ],
+      "path": "internal/workflowcorpus"
+    },
+    {
+      "domain_ids": [
+        "agent-surface",
+        "operator-surface",
+        "product-memory",
+        "repository-verification",
+        "work-coordination",
+        "workflow-engine"
+      ],
+      "path": "scripts"
+    },
+    {
+      "domain_ids": [
+        "repository-verification"
+      ],
+      "path": "scripts/go-test-assertions"
+    },
+    {
+      "domain_ids": [
+        "workflow-engine"
+      ],
+      "path": "scripts/workflow-action-contracts"
+    }
+  ],
+  "schema_version": "1.0"
+}

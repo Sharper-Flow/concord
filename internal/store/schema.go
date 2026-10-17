@@ -6521,7 +6521,7 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such column: breaking") {
-			return nil, false, unstampedManifestRefused()
+			return nil, false, unstampedManifestRefused(ctx, db)
 		}
 		return nil, false, err
 	}
@@ -6536,16 +6536,57 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
+// UnstampedMigrationRefusal is what an unstamped build read before it refused
+// to migrate an existing store (CD-0139): the applied head and the pending
+// tail this build defines. No manifest row names the release that applied it,
+// so the refusal carries no owner.
+type UnstampedMigrationRefusal struct {
+	SchemaVersion    int
+	HeadName         string
+	FirstPending     int
+	FirstPendingName string
+	Pending          int
+	PendingBreaking  int
+}
+
+// UnstampedRecovery is the isolation route every unstamped migration refusal
+// names (CD-0139 D4). The readiness plan blocks on the same rule without a
+// refusal, so the command layer names it from here.
+const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
+
 func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
-	version := 0
-	for appliedVersion := range applied {
-		if appliedVersion > version {
-			version = appliedVersion
+	refusal := unstampedRefusalFacts(applied)
+	return refusal.failure(fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking))
+}
+
+func (refusal UnstampedMigrationRefusal) failure(detail string) *Failure {
+	failure := newFailure(KindInvalidOperation, "open", detail, true, UnstampedRecovery)
+	failure.UnstampedMigration = &refusal
+	return failure
+}
+
+func unstampedRefusalFacts(applied map[int]appliedMigration) UnstampedMigrationRefusal {
+	var refusal UnstampedMigrationRefusal
+	for recorded := range applied {
+		refusal.SchemaVersion = max(refusal.SchemaVersion, recorded)
+	}
+	for _, m := range migrations {
+		if m.Version == refusal.SchemaVersion {
+			refusal.HeadName = m.Name
+		}
+		if _, done := applied[m.Version]; done {
+			continue
+		}
+		if refusal.Pending == 0 {
+			refusal.FirstPending, refusal.FirstPendingName = m.Version, m.Name
+		}
+		refusal.Pending++
+		if m.Breaking {
+			refusal.PendingBreaking++
 		}
 	}
-	return newFailure(KindInvalidOperation, "open",
-		fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d", version),
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+	return refusal
 }
 
 // openStopsBefore reports the breaking step an open-scoped pass may not
@@ -6637,7 +6678,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			applied, err := appliedMigrations(ctx, tx)
 			if err != nil {
 				if strings.Contains(err.Error(), "no such column: breaking") {
-					return rollback(unstampedManifestRefused())
+					return rollback(unstampedManifestRefused(ctx, tx))
 				}
 				return rollback(err)
 			}
@@ -6707,10 +6748,14 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	return nil
 }
 
-func unstampedManifestRefused() *Failure {
-	return newFailure(KindInvalidOperation, "open",
-		"unstamped development build refuses to repair an existing store's schema manifest",
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+// unstampedManifestRefused reads the pre-column manifest through the caller's
+// queryer, the open transaction when there is one, and writes nothing.
+func unstampedManifestRefused(ctx context.Context, q queryer) error {
+	applied, err := legacyManifestMigrations(ctx, q)
+	if err != nil {
+		return err
+	}
+	return unstampedRefusalFacts(applied).failure("unstamped development build refuses to repair an existing store's schema manifest")
 }
 
 func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {

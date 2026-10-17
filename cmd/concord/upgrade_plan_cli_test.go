@@ -1568,6 +1568,11 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 				if !strings.Contains(errOut, "unstamped development build refuses schema migration for an existing store") {
 					t.Fatalf("the dev run must refuse at the unstamped qualification: %s", errOut)
 				}
+				// The snapshot route names the data root's owner too; this
+				// root has no installed release.
+				if !strings.Contains(errOut, "owning release: none found") || !strings.Contains(errOut, unstampedRecoveryLine) {
+					t.Fatalf("the snapshot refusal must name the owner and the recovery: %s", errOut)
+				}
 				if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
 					t.Fatalf("the unstamped qualification refusal retains no snapshot: %v", snapshots)
 				}

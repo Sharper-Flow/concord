@@ -1644,7 +1644,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			// The source is a backup file, not a data root's store: no owner.
+			writeOperatorDiagnostic(errOut, command, unstampedRefusalDiagnostic(err, "").Error())
 			return 1
 		}
 		return writeJSON(out, report, errOut)

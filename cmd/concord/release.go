@@ -193,11 +193,14 @@ func unfenceableReleaseRoots(dataRoot, selfRoot string) ([]string, error) {
 // before a pending breaking migration, the refusal is turned actionable: it
 // names every live session holding an older schema, with its directory, so
 // the operator ends the right terminals instead of correlating pids by hand.
+// An unstamped build's migration refusal names the owner of the store's data
+// root instead; the two refusals never share a kind.
 func openStoreForCommand(ctx context.Context, path string) (*store.Store, error) {
 	s, err := store.Open(ctx, path)
 	if err == nil {
 		return s, nil
 	}
+	err = unstampedRefusalDiagnostic(err, filepath.Dir(path))
 	dataRoot, rootErr := leaseDataRoot()
 	if rootErr != nil {
 		return nil, err
@@ -222,17 +225,84 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 		if lease.SchemaVersion >= current {
 			continue
 		}
-		holder := fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion)
-		if lease.Directory != "" {
-			holder += ", directory " + lease.Directory
-		}
-		older = append(older, holder)
+		older = append(older, leaseHolder(lease))
 	}
 	if len(older) == 0 {
 		return err
 	}
 	return fmt.Errorf("%s\nlive session(s) holding an older schema: %s\nend or move those sessions to the installed release, then run concord upgrade",
 		err.Error(), strings.Join(older, "; "))
+}
+
+// leaseHolder names one live session the way the operator finds its terminal.
+func leaseHolder(lease hostlease.Lease) string {
+	holder := fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion)
+	if lease.Directory != "" {
+		holder += ", directory " + lease.Directory
+	}
+	return holder
+}
+
+// unstampedRefusalDiagnostic appends the owner lines to an unstamped build's
+// migration refusal (CD-0139) and keeps the typed refusal reachable. dataRoot
+// is the refused store's directory; empty names the recovery only, for a
+// store that is no data root's, such as a restore source. Every other error
+// is returned unchanged.
+func unstampedRefusalDiagnostic(err error, dataRoot string) error {
+	var failure *store.Failure
+	if !errors.As(err, &failure) || failure.UnstampedMigration == nil {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, unstampedRefusalLines(dataRoot, failure.RecoveryAction))
+}
+
+// unstampedRefusalLines names the installed release as the owner, the live
+// sessions on the data root as observations, and the recovery, which
+// Failure.Error omits. The store records no migration writer, so the owner is
+// the installer's record and the label says so.
+func unstampedRefusalLines(dataRoot, recovery string) string {
+	var lines []string
+	if dataRoot != "" {
+		lines = append(lines, "owning release: "+installedRelease(dataRoot))
+		live, err := hostlease.List(dataRoot)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("live session(s) on this data root: unknown (%v)", err))
+		} else if len(live) > 0 {
+			holders := make([]string, 0, len(live))
+			for _, lease := range live {
+				holders = append(holders, leaseHolder(lease))
+			}
+			lines = append(lines, "live session(s) on this data root: "+strings.Join(holders, "; "))
+		}
+	}
+	return strings.Join(append(lines, "recovery: "+recovery), "\n")
+}
+
+// installedRelease reads the installer's record for a data root: it links
+// <data_root>/current to <data_root>/<version> (scripts/install.py).
+func installedRelease(dataRoot string) string {
+	link := filepath.Join(dataRoot, "current")
+	info, err := os.Lstat(link)
+	if os.IsNotExist(err) {
+		return "none found (" + link + " does not exist; no installed release manages this data root)"
+	}
+	var target, root string
+	if err == nil && info.Mode()&os.ModeSymlink == 0 {
+		err = errors.New("not a symlink")
+	}
+	if err == nil {
+		target, err = filepath.EvalSymlinks(link)
+	}
+	if err == nil {
+		root, err = filepath.EvalSymlinks(dataRoot)
+	}
+	if err == nil && filepath.Dir(target) != root {
+		err = fmt.Errorf("points outside the installer layout: %s", target)
+	}
+	if err != nil {
+		return fmt.Sprintf("unknown (%s: %v)", link, err)
+	}
+	return fmt.Sprintf("%s (installed release at %s; installer record, not a migration-writer record)", filepath.Base(target), link)
 }
 
 // upgradeInput is the JSON-stdin surface of the upgrade verb. plan asks for
@@ -345,7 +415,10 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	if request.CancelCutoverPinnedWork && plan.ActivationBlocked && len(plan.PendingBreaking) == 0 {
-		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; "))
+		// With the disposition clear and nothing breaking pending, the plan's
+		// only blocker is the unstamped-build rule (CD-0139). It carries no
+		// refusal, so the owner lines are added here.
+		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; ")+"\n"+unstampedRefusalLines(dataRoot, store.UnstampedRecovery))
 		return 1
 	}
 	// A breaking migration or cutover cancellation requires the maintenance
@@ -500,13 +573,13 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		if err != nil {
 			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %v", snapshotPath, err))
+			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %v", snapshotPath, unstampedRefusalDiagnostic(err, dataRoot)))
 			return 1
 		}
 	}
 	report, err := store.Upgrade(context.Background(), path, held, options)
 	if err != nil {
-		diagnostic := err.Error()
+		diagnostic := unstampedRefusalDiagnostic(err, dataRoot).Error()
 		if snapshotPath != "" {
 			diagnostic += "\nverified database snapshot: " + snapshotPath
 		}

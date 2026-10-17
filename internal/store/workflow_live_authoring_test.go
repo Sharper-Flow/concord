@@ -230,8 +230,8 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 33 {
-		t.Fatalf("canonical implementation head = v%d, want v33", definition.Version)
+	if want := builtinWorkflowCurrentVersions["workflow.implementation"]; definition.Version != want {
+		t.Fatalf("canonical implementation head = v%d, want v%d", definition.Version, want)
 	}
 	for _, candidate := range definition.StepGraph.Steps {
 		if candidate.ID == "discovery" {
@@ -489,8 +489,8 @@ func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 20 {
-		t.Fatalf("canonical research head = v%d, want v20", definition.Version)
+	if want := builtinWorkflowCurrentVersions["workflow.research"]; definition.Version != want {
+		t.Fatalf("canonical research head = v%d, want v%d", definition.Version, want)
 	}
 	if containsString(definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("record_worker_failure is still advertised on the canonical research head")

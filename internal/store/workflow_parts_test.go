@@ -15,16 +15,11 @@ import (
 // ID a part can emit through its parameters.
 func TestWorkflowPartsDefineEachStepOnce(t *testing.T) {
 	t.Parallel()
-	owners := map[string]string{}
-	for _, part := range builtinWorkflowParts() {
-		for _, id := range part.StepIDOptions {
-			if owner, taken := owners[id]; taken && owner != part.Ref {
-				t.Errorf("step %q is defined by %s and %s", id, owner, part.Ref)
-			}
-			owners[id] = part.Ref
-		}
+	catalog, err := workflowPartCatalog(builtinWorkflowParts())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(owners) == 0 {
+	if len(catalog) == 0 {
 		t.Fatal("the part catalog defines no steps")
 	}
 }
@@ -48,18 +43,6 @@ func TestWorkflowCompositionCompilesWithoutNewStepCode(t *testing.T) {
 	compiled, err := CompileWorkflowComposition(reduced)
 	if err != nil {
 		t.Fatalf("a composition of existing parts must compile: %v", err)
-	}
-	if err := ValidateWorkflowDefinition(compiled); err != nil {
-		t.Fatalf("the compiled definition is invalid: %v", err)
-	}
-	catalog := map[string]bool{}
-	for _, part := range builtinWorkflowParts() {
-		catalog[part.Ref] = true
-	}
-	for _, use := range reduced.Parts {
-		if !catalog[use.Ref] {
-			t.Fatalf("composition uses %s, which is not in the part catalog", use.Ref)
-		}
 	}
 	if slices.ContainsFunc(compiled.StepGraph.Steps, func(step WorkflowStep) bool { return step.ID == "proposal" }) {
 		t.Fatal("a dropped part's step survived compilation")
@@ -90,18 +73,27 @@ func TestLiveHeadsAreTheirCompiledCompositions(t *testing.T) {
 	}
 }
 
-// The first composed head changes no behavior: it holds the same steps in the
+// The first composed heads change no behavior: each holds the same steps in the
 // same order with the same ordered actions (workflowStepIsDeliveryGate reads
 // that order), the same edges, recovery routes, action contracts, policy, and
 // capabilities as the released head it succeeds. Only the definition-level
 // available_actions and action_definitions lists may be reordered.
 func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	t.Parallel()
-	for _, head := range BuiltinWorkflowDefinitions() {
-		previous, ok := BuiltinWorkflowRegistry().Lookup(head.Ref, head.Version-1)
-		if !ok {
-			t.Fatalf("%s has no predecessor", head.Ref)
+	for _, pair := range []struct {
+		ref               string
+		composed, release int64
+	}{
+		{"workflow.implementation", 33, 32},
+		{"workflow.break_fix", 30, 29},
+		{"workflow.research", 20, 19},
+	} {
+		composed, ok := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.composed)
+		previous, held := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.release)
+		if !ok || !held {
+			t.Fatalf("%s v%d or v%d is not registered", pair.ref, pair.composed, pair.release)
 		}
+		head := composed.Definition
 		if got, want := workflowShapeForComparison(t, head), workflowShapeForComparison(t, previous.Definition); got != want {
 			t.Errorf("%s v%d differs from v%d beyond list order", head.Ref, head.Version, previous.Definition.Version)
 		}

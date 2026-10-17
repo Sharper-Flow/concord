@@ -34,7 +34,7 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	"work.worktree_occupancy_released": {2: replayOnly},
 	"work.session_vacated":             {2: replayOnly},
 	"work.session_claim_landed":        {2: replayOnly},
-	"compaction_link.published":        {2: replayOnly},
+	"compaction_link.published":        {2: replayOnly, 3: replayOnly},
 	WorkerDispatched:                   {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
 	WorkerCompleted:                    {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly, 7: replayOnly},
 	WorkerFailed:                       {2: replayOnly, 3: replayOnly, 4: replayOnly},

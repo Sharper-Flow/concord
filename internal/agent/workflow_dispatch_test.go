@@ -670,9 +670,9 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
-	resultPayload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":5}],"next_valid_intents":[],"operation_id":"` + opID + `"}`
+	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workflowReplayWorkVersion(t, s), 10) + `}`
+	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	idempotencyChanged := "[]"
-	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")

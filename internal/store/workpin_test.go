@@ -46,15 +46,16 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	}
 
 	var transactionPin WorkPin
+	var available bool
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
 		var err error
-		transactionPin, err = ReadWorkPinTransactionTx(context.Background(), tx, "workpin-reader")
+		transactionPin, available, err = ReadMutationWorkPinTx(context.Background(), tx, "workpin-reader", nil)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(transactionPin, pin) {
-		t.Fatalf("transaction pin=%+v, read pin=%+v", transactionPin, pin)
+	if !available || !reflect.DeepEqual(transactionPin, pin) {
+		t.Fatalf("transaction pin=%+v available=%t, read pin=%+v", transactionPin, available, pin)
 	}
 	listing, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", WorkIDs: []string{"workpin-reader"}, Detail: "full", Limit: 20})
 	if err != nil {

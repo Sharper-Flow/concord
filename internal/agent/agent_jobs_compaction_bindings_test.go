@@ -59,11 +59,11 @@ func archivedWorkLocator(t *testing.T, s *store.Store, workID string) (locator, 
 	return notePath, commit, true
 }
 
-func archivedWorkCount(t *testing.T, s *store.Store, workID string) int {
+func archivedCancelledWorkCount(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT count(*) FROM archived_work WHERE id=?`, workID).Scan(&count); err != nil {
+		`SELECT count(*) FROM archived_work WHERE id=?`, "work-cancelled").Scan(&count); err != nil {
 		t.Fatalf("count archived_work: %v", err)
 	}
 	return count
@@ -124,7 +124,7 @@ func TestPredicateFirstCallChallengePublish(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("publish response=%+v", response)
 	}
-	if archivedWorkCount(t, s, "work-cancelled") != 1 {
+	if archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatal("approved publication did not record one canonical note")
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 1 {
@@ -180,7 +180,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["git"] = map[string]any{"commit_oid": commitOID}
 	obs.Effects = map[string]any{
 		"publication_order":   publicationOrderObserved,
-		"canonical_notes":     map[string]any{"count": archivedWorkCount(t, s, "work-cancelled")},
+		"canonical_notes":     map[string]any{"count": archivedCancelledWorkCount(t, s)},
 		"retry_safe_replayed": true,
 		"durable_tier":        durableTierEffects(t, home.RepoPath, locator),
 	}

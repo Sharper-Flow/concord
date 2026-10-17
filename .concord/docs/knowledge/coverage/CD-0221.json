@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-law-coverage.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-links.py"
+    }
+  ],
   "id": "CD-0221",
-  "reason": "Focused enforcement regressions and checked-revision corpus validation pass; this citation repair does not claim coverage grading.",
-  "state": "unmeasured"
+  "state": "satisfied"
 }

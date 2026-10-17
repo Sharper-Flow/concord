@@ -665,7 +665,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := replayWorkflowCorpusSetup(ctx, s, scenario.Setup, definition, actorRef, true); err != nil {
+	if err := replayWorkflowCorpusSetup(ctx, t, s, scenario.Setup, definition, actorRef, true); err != nil {
 		t.Fatal(err)
 	}
 	if definition.Definition.ChangesProductTruth != nil && *definition.Definition.ChangesProductTruth {
@@ -1009,7 +1009,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 			request.Fields["architecture_binding"] = corpusArchitectureBinding()
 		}
 	}
-	if err := replayWorkflowCorpusSetup(ctx, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
+	if err := replayWorkflowCorpusSetup(ctx, t, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
 		return workflowObservation{}, err
 	}
 	if actor.ActorClass == ActorOperator && (request.Fields["complete_gate_prerequisites"] != nil || request.Fields["record_verdict_prerequisites"] == true) {
@@ -2051,7 +2051,7 @@ func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64,
 	return sequence, err
 }
 
-func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, _ string, initializeMissing bool) error {
+func replayWorkflowCorpusSetup(ctx context.Context, t *testing.T, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, _ string, initializeMissing bool) error {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		productCreatedEvent("product", "workflow-corpus-product"),
 		projectCreatedEvent("project", "workflow-corpus-project"),
@@ -2139,6 +2139,9 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 		// not advance the work version, so worker evidence replays without an
 		// expected-version fence. The store still validates the typed payload.
 		if input.Kind == WorkerDispatched || input.Kind == WorkerCompleted || input.Kind == WorkerFailed {
+			if input.Kind == WorkerCompleted {
+				event = workerCompletionAtClaim(t, s, event)
+			}
 			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
 				return fmt.Errorf("setup event %s (%s): %w", input.EventID, input.Kind, err)
 			}

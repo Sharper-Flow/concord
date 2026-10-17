@@ -364,8 +364,7 @@ type WorkerCompletedPayload struct {
 	ReadbackModel       string `json:"readback_model"`
 	ReportSchemaVersion string `json:"report_schema_version"`
 	// WorkerDirectory is the directory the host session reported at completion.
-	// An empty value preserves compatibility with adapters that predate this
-	// boundary.
+	// Live appends require this proof; replay trusts the recorded payload.
 	WorkerDirectory string `json:"worker_directory,omitempty"`
 	// Evidence is the reported discharge of the dispatching lane's declared
 	// obligations. It is empty exactly when EvidenceOrigin is
@@ -1547,7 +1546,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	// reads the live host filesystem, which replay neither owns nor can reach:
 	// reclaimed worktrees no longer resolve, so replay trusts the recorded
 	// dispatch evidence instead.
-	if payload.WorkerDirectory != "" && !isWorkflowReplay(ctx) {
+	if !isWorkflowReplay(ctx) {
 		if err := validateWorkerDispatchWorktree(ctx, tx, event.SubjectID, payload.WorkerDirectory); err != nil {
 			return err
 		}

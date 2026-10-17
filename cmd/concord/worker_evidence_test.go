@@ -103,7 +103,8 @@ func workerCompleteJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
 		"readback_model": readback, "report_schema_version": store.WorkerReportSchemaVersion,
 		"evidence_origin": store.WorkerEvidenceReported, "evidence": evidence,
-		"assertion": signWorkerEvidence(t, key, assertion),
+		"worker_directory": filepath.Join(filepath.Dir(os.Getenv(dbOverrideEnv)), "worktree-"+workID),
+		"assertion":        signWorkerEvidence(t, key, assertion),
 	}
 	return mustJSON(t, value)
 }
@@ -162,6 +163,7 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 			evidence = append(evidence, map[string]any{"obligation": obligation, "detail": "discharged " + obligation})
 		}
 		request["report_schema_version"] = store.WorkerReportSchemaVersion
+		request["worker_directory"] = cliFixtureWorktree(t, os.Getenv(dbOverrideEnv))
 		request["evidence_origin"] = store.WorkerEvidenceReported
 		request["evidence"] = evidence
 	case agent.WorkerEvidenceVerbFail:

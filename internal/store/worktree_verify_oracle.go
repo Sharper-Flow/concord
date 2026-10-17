@@ -251,6 +251,21 @@ func nativeBundleForControl(oracle *AcceptanceOracle, id string) (NativeOracleCo
 // control, or preparation reference refuses typed before any stage. Live
 // claim, core subject, readiness, and receipt evaluation never run here.
 func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVerifyRequest, observedHead, identity string) (NativeOracleControlBundle, int64, nativeOracleAuthorization, error) {
+	b, version, auth, err := readNativeOracleDispatchBundleTx(ctx, q, req, observedHead, identity)
+	if err != nil {
+		return b, version, auth, err
+	}
+	if !slices.Contains(b.Control.ReadinessEvidenceRefs, req.Oracle.PreparationRunRef) {
+		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
+	}
+	return b, version, auth, nil
+}
+
+// readNativeOracleDispatchBundleTx resolves the immutable job/control join
+// before preparation selection. The execute reader additionally requires its
+// exact preparation reference; worker control resolution selects from this
+// same bundle instead of interpreting ordinary job check strings.
+func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req WorktreeVerifyRequest, observedHead, identity string) (NativeOracleControlBundle, int64, nativeOracleAuthorization, error) {
 	var b NativeOracleControlBundle
 	var auth nativeOracleAuthorization
 	var version int64
@@ -307,9 +322,6 @@ func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVeri
 	b, err = nativeBundleForControl(job.AcceptanceOracle, o.ControlID)
 	if err != nil {
 		return b, version, auth, err
-	}
-	if !slices.Contains(b.Control.ReadinessEvidenceRefs, o.PreparationRunRef) {
-		return refuse()
 	}
 	return b, job.ContractVersion, auth, nil
 }

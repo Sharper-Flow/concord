@@ -41,8 +41,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 29 {
-		t.Fatalf("current break_fix version = %d, want 29", current.Definition.Version)
+	if current.Definition.Version != 30 {
+		t.Fatalf("current break_fix version = %d, want 30", current.Definition.Version)
 	}
 	// An in-flight attempt on the held step: the stranded shape the carry
 	// forward exists for. The current head folds the diagnosis steps into

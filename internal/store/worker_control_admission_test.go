@@ -91,3 +91,26 @@ func TestNativeWorkerControlReplayRequiresCurrentAuthorization(t *testing.T) {
 		t.Fatalf("authorized replay did not return the retained result: %+v calls=%d launches=%d error=%v", replayed, calls, f.launches, err)
 	}
 }
+
+func TestNativeWorkerControlAttributesExecutionToAuthenticatedChild(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	request := f.request("actual-control-child", &f.a)
+	request.PrincipalRef = "principal/actual-child"
+	request.Owner = SessionWorktreeOwner{ClientRef: "client/actual-child", AgentRef: "agent/actual-child", SessionRef: "session/actual-child"}
+	request.NativeAuthorization = func(context.Context, *Transaction) error { return nil }
+	result, err := f.s.VerifyWorktree(context.Background(), request)
+	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" || f.launches != 1 {
+		t.Fatalf("authenticated child could not use the existing in-flight native producer: %+v %v", result, err)
+	}
+	var principal, client, agent, session string
+	if err := f.s.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref FROM worktree_verify_leases WHERE lease_id=?`, request.LeaseID).Scan(&principal, &client, &agent, &session); err != nil {
+		t.Fatal(err)
+	}
+	if principal != request.PrincipalRef || client != request.Owner.ClientRef || agent != request.Owner.AgentRef || session != request.Owner.SessionRef {
+		t.Fatalf("native execution borrowed another actor: %s %s %s %s", principal, client, agent, session)
+	}
+	var dispatches int
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkerDispatched, request.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
+		t.Fatalf("native execution manufactured terminal dispatch evidence: %d %v", dispatches, err)
+	}
+}

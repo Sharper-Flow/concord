@@ -10,8 +10,8 @@ import (
 )
 
 // WorkerControlAssertion is signed by the host, never authored by the worker.
-// AgentRef and SessionRef identify the actual child making the call. They are
-// distinct from the recorded lane actor to which native execution is attributed.
+// AgentRef and SessionRef identify the actual child making the call. Native
+// execution uses that authenticated identity, never its coordinator's actor.
 type WorkerControlAssertion struct {
 	ClientRef        string `json:"client_ref"`
 	AgentRef         string `json:"agent_ref"`
@@ -70,32 +70,32 @@ func (s *Service) verifyWorkerControlAssertionTx(ctx context.Context, tx *store.
 	return s.AuthorizeTx(ctx, tx, host, Invocation{ClientRef: a.ClientRef, AgentRef: a.AgentRef, SessionRef: a.SessionRef, Directory: a.Directory, Worktree: a.Worktree, ManifestDigest: a.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_verify", ProductID: a.ProductID, ProjectID: a.ProjectID})
 }
 
-func (s *Service) resolveAuthorizedWorkerControlTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, req store.WorkerControlRequest, a WorkerControlAssertion) (store.WorkerControlPlan, error) {
+func (s *Service) resolveAuthorizedWorkerControlTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, req store.WorkerControlRequest, a WorkerControlAssertion) (store.WorkerControlPlan, Authority, error) {
 	authority, err := s.verifyWorkerControlAssertionTx(ctx, tx, host, a)
 	if err != nil {
-		return store.WorkerControlPlan{}, err
+		return store.WorkerControlPlan{}, Authority{}, err
 	}
 	if req.WorkID != a.WorkID || req.ProjectID != a.ProjectID || req.AttemptID != a.AttemptID || req.WorktreeIdentity != a.WorktreeIdentity || req.ControlID != a.ControlID {
-		return store.WorkerControlPlan{}, authorityRefusal("worker control assertion does not bind this request")
+		return store.WorkerControlPlan{}, Authority{}, authorityRefusal("worker control assertion does not bind this request")
 	}
 	scopes, err := store.ProductsForWorkIDsTx(ctx, tx, []string{req.WorkID})
 	if err != nil {
-		return store.WorkerControlPlan{}, err
+		return store.WorkerControlPlan{}, Authority{}, err
 	}
 	if err := validateWorkReferenceScope(CallEnvelope{SelectedProductID: a.ProductID}, authority, OperationMutation, []string{req.WorkID}, scopes); err != nil {
-		return store.WorkerControlPlan{}, err
+		return store.WorkerControlPlan{}, Authority{}, err
 	}
 	plan, err := store.ResolveWorkerControlTx(ctx, tx, req)
 	if err != nil {
-		return store.WorkerControlPlan{}, err
+		return store.WorkerControlPlan{}, Authority{}, err
 	}
-	if plan.Oracle.WorkerPacketDigest != a.PacketDigest || plan.Actor.PrincipalRef != authority.PrincipalRef || plan.Actor.ClientRef != authority.ClientRef {
-		return store.WorkerControlPlan{}, authorityRefusal("worker control assertion does not bind the recorded dispatch actor and packet")
+	if plan.Oracle.WorkerPacketDigest != a.PacketDigest {
+		return store.WorkerControlPlan{}, Authority{}, authorityRefusal("worker control assertion does not bind the recorded packet")
 	}
 	if host.Host.WorktreePath == "" || host.Host.WorktreePath != plan.WorktreePath {
-		return store.WorkerControlPlan{}, authorityRefusal("worker control caller is outside the dispatched worktree")
+		return store.WorkerControlPlan{}, Authority{}, authorityRefusal("worker control caller is outside the dispatched worktree")
 	}
-	return plan, nil
+	return plan, authority, nil
 }
 
 // ExecuteWorkerControl reaches only the existing native producer. The first
@@ -118,24 +118,25 @@ func (s *Service) ExecuteWorkerControl(ctx context.Context, req store.WorkerCont
 		return store.WorktreeVerifyResult{}, err
 	}
 	var plan store.WorkerControlPlan
+	var authority Authority
 	if err := s.Store.Transact(ctx, func(tx *store.Transaction) error {
 		var err error
-		plan, err = s.resolveAuthorizedWorkerControlTx(ctx, tx, host, req, a)
+		plan, authority, err = s.resolveAuthorizedWorkerControlTx(ctx, tx, host, req, a)
 		return err
 	}); err != nil {
 		return store.WorktreeVerifyResult{}, err
 	}
 	return s.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
 		WorkID: req.WorkID, ProjectID: req.ProjectID, Oracle: &plan.Oracle,
-		LeaseID: a.LeaseID, RequestID: a.RequestID, PrincipalRef: plan.Actor.PrincipalRef,
+		LeaseID: a.LeaseID, RequestID: a.RequestID, PrincipalRef: authority.PrincipalRef,
 		SupportedBudgetSeconds: operation.SupportedBudgetSeconds, CallerBudgetApplied: true,
-		Owner: store.SessionWorktreeOwner{ClientRef: plan.Actor.ClientRef, AgentRef: plan.Actor.AgentRef, SessionRef: plan.Actor.SessionRef},
+		Owner: store.SessionWorktreeOwner{ClientRef: authority.ClientRef, AgentRef: authority.AgentRef, SessionRef: authority.SessionRef},
 		NativeAuthorization: func(ctx context.Context, tx *store.Transaction) error {
-			current, err := s.resolveAuthorizedWorkerControlTx(ctx, tx, host, req, a)
+			current, currentAuthority, err := s.resolveAuthorizedWorkerControlTx(ctx, tx, host, req, a)
 			if err != nil {
 				return err
 			}
-			if !reflect.DeepEqual(current, plan) {
+			if !reflect.DeepEqual(current, plan) || currentAuthority.PrincipalRef != authority.PrincipalRef || currentAuthority.ClientRef != authority.ClientRef || currentAuthority.AgentRef != authority.AgentRef || currentAuthority.SessionRef != authority.SessionRef {
 				return authorityRefusal("worker control binding changed before native admission")
 			}
 			now := s.now()

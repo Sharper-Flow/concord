@@ -276,19 +276,9 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if !worktreeSHAPattern.MatchString(observedHead) {
 		return refuse()
 	}
-	var payload []byte
-	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
- AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
- WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, req.WorkID, WorkflowActionCompleted, o.AttemptID).Scan(&auth.EventID, &auth.Seq, &payload)
-	if err == sql.ErrNoRows {
-		return refuse()
-	}
+	dispatch, auth, err := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, o.AttemptID)
 	if err != nil {
 		return b, version, auth, err
-	}
-	var dispatch workflowActionCompletedPayload
-	if err := json.Unmarshal(payload, &dispatch); err != nil {
-		return refuse()
 	}
 	if dispatch.WorkerSubjectCommit == "" || dispatch.WorkerSubjectCommit != observedHead || dispatch.AttemptEpoch != o.AttemptEpoch || dispatch.WorkerPacketDigest != o.WorkerPacketDigest || dispatch.WorkerWorktreeIdentity != identity || dispatch.WorkerJob == nil || *dispatch.WorkerJob != *o.WorkerJobBinding {
 		return refuse()
@@ -324,6 +314,22 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 		return b, version, auth, err
 	}
 	return b, job.ContractVersion, auth, nil
+}
+
+// readNativeOracleDispatchBindingTx is the shared live-attempt join. A native
+// Task executes while in_flight; terminal readback records worker.dispatched
+// later. Execution never fabricates that terminal evidence or its lane actor.
+func readNativeOracleDispatchBindingTx(ctx context.Context, q queryer, workID, attemptID string) (workflowActionCompletedPayload, nativeOracleAuthorization, error) {
+	var dispatch workflowActionCompletedPayload
+	var auth nativeOracleAuthorization
+	var payload []byte
+	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
+ AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
+ WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
+	if err == sql.ErrNoRows || err == nil && json.Unmarshal(payload, &dispatch) != nil {
+		return dispatch, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
+	}
+	return dispatch, auth, err
 }
 
 // readNativeOracleAuthorizationTx is the exact execute authorization the

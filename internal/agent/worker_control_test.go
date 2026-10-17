@@ -105,7 +105,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 	a.Signature = ed25519.Sign(key, CanonicalWorkerControlAssertion(a))
 	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"work_id":"foreign-control-work"}`)}
 	err := service.Store.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
+		_, _, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
 		return err
 	})
 	if err == nil || !strings.Contains(err.Error(), "work reference is outside authorized Product scope") {
@@ -124,7 +124,7 @@ func TestWorkerControlScopeUsesSignedHostProductWithoutInventingPacketFields(t *
 	}
 	req := store.WorkerControlRequest{WorkID: a.WorkID, ProjectID: a.ProjectID, AttemptID: a.AttemptID, WorktreeIdentity: a.WorktreeIdentity, ControlID: a.ControlID, Packet: json.RawMessage(`{"work_id":"work-control","attempt_id":"attempt-control"}`)}
 	err := service.Store.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
+		_, _, err := service.resolveAuthorizedWorkerControlTx(context.Background(), tx, probedHost(), req, a)
 		return err
 	})
 	if err == nil || !strings.Contains(err.Error(), "no authorized dispatch window exists") {

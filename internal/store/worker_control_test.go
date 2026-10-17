@@ -36,7 +36,7 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 	return f, WorkerControlRequest{WorkID: f.work, ProjectID: "project", AttemptID: f.a.AttemptID, WorktreeIdentity: workerWorktreeIdentity(f.repo), Packet: packet, ControlID: f.a.ControlID}
 }
 
-func TestResolveWorkerControlUsesRecordedProducerBindingAndLaneActor(t *testing.T) {
+func TestResolveWorkerControlUsesRecordedProducerBindingWithoutActorImpersonation(t *testing.T) {
 	f, req := workerControlFixture(t, true)
 	var eventsBefore, leasesBefore int
 	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
@@ -51,13 +51,6 @@ func TestResolveWorkerControlUsesRecordedProducerBindingAndLaneActor(t *testing.
 	}
 	if !oracleEntryIdentical(plan.Oracle, f.a) || plan.SubjectCommit != f.head || plan.WorktreePath != f.repo {
 		t.Fatalf("plan = %+v, want the exact recorded oracle request and raw subject", plan)
-	}
-	actor := plan.Actor
-	if actor.PrincipalRef != f.actor.PrincipalRef || actor.ClientRef != f.actor.ClientRef || actor.AgentRef != "agent/lane:implement" || actor.SessionRef != "session/"+req.AttemptID || actor.ActorClass != ActorAgent || actor.ActorRef == "" || actor.ActorRef == f.actor.ActorRef {
-		t.Fatalf("execution actor = %+v, want recorded lane identity, not the coordinator", actor)
-	}
-	if ref, err := WorkflowActorRef(actor); err != nil || ref != actor.ActorRef {
-		t.Fatalf("lane actor does not match its recorded identity: %+v %v", actor, err)
 	}
 	if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
 		inTx, err := ResolveWorkerControlTx(context.Background(), tx, req)
@@ -109,11 +102,32 @@ func TestResolveWorkerControlRefusesUnboundSelectors(t *testing.T) {
 	f.assertNoLaunch(t)
 }
 
-func TestResolveWorkerControlRequiresRecordedLaneDispatch(t *testing.T) {
+func TestResolveWorkerControlRefusesBrokenAuthorizedLaneJoin(t *testing.T) {
 	f, req := workerControlFixture(t, false)
+	if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
+		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `UPDATE worker_attempts SET lane_id='research' WHERE work_id=? AND attempt_id=?`, req.WorkID, req.AttemptID)
+		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
 	if !hasFailureKind(err, KindUnauthorizedDispatch) || !oracleEntryIdentical(plan, WorkerControlPlan{}) {
-		t.Fatalf("undispatched attempt returned a plan: %+v %v", plan, err)
+		t.Fatalf("attempt outside its authorized lane returned a plan: %+v %v", plan, err)
+	}
+	f.assertNoLaunch(t)
+}
+
+func TestResolveWorkerControlDuringLiveTaskBeforeTerminalReadback(t *testing.T) {
+	f, req := workerControlFixture(t, false)
+	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+	if err != nil || !oracleEntryIdentical(plan.Oracle, f.a) || plan.WorktreePath != f.repo {
+		t.Fatalf("live Task control required terminal-only dispatch evidence: %+v %v", plan, err)
+	}
+	var dispatches int
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkerDispatched, req.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
+		t.Fatalf("control resolution wrote early dispatch evidence: %d %v", dispatches, err)
 	}
 	f.assertNoLaunch(t)
 }

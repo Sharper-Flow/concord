@@ -23,6 +23,11 @@ const (
 	knowledgeRegistryPath  = ".concord/docs/knowledge/domain-registry.json"
 	knowledgeRecordTree    = ".concord/docs/knowledge/records"
 	knowledgeRecordTreeDir = knowledgeRecordTree + "/"
+	// The package map and the coverage tree are read beside the manifest
+	// at the same commit (CD-0222 D2). Only the knowledge index rebuild
+	// parses them; a manifest read carries their bytes and ignores them.
+	knowledgePackageMapPath  = ".concord/docs/knowledge/package-domains.json"
+	knowledgeCoverageTreeDir = ".concord/docs/knowledge/coverage/"
 )
 
 // knowledgeShardLayout is one shard-home tier a revision may carry
@@ -35,6 +40,10 @@ type knowledgeShardLayout struct {
 	recordTree       string
 	recordTreeDir    string
 	recordPathPrefix string
+	// packageMapPath and coverageTreeDir are empty for a tier that predates
+	// them, so such a revision carries neither.
+	packageMapPath  string
+	coverageTreeDir string
 }
 
 var knowledgeShardLayouts = []knowledgeShardLayout{
@@ -45,6 +54,8 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 		recordTree:       knowledgeRecordTree,
 		recordTreeDir:    knowledgeRecordTreeDir,
 		recordPathPrefix: manifestRecordPathPrefix,
+		packageMapPath:   knowledgePackageMapPath,
+		coverageTreeDir:  knowledgeCoverageTreeDir,
 	},
 	{
 		root:             "docs/knowledge",
@@ -59,12 +70,17 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 // knowledgeShards is the raw material of one manifest: the head, the domain
 // registry, and every record shard keyed by its file name. recordPathPrefix
 // carries the layout tier the shards were read from, so composition
-// validates record paths under the prefix that revision has.
+// validates record paths under the prefix that revision has. The package map
+// and the coverage shards keyed by file name ride beside them for the
+// knowledge index rebuild.
 type knowledgeShards struct {
-	head             []byte
-	registry         []byte
-	records          map[string][]byte
-	recordPathPrefix string
+	head              []byte
+	registry          []byte
+	records           map[string][]byte
+	recordPathPrefix  string
+	packageMap        []byte
+	packageMapPresent bool
+	coverage          map[string][]byte
 }
 
 // composeKnowledgeManifest assembles the manifest document the shards
@@ -166,7 +182,7 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 	if err != nil {
 		return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed knowledge shards", true, "restore the shard blobs and retry", err)
 	}
-	shards := knowledgeShards{records: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
+	shards := knowledgeShards{records: map[string][]byte{}, coverage: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
 	reader := tar.NewReader(bytes.NewReader(archive))
 	for {
 		header, err := reader.Next()
@@ -195,9 +211,8 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 }
 
 // accept places one archive member into the shards by path. Members outside
-// the three shard locations of every layout tier are ignored; coverage shards
-// and other files under a shard home are not part of the manifest. One
-// archive call extracts exactly one tier, so the layouts cannot mix.
+// the shard locations of every layout tier are ignored. One archive call
+// extracts exactly one tier, so the layouts cannot mix.
 func (s *knowledgeShards) accept(name string, content []byte) bool {
 	for _, layout := range knowledgeShardLayouts {
 		switch {
@@ -206,12 +221,22 @@ func (s *knowledgeShards) accept(name string, content []byte) bool {
 			s.recordPathPrefix = layout.recordPathPrefix
 		case name == layout.registryPath:
 			s.registry = content
-		case strings.HasPrefix(name, layout.recordTreeDir) && strings.HasSuffix(name, ".json") && !strings.Contains(strings.TrimPrefix(name, layout.recordTreeDir), "/"):
+		case directShardChild(name, layout.recordTreeDir):
 			s.records[strings.TrimPrefix(name, layout.recordTreeDir)] = content
+		case layout.packageMapPath != "" && name == layout.packageMapPath:
+			s.packageMap, s.packageMapPresent = content, true
+		case layout.coverageTreeDir != "" && directShardChild(name, layout.coverageTreeDir):
+			s.coverage[strings.TrimPrefix(name, layout.coverageTreeDir)] = content
 		default:
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+// directShardChild reports whether name is a JSON file directly under dir.
+func directShardChild(name, dir string) bool {
+	rest, found := strings.CutPrefix(name, dir)
+	return found && strings.HasSuffix(rest, ".json") && !strings.Contains(rest, "/")
 }

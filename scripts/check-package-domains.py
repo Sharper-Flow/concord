@@ -6,7 +6,7 @@ map, .concord/docs/knowledge/package-domains.json. The map is architecture
 data, not law, and the footprint read joins it with the law index. This
 validator owns the propositions that keep it true:
 
-  shape     schema_version "1.0"; packages sorted by path with unique,
+  shape     at most 16 KiB; schema_version "1.0"; packages sorted by path with unique,
             normalized relative directory paths and no glob characters; each
             entry names 1-16 sorted, unique Domain IDs; canonical shard bytes
   go        every Go package that `go list ./...` reports has an exact entry
@@ -37,6 +37,9 @@ MAP_PATH = ".concord/docs/knowledge/package-domains.json"
 SCHEMA_VERSION = "1.0"
 MAX_DOMAINS = 16
 MAX_PACKAGES = 512
+# The store reads every file under the knowledge root through one bounded
+# archive and refuses a member above this size (maxKnowledgeRecord).
+MAX_MAP_BYTES = 16 * 1024
 CODE_SUFFIXES = (".go", ".ts", ".js", ".py", ".sh")
 CODE_ROOTS = ("bin/",)
 GLOB = re.compile(r"[*?\[\]{}]")
@@ -77,6 +80,8 @@ def normalized_path(value: object) -> bool:
 
 def validate_shape(raw: bytes) -> tuple[list[dict], list[str]]:
     findings: list[str] = []
+    if len(raw) > MAX_MAP_BYTES:
+        return [], [f"{MAP_PATH}: {len(raw)} bytes exceeds the {MAX_MAP_BYTES}-byte knowledge shard bound"]
     try:
         document = json.loads(raw)
     except json.JSONDecodeError as exc:

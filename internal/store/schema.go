@@ -6317,6 +6317,127 @@ ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(even
 ALTER TABLE law_relations ADD COLUMN declarer_law_id TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id));
 `,
 	},
+	{
+		Version:  130,
+		Name:     "knowledge_package_map_and_law_footprint",
+		Breaking: false,
+		SQL: `
+-- CD-0222 D2: the package map, and each law's evidence paths and coverage
+-- anchors, projected from the knowledge home at the scanned commit beside
+-- law_subjects. The rows are git-derived: a rebuild clears and rewrites
+-- them. None references law_subjects, so a binary that predates these
+-- tables still clears its own. Every rebuild writes the home's map row,
+-- with a NULL hash when the commit carries no map, so a row whose commit
+-- differs from the watermark's names a projection an older writer left,
+-- and the demand-driven freshness check rebuilds it. Each table binds its
+-- home pair to a Project locator. The locator delete guard is unchanged:
+-- every rebuild that writes these rows writes the same home's watermark row,
+-- which that guard already names.
+CREATE TABLE knowledge_package_maps (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    content_hash       TEXT CHECK(content_hash IS NULL OR (length(content_hash)=71 AND substr(content_hash,1,7)='sha256:')),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id)
+);
+CREATE TABLE knowledge_package_domains (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    package_path       TEXT NOT NULL CHECK(length(package_path) BETWEEN 1 AND 256),
+    domain_id          TEXT NOT NULL CHECK(length(domain_id) > 0),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, package_path, domain_id),
+    FOREIGN KEY(home_project_id, home_locator_id) REFERENCES knowledge_package_maps(home_project_id, home_locator_id) ON DELETE RESTRICT
+);
+CREATE TABLE law_evidence_paths (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    path               TEXT NOT NULL CHECK(length(path) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, path)
+);
+CREATE INDEX law_evidence_paths_path ON law_evidence_paths(home_project_id, home_locator_id, path, law_id);
+CREATE TABLE law_coverage_anchors (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    ordinal            INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 31),
+    kind               TEXT NOT NULL CHECK(kind IN ('adapter_test','generated','go_test','scenario','validator')),
+    value              TEXT NOT NULL CHECK(length(value) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, ordinal)
+);
+CREATE TRIGGER knowledge_package_maps_guard_insert BEFORE INSERT ON knowledge_package_maps FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_maps is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_maps_guard_update BEFORE UPDATE ON knowledge_package_maps FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_maps is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_maps_guard_delete BEFORE DELETE ON knowledge_package_maps FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_maps is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_insert BEFORE INSERT ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_update BEFORE UPDATE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_delete BEFORE DELETE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_insert BEFORE INSERT ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_update BEFORE UPDATE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_delete BEFORE DELETE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_insert BEFORE INSERT ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_update BEFORE UPDATE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_delete BEFORE DELETE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_maps_home_pair_bound_insert
+BEFORE INSERT ON knowledge_package_maps FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_package_maps home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_package_maps_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON knowledge_package_maps FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_package_maps home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_package_domains_home_pair_bound_insert
+BEFORE INSERT ON knowledge_package_domains FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_package_domains home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_package_domains_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON knowledge_package_domains FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_package_domains home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_evidence_paths_home_pair_bound_insert
+BEFORE INSERT ON law_evidence_paths FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_evidence_paths home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_evidence_paths_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_evidence_paths FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_evidence_paths home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_coverage_anchors_home_pair_bound_insert
+BEFORE INSERT ON law_coverage_anchors FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_coverage_anchors home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_coverage_anchors_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_coverage_anchors FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_coverage_anchors home pair does not reference a Project locator');
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

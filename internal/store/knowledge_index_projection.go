@@ -600,7 +600,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if productID != "" && !designated {
 		role = manifestRegisteredSourceRole
 	}
-	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
+	manifest, shards, manifestMissing, err := readKnowledgeManifestShardsRunner(ctx, runGitRunner{}, home.RepoPath, commit, role)
+	if err != nil {
+		return err
+	}
+	architecture, err := prepareKnowledgeArchitecture(shards, manifest, !manifestMissing && productID != "" && designated)
 	if err != nil {
 		return err
 	}
@@ -639,7 +643,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, productID, designated); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, architecture, productID, designated); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -654,6 +658,10 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 // TestDerivedKnowledgeClearOrderRespectsForeignKeys derives the same order
 // from the schema and refuses a drift.
 var derivedKnowledgeClearOrder = []string{
+	"knowledge_package_domains",
+	"knowledge_package_maps",
+	"law_coverage_anchors",
+	"law_evidence_paths",
 	"law_bodies",
 	"law_relations",
 	"law_cross_source_relations",
@@ -666,7 +674,7 @@ var derivedKnowledgeClearOrder = []string{
 	"domain_registries",
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, preparedProductID string, preparedDesignated bool) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, architecture knowledgeArchitecture, preparedProductID string, preparedDesignated bool) error {
 	var productID string
 	var designated bool
 	var domainProjectionData domainProjection
@@ -751,6 +759,9 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		}
 	}
 	if err := insertKnowledgeLawRelations(ctx, tx, home, commit, laws); err != nil {
+		return err
+	}
+	if err := insertKnowledgeArchitecture(ctx, tx, home, commit, laws, architecture); err != nil {
 		return err
 	}
 	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
@@ -1109,7 +1120,11 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		if err != nil {
 			return err
 		}
-		if !undeclared {
+		mapStale, err := knowledgePackageMapRowStale(ctx, s.db, home)
+		if err != nil {
+			return err
+		}
+		if !undeclared && !mapStale {
 			// A work can become known without Git drift, so a fresh watermark
 			// proves the projection, not the standing of the law it carries.
 			// The legislated-authority admission reruns before the fresh answer.

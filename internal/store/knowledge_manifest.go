@@ -1647,24 +1647,39 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowle
 // manifest under its committed-read policy runner and tests can inject a
 // deterministic runner.
 func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
+	manifest, _, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, repo, commit, role)
+	return manifest, missing, err
+}
+
+// readKnowledgeManifestShardsRunner is readKnowledgeManifestRunner that also
+// returns the shards a sharded commit was composed from. A commit read in
+// the aggregate shape, or carrying no manifest, returns empty shards.
+func readKnowledgeManifestShardsRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, knowledgeShards, bool, error) {
 	shards, sharded, err := readKnowledgeShardsAtCommitRunner(ctx, runner, repo, commit)
 	if err != nil {
-		return KnowledgeManifest{}, false, err
+		return KnowledgeManifest{}, knowledgeShards{}, false, err
 	}
 	if sharded {
 		manifest, err := composeKnowledgeManifest(shards, role)
 		if err != nil {
-			return KnowledgeManifest{}, false, err
+			return KnowledgeManifest{}, knowledgeShards{}, false, err
 		}
 		// Every committed manifest read proves the operator overrides it
 		// carries (CD-0194 D2): an external record is law only while its
 		// anchor decision, read from this same commit, carries the closed
 		// approve instruction for the override's exact Product and path.
 		if err := validateOverrideAnchors(manifest, committedOverrideAnchorReaderRunner(ctx, runner, repo, commit)); err != nil {
-			return KnowledgeManifest{}, false, err
+			return KnowledgeManifest{}, knowledgeShards{}, false, err
 		}
-		return manifest, false, nil
+		return manifest, shards, false, nil
 	}
+	manifest, missing, err := readAggregateKnowledgeManifestRunner(ctx, runner, repo, commit, role)
+	return manifest, knowledgeShards{}, missing, err
+}
+
+// readAggregateKnowledgeManifestRunner reads a commit that predates the
+// shards: the aggregate file, or the legacy state with no manifest.
+func readAggregateKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
 	entry, err := gitTreeEntryRunner(ctx, runner, repo, commit, knowledgeManifestPath)
 	if err != nil {
 		// A missing manifest is the legacy, explicitly-supported state.

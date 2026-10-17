@@ -170,6 +170,11 @@ class PackageDomainMapTests(unittest.TestCase):
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
             self.assertFinding(checker.validate(self.root, FILES, PACKAGES), "bytes are not canonical")
 
+    def test_oversized_map_refuses(self) -> None:
+        self.write(clean_entries(), raw=b" " * (checker.MAX_MAP_BYTES + 1))
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
+            self.assertFinding(checker.validate(self.root, FILES, PACKAGES), "exceeds the 16384-byte knowledge shard bound")
+
     def test_repository_map_passes(self) -> None:
         root = checker.ROOT
         self.assertEqual(checker.validate(root, checker.tracked_files(root), checker.go_packages(root)), [])

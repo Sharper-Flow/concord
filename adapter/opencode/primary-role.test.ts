@@ -17,7 +17,7 @@ const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_r
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 const WATCHING = ["concord_ci_watch"]
 const WORKFLOW_CATALOG = [...MUTATING, ...READS, ...WATCHING].sort()
-const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read"].sort()
+const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read", "concord_worker_check"].sort()
 const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
 const UTILITY_AGENTS = agentUtilities.map((utility) => `concord-${utility.id}`)
 
@@ -130,6 +130,22 @@ describe("primary role guard", () => {
     }
   })
 
+  test("the bounded checker passes the role ceiling only for execution-capable lanes", async () => {
+    for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
+      const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
+      const granted = lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
+      const { calls, definition } = recording()
+      const call = guardPrimaryRole("concord_worker_check", definition).execute({}, context(agent))
+      if (granted) {
+        expect(await call).toBe("ran")
+        expect(calls).toHaveLength(1)
+      } else {
+        await expect(call).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+        expect(calls).toEqual([])
+      }
+    }
+  })
+
   test("unknown host agents, including unregistered repair, keep established pass-through behavior", async () => {
     for (const agent of ["concord-repair", "concord-1", "concord-2", "build"]) {
       for (const toolID of registered) {
@@ -149,7 +165,10 @@ describe("primary role guard", () => {
     expect(roleDeniedConcordTools["concord-coordinator"].boundary).toContain("operator")
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
       const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
-      const expected = lane?.capabilities.includes("read_repository") ? WORKFLOW_CATALOG : CATALOG
+      const granted = new Set<string>()
+      if (lane?.capabilities.includes("read_repository")) granted.add("concord_worker_read")
+      if (lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))) granted.add("concord_worker_check")
+      const expected = CATALOG.filter((tool) => !granted.has(tool))
       expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(expected)
       expect(roleDeniedConcordTools[agent].boundary.length).toBeGreaterThan(0)
     }
@@ -166,6 +185,7 @@ describe("primary role guard", () => {
     }
     // An agent name alone supplies no attempt or source-reading authority.
     await expect(plugin!.tool.concord_worker_read.execute({ ordinal: 0, offset: 0, length: 1 }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)
+    await expect(plugin!.tool.concord_worker_check.execute({ control_id: "control:missing" }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)
   })
 })
 

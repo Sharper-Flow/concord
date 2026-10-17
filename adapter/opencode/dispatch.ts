@@ -6,7 +6,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerSc
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
 import { coreBinary } from "./generated-release"
-import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
+import { SecretToolCredentialStore, b64, canonicalClientAssertion, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, serializeLanePacket, type DispatchWindows } from "./dispatch-window"
 import { armedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane, type RouteResult, type SessionReader } from "./move-session"
@@ -1756,13 +1756,7 @@ export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uin
   const version = assertion["version"]
   const prefix = version === 2 ? "worker-evidence-v2\0" : "worker-evidence-v1\0"
   if (version === 2) names.splice(11, 0, "observation_digest")
-  const body = names.map((key) => {
-    const value = assertion[key]
-    const text = value == null ? "" : typeof value === "number" ? String(value) : String(value)
-    const bytes = new TextEncoder().encode(text)
-    return `${key}=${bytes.length}:${text}|`
-  }).join("")
-  return new TextEncoder().encode(`${prefix}${body}`)
+  return canonicalClientAssertion(prefix, names, assertion)
 }
 
 // The typed failure-attribution observation the adapter records beside a

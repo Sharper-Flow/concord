@@ -26,6 +26,14 @@ export function privateKeyObject(raw: Uint8Array) {
 
 export function b64(value: Uint8Array) { return Buffer.from(value).toString("base64") }
 
+export function canonicalClientAssertion(prefix: string, names: readonly string[], fields: Record<string, unknown>): Uint8Array {
+  const body = names.map((name) => {
+    const text = fields[name] == null ? "" : String(fields[name])
+    return `${name}=${Buffer.byteLength(text, "utf8")}:${text}|`
+  }).join("")
+  return new TextEncoder().encode(`${prefix}${body}`)
+}
+
 export function randomNonce() { return crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "") }
 
 export function clientRef() { return process.env.CONCORD_CLIENT_REF ?? "opencode" }

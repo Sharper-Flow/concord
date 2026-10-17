@@ -150,6 +150,7 @@ ADAPTER_FILES = (
     "task-result.ts",
     "turn-move-boundary.ts",
     "worker-report-protocol.js",
+    "worker_control.ts",
     "worker_recovery.ts",
     "worker_source.ts",
     "workflow-status.ts",

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,6 +54,23 @@ func TestWorkerControlProofRequiresActualAgentExecutionPolicy(t *testing.T) {
 	a.Signature = ed25519.Sign(key, CanonicalWorkerControlAssertion(a))
 	if _, err := checkWorkerControlProof(t, service, a); err == nil || !strings.Contains(err.Error(), "agent scope") {
 		t.Fatalf("signed ungranted child borrowed coordinator authority: %v", err)
+	}
+}
+
+func TestWorkerControlCanonicalSharedHostVector(t *testing.T) {
+	raw, err := os.ReadFile("../../adapter/opencode/worker-control-vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		Assertion WorkerControlAssertion `json:"assertion"`
+		Canonical string                 `json:"canonical"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(CanonicalWorkerControlAssertion(vector.Assertion)); got != vector.Canonical {
+		t.Fatalf("host and Go worker control framing differ: %q", got)
 	}
 }
 

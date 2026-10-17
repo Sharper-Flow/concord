@@ -531,9 +531,9 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
             "github_search_commits", "github_search_repositories",
         ],
         "edit_scoped_files": ["edit", "write", "patch", "apply_patch", "morph_edit"],
-        "run_tests": ["worker_check"],
-        "run_targeted_checks": ["worker_check"],
-        "run_validators": ["worker_check"],
+        "run_tests": ["concord_worker_check"],
+        "run_targeted_checks": ["concord_worker_check"],
+        "run_validators": ["concord_worker_check"],
     }
     requirements = {tool_id: [[]] for tool_id in ("execute", "skill", "todowrite")}
     for capability, tool_ids in bindings.items():
@@ -675,6 +675,17 @@ def command_duration_instructions(lane: dict) -> str:
     # widened to full Go package suites died at the host's 120-second shell
     # default. Project the declared budget (CD-0017 D1) as a rule instead.
     budget = lane["budgets"]["time_seconds_max"]
+    if not edits_scoped_files(lane):
+        return f"""## Command duration
+
+This lane's wall-time budget is {budget} seconds for the whole attempt.
+General shell execution is unavailable. When your capabilities grant recorded
+checks, use `concord_worker_check` with only a `control_id` from
+`inputs.worker_job.acceptance_oracle.controls`. The host supplies the recorded
+native execution and its deadline. Ordinary `checks` strings are requirements,
+not executable authority. Missing recorded backing belongs in a failed report;
+never replace it with an invented command or a general Concord call.
+"""
     return f"""## Command duration
 
 This lane's wall-time budget is {budget} seconds for the whole attempt. The

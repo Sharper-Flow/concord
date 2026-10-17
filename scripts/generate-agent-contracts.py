@@ -1822,6 +1822,20 @@ def validate_worker_read_host_tool(tool: dict) -> None:
             fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
 
 
+def validate_worker_check_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_check host schema must be a closed object")
+    if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
+        fail("concord_worker_check must require only control_id")
+    reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
+    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
+    expected = {key: value for key, value in reference.items() if key != "description"}
+    if actual != expected:
+        fail("concord_worker_check control_id must use the workflow reference bounds")
+
+
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
@@ -1830,6 +1844,7 @@ HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
     "concord_ci_watch": validate_ci_watch_host_tool,
     "concord_worker_read": validate_worker_read_host_tool,
+    "concord_worker_check": validate_worker_check_host_tool,
 }
 
 

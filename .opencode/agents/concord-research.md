@@ -21,6 +21,7 @@ tools:
   concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
+  concord_worker_check: false
 permission:
   bash: deny
   edit: deny
@@ -164,10 +165,13 @@ assigned result.
 
 ## Command duration
 
-This lane's wall-time budget is 900 seconds for the whole attempt. The
-shell tool ends a command at its `timeout` parameter, about 120 seconds by
-default. Give a command that can take minutes an explicit `timeout` in
-milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
+This lane's wall-time budget is 900 seconds for the whole attempt.
+General shell execution is unavailable. When your capabilities grant recorded
+checks, use `concord_worker_check` with only a `control_id` from
+`inputs.worker_job.acceptance_oracle.controls`. The host supplies the recorded
+native execution and its deadline. Ordinary `checks` strings are requirements,
+not executable authority. Missing recorded backing belongs in a failed report;
+never replace it with an invented command or a general Concord call.
 
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `concord-worker-result-v1`.

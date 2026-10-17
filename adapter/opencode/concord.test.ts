@@ -1,6 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
-import { createHash } from "node:crypto"
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -15,6 +15,8 @@ import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+import { privateKeyObject } from "./credentials"
+import { canonicalWorkerControl } from "./worker_control"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
   const directory = await createDirectory(prefix)
@@ -125,6 +127,70 @@ test("the worker reader transport refuses failed, oversized, or non-single-objec
     } finally {
       adapter.configureConcordAdapter({ reset: true })
     }
+  }
+})
+
+function workerControlTransportFixture() {
+  const context = { sessionID: "actual-child", messageID: "actual-message", agent: "concord-verify", directory: "/dispatched-worktree", abort: new AbortController().signal, ask: async () => {} }
+  const request: Parameters<typeof adapter.executeBoundWorkerControl>[0] = { work_id: "check-work", project_id: "check-project", attempt_id: "check-attempt", worktree_identity: "sha256:" + "b".repeat(64), control_id: "control:check", packet: { schema_version: "2.0", work_id: "check-work", attempt_id: "check-attempt", step_id: "verify", lane_id: "verify", lane_version: 1, lane_digest: "sha256:" + "c".repeat(64), inputs: { task: "Check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" } } } }
+  const digest = "sha256:" + "a".repeat(64)
+  const ambient = { project_id: request.project_id, product_ids: ["check-product"], scope_version: "scope-check", main_worktree: false }
+  return { context, request, digest, ambient }
+}
+
+test("the worker check transport signs the actual child and invokes only the private native ingress", async () => {
+  const f = workerControlTransportFixture()
+  const calls: Array<{ argv: string[]; input: any; options: unknown }> = []
+  const seed = new Uint8Array(32).fill(7)
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => seed }, runner: { run: async (argv, input, signal, options) => {
+    expect(signal).toBe(f.context.abort)
+    const body = JSON.parse(input)
+    calls.push({ argv, input: body, options })
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" }
+    return { exitCode: 0, stderr: "", stdout: JSON.stringify({ work_id: f.request.work_id, project_id: f.request.project_id, lease_id: body.assertion.lease_id, operation_ref: "native/retained", oracle: { phase: "execute", attempt_id: f.request.attempt_id, control_id: f.request.control_id, worker_packet_digest: f.digest, qualification: "fail" } }) }
+  } } })
+  try {
+    const result: any = await adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)
+    expect(result.oracle.qualification).toBe("fail")
+    expect(calls.map((call) => call.argv)).toEqual([["concord", "project-resolve"], ["concord", "worker-control"]])
+    expect(calls[1].options).toEqual({ cwd: f.context.directory })
+    const { assertion, ...request } = calls[1].input
+    expect(request).toEqual(f.request)
+    expect(assertion).toMatchObject({ agent_ref: f.context.agent, session_ref: f.context.sessionID, directory: f.context.directory, worktree: f.context.directory, product_id: "check-product", project_id: f.request.project_id, control_id: f.request.control_id, packet_digest: f.digest, request_id: "actual-child-actual-message" })
+    expect(assertion.nonce).toMatch(/^[a-f0-9]{64}$/)
+    expect(assertion.model).toBeUndefined()
+    expect(verifySignature(null, canonicalWorkerControl(assertion), createPublicKey(privateKeyObject(seed)), Buffer.from(assertion.signature, "base64"))).toBe(true)
+    expect(verifySignature(null, canonicalWorkerControl({ ...assertion, agent_ref: "coordinator" }), createPublicKey(privateKeyObject(seed)), Buffer.from(assertion.signature, "base64"))).toBe(false)
+  } finally { adapter.configureConcordAdapter({ reset: true }) }
+})
+
+test("worker check cancellation during credential lookup never reaches native execution", async () => {
+  const f = workerControlTransportFixture()
+  const abort = new AbortController()
+  f.context.abort = abort.signal
+  const calls: string[][] = []
+  configureHostLease({ reset: true })
+  adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => { abort.abort(new Error("child canceled")); return new Uint8Array(32).fill(7) } }, runner: { run: async (argv) => { calls.push(argv); return { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" } } } })
+  try {
+    await expect(adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)).rejects.toThrow("child canceled")
+    expect(calls).toEqual([["concord", "project-resolve"]])
+  } finally { adapter.configureConcordAdapter({ reset: true }) }
+})
+
+test("worker native transport never retries a refusal or a mismatched producer response", async () => {
+  for (const refused of [true, false]) {
+    const f = workerControlTransportFixture()
+    let calls = 0
+    configureHostLease({ reset: true })
+    adapter.configureConcordAdapter({ credentials: { getPrivateKey: async () => new Uint8Array(32).fill(7) }, runner: { run: async (argv) => {
+      calls++
+      return argv[1] === "project-resolve" ? { exitCode: 0, stdout: JSON.stringify(f.ambient), stderr: "" } : { exitCode: refused ? 1 : 0, stdout: refused ? "" : '{"work_id":"foreign"}', stderr: refused ? "execution policy refused" : "" }
+    } } })
+    try {
+      await expect(adapter.executeBoundWorkerControl(f.request, f.context, f.digest, f.context.directory)).rejects.toThrow("reconcile native lease")
+      expect(calls).toBe(2)
+    } finally { adapter.configureConcordAdapter({ reset: true }) }
   }
 })
 

@@ -38,7 +38,6 @@ const callableFixtures = [
   ["worker evidence key", "const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))"],
   ["reoccupy fixture key", 'const privateKey = createPrivateKey({ key: Buffer.concat([PRIVATE_KEY_PREFIX, Buffer.from(PRIVATE_SEED)]), format: "der", type: "pkcs8" })'],
   ["arbitrary callee", "const privateKey = unrelatedFactoryFunction()"],
-  ["spaced callee", "const privateKey = unrelatedFactoryFunction ()"],
   ["member call", "const privateKey = unrelatedFactoryObject.createKey()"],
 ] as const
 
@@ -53,6 +52,8 @@ for (const suffix of [".go", ".ts", ".mjs", ".js"]) {
   const literalFixtures = [
     ["quoted assignment", `const privateKey = "${"s".repeat(24)}"`, "credential assignment"],
     ["bare assignment", `privateKey = ${"s".repeat(24)}`, "credential assignment"],
+    ["spaced callee", 'const privateKey = ' + 'unrelatedFactoryFunction ()', "credential assignment"],
+    ["bare token with parenthetical", `password = ${"s".repeat(24)} (rotated)`, "credential assignment"],
     ["quoted call-like value", 'const privateKey = "' + 'unrelatedFactoryFunction()"', "credential assignment"],
     ["quoted call argument", `const k = decode("sk-live-${"s".repeat(24)}")`, "credential shape"],
     ["bare call argument", `const k = decode(sk-live-${"s".repeat(24)})`, "credential shape"],

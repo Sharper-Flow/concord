@@ -22,10 +22,10 @@ PATTERNS = [
     ("credential assignment", re.compile(
         r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|private[_ -]?key)\b\s*[:=]\s*"
         r"(?P<quote>[\"'])?(?!<|\$\{|REDACTED\b|example\b|your[-_]|changeme\b)[A-Za-z0-9+/=_-]{16,}"
-        # Quoted values stay literal. An unquoted callee is not a value;
-        # the token boundary prevents backtracking into a shorter prefix.
+        # Quoted values stay literal. An unquoted call requires '(' immediately
+        # after its callee; token boundaries prevent prefix backtracking.
         # Credential shapes in its arguments are still scanned independently.
-        r"(?(quote)|(?![A-Za-z0-9+/=_-]|\s*(?:\.\s*[A-Za-z_$][\w$]*)*\s*\())",
+        r"(?(quote)|(?![A-Za-z0-9+/=_-]|(?:\s*\.\s*[A-Za-z_$][\w$]*)*\())",
         re.IGNORECASE,
     )),
 ]

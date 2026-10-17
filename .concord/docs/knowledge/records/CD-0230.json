@@ -1,0 +1,56 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-17T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0230",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0159"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
+  "product_wide_rationale": "It carries the goals Appendix A conflict rules and the authority to change Product law, which bind every child Domain and every law record, so no single child Domain can own it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7f62ae1609a8a24a3cf4a6943ca2601cdfb10129f95af6af20d7fd08b517d73b",
+  "status": "accepted",
+  "summary": "One validated contract table holds every goals Appendix A rule with its enforcing mechanism or a listed gap, and applying a rule leaves a record. An agent changes law that is not serious under P12 with a recorded reason, and that revision makes the record derived; serious changes, crucial-size changes, and governed scope cuts keep operator approval. Operator approval points fall in four classes or stay as listed gaps. Follow-up items carry a rule label in Linear.",
+  "tags": [
+    "law",
+    "authority",
+    "approval",
+    "governance",
+    "product-law"
+  ],
+  "title": "The conflict rules are one checked table, and an agent changes law that is not serious"
+}

@@ -764,11 +764,7 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 		// canonical_path, enforce the structural properties live normalization
 		// guaranteed at write time.
 		if payload.Kind == LocatorGitRemote {
-			version := event.PayloadVersion
-			if event.replaySourcePayloadVersion != 0 {
-				version = event.replaySourcePayloadVersion
-			}
-			normalized, err := normalizeRemoteVersion(payload.Value, version)
+			normalized, err := normalizeRemoteVersion(payload.Value, projectLocatorEventVersion(event))
 			if err != nil {
 				return payload, err
 			}
@@ -785,6 +781,13 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 func upcastProjectLocatorV1(event Event) (Event, error) {
 	event.PayloadVersion = 2
 	return event, nil
+}
+
+func projectLocatorEventVersion(event Event) int {
+	if event.replaySourcePayloadVersion != 0 {
+		return event.replaySourcePayloadVersion
+	}
+	return event.PayloadVersion
 }
 
 func validateLiveProjectLocator(event Event) error {
@@ -830,7 +833,7 @@ func foldProjectLocatorAdded(ctx context.Context, tx *sql.Tx, event Event) error
 	if err != nil {
 		return err
 	}
-	if err := insertProjectLocator(ctx, tx, p, event.OccurredAt); err != nil {
+	if err := insertProjectLocator(ctx, tx, p, event.OccurredAt, projectLocatorEventVersion(event)); err != nil {
 		return err
 	}
 	return bumpVersion(ctx, tx, "projects", event, p.ExpectedVersion, p.ResultingVersion, "Project")
@@ -844,7 +847,7 @@ func foldProjectLocatorUpdated(ctx context.Context, tx *sql.Tx, event Event) err
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE project_locators SET kind=?,locator_value=?,normalized_value=?,updated_at=? WHERE locator_id=? AND project_id=?`, p.Kind, p.Value, p.NormalizedValue, event.OccurredAt.UTC().Format(time.RFC3339Nano), p.LocatorID, p.ProjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE project_locators SET kind=?,locator_value=?,normalized_value=?,updated_at=?,normalization_version=? WHERE locator_id=? AND project_id=?`, p.Kind, p.Value, p.NormalizedValue, event.OccurredAt.UTC().Format(time.RFC3339Nano), projectLocatorEventVersion(event), p.LocatorID, p.ProjectID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindMembershipConflict, "fold_event", "Project locator is already claimed", false, "choose a unique normalized locator")
@@ -896,9 +899,9 @@ func foldProjectLocatorRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 	return bumpVersion(ctx, tx, "projects", event, p.ExpectedVersion, p.ResultingVersion, "Project")
 }
 
-func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPayload, occurred time.Time) error {
+func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPayload, occurred time.Time, version int) error {
 	stamp := occurred.UTC().Format(time.RFC3339Nano)
-	_, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp)
+	_, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at,normalization_version) VALUES(?,?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp, version)
 	if err == nil {
 		return nil
 	}

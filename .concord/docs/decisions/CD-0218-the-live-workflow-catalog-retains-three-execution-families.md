@@ -288,19 +288,19 @@ immutability, retention, and digest-proof obligations under D6.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current
   decision outline, its criteria grammar, and the writing rules.
 - `python3 scripts/check-knowledge-index.py` proves the record shard, the
-  refreshed CD-0115 hash, and the composed aggregate agree.
+  content hashes, and the composed aggregate agree.
 - `python3 scripts/check-knowledge-closure.py` proves no unprocessed document
   remains under the knowledge roots.
-- `python3 scripts/check-law-coverage.py` proves this record's coverage stays
-  unmeasured with its stated reason.
+- `python3 scripts/check-law-coverage.py` validates this record's executable
+  evidence anchors.
 - `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`
   prove document links and knowledge placement hold.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0218
   identifier allocates once across the fetched peer refs.
-- Criterion 1 stays open: the retired-family refusal journeys land with the
-  live-authoring slice, and this publication runs no refusal witness. The
-  capture baseline they extend is
-  `internal/agent.TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction`.
+- Criterion 1 is covered by
+  `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
+  Authenticated capture of each retired family refuses with unchanged work,
+  contract, workflow-instance and event counts, and unchanged database write counts.
 - Criterion 2 keeps its diagnosis anchors:
   `go test ./internal/store/ -run TestRecordDiagnosisRefusalsLeaveZeroWrites`
   and `go test ./internal/store/ -run TestRecordDiagnosisRecordsAllSectionsAtomically`.
@@ -310,12 +310,18 @@ immutability, retention, and digest-proof obligations under D6.
 - Criterion 4 keeps its frozen-history anchors:
   `go test ./internal/store/ -run TestHistoricalJournalFixturesReplayWithOriginalPins`
   and `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`.
-- Criterion 5 stays open: the activation-refusal gate lands with the cutover
-  slice, and this publication runs no activation witness. The before-mutation
-  refusal baseline it extends is
-  `internal/store.TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable`.
+- Criterion 5 is covered by
+  `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
+  `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
+  Readiness refuses the nonterminal archived pin without moving event or migration rows;
+  terminal historical pins remain readable and rebuild with an unchanged projection hash.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 keeps its ordinary-recovery anchors:
   `go test ./internal/store/ -run TestStaleRegistryRescanAdmitsExactlyOneRePinRoute`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
+
+Retained research failure derivation, retry and rebuild are covered by
+`internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.
+These runtime witnesses establish enforcement, not live consumer disposition,
+supersession publication or release activation. D5 still governs those operator actions.

@@ -132,7 +132,8 @@ func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, s
 		launched()
 	}
 	err = cmd.Wait()
-	if !drainNativeStreams(copied, readers) {
+	cut := drainNativeStreams(copied, readers)
+	if cut != nil {
 		capture.complete = false
 	}
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -141,33 +142,37 @@ func runNativeOracleStage(ctx context.Context, dir string, argv, env []string, s
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return exit.ExitCode(), nil
+		return exit.ExitCode(), cut
 	}
 	if err != nil {
 		return -1, err
 	}
-	return 0, nil
+	return 0, cut
 }
 
-// drainNativeStreams reports whether every stream reached end of file. A
-// stream still open the finalize delay after the child exited is cut.
-func drainNativeStreams(copied <-chan error, readers []*os.File) bool {
+var errNativeStreamCut = errors.New("native output stream stayed open past the finalize delay")
+
+// drainNativeStreams waits for every stream to reach end of file. A stream
+// still open the finalize delay after the child exited is cut.
+func drainNativeStreams(copied <-chan error, readers []*os.File) error {
 	timer := time.NewTimer(worktreeVerifyFinalizeTimeout)
 	defer timer.Stop()
-	complete := true
+	var cut error
 	for pending := len(readers); pending > 0; {
 		select {
 		case err := <-copied:
 			pending--
-			complete = complete && err == nil
+			if cut == nil {
+				cut = err
+			}
 		case <-timer.C:
-			complete = false
+			cut = errNativeStreamCut
 			for _, r := range readers {
 				_ = r.Close()
 			}
 		}
 	}
-	return complete
+	return cut
 }
 
 func nativeStreamDescriptor(runRef, stream string, b []byte, complete bool) NativeOracleStream {

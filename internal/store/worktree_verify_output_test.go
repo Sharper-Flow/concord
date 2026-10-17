@@ -52,26 +52,25 @@ func TestNativeOracleStreamBudgetBoundary(t *testing.T) {
 
 // A background child keeps the stage's output open after the stage exits, so
 // the finalize delay ends the stream. A cut stream is never complete, whatever
-// the exit status; a stream that reaches end of file stays complete.
+// the exit status, and the stage names the cut; a stream that reaches end of
+// file stays complete.
 func TestNativeOracleStageStreamCutByWaitDelayIsIncomplete(t *testing.T) {
 	for _, tc := range []struct {
 		name, script, stdout string
 		exit                 int
 		complete             bool
+		err                  error
 	}{
-		{"held open after a failing exit", "sleep 30 & printf partial; exit 3", "partial", 3, false},
-		{"held open after a successful exit", "sleep 30 & printf partial", "partial", 0, false},
-		{"closed at exit", "printf whole; exit 3", "whole", 3, true},
+		{"held open after a failing exit", "sleep 30 & printf partial; exit 3", "partial", 3, false, errNativeStreamCut},
+		{"held open after a successful exit", "sleep 30 & printf partial", "partial", 0, false, errNativeStreamCut},
+		{"closed at exit", "printf whole; exit 3", "whole", 3, true, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			capture := &nativeStreamCapture{complete: true}
 			exit, err := runNativeOracleStage(context.Background(), t.TempDir(), []string{"sh", "-c", tc.script}, nil, nil, capture, nil)
-			if capture.complete != tc.complete || string(capture.stdout) != tc.stdout {
-				t.Fatalf("complete=%v stdout=%q, want complete=%v stdout=%q (exit=%d err=%v)", capture.complete, capture.stdout, tc.complete, tc.stdout, exit, err)
-			}
-			if tc.complete && (exit != tc.exit || err != nil) {
-				t.Fatalf("exit=%d err=%v, want exit=%d", exit, err, tc.exit)
+			if capture.complete != tc.complete || string(capture.stdout) != tc.stdout || exit != tc.exit || err != tc.err {
+				t.Fatalf("complete=%v stdout=%q exit=%d err=%v, want complete=%v stdout=%q exit=%d err=%v", capture.complete, capture.stdout, exit, err, tc.complete, tc.stdout, tc.exit, tc.err)
 			}
 		})
 	}

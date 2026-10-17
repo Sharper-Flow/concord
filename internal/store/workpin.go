@@ -134,14 +134,59 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadWorkPinTransactionTx adapts the opaque store transaction used by agent
-// mutations to the SQL transaction-scoped pin reader.
-func ReadWorkPinTransactionTx(ctx context.Context, transaction *Transaction, workID string) (WorkPin, error) {
+// ReadMutationWorkPinTx distinguishes a pin from a known absent post-state.
+// An absent instance without an outside-repair hold, or an own committed
+// removal, has no pin. The returned identity still carries its version;
+// every other unreadable pin is an error.
+func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
-		return WorkPin{}, err
+		return WorkPin{}, false, err
 	}
-	return ReadWorkPinTx(ctx, tx, workID)
+	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
+}
+
+func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+	identity := WorkPin{WorkID: workID}
+	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&identity.Version)
+	var instance bool
+	switch err {
+	case sql.ErrNoRows:
+		removed := false
+		for _, eventID := range ownEventIDs {
+			var expected int64
+			err := tx.QueryRowContext(ctx, `SELECT expected_version FROM work_removal_operations WHERE work_id=? AND event_id=? AND state='committed'`, workID, eventID).Scan(&expected)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				return WorkPin{}, false, err
+			}
+			identity.Version = expected + 1
+			removed = true
+			break
+		}
+		if !removed {
+			return WorkPin{}, false, newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
+		}
+	case nil:
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, workID).Scan(&instance); err != nil {
+			return WorkPin{}, false, err
+		}
+	default:
+		return WorkPin{}, false, err
+	}
+	if !instance {
+		disposition, err := outsideRepairDispositionTx(ctx, tx, workID)
+		if err != nil {
+			return WorkPin{}, false, err
+		}
+		if disposition == nil || disposition.State == OutsideRepairStateResumed {
+			return identity, false, nil
+		}
+	}
+	pin, err := ReadWorkPinTx(ctx, tx, workID)
+	return pin, true, err
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.

@@ -1,5 +1,74 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestArchivedFamilyPublicMutationRefusesBeforeWrite"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecordDiagnosisRefusalsLeaveZeroWrites"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecordDiagnosisRecordsAllSectionsAtomically"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCombinedRejectRetryDispatchesThroughTheDispatchOwner"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetryLaunchFailureAfterCommittedIntentStaysTruthful"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHistoricalJournalFixturesReplayWithOriginalPins"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStaleRegistryRescanAdmitsExactlyOneRePinRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResearchDerivedFailureRetriesAndRebuilds"
+    }
+  ],
   "id": "CD-0218",
-  "reason": "Law-only candidate publication under CON-902 A6. No runtime acceptance, consumer cutover, or release activation ran. The retired-family refusal and activation-refusal witnesses land with the live-authoring and cutover slices; candidate anchors named in the record are unexecuted by this change.",
-  "state": "unmeasured"
+  "state": "satisfied"
 }

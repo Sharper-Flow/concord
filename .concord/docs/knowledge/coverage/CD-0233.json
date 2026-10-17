@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeWaitsForRequiredContexts"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeRequiredContextAtTheFullPage"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeReadsRequiredContextsOncePerBase"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeRequiredReadFailureIsError"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeStalledRequiredReadIsPending"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
+    }
+  ],
+  "id": "CD-0233",
+  "state": "satisfied"
+}

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestEnvelopeGoldenOutcomes(t *testing.T) {
@@ -685,6 +688,12 @@ func TestOperationPayloadValidationNamesEveryMissingAndUnknownField(t *testing.T
 
 func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 	t.Parallel()
+	_, workID, pin := enrichmentPinFixture(t)
+	changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}}
+	payload, intents, err := enrichMutationPayload(mutationPayload(changed, nil), []store.WorkPin{pin})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, operation := range []struct{ tool, operation string }{
 		{"concord_work_define", "capture"}, {"concord_work_define", "revise_intent"},
 		{"concord_work_transition", "lifecycle"}, {"concord_work_transition", "workflow_action"},
@@ -693,8 +702,7 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 	} {
 		t.Run(operation.tool+"."+operation.operation, func(t *testing.T) {
 			base := NewBase("mutation-result", operation.tool, operation.operation)
-			intent := NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect"}
-			response := (runtime{Tool: base.Tool, Operation: base.Operation}).mutationResult(base, mutationPayload([]ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "2"}}, []NextIntent{intent}), []ChangedRef{{EntityKind: "work_item", ID: "w-1", Version: "2"}}, []NextIntent{intent})
+			response := (runtime{Tool: base.Tool, Operation: base.Operation}).mutationResult(base, payload, changed, intents)
 			if response.Outcome != OutcomeOK {
 				t.Fatalf("canonical mutation result rejected: %+v", response.Error)
 			}

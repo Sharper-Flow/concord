@@ -335,8 +335,12 @@ immutability, retention, and digest-proof obligations under D6.
   `go test ./internal/store/ -run TestStaleRegistryRescanAdmitsExactlyOneRePinRoute`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
 - Criterion 8's derived-failure actor and fenced checkpoint anchors are:
-  `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`
-  and `go test ./internal/store/ -run TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint`.
+  `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`,
+  `go test ./internal/store/ -run TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint`,
+  `go test ./internal/store/ -run TestDerivedDispositionRefusesTheDisposedLaneCheckpoint`
+  and `go test ./internal/store/ -run TestDerivedDispositionWriterLosesThePenAtTheNextDispatch`.
+  The last two refuse the disposed lane's checkpoint and, after the next dispatch
+  re-pins a lane, the former disposer's checkpoint.
 
 Retained research failure derivation, retry and rebuild are covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.

@@ -16,27 +16,28 @@ Concord's Go core needs one primary client transport. The binding inputs are
 CD-0003's short-lived Go CLI decision, the accepted TS1 through TS5
 contracts, the capability-placement native-authority rule, and the official
 OpenCode custom-tool, plugin, permission, and MCP documentation reviewed
-2026-08-06. This record fixes the adapter as one thin TypeScript custom-tool
-module adapting the accepted tools to the short-lived CLI, with client
-bootstrap, transport, and the host approval bridge.
+2026-08-06. The thin TypeScript adapter provides the accepted custom tools
+through a plugin entry module, with transport to the short-lived CLI and the
+host approval bridge.
+
 ## Contract
 
-The binding contract is sections 1 through 5: the one-module decision and its
-three host responsibilities, the process and transport rules including client
+The binding contract is sections 1 through 5: the adapter boundary and its
+host responsibilities, the process and transport rules including client
 bootstrap, the registration and schema rules including the hidden
 TS5 envelope, the approval bridge with its `always: []` rule, and the adapter
-boundary of allowed and forbidden behaviors. Sections 6 through 11 record the
-plugin and MCP alternatives, evidence, implementation acceptance, and
+boundary of allowed and forbidden behaviors. Sections 6 through 11 describe
+registration, alternatives, evidence, implementation acceptance, and
 falsifiers, and carry no obligation.
+
 ## 1. Decision
 
-Concord's primary OpenCode integration is one **thin TypeScript custom-tool adapter
-module**, installed globally as `concord.ts`. It exports the eight accepted TS3/TS4
-tools and adapts them to CD-0003's short-lived Go CLI. OpenCode's documented naming
-rule (`<filename>_<exportname>`) yields the accepted `concord_*` names without a
-plugin.
+Concord's primary OpenCode integration is a **thin TypeScript adapter**. The
+`concord.ts` module defines the generated current tools and adapts calls to
+CD-0003's short-lived Go CLI. The `concord-plugin.ts` entry module registers
+those definitions under their `concord_*` names through OpenCode's plugin API.
 
-The adapter has three host-specific responsibilities:
+The adapter's domain-tool interface has three host-specific responsibilities:
 
 1. register the accepted tool names, descriptions, and strict schemas once;
 2. inject OpenCode's trusted session, agent, directory, and worktree context into
@@ -44,10 +45,13 @@ The adapter has three host-specific responsibilities:
 3. submit a host permission request through the current tool-context `ask` method
    when the core returns an exact approval challenge.
 
-The adapter is **not a plugin and contains no hooks**. Every domain decision, scope
-resolution, authorization check, approval binding, expected-version check,
-idempotency decision, event append, recovery state, and result classification stays
-in the Go core.
+The plugin entry also registers only the host runtime hooks that accepted
+decisions require. The continuity hook re-asserts core-derived state without
+approval, gating, or payload-validation
+authority, as [CD-0090 D1–D2](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
+requires. Every domain decision, scope resolution, authorization check, approval
+binding, expected-version check, idempotency decision, event append, recovery
+state, and result classification stays in the Go core.
 
 ## 2. Process and transport
 
@@ -98,7 +102,7 @@ that account/process is outside Concord's authority model.
 
 ## 3. Registration and schemas
 
-`concord.ts` exports exactly:
+The plugin entry registers custom-tool definitions from `concord.ts`, including:
 
 ```text
 product_view      → concord_product_view
@@ -191,17 +195,15 @@ The adapter may retry one failed transport attempt only when no typed core respo
 was received, using the same request and idempotency key. Core decides whether the
 retry returns a prior result, resumes a durable operation, or executes.
 
-## 6. Why one module, not a plugin
+## 6. Plugin entry and transport module
 
-Official OpenCode custom tools can invoke any language, receive session/agent/
-directory/worktree context, and export multiple tools from one file. One `concord.ts`
-module gives all eight exports a shared version, transport, approval, and
-malformed-output closure.
-
-Plugin-registered and standalone tools use the same current tool-context bridge.
-Concord needs no event interception, prompt/message modification, shell environment,
-compaction hook, or agent behavior change. A plugin adds configuration/lifecycle
-surface without a required capability.
+`concord-plugin.ts` owns registration and the host hooks required by accepted
+decisions. [CD-0090](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md)
+owns the continuity re-pin hook;
+[CD-0102 D2/D5](./decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md#d2-the-plugin-binds-the-packet-to-the-next-matching-call)
+defines the native Task dispatch and completion bridge;
+[CD-0199](./decisions/CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md)
+owns the plugin CI watcher and its delivery hooks. `concord.ts` stays transport-only.
 
 ## 7. Why not MCP
 
@@ -225,8 +227,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 | Candidate | Decision |
 |---|---|
 | Agent calls CLI via `bash` | Rejected: loses schemas, hidden TS5 context, approval correlation, and selection reliability. |
-| One `concord.ts` exporting eight tools | **Selected:** one shared closure; no hooks. |
-| Thin OpenCode plugin | Rejected: same tool context; no plugin-only hook needed. |
+| Thin plugin entry with shared `concord.ts` transport | **Selected:** generated tool registration and accepted host runtime hooks; domain authority stays in Go. |
 | Eight tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
 | Local/remote MCP | Rejected for v1: no second client, extra context/lifecycle, no-daemon conflict. |
 | TypeScript core/SQLite access | Rejected: second authority/validator. |
@@ -237,8 +238,8 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 - Custom tools: TS/JS definitions may invoke any language; Zod schemas; multiple
   exports; context includes agent/session/message/directory/worktree:
   <https://opencode.ai/docs/custom-tools/>.
-- Plugins can register tools and receive project/directory/worktree, but no required
-  plugin-only capability was found: <https://opencode.ai/docs/plugins/>.
+- Plugins can register tools, receive project/directory/worktree, and expose host
+  hooks: <https://opencode.ai/docs/plugins/>.
 - Permissions use `allow|ask|deny`, input patterns, and per-agent overrides:
   <https://opencode.ai/docs/permissions/>.
 - Current source wires the same `ask` into standalone/plugin tools. `ask` returns
@@ -272,7 +273,7 @@ Reopen TS6 when:
 
 - pinned OpenCode cannot bind challenge safely through void-returning `ask`;
 - custom-tool context cannot populate the TS5 envelope without model plumbing;
-- module lifecycle/crash risk exceeds plugin/other adapter in measured runs;
+- adapter lifecycle/crash risk exceeds an alternative transport in measured runs;
 - spawn overhead fires CD-0003 reversal;
 - a concrete second client requires portable transport; or
 - OpenCode adds a simpler external-binary tool adapter preserving schema, context,

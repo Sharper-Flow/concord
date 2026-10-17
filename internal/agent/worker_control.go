@@ -140,10 +140,7 @@ func (s *Service) ExecuteWorkerControl(ctx context.Context, req store.WorkerCont
 				return authorityRefusal("worker control binding changed before native admission")
 			}
 			now := s.now()
-			if err := store.PruneAndRecordNonceTx(ctx, tx, a.ClientRef, a.Nonce, now.Format(time.RFC3339Nano), now.Add(s.skew()).Format(time.RFC3339Nano), now.Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {
-				return err
-			}
-			return nil
+			return store.PruneAndRecordNonceTx(ctx, tx, a.ClientRef, a.Nonce, now.Format(time.RFC3339Nano), now.Add(s.skew()).Format(time.RFC3339Nano), now.Add(-s.skew()).Format(time.RFC3339Nano))
 		},
 	})
 }

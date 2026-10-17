@@ -23,7 +23,7 @@ export type WorkerCapabilityContext = {
 type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent">
 type Options = { sessions?: Sessions; windows?: DispatchWindows; subjectRunner?: DispatchRunner }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -42,13 +42,16 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   // Membership can require authentication, never grant it. A settled child
   // stays fenced without making unrelated host work depend on Concord scope.
   const managedChildren = new Set<string>()
-  // A root's host parent identity is immutable. Remember only that fact, not
-  // an agent name or mutable managed-scope metadata that could later change.
-  const roots = new Set<string>()
+  // Parent identity is immutable; the selected agent is refreshed by chat.
+  const roots = new Map<string, boolean>()
   const unresolved = new Set<string>()
 
-  async function observe(sessionID: string): Promise<void> {
-    if (roots.has(sessionID)) return
+  async function observe(sessionID: string, selectedAgent?: string): Promise<void> {
+    const laneSelected = agentLanes.some((lane) => selectedAgent === `concord-${lane.id}`)
+    if (roots.has(sessionID)) {
+      if (selectedAgent !== undefined) roots.set(sessionID, laneSelected)
+      return
+    }
     const reader = sessions.sessionReader()
     if (!reader) return
     const signal = AbortSignal.timeout(5_000)
@@ -56,7 +59,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
       const result = await reader.get(sessionID, signal)
       const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
       if (info.parentID === undefined) {
-        roots.add(sessionID)
+        roots.set(sessionID, selectedAgent === undefined ? agentLanes.some((lane) => info.agent === `concord-${lane.id}`) : laneSelected)
       } else {
         if (typeof info.parentID !== "string" || !info.parentID) throw new WorkerCapabilityError("cannot authenticate tool access: the host parent identity is invalid")
         if (await sessions.hasManagedParent(sessionID, signal)) managedChildren.add(sessionID)
@@ -78,10 +81,10 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     const result = await reader.get(sessionID, signal)
     const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
     if (info.parentID === undefined) {
-      if (agentLanes.some((lane) => info.agent === `concord-${lane.id}`)) {
+      if (roots.get(sessionID) || agentLanes.some((lane) => info.agent === `concord-${lane.id}`)) {
         throw new WorkerCapabilityError("a Concord lane requires an active authorized attempt")
       }
-      roots.add(sessionID)
+      roots.set(sessionID, false)
       unresolved.delete(sessionID)
       return null
     }
@@ -120,7 +123,10 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   }
 
   async function before(input: { tool: string; sessionID: string }, output: { args: Record<string, unknown> }): Promise<void> {
-    if (roots.has(input.sessionID)) return
+    if (roots.has(input.sessionID)) {
+      if (roots.get(input.sessionID)) throw new WorkerCapabilityError("a Concord lane requires an active authorized attempt")
+      return
+    }
     if (!windows.hasActiveAttempts() && !managedChildren.has(input.sessionID) && !unresolved.has(input.sessionID)) return
     const context = await authorize(input.sessionID)
     if (!context) return

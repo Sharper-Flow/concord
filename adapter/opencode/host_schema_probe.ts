@@ -5,6 +5,7 @@ import { contractOperations, hostToolSchemas, workflowActionPublicVariants } fro
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
+import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
@@ -297,6 +298,14 @@ const readerRoot = object(readerDefinition.jsonSchema, "published worker reading
 if (JSON.stringify(readerRoot) !== JSON.stringify(hostToolSchemas.concord_worker_read)) fail("concord_worker_read differs from its closed authored contract")
 inspect(readerRoot)
 registrationBytes.concord_worker_read = Buffer.byteLength(JSON.stringify(readerRoot), "utf8")
+
+const check = workerCheckTool({ authorize: async () => null }, async () => { throw new Error("the schema probe must not execute worker checks") })
+const checkDefinition = { description: check.description, parameters: {}, jsonSchema: publishedArgsSchema(check.args, "worker check registration schema") }
+await publishWorkerCheckDefinition({ toolID: "concord_worker_check" }, checkDefinition)
+const checkRoot = object(checkDefinition.jsonSchema, "published worker check schema")
+if (JSON.stringify(checkRoot) !== JSON.stringify(hostToolSchemas.concord_worker_check)) fail("concord_worker_check differs from its closed authored contract")
+inspect(checkRoot)
+registrationBytes.concord_worker_check = Buffer.byteLength(JSON.stringify(checkRoot), "utf8")
 
 // Opt-in real-host permission-merge evidence: `--host-merge <agents-dir>
 // <summary.json> [binary]` resolves every generated role's permissions

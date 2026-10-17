@@ -1,6 +1,6 @@
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { validateAgainstSchema, type AgentLanePacket } from "./dispatch"
-import { type createWorkerCapabilityGuard, toolAllowedByCapabilities, WorkerCapabilityError } from "./lane_capabilities"
+import { type createWorkerCapabilityGuard, isRecord as record, toolAllowedByCapabilities, WorkerCapabilityError } from "./lane_capabilities"
 
 export const WORKER_READ_TOOL = "concord_worker_read"
 const contract = hostToolSchemas.concord_worker_read
@@ -18,10 +18,6 @@ export type WorkerReadingRequest = {
 type Reader = (request: WorkerReadingRequest, signal: AbortSignal, directory: string) => Promise<unknown>
 type Guard = Pick<ReturnType<typeof createWorkerCapabilityGuard>, "authorize">
 type Selectors = Pick<WorkerReadingRequest, "ordinal" | "offset" | "length">
-
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 function renderPage(value: unknown, selectors: Selectors): string {
   const keys = ["ordinal", "source_identity", "content_hash", "offset", "next_offset", "total_bytes", "eof", "data"]

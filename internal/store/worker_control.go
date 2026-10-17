@@ -26,19 +26,6 @@ type WorkerControlPlan struct {
 	WorktreePath  string              `json:"worktree_path"`
 }
 
-// ResolveWorkerControl reads the exact recorded control without executing it,
-// acquiring a lease, consuming a nonce, or recording an event.
-func (s *Store) ResolveWorkerControl(ctx context.Context, req WorkerControlRequest) (WorkerControlPlan, error) {
-	var plan WorkerControlPlan
-	err := s.readSnapshot(ctx, func(q queryer) error {
-		return resolveWorkerControl(ctx, q, req, &plan)
-	})
-	if err != nil {
-		return WorkerControlPlan{}, err
-	}
-	return plan, nil
-}
-
 // ResolveWorkerControlTx lets the execution admission revalidate the exact
 // binding in its own SQL-only authorization transaction. No native stage or
 // Git command may run while that transaction holds the store connection.

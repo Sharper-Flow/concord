@@ -15,7 +15,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), process.cwd())
   await windows.bind("task", "parent", {}, "task-call", async () => process.cwd(), process.cwd())
-  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, opening: serializeLanePacket(packet), extraPart: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
+  const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
   const reader = {
     get: async (id: string) => {
       if (state.failedReads.has(id)) throw new Error("host session read unavailable")
@@ -24,7 +24,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
     messages: async () => ({ data: [{ info: { role: "user", agent: state.openingAgent }, parts: [{ type: "text", text: state.opening }, ...(state.extraPart ? [{ type: "text", text: "extra instruction" }] : [])] }], response: new Response(null, { status: 200 }) }),
   }
   const guard = createWorkerCapabilityGuard({ windows, subjectRunner, sessions: {
-    sessionReader: () => reader,
+    sessionReader: () => state.readerUnavailable ? null : reader,
     taskScope: async () => "managed" as const,
     hasManagedParent: async (id: string) => {
       if (state.failedAncestry.has(id)) throw new Error("host ancestry read unavailable")
@@ -123,6 +123,23 @@ test("a verified root session does not depend on host reads while another worker
   f.state.failedAncestry.add("root")
   await f.before("bash", {}, "root")
   await f.guard.observe("root")
+})
+
+test("a cached root switched to a lane must acquire an authorized attempt", async () => {
+  const f = await fixture()
+  await f.guard.observe("root", "build")
+  await f.guard.observe("root", "concord-review")
+  await expect(f.before("read", {}, "root")).rejects.toThrow("active authorized attempt")
+  await f.guard.observe("root", "build")
+  await f.before("bash", {}, "root")
+})
+
+test("an unobserved caller without host parent identity cannot bypass an active attempt", async () => {
+  const f = await fixture()
+  f.state.readerUnavailable = true
+  for (const sessionID of ["root", "child"]) {
+    await expect(f.before("read", {}, sessionID)).rejects.toThrow("cannot authenticate")
+  }
 })
 
 test("an ancestry read failure does not abort chat or let a retired child escape", async () => {

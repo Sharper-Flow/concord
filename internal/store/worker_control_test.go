@@ -7,6 +7,16 @@ import (
 	"testing"
 )
 
+func resolveWorkerControlTest(s *Store, req WorkerControlRequest) (WorkerControlPlan, error) {
+	var plan WorkerControlPlan
+	err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var err error
+		plan, err = ResolveWorkerControlTx(context.Background(), tx, req)
+		return err
+	})
+	return plan, err
+}
+
 func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, WorkerControlRequest) {
 	t.Helper()
 	f := newNativeOracleFixture(t)
@@ -45,24 +55,12 @@ func TestResolveWorkerControlUsesRecordedProducerBindingWithoutActorImpersonatio
 	if err := f.s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leasesBefore); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+	plan, err := resolveWorkerControlTest(f.s, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !oracleEntryIdentical(plan.Oracle, f.a) || plan.SubjectCommit != f.head || plan.WorktreePath != f.repo {
 		t.Fatalf("plan = %+v, want the exact recorded oracle request and raw subject", plan)
-	}
-	if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
-		inTx, err := ResolveWorkerControlTx(context.Background(), tx, req)
-		if err != nil {
-			return err
-		}
-		if !oracleEntryIdentical(inTx, plan) {
-			t.Fatalf("transaction-bound resolution differs: %+v", inTx)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
 	var eventsAfter, leasesAfter int
 	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
@@ -93,7 +91,7 @@ func TestResolveWorkerControlRefusesUnboundSelectors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			req := original
 			change(&req)
-			plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+			plan, err := resolveWorkerControlTest(f.s, req)
 			if err == nil || !oracleEntryIdentical(plan, WorkerControlPlan{}) {
 				t.Fatalf("unbound selector returned a plan: %+v %v", plan, err)
 			}
@@ -112,7 +110,7 @@ func TestResolveWorkerControlRefusesBrokenAuthorizedLaneJoin(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+	plan, err := resolveWorkerControlTest(f.s, req)
 	if !hasFailureKind(err, KindUnauthorizedDispatch) || !oracleEntryIdentical(plan, WorkerControlPlan{}) {
 		t.Fatalf("attempt outside its authorized lane returned a plan: %+v %v", plan, err)
 	}
@@ -121,7 +119,7 @@ func TestResolveWorkerControlRefusesBrokenAuthorizedLaneJoin(t *testing.T) {
 
 func TestResolveWorkerControlDuringLiveTaskBeforeTerminalReadback(t *testing.T) {
 	f, req := workerControlFixture(t, false)
-	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+	plan, err := resolveWorkerControlTest(f.s, req)
 	if err != nil || !oracleEntryIdentical(plan.Oracle, f.a) || plan.WorktreePath != f.repo {
 		t.Fatalf("live Task control required terminal-only dispatch evidence: %+v %v", plan, err)
 	}
@@ -142,7 +140,7 @@ func TestResolveWorkerControlRefusesRetiredAttempt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := f.s.ResolveWorkerControl(context.Background(), req)
+	plan, err := resolveWorkerControlTest(f.s, req)
 	if !hasFailureKind(err, KindUnauthorizedDispatch) || !oracleEntryIdentical(plan, WorkerControlPlan{}) {
 		t.Fatalf("retired attempt returned a plan: %+v %v", plan, err)
 	}

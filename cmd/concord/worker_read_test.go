@@ -46,7 +46,7 @@ func TestWorkerReadCLIRejectsCallerAuthoredPathsAndExecution(t *testing.T) {
 			called = true
 			return store.WorkerReadingPage{}, nil
 		}, &out, &errOut)
-		if code == 0 || called || out.Len() != 0 || !strings.Contains(errOut.String(), "unknown field") {
+		if code != inputRefusalExit || called || out.Len() != 0 || !strings.Contains(errOut.String(), "unknown field") {
 			t.Fatalf("field %s reached the reader: code=%d called=%v out=%s error=%s", key, code, called, out.String(), errOut.String())
 		}
 	}

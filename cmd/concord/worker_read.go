@@ -11,7 +11,7 @@ func runWorkerRead(raw []byte, read func(context.Context, store.WorkerReadingReq
 	var request store.WorkerReadingRequest
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, "worker-read", err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	page, err := read(context.Background(), request)
 	if err != nil {

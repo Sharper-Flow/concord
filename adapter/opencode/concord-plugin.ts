@@ -122,7 +122,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   return {
     tool: tools,
     "chat.message": async (
-      input: { sessionID: string; messageID?: string },
+      input: { sessionID: string; messageID?: string; agent?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },
     ) => {
       // The ci-watch start notice is a noReply user message, and the host
@@ -132,7 +132,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // treat the notice as an operator turn. Skip those when every part
       // carries the notice marker.
       if (isCiWatchNoticeMessage(output?.parts)) return
-      await workerCapabilities.observe(input.sessionID)
+      await workerCapabilities.observe(input.sessionID, input.agent)
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and

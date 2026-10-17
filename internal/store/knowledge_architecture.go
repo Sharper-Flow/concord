@@ -254,17 +254,13 @@ func decodeStrictKnowledgeJSON(data []byte, target any) error {
 	return decoder.Decode(target)
 }
 
-// insertKnowledgeArchitecture writes the home's map row, its package
-// Domains, and each law's evidence paths and coverage anchors. The map row
-// is written on every rebuild, so its commit always matches the watermark
-// this rebuild writes.
+// insertKnowledgeArchitecture writes the home's package Domains, each
+// carrying the map's content hash, and each law's evidence paths and
+// coverage anchors.
 func insertKnowledgeArchitecture(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw, architecture knowledgeArchitecture) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_package_maps(home_project_id,home_locator_id,content_hash,scanned_commit_oid) VALUES(?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, nullString(architecture.MapHash), commit); err != nil {
-		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the package map projection", true, "retry once the database is writable", err)
-	}
 	for _, entry := range architecture.Packages {
 		for _, domainID := range entry.DomainIDs {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_package_domains(home_project_id,home_locator_id,package_path,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, entry.Path, domainID, commit); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_package_domains(home_project_id,home_locator_id,package_path,domain_id,map_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, entry.Path, domainID, architecture.MapHash, commit); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write a package Domain", true, "retry once the database is writable", err)
 			}
 		}
@@ -282,20 +278,4 @@ func insertKnowledgeArchitecture(ctx context.Context, tx *sql.Tx, home Knowledge
 		}
 	}
 	return nil
-}
-
-// knowledgePackageMapRowStale reports whether the home's watermark names a
-// commit its package map row does not. A binary that predates the row, or
-// rebuilt without writing it, leaves that shape, so a fresh watermark over
-// it still rebuilds.
-func knowledgePackageMapRowStale(ctx context.Context, q queryer, home KnowledgeHome) (bool, error) {
-	var one int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM knowledge_index_watermark w WHERE w.home_project_id=? AND w.home_locator_id=? AND w.head_ref=? AND NOT EXISTS (SELECT 1 FROM knowledge_package_maps m WHERE m.home_project_id=w.home_project_id AND m.home_locator_id=w.home_locator_id AND m.scanned_commit_oid=w.scanned_commit_oid)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&one)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the package map projection commit", true, "retry once the database is readable", err)
-	}
-	return true, nil
 }

@@ -72,8 +72,7 @@ func architectureFixtureStore(t *testing.T, repo string) (*Store, KnowledgeHome)
 func architectureSnapshot(t *testing.T, s *Store, home KnowledgeHome) string {
 	t.Helper()
 	queries := []string{
-		`SELECT coalesce(content_hash,'NULL')||'@'||scanned_commit_oid FROM knowledge_package_maps WHERE home_project_id=? AND home_locator_id=?`,
-		`SELECT package_path||'='||domain_id||'@'||scanned_commit_oid FROM knowledge_package_domains WHERE home_project_id=? AND home_locator_id=? ORDER BY package_path, domain_id`,
+		`SELECT package_path||'='||domain_id||'#'||map_content_hash||'@'||scanned_commit_oid FROM knowledge_package_domains WHERE home_project_id=? AND home_locator_id=? ORDER BY package_path, domain_id`,
 		`SELECT law_id||':'||path||'@'||scanned_commit_oid FROM law_evidence_paths WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id, path`,
 		`SELECT law_id||'#'||ordinal||'='||kind||':'||value||'@'||scanned_commit_oid FROM law_coverage_anchors WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id, ordinal`,
 	}
@@ -125,8 +124,7 @@ func TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit(t
 	}
 	firstHash := knowledgePackageMapContentHash(document)
 	want := strings.Join([]string{
-		firstHash + "@" + first,
-		"internal/alpha=fixture-law@" + first + ",internal/alpha/nested=fixture-law@" + first,
+		"internal/alpha=fixture-law#" + firstHash + "@" + first + ",internal/alpha/nested=fixture-law#" + firstHash + "@" + first,
 		"CD-0001:internal/alpha/a.go@" + first + ",CD-0001:internal/alpha/nested/b.go@" + first,
 		"CD-0001#0=go_test:internal/alpha.TestAlpha@" + first + ",CD-0001#1=validator:scripts/check-alpha.py@" + first,
 	}, "\n")
@@ -141,7 +139,7 @@ func TestKnowledgeIndexProjectsPackageMapEvidenceAndCoverageAtTheScannedCommit(t
 		t.Fatal(err)
 	}
 	got := architectureSnapshot(t, s, home)
-	if !strings.Contains(got, "internal/beta=fixture-law@"+second) || strings.Contains(got, "internal/alpha=") || strings.Contains(got, firstHash) {
+	if !strings.Contains(got, "internal/beta=fixture-law#sha256:") || !strings.Contains(got, "@"+second) || strings.Contains(got, "internal/alpha=") || strings.Contains(got, firstHash) {
 		t.Fatalf("second commit's map did not replace the first:\n%s", got)
 	}
 }
@@ -202,8 +200,8 @@ func TestKnowledgeIndexRefusesMalformedPackageMapOrCoverageWithoutPartialProject
 }
 
 // TestKnowledgeIndexWithoutPackageMapProjectsNoPackages proves an absent map
-// is not an error: the home's map row carries no hash and no package projects,
-// while evidence paths and anchors still project.
+// is not an error: no package row and so no map hash projects, while
+// evidence paths and anchors still project.
 func TestKnowledgeIndexWithoutPackageMapProjectsNoPackages(t *testing.T) {
 	t.Parallel()
 	repo := architectureFixtureRepo(t)
@@ -212,9 +210,8 @@ func TestKnowledgeIndexWithoutPackageMapProjectsNoPackages(t *testing.T) {
 	}
 	commitKnowledgeRepo(t, repo, "no package map")
 	s, home := architectureFixtureStore(t, repo)
-	commit := headCommit(t, repo)
 	lines := strings.Split(architectureSnapshot(t, s, home), "\n")
-	if lines[0] != "NULL@"+commit || lines[1] != "" || lines[2] == "" || lines[3] == "" {
+	if len(lines) != 3 || lines[0] != "" || lines[1] == "" || lines[2] == "" {
 		t.Fatalf("absent-map projection = %q", lines)
 	}
 }
@@ -233,7 +230,7 @@ func TestPackageMapChangeKeepsRegistryPin(t *testing.T) {
 	}
 	mapHash := func() string {
 		var hash string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM knowledge_package_maps WHERE home_project_id=?`, home.HomeProjectID).Scan(&hash); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT DISTINCT map_content_hash FROM knowledge_package_domains WHERE home_project_id=?`, home.HomeProjectID).Scan(&hash); err != nil {
 			t.Fatal(err)
 		}
 		return hash
@@ -264,9 +261,9 @@ func TestPackageMapChangeKeepsRegistryPin(t *testing.T) {
 	}
 }
 
-// TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds proves a fresh
-// watermark whose commit the home's map row does not name, the shape a
-// binary that predates the map leaves, still rebuilds on demand.
+// TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds proves a watermark
+// an older binary stamped over the same commit, without the architecture
+// rows, reads stale and rebuilds on demand.
 func TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -274,14 +271,14 @@ func TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds(t *testing.T) {
 	s, home := architectureFixtureStore(t, repo)
 	want := architectureSnapshot(t, s, home)
 	db := s.DatabaseForTesting()
-	for _, statement := range []string{`INSERT INTO fold_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM knowledge_package_maps`, `DELETE FROM law_coverage_anchors`, `DELETE FROM law_evidence_paths`, `DELETE FROM fold_guard`} {
+	for _, statement := range []string{`INSERT INTO fold_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM law_coverage_anchors`, `DELETE FROM law_evidence_paths`, `UPDATE knowledge_index_watermark SET projection_version=2`, `DELETE FROM fold_guard`} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
 	}
 	watermark, err := readKnowledgeWatermark(ctx, db, home, headCommit(t, repo))
-	if err != nil || !watermark.Fresh {
-		t.Fatalf("fixture premise: watermark=%+v err=%v", watermark, err)
+	if err != nil || watermark.Fresh {
+		t.Fatalf("an older binary's watermark read fresh: watermark=%+v err=%v", watermark, err)
 	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)

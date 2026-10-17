@@ -25,10 +25,6 @@ var knowledgeHomePairTables = []string{
 	"domain_relation_governing_laws",
 	"law_domain_homes",
 	"law_domain_applicability",
-	"knowledge_package_maps",
-	"knowledge_package_domains",
-	"law_evidence_paths",
-	"law_coverage_anchors",
 }
 
 // knowledgeLocatorDeleteGuardName is the migration 52 trigger that refuses

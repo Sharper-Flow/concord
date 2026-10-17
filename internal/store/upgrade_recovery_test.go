@@ -129,7 +129,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE project_locators DROP COLUMN normalization_version`); err != nil {
 		t.Fatalf("cannot restore the pre-remote-identity locator shape: %v", err)
 	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE knowledge_package_domains; DROP TABLE knowledge_package_maps; DROP TABLE law_coverage_anchors; DROP TABLE law_evidence_paths;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE knowledge_package_domains; DROP TABLE law_coverage_anchors; DROP TABLE law_evidence_paths;`); err != nil {
 		t.Fatalf("cannot restore the pre-package-map schema: %v", err)
 	}
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE law_relations DROP COLUMN declarer_law_id`); err != nil {

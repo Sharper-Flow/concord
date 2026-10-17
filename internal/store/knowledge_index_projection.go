@@ -525,12 +525,14 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 }
 
 // knowledgeProjectionVersion names the semantics of the projection this
-// binary writes: the digest algorithm and the set of git objects it covers.
-// Bump it when either changes, in the same change that changes the semantics.
+// binary writes: the digest algorithm, the set of git objects it covers, and
+// the rows it projects from them. Bump it when any of these changes, in the
+// same change that changes the semantics, so a row an older binary stamped
+// reads stale and rebuilds.
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 2
+const knowledgeProjectionVersion = 3
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -659,7 +661,6 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 // from the schema and refuses a drift.
 var derivedKnowledgeClearOrder = []string{
 	"knowledge_package_domains",
-	"knowledge_package_maps",
 	"law_coverage_anchors",
 	"law_evidence_paths",
 	"law_bodies",
@@ -1120,11 +1121,7 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		if err != nil {
 			return err
 		}
-		mapStale, err := knowledgePackageMapRowStale(ctx, s.db, home)
-		if err != nil {
-			return err
-		}
-		if !undeclared && !mapStale {
+		if !undeclared {
 			// A work can become known without Git drift, so a fresh watermark
 			// proves the projection, not the standing of the law it carries.
 			// The legislated-authority admission reruns before the fresh answer.

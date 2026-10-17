@@ -183,32 +183,6 @@ func (e workflowScenarioGap) Error() string { return "workflow fixture input: " 
 
 var corpusNow = time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
 
-type corpusConditionResolver struct {
-	evidence    any
-	actorRef    string
-	operationID string
-}
-
-func (r corpusConditionResolver) Resolve(_ context.Context, condition ExternalCondition, now time.Time) (Resolution, error) {
-	evidence, _ := r.evidence.([]any)
-	refs := make([]string, 0, len(evidence))
-	for _, value := range evidence {
-		if ref, ok := value.(string); ok {
-			refs = append(refs, ref)
-		}
-	}
-	if len(refs) == 0 {
-		refs = []string{"evidence:" + r.operationID}
-	}
-	return Resolution{ResolutionEvidence: refs, ResolvedByEvent: "condition-resolved:" + condition.ConditionID, ActorRef: r.actorRef}, nil
-}
-
-type unreadableCorpusAuthority struct{}
-
-func (unreadableCorpusAuthority) Readable(context.Context, ExternalCondition) error {
-	return fmt.Errorf("authority is unreadable")
-}
-
 func hasCorpusFault(setup workflowCorpusSetup, kind string) bool {
 	for _, fault := range setup.Faults {
 		if fault.Kind == kind {
@@ -428,9 +402,10 @@ const (
 	corpusActionRebuildAfterInterrupt workflowCorpusAction = "rebuild_after_interrupt"
 	corpusActionRetry                 workflowCorpusAction = "retry_same_action"
 	corpusActionTakeover              workflowCorpusAction = "takeover_attempt"
-	corpusActionResolveConditions     workflowCorpusAction = "resolve_conditions"
 	corpusActionDeriveReady           workflowCorpusAction = "derive_ready"
-	corpusActionExplicitResolve       workflowCorpusAction = "explicit_resolve"
+	corpusActionAddCondition          workflowCorpusAction = "add_condition"
+	corpusActionResolveCondition      workflowCorpusAction = "resolve_condition"
+	corpusActionCancelCondition       workflowCorpusAction = "cancel_condition"
 	corpusActionStartDownstream       workflowCorpusAction = "start_downstream"
 	corpusActionLinkAndComplete       workflowCorpusAction = "link_and_complete"
 	corpusActionRebuild               workflowCorpusAction = "rebuild"
@@ -445,7 +420,7 @@ const (
 )
 
 var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionResolveConditions: {}, corpusActionDeriveReady: {}, corpusActionExplicitResolve: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
@@ -738,7 +713,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 
 func workflowScenarioIDs() []string {
 	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
+		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
 		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate", "WF57-refine-exit-needs-green-verify-run",
 	}
 }
@@ -1119,11 +1094,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	}
 
 	if action == "derive_ready" {
-		var reader ConditionAuthorityReader
-		if hasCorpusFault(setup, "unreadable_authority") {
-			reader = unreadableCorpusAuthority{}
-		}
-		ready, readErr := DeriveWorkflowReadyWithReader(ctx, s, workID, reader)
+		ready, readErr := deriveWorkflowReady(ctx, s.DatabaseForTesting(), workID)
 		if readErr != nil {
 			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
 		}
@@ -1216,30 +1187,6 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 			return observeWorkflowStore(ctx, s, workID, beforeSeq, resumeErr, nil)
 		}
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"resume_step": boundary.StepID, "last_checkpoint": boundary.CheckpointID, "resume_boundary": map[string]any{"source": boundary.Source}})
-	}
-	if action == string(corpusActionResolveConditions) || action == string(corpusActionExplicitResolve) {
-		conditionID, _ := request.Fields["condition_id"].(string)
-		var resolveErr error
-		cancelID, _ := request.Fields["cancellable_condition"].(string)
-		if cancelID == "" {
-			if payload, ok := request.Fields["payload"].(map[string]any); ok {
-				cancelID, _ = payload["cancellable_condition"].(string)
-			}
-		}
-		if cancelID != "" {
-			operatorRef := request.Approval.ApprovingActorRef
-			if operatorRef == "" && len(setup.FixtureRefs.Actors) > 1 {
-				operatorRef = setup.FixtureRefs.Actors[1]
-			}
-			resolveErr = CancelWorkflowCondition(ctx, s, workID, cancelID, operatorRef, []string{"evidence-verification"}, corpusNow)
-		} else {
-			resolver := corpusConditionResolver{evidence: request.Fields["resolution_evidence"], actorRef: request.ActorRef, operationID: request.Operation.OpID}
-			resolveErr = ResolveWorkflowCondition(ctx, s, workID, conditionID, resolver, corpusNow)
-		}
-		if resolveErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, resolveErr, nil)
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"resolver": map[string]any{"trigger": "explicit_request"}})
 	}
 	if action == string(corpusActionTakeover) {
 		approval := ""
@@ -1655,8 +1602,22 @@ func applyCorpusFaultAdapters(ctx context.Context, s *Store, setup workflowCorpu
 				return err
 			}
 		case "unreadable_authority":
-			// The declared adapter is consumed by DeriveWorkflowReadyWithReader;
-			// it must not rewrite the persisted condition projection.
+			conditionID, _ := fault.Input["condition_id"].(string)
+			removed, _ := fault.Input["removed"].(bool)
+			if !removed || conditionID == "" {
+				return workflowScenarioGap{"unreadable_authority must name a removed condition authority"}
+			}
+			var authority string
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&authority); err != nil {
+				return err
+			}
+			const prefix = "durable_operation:"
+			if !strings.HasPrefix(authority, prefix) || len(authority) == len(prefix) {
+				return workflowScenarioGap{"unreadable_authority condition lacks a durable operation"}
+			}
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM durable_operations WHERE op_id=?`, strings.TrimPrefix(authority, prefix)); err != nil {
+				return err
+			}
 		case "mismatched_commit":
 			// The completion boundary reads the declared commit pair and refuses
 			// before any terminal event is appended.
@@ -2325,7 +2286,8 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 			kind := string(failure.Kind)
 			if failure.Kind == KindStaleAttempt {
 				kind = string(KindOperationConflict)
-			} else if failure.Kind == KindInvalidPayload {
+			} else if failure.Kind == KindInvalidPayload || failure.Kind == KindInvalidOperation {
+				// The agent envelope reports both kinds as invalid_input.
 				kind = "invalid_input"
 			}
 			if available, ok := result["workflow_action_available"].(bool); ok && !available {
@@ -2543,9 +2505,6 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	if err := rows.Err(); err != nil {
 		return observation, err
-	}
-	if result, ok := observation.Result["resolver"].(map[string]any); ok {
-		observation.Authority["resolver"] = result
 	}
 	var verdictKind string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.verdict_kind') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowVerdictRecorded).Scan(&verdictKind); err == nil && verdictKind != "" {

@@ -181,6 +181,54 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
+// TestNoRetainedWorkflowVersionDeclaresAConditionAction holds CD-0234 D1: the
+// engine has no condition resolver, so no version of a family outside the
+// archived set may declare an action that opens, resolves, or cancels a
+// condition. The walk covers every registered version, not only live heads.
+func TestNoRetainedWorkflowVersionDeclaresAConditionAction(t *testing.T) {
+	t.Parallel()
+	if got := retainedConditionActionDeclarations(builtinWorkflowDefinitionsWithHistory()); len(got) != 0 {
+		t.Fatalf("retained workflow versions declare condition actions: %s", strings.Join(got, ", "))
+	}
+	// Control: the walk flags a retained version that declares one, so an
+	// empty answer above is a finding rather than a blind walk.
+	probe := WorkflowDefinition{Ref: "workflow.implementation", Version: 1, StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Actions: []string{"add_condition"}}}}}
+	if got := retainedConditionActionDeclarations([]WorkflowDefinition{probe}); len(got) != 1 {
+		t.Fatalf("control declarations = %v, want the one retained step declaration", got)
+	}
+}
+
+func retainedConditionActionDeclarations(definitions []WorkflowDefinition) []string {
+	conditionAction := func(id string) bool {
+		return id == "add_condition" || id == "resolve_condition" || id == "cancel_condition"
+	}
+	var found []string
+	for _, definition := range definitions {
+		if workflowFamilyArchived(definition.Ref) {
+			continue
+		}
+		at := fmt.Sprintf("%s v%d", definition.Ref, definition.Version)
+		for _, action := range definition.AvailableActions {
+			if conditionAction(action) {
+				found = append(found, at+" available "+action)
+			}
+		}
+		for _, action := range definition.ActionDefinitions {
+			if conditionAction(action.ID) {
+				found = append(found, at+" defines "+action.ID)
+			}
+		}
+		for _, step := range definition.StepGraph.Steps {
+			for _, action := range step.Actions {
+				if conditionAction(action) {
+					found = append(found, at+" step "+step.ID+" "+action)
+				}
+			}
+		}
+	}
+	return found
+}
+
 func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}

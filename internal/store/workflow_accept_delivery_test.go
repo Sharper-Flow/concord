@@ -567,7 +567,7 @@ func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
 	}
 
 	// The parked read still reports the gate and its record_delivery resume.
-	parked := parkedDeliveryRead(context.Background(), s, f.definition.Definition, workID, "delivery", "running")
+	parked := parkedDeliveryRead(context.Background(), s.DatabaseForTesting(), f.definition.Definition, workID, "delivery", "running")
 	if parked == nil || parked.StepID != "delivery" || parked.ResumeAction != "record_delivery" {
 		t.Fatalf("parked delivery read = %+v", parked)
 	}

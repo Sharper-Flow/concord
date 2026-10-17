@@ -1152,7 +1152,7 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "held_attempt_holder": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
@@ -1166,8 +1166,8 @@ func validChallengeScope(scope map[string]any) bool {
 			if text, ok := value.(string); !ok || (text != "primary" && text != "secondary") {
 				return false
 			}
-		case "failed_attempt_id", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
-			if key == "failed_attempt_id" {
+		case "failed_attempt_id", "held_attempt_holder", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
+			if key == "failed_attempt_id" || key == "held_attempt_holder" {
 				if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
 					return false
 				}
@@ -1236,7 +1236,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "correction_attempts": true, "product": true, "initiative": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "held_attempt_epoch": true, "correction_attempts": true, "product": true, "initiative": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

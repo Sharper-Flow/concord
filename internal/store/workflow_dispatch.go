@@ -41,7 +41,11 @@ type WorkflowActionExecutionRequest struct {
 	// FailedRetryApproved is set by the boundary after consuming the exact
 	// approval for a failed retry below the limit. It cannot open the
 	// convergence wall and is never decoded from request input.
-	FailedRetryApproved  bool
+	FailedRetryApproved bool
+	// ApprovedTakeover names the held attempt whose exact approval the
+	// boundary consumed for this fenced start. It is never decoded from
+	// request input.
+	ApprovedTakeover     *WorkflowStartTakeover
 	AcceptedInputsDigest string
 	IdempotencyIdentity  string
 	OperationID          string
@@ -399,6 +403,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	}
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return result, err
+	}
+	if workflowActionOpensHeldAttempt(entry.Definition, request.ActionID) {
+		if err := guardStartTakeover(ctx, tx, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+			return result, err
+		}
 	}
 	payload := guards.defaultedPayload()
 	if err := normalizeWorkflowActionRequest(&request); err != nil {

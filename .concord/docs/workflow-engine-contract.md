@@ -56,7 +56,7 @@ with the two schemas it cites. This record fills the implementation boundary
 CD-0013 left open: the common representation, the definition registry and
 digest check, the instance state machine, the event families, the V15
 projections and folds, outcome evaluation, the ordered completion gate, actor
-distinctness, impact edges and notices, external condition resolution,
+distinctness, impact edges and notices, external condition refusal,
 dispatch, and the built-in family graphs.
 
 ## Contract
@@ -65,7 +65,7 @@ The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, the event
 families, the projections and folds, outcome evaluation and strength, the
 ordered completion gate, the actor tuple and evaluator distinctness, impact
-edges and notices, external condition resolution, dispatch, and the built-in
+edges and notices, external condition refusal, dispatch, and the built-in
 family graphs and actions. Section 13 records implementation-deferred items
 and carries no obligation.
 
@@ -184,8 +184,8 @@ drift. No fallback definition, newer version, or response-wording path is accept
 | `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
 | `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
 | `running` | `blocked` | unresolved dependency or condition discovered | internal-inline |
-| `blocked` | `awaiting_condition` | a typed external condition is registered | internal-inline |
-| `awaiting_condition` | `running` | owning resolver supplies valid evidence | internal-inline |
+| `blocked` | `awaiting_condition` | a typed external condition is registered (historical pins only) | internal-inline |
+| `awaiting_condition` | `running` | owning resolver supplies valid evidence (no resolver exists; CD-0234 D1) | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `awaiting_condition`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
@@ -604,17 +604,14 @@ A contract revision uses the same reverse-edge direction and emits `breaking`
 when an active hard dependent consumed the superseded contract. It emits
 `non-breaking` for every other inbound dependent.
 
-## 10. External condition resolution
+## 10. External conditions
 
-The engine exposes no wait daemon and performs no polling. Resolution is explicit
-on request or at a consequential boundary:
-
-```go
-type ConditionResolver interface {
-    Resolve(ctx context.Context, condition ExternalCondition,
-        now time.Time) (Resolution, error)
-}
-```
+The engine exposes no wait daemon, performs no polling, and has no condition
+resolver (CD-0234 D1). No retained family declares an action that
+opens, resolves, or cancels a condition. Recorded conditions fold, read, and
+rebuild. A consequential action on work with an open condition refuses with
+`not_terminal`. The table states the owning-authority evidence a resolver added by
+a later decision must require.
 
 `await_type` is closed to:
 

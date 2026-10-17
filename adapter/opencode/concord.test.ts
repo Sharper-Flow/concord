@@ -3035,8 +3035,8 @@ test("work start resume rejects a project_id selector before any effect", async 
 // on resume. The terminal surface belongs to the host; the start's children
 // are only the core reads and writes the boot flow owns.
 test("a successful work start forks no terminal command", async () => {
-  const terminalRoot = "zel" + "lij"
-  process.env["ZELL" + "IJ_PANE_ID"] = "402"
+  const terminalRoot = "zellij"
+  process.env.ZELLIJ_PANE_ID = "402"
   try {
     bindRetargetRoute()
     const calls: RetargetCall[] = []
@@ -3051,7 +3051,7 @@ test("a successful work start forks no terminal command", async () => {
     expect(resumed.outcome).toBe("ok")
     expect(resumeCalls.filter(({ argv }) => argv[0] === terminalRoot)).toEqual([])
   } finally {
-    delete process.env["ZELL" + "IJ_PANE_ID"]
+    delete process.env.ZELLIJ_PANE_ID
   }
 })
 

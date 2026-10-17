@@ -40,8 +40,8 @@ function reporterRunner(options: { receipt: string; receiptExitCode?: number; ca
 // lifecycle is not terminal reaches no child at all — only the host title
 // route and, at a terminal lifecycle, the core receipt verb.
 test("the work state report forks no terminal command", async () => {
-  const terminalRoot = "zel" + "lij"
-  process.env["ZELL" + "IJ_PANE_ID"] = "42"
+  const terminalRoot = "zellij"
+  process.env.ZELLIJ_PANE_ID = "42"
   try {
     hostControlPlane().bind({
       get: async () => ({ response: response(), data: {} }),
@@ -65,7 +65,7 @@ test("the work state report forks no terminal command", async () => {
     expect(calls.filter((argv) => argv[0] === terminalRoot)).toEqual([])
     expect(calls.every((argv) => argv[0] === "concord-test")).toBe(true)
   } finally {
-    delete process.env["ZELL" + "IJ_PANE_ID"]
+    delete process.env.ZELLIJ_PANE_ID
   }
 })
 

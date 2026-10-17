@@ -79,20 +79,6 @@ func hostProbeArgv(command []string) []string {
 	return append(append([]string(nil), command...), "debug", "config")
 }
 
-// probeBareHost runs the bare probe in dir. An interrupted probe keeps its
-// type so callers can report it as transient.
-func probeBareHost(ctx context.Context, dir string, probe hostConfigProbeFunc) ([]byte, error) {
-	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
-	if err != nil {
-		var interrupted *hostProbeInterruptedError
-		if errors.As(err, &interrupted) {
-			return nil, interrupted
-		}
-		return nil, fmt.Errorf("host registry probe failed: %w", err)
-	}
-	return document, nil
-}
-
 // hostSessionPrepareRegistry is the production wiring for session-prepare's
 // registry. session-prepare launches nothing: the session it prepares keeps
 // running in the host process that called it, and the call inherits that
@@ -106,9 +92,13 @@ func hostSessionPrepareRegistry(ctx context.Context, dir string) (hostCommandRes
 // session-prepare registry resolution, so tests can supply documents without
 // starting a host process.
 func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostConfigProbeFunc) (hostCommandResolution, error) {
-	document, err := probeBareHost(ctx, dir, probe)
+	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
 	if err != nil {
-		return hostCommandResolution{}, err
+		var interrupted *hostProbeInterruptedError
+		if errors.As(err, &interrupted) {
+			return hostCommandResolution{}, interrupted
+		}
+		return hostCommandResolution{}, fmt.Errorf("host registry probe failed: %w", err)
 	}
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}, nil
 }
@@ -120,11 +110,6 @@ func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostConf
 // 584613 here — and the truncation surfaces as a JSON parse error rather
 // than as a short read. A regular file has no such boundary.
 func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, error) {
-	return probeHostConfigWithEnv(ctx, argv, dir, os.Environ())
-}
-
-// The probe reads the calling session's inherited host environment.
-func probeHostConfigWithEnv(ctx context.Context, argv []string, dir string, env []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostRegistryProbeTimeout)
 	defer cancel()
 	sink, err := os.CreateTemp("", "concord-host-config-*.json")
@@ -137,7 +122,7 @@ func probeHostConfigWithEnv(ctx context.Context, argv []string, dir string, env 
 	}()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // argv is the fixed bare probe; this call does not invoke a shell.
 	cmd.Dir = dir
-	cmd.Env = env
+	cmd.Env = os.Environ()
 	// Only stdout carries the document. Host plugins log to stderr, and
 	// mixing the two would corrupt the JSON.
 	cmd.Stdout = sink

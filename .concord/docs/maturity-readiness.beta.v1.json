@@ -42,11 +42,9 @@
       "id": "b2-law-coverage-proved",
       "condition": "b2",
       "title": "Law coverage holds with no outstanding or unmeasured record",
-      "requirement": "check-law-coverage passes and the aggregate contains no record in the outstanding or unmeasured state; process law whose nature excludes executable anchors is declared out of scope with its reason, never left unmeasured.",
-      "state": "satisfied",
-      "evidence": [
-        { "kind": "validator", "value": "scripts/check-law-coverage.py" }
-      ]
+      "requirement": "check-law-coverage passes and the aggregate contains no record in the outstanding or unmeasured state; process law whose nature excludes executable anchors is declared out of scope with its reason, never left unmeasured. Run python3 scripts/check-maturity-readiness.py for computed b2 readiness and current blocker IDs and states.",
+      "state": "outstanding",
+      "issue": "CON-1070"
     },
     {
       "id": "b3-migration-forward-verified",

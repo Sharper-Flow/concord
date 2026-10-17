@@ -158,7 +158,7 @@ permits that outside work.
 
 The first-usable floor was recorded satisfied on 2026-09-01.
 [`floor-readiness.md`](./floor-readiness.md) keeps its definition and state as
-history. Both maturity rungs hold:
+history. The maturity manifests
 [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
 [`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
-carry no outstanding item.
+record current condition states and evidence.

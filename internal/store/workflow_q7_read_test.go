@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+func TestQ7OmitsUnboundWorkflow(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedWork(t, s, "q7-unbound")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := s.QueryQ7(ctx, Q7Request{Work: "q7-unbound"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Result == nil || out.Workflow != nil || out.Result.Workflow != nil {
+		t.Fatalf("Q7 must omit an unbound workflow: %+v", out)
+	}
+}
+
 func TestQ7ProjectsParkedDelivery(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

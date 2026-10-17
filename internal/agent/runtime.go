@@ -1668,18 +1668,14 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 // does not name is dropped, without a hand-maintained list that can drift.
 var (
 	publishedWorkflowReadOnce   sync.Once
-	publishedWorkflowReadFields map[string]struct{}
+	publishedWorkflowReadFields map[string]any
 )
 
-func workflowReadPublishedFields() map[string]struct{} {
+func workflowReadPublishedFields() map[string]any {
 	publishedWorkflowReadOnce.Do(func() {
-		publishedWorkflowReadFields = map[string]struct{}{}
 		defs, _ := payloadschema.Document()["$defs"].(map[string]any)
 		read, _ := defs["workflow_read"].(map[string]any)
-		properties, _ := read["properties"].(map[string]any)
-		for field := range properties {
-			publishedWorkflowReadFields[field] = struct{}{}
-		}
+		publishedWorkflowReadFields, _ = read["properties"].(map[string]any)
 	})
 	return publishedWorkflowReadFields
 }
@@ -1697,13 +1693,35 @@ func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string
 	if err := json.Unmarshal(raw, &shaped); err != nil {
 		return nil, err
 	}
-	published := workflowReadPublishedFields()
-	for field := range shaped {
-		if _, ok := published[field]; !ok {
-			delete(shaped, field)
+	pruneWorkflowReadObject(shaped, workflowReadPublishedFields())
+	return shaped, nil
+}
+
+// pruneWorkflowReadObject follows inline object and array shapes. Referenced
+// definitions remain unchanged and are checked by payload validation.
+func pruneWorkflowReadObject(value, properties map[string]any) {
+	for field, child := range value {
+		schema, ok := properties[field].(map[string]any)
+		if !ok {
+			delete(value, field)
+			continue
+		}
+		switch child := child.(type) {
+		case map[string]any:
+			if nested, ok := schema["properties"].(map[string]any); ok {
+				pruneWorkflowReadObject(child, nested)
+			}
+		case []any:
+			items, _ := schema["items"].(map[string]any)
+			if nested, ok := items["properties"].(map[string]any); ok {
+				for _, item := range child {
+					if object, ok := item.(map[string]any); ok {
+						pruneWorkflowReadObject(object, nested)
+					}
+				}
+			}
 		}
 	}
-	return shaped, nil
 }
 
 // ContinuityPayload is the single public rendering of CD-0016 continuity.

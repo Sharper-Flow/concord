@@ -11,6 +11,26 @@ import (
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
+	var out WorkflowReadProjection
+	if s == nil || s.db == nil {
+		return out, newFailure(KindUnavailable, "workflow_read", "store is not open", false, "open the authority database")
+	}
+	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
+		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
+	}
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot open workflow read snapshot", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback()
+	out, err = readWorkflowProjectionTx(ctx, tx, request)
+	if err == nil && out.WorkID == "" {
+		return out, newFailure(KindProjectionNotFound, "workflow_read", "workflow instance is not recorded", false, "reread_entities")
+	}
+	return out, err
+}
+
 // workflowFixtureRef names the test-only workflow family that fold, projection,
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a

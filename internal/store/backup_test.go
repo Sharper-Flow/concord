@@ -967,6 +967,9 @@ func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
 	if !strings.Contains(err.Error(), "unstamped development build refuses schema migration") {
 		t.Fatalf("development refusal = %v, want the unstamped migration rule", err)
 	}
+	// The staging copy refuses inside its migration transaction; the carrier
+	// is read from that transaction's manifest.
+	assertUnstampedRefusal(t, err, applied)
 	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
 		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("refused development backup left %s: %v", candidate, err)

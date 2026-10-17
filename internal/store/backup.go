@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -851,4 +852,9 @@ func readBackupManifest(destination string) (BackupManifest, error) {
 		return m, wrapFailure(KindInvalidPayload, "verify_backup", "backup manifest is not valid JSON", false, "discard the manifest and create a fresh backup", err)
 	}
 	return m, nil
+}
+
+// hash.Hash.Write always returns a nil error by contract.
+func writeHashf(h hash.Hash, format string, args ...any) {
+	_, _ = fmt.Fprintf(h, format, args...)
 }

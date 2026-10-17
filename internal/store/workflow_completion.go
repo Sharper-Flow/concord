@@ -29,73 +29,7 @@ func workflowClauseError(err error, clause int) error {
 }
 
 func workflowCompletionRequired() error {
-	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for CompleteWorkflowTx", false, "use the ordered workflow completion entry point")
-}
-
-// CompleteWorkflow is the only public completion entry point.  It owns one
-// SQLite transaction from the first gate clause through all impact notices and
-// the reserved completion append.
-func CompleteWorkflow(ctx context.Context, s *Store, event Event) error {
-	return CompleteWorkflowWithRegistry(ctx, s, BuiltinWorkflowRegistry(), event)
-}
-
-// CompleteWorkflowWithRegistry is the test and embedded-engine seam for a
-// pinned definition registry.  The registry is read-only during completion.
-func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, event Event) (retErr error) {
-	if s == nil || s.db == nil {
-		return newFailure(KindUnavailable, "complete_workflow", "store is not open", false, "open a store before completing a workflow")
-	}
-	// A replay of the exact completion identity is an idempotent no-op.  This
-	// check happens before opening the mutation transaction and never treats a
-	// different event identity as a replay.
-	var existingKind string
-	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
-	if err == nil && existingKind == WorkflowCompleted {
-		replay, err := s.beginDurableTx(ctx)
-		if err != nil {
-			return err
-		}
-		defer replay.finish(&retErr)
-		return replay.Commit()
-	}
-	// CD-0200: the completion's law boundary verifies the Product's complete
-	// registered source set before this transaction opens. The verification
-	// probes git and rebuilds through the pool, and the transaction-scoped
-	// boundary clause proves it from the returned context.
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	tx, err := s.beginDurableTx(ctx)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
-	}
-	defer tx.finish(&retErr)
-	scope, err := beginFold(ctx, tx.Tx)
-	if err != nil {
-		return err
-	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
-		return err
-	}
-	if err := scope.close(ctx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
-	}
-	return nil
-}
-
-// CompleteWorkflowTx evaluates the complete ordered gate using the built-in
-// v1 definitions. The scope's close runs at return, before the caller commits.
-func CompleteWorkflowTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = scope.close(ctx) }()
-	return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, scope)
+	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for the ordered completion gate", false, "use the ordered workflow completion entry point")
 }
 
 // CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No

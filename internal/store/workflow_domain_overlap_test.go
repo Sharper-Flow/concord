@@ -761,7 +761,7 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("blocked result acceptance advanced step=%q", got)
 	}
-	if _, err := ReadWorkflow(ctx, s, workID); err != nil {
+	if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {
 		t.Fatalf("read-only workflow inspection failed while overlap blocked execution: %v", err)
 	}
 }

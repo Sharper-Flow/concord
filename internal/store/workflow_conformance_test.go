@@ -1346,13 +1346,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
 	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
-	var result WorkflowActionExecutionResult
-	var actionErr error
 	if action == string(corpusActionReplaceCheck) {
-		result, actionErr = ReplaceWorkflowCheckTx(ctx, tx, scope, actionRegistry, workflowRequest)
-	} else {
-		result, actionErr = applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, workflowRequest)
+		// The evaluator replaces a check only through the verdict route.
+		workflowRequest.ActionID = "record_verdict"
 	}
+	result, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, workflowRequest)
 	_ = scope.close(ctx)
 	if actionErr != nil {
 		_ = tx.Rollback()
@@ -1490,10 +1488,10 @@ func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any,
 		}
 	}
 	for epoch := int64(1); epoch <= maxEpoch; epoch++ {
-		if _, err := ClaimStep(ctx, s, ClaimRequest{
+		if _, err := ClaimStepAuthorized(ctx, s, ClaimRequest{
 			OpID: request.Operation.OpID, WorkID: request.Fields["payload"].(map[string]any)["work"].(string), WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindExternalEffect,
 			AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: logicalKey + ":claim:" + strconv.FormatInt(epoch, 10), RequestID: request.Idempotency.RequestID + ":claim:" + strconv.FormatInt(epoch, 10), ObservedAt: corpusNow, ContractDigest: testManifestDigest,
-		}); err != nil {
+		}, nil); err != nil {
 			return err
 		}
 	}
@@ -2360,7 +2358,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if err := observeWorkerAttempts(ctx, s, workID, &observation); err != nil {
 		return workflowObservation{}, err
 	}
-	projection, readErr := ReadWorkflow(ctx, s, workID)
+	projection, readErr := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if readErr == nil {
 		observation.State[workID] = map[string]any{"state": projection.State, "current_step": projection.CurrentStep}
 		contract := map[string]any{}

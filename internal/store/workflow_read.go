@@ -421,14 +421,9 @@ func ResumeWorkflow(ctx context.Context, s *Store, workID string) (WorkflowResum
 	return boundary, nil
 }
 
-// ReadWorkflow is a concise alias used by read adapters.
-func ReadWorkflow(ctx context.Context, s *Store, workID string) (WorkflowReadProjection, error) {
-	return ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
-}
-
 // readWorkflowSummaryTx is the transaction-local adapter used by the existing
-// PM1.Q7 history surface. It intentionally mirrors only bounded read fields;
-// callers still receive the complete store projection through ReadWorkflow.
+// PM1.Q7 history surface. It mirrors only bounded read fields, not the
+// complete ReadWorkflowProjection.
 func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*WorkflowReadProjection, error) {
 	var out WorkflowReadProjection
 	if tx == nil {

@@ -448,9 +448,9 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 	}
 }
 
-// TestPublishedReadsQualifiedContractLaw proves every read that publishes a
-// contract law ID admits the source-qualified <home project>/<law> form that
-// approve_contract accepts and a registered source set produces. Each case
+// TestPublishedReadsQualifiedContractLaw proves the published read refs filled
+// from contract law IDs admit the source-qualified <home project>/<law> form
+// that approve_contract accepts and a registered source set produces. Each case
 // qualifies one published field, so each output ref fails on its own.
 func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 	t.Parallel()
@@ -495,7 +495,6 @@ func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 		}},
 		{field: "domain overlaps pairs[].shared_law_ids", validate: func(t *testing.T) error {
 			overlaps := fullyPopulatedDomainPayloads(t).overlaps
-			overlaps.Pairs = append([]store.DomainOverlapPair(nil), overlaps.Pairs...)
 			overlaps.Pairs[0].SharedLawIDs = []string{qualified}
 			return result(t, "concord_domain", "overlaps", overlaps)
 		}},

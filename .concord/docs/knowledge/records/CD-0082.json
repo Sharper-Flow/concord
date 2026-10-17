@@ -10,7 +10,7 @@
   "id": "CD-0082",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0082-migration-is-demand-driven.md",
-  "product_wide_rationale": "Keeps migration and correction demand-driven, retains the current replacement-readiness evidence floor, and removes unsupported Product-wide obligations without changing runtime behavior.",
+  "product_wide_rationale": "Keeps migration and correction demand-driven without a predecessor-replacement mission, while preserving current release, maturity, and data-integrity requirements across Domains.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dc16f89af45508b834d97332bc32be2b25fcaa5d771b2883033bfec48e3d6a51",
+  "sha256": "sha256:9766365a47e6df8746b4a64a20a76b03b26e3b0c1591ec482894fbd367f811ac",
   "status": "accepted",
-  "summary": "Migration and correction are demand-driven and ad hoc. Replacement readiness remains an evidence claim. CD-0006 D1-D2 and CD-0053 D4 cutover framing are amended, while Domain, PM4, and data-integrity controls remain bounded and current.",
+  "summary": "Keeps migration and correction demand-driven and preserves bounded Domain, work-item, and data-integrity controls. CD-0006 D1 owns Product direction; release, maturity, and development-authority requirements keep their owning records.",
   "tags": [
     "migration",
     "replacement-readiness",

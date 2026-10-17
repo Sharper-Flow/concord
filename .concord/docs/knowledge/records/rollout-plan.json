@@ -19,9 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d38b49f08220799c6151ce3e1858f5c0876f05836284552720c6492fb7e07c38",
+  "sha256": "sha256:abb82eba602b12d3a3037bcb8925b070f341abad65156d3d3b94fdef444fa2fa",
   "status": "published",
-  "summary": "Sequences the public bootstrap and explicitly managed Concord development under CD-0007, CD-0089, and CD-0122 while retaining replacement-readiness evidence.",
+  "summary": "Describes bootstrap and explicitly managed development under CD-0007, CD-0089, and CD-0122. goals.md owns direction; the first-usable floor and release evidence keep their owning records and current maturity requirements.",
   "tags": [
     "rollout",
     "sequencing"

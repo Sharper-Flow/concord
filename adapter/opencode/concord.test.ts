@@ -3933,19 +3933,14 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
   expect(windows.has(context.sessionID)).toBe(false)
 })
 
-// The stranding wedge with no durable counterpart: a host Task call
-// interrupted before the worker starts leaves the record in-flight, and no
-// worker attempt row is ever written. Both durable routes refuse — the CLI
-// evidence write and the core receipt read the same missing worker attempt
-// row — so the owning repair is the adapter-side nothing-durable release: the
-// typed projection_not_found refusal drops the retained record and answers
-// with the ok receipt that states nothing durable existed to abandon.
-test("a worker_abandon refusal for a never-dispatched attempt releases the retained record", async () => {
+// A missing-row refusal is not an acknowledged close. Its diagnostic cannot
+// grant the adapter authority to release the retained attempt or invent a receipt.
+test.each(["none", "possible", "unknown"] as const)("a missing-row worker_abandon refusal keeps its retained record (effect=%s)", async (effectState) => {
   bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const windows = dispatchWindows()
   // The suite shares one window registry across files, so this test owns a
   // session identity no other test touches.
-  const context = { ...contextFor(), sessionID: "session-abandon-nothing-durable" }
+  const context = { ...contextFor(), sessionID: `session-abandon-missing-row-${effectState}` }
   const retained = {
     schema_version: "1.0" as const,
     attempt_id: "attempt-stranded",
@@ -3964,30 +3959,29 @@ test("a worker_abandon refusal for a never-dispatched attempt releases the retai
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
     runner: { async run(argv) {
       calls.push(argv[1])
-      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: "concord worker-abandon: store: worker_attempt_read: projection_not_found: worker dispatch row does not exist" }
-      throw new Error(`no durable route may run for a never-dispatched attempt: ${argv[1]}`)
+      if (argv[1] === "worker-abandon") {
+        const message = "store: worker_attempt_read: projection_not_found: worker dispatch row does not exist"
+        return { exitCode: 1, stdout: effectState === "unknown" ? "" : JSON.stringify({ ok: false, event_ids: null, error: { kind: "projection_not_found", operation: "worker_attempt_read", retry_safe: false, effect_state: effectState, message } }), stderr: message }
+      }
+      throw new Error(`no receipt may run after a refused abandonment: ${argv[1]}`)
     } },
   })
   const input = { work_id: "work-1", attempt_id: "attempt-stranded", lane_id: "implement", detail: "the host Task call was interrupted before the worker started", idempotency_key: "worker-abandon-nothing-durable-1" }
-  const released: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
-  expect(released.outcome).toBe("ok")
-  expect(validateGeneratedEnvelope(released), JSON.stringify(released)).toBe(true)
-  expect(released.result.nothing_durable_to_abandon).toContain("attempt attempt-stranded")
-  expect(released.result.nothing_durable_to_abandon).toContain("nothing durable existed to abandon")
-  // The core receipt route never ran: the CLI refusal is the durable answer.
+  const refused: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(refused.outcome).toBe("error")
+  expect(refused.origin).toBe("adapter")
+  expect(refused.authority).toBe("unreachable")
+  expect(refused.error.adapter_reason).toBe("worker_abandon_refused")
+  expect(refused.error.effect_state).toBe(effectState === "none" ? "none" : "possible")
+  expect(refused.result).toBeUndefined()
+  expect(validateGeneratedEnvelope(refused), JSON.stringify(refused)).toBe(true)
   expect(calls).toEqual(["worker-abandon"])
-  // The retained record is released, so the session dispatches again without
-  // a host restart.
-  expect(windows.inFlight(context.sessionID, "call-stranded")).toBeNull()
-  expect(() => windows.open(context.sessionID, retained, "", process.cwd())).not.toThrow()
-  windows.close(context.sessionID)
+  expect(windows.inFlight(context.sessionID, "call-stranded")).not.toBeNull()
+  expect(() => windows.open(context.sessionID, retained, "", process.cwd())).toThrow()
+  expect(windows.releaseRetained(context.sessionID, retained.attempt_id, retained.lane_id)).toBe(true)
 })
 
-// The release demands the exact attempt and lane identity the retained record
-// holds, so a nothing-durable abandon naming a different attempt still answers
-// ok — the core holds no row for that attempt either — while the retained
-// record stays.
-test("a nothing-durable abandon for a foreign attempt leaves the retained record", async () => {
+test("a missing-row worker_abandon refusal preserves a foreign retained record", async () => {
   bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const windows = dispatchWindows()
   const context = { ...contextFor(), sessionID: "session-abandon-nothing-durable-foreign" }
@@ -4012,8 +4006,13 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
   })
   const input = { work_id: "work-1", attempt_id: "attempt-elsewhere", lane_id: "implement", detail: "a foreign attempt identity", idempotency_key: "worker-abandon-nothing-durable-foreign" }
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
-  expect(result.outcome).toBe("ok")
-  expect(result.result.nothing_durable_to_abandon).toContain("attempt-elsewhere")
+  expect(result.outcome).toBe("error")
+  expect(result.origin).toBe("adapter")
+  expect(result.authority).toBe("unreachable")
+  expect(result.error.adapter_reason).toBe("worker_abandon_refused")
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.result).toBeUndefined()
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
   expect(windows.inFlight(context.sessionID, "call-foreign")).not.toBeNull()
   expect(windows.releaseRetained(context.sessionID, "attempt-stranded", "implement")).toBe(true)
 })
@@ -4021,8 +4020,7 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
 // A committed abandon's envelope carries the coordinator's own detail as its
 // diagnostic (the close route composes it from the abandon request), so a
 // detail that quotes a refusal shape must not reroute the close. The explicit
-// committed fact runs the receipt; only a refusal reaches the nothing-durable
-// release or the own-row recovery.
+// committed fact runs the receipt; only a refusal reaches own-row recovery.
 test.each([
   ["nothing-durable", "concord worker-abandon: store: worker_attempt_read: projection_not_found: worker dispatch row does not exist"],
   ["own-row", "concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session session-abandon-committed-detail still holds the worker attempt worktree; its host process 4242 is still live"],
@@ -5207,6 +5205,69 @@ test("CON-913 row 19: a stopped recovery maps every lane outcome to the reconcil
     } })
     expectTuple(result, M, `row 19 ${label}`)
     expect(evidenceRuns, `row 19 ${label}`).toBe(1)
+  }
+})
+
+test.each(["recorded", "foreign", "none", "possible", "unknown"] as const)("worker_reconcile distinguishes a recorded failure from an uncertain close (%s)", async (closeState) => {
+  recoveryTranscriptHost()
+  const recorded = closeState === "recorded" || closeState === "foreign"
+  const retained = { ...recoveryPacket, attempt_id: closeState === "foreign" ? "attempt-foreign" : recoveryPacket.attempt_id }
+  const windows = dispatchWindows()
+  windows.open(RECOVERY_SESSION, retained, recoveryContextFixture.packet_digest, process.cwd())
+  await windows.bind(TASK_TOOL_ID, RECOVERY_SESSION, { subagent_type: "x", prompt: "y", description: "z" }, "retained-part-concord-913", async () => process.cwd(), process.cwd())
+  const prepareOk = coreEnvelope("concord_work_transition", "worker_reconcile", "ok", {
+    result: { changed_refs: [], next_valid_intents: [], worker_recovery: recoveryContextFixture }, changed_refs: [], next_valid_intents: [],
+  })
+  const calls: Array<{ command: string; input: any }> = []
+  const refusal = { kind: "invalid_payload", operation: "worker_complete", retry_safe: false, effect_state: "none", message: "synthetic completion payload refusal" }
+  try {
+    const result: any = await runReconcile913({ async run(argv: string[], input: string) {
+      const request = JSON.parse(input)
+      calls.push({ command: argv[1], input: request })
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") {
+        if (request.operation === "worker_reconcile") return { exitCode: 0, stdout: JSON.stringify(prepareOk), stderr: "" }
+        throw new Error("a recorded failure must not request a completed receipt or dispatch another worker")
+      }
+      if (argv[1] === "worker-dispatch") return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: refusal }), stderr: refusal.message }
+      if (argv[1] === "worker-fail") {
+        if (recorded) return { exitCode: 0, stdout: JSON.stringify({ ok: true, event_ids: [request.event_id] }), stderr: "" }
+        const error = { ...refusal, operation: "worker_fail", effect_state: closeState, message: "synthetic failure-close refusal" }
+        return { exitCode: 1, stdout: closeState === "unknown" ? "" : JSON.stringify({ ok: false, event_ids: [], error }), stderr: error.message }
+      }
+      throw new Error(`unexpected CLI invocation: ${argv.join(" ")}`)
+    } })
+    expect(result.outcome).toBe("error")
+    expect(result.origin).toBe("adapter")
+    expect(result.authority).toBe("unreachable")
+    expect(result.error.kind).toBe("operation_conflict")
+    expect(result.error.adapter_reason).toBe(recorded ? "worker_reconcile_failed_recorded" : "unknown_effect")
+    expect(result.error.effect_state).toBe("possible")
+    expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+    expect(result.error.retry_safe).toBe(false)
+    if (recorded) {
+      expect(result.error.details).toEqual({ work_id: recoveryPacket.work_id, attempt_id: recoveryPacket.attempt_id, lifecycle_state: "failed" })
+      expect(result.error.message).toContain("synthetic completion payload refusal")
+    } else {
+      expect(result.error.details?.lifecycle_state).toBeUndefined()
+      expect(result.error.message).toContain("synthetic failure-close refusal")
+    }
+    expect(result.result).toBeUndefined()
+    expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+    expect(calls.filter(({ command }) => command === "invoke")).toHaveLength(1)
+    const evidence = calls.filter(({ command }) => command.startsWith("worker-"))
+    expect(evidence.map(({ command }) => command)).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+    expect(evidence.every(({ input }) => input.work_id === recoveryPacket.work_id && input.attempt_id === recoveryPacket.attempt_id)).toBe(true)
+    const released = closeState === "recorded"
+    expect(windows.inFlight(RECOVERY_SESSION, "retained-part-concord-913") === null).toBe(released)
+    if (released) {
+      expect(() => windows.open(RECOVERY_SESSION, retained, recoveryContextFixture.packet_digest, process.cwd())).not.toThrow()
+    } else {
+      expect(() => windows.open(RECOVERY_SESSION, retained, recoveryContextFixture.packet_digest, process.cwd())).toThrow()
+    }
+  } finally {
+    windows.releaseRetained(RECOVERY_SESSION, retained.attempt_id, retained.lane_id)
   }
 })
 

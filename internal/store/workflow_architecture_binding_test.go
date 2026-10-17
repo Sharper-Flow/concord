@@ -483,7 +483,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 6}}); err == nil {
 		t.Fatal("Product-changing contract accepted clone-without-successor revision")
 	}
-	projection, err := ReadWorkflow(ctx, s, workID)
+	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadWorkflow(ctx, s, workID); err == nil {
+	if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err == nil {
 		t.Fatal("read accepted a workflow with a drifted registered definition digest")
 	}
 }

@@ -123,7 +123,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Drive a unit of implementation work through a staged lifecycle with required evidence at each stage | Covered | `implementation` workflow definition, `internal/store/workflow_registry.go` |
 | Bind completion to recorded proof rather than assertion | Covered | `bind_evidence`, `RequiredEvidenceKinds`, `internal/store/workflow_completion.go` |
 | Require an evaluator distinct from the author on high-risk work | Covered | `EvaluatorIndependence`; verdict-actor distinctness in `internal/store/workflow_completion.go` |
-| Reject a delivered end-state weaker than the approved one | Covered | CD-0012; `CompareOutcomeStrength` in `internal/store/workflow_outcome.go` |
+| Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 6 in `internal/store/workflow_completion.go` refuses a weaker or incomparable recorded verdict (WF04, WF50) |
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |

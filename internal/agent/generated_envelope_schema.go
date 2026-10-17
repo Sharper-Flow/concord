@@ -2622,6 +2622,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
+            "worker_reconcile_failed_recorded",
             "lane_tool_refusal",
             "invalid_cli_input",
             "invalid_request_wrapper",

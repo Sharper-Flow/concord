@@ -12,6 +12,7 @@ import select
 import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -1220,6 +1221,104 @@ esac''',
         self.assertIn("still blocked", result.stdout)
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.prepared_path.exists())
+
+    def test_activate_after_migration_without_opencode_on_path(self) -> None:
+        """Runtime tool discovery cannot strand a committed fixture migration."""
+        self.prepare_a_blocked_release()
+        database = self.data_root / "migration-fixture.sqlite"
+        with sqlite3.connect(database) as store:
+            store.execute("CREATE TABLE payload (value TEXT)")
+            store.execute("INSERT INTO payload VALUES ('preserved')")
+            store.execute("PRAGMA user_version = 111")
+        with installer.maintenance_lock(installer.paths_for(self.root)):
+            self.fence_path.write_text(json.dumps({
+                "fence_id": "committed-migration",
+                "operation": installer.CORE_UPGRADE_OPERATION,
+                "release_root": str(self.data_root / "v1.1.0"),
+            }), encoding="utf-8")
+            with sqlite3.connect(database) as store:
+                store.execute("ALTER TABLE payload ADD COLUMN migrated INTEGER NOT NULL DEFAULT 1")
+                store.execute("PRAGMA user_version = 112")
+        environment = self.plan_env(blocked=False)
+        plan_path = Path(environment["CONCORD_TEST_UPGRADE_PLAN"])
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan.update(applied_versions=[111, 112], schema_version=112, compatibility_floor=112)
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        (self.commands / "opencode").unlink()
+        self.assertIsNone(shutil.which("opencode", path=environment["PATH"]))
+        with sqlite3.connect(database) as store:
+            self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue(self.fence_path.exists())
+
+        result = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        manifest = json.loads((self.data_root / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+        with sqlite3.connect(database) as store:
+            self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
+            self.assertEqual(store.execute("SELECT * FROM payload").fetchall(), [("preserved", 1)])
+
+    def test_install_and_repair_require_runtime_preflight(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        args = SimpleNamespace(root=self.root, version="v1.0.0", artifact_dir=str(self.artifacts), base_url="unused")
+        for operation in (installer.install, installer.repair):
+            for missing in ("git", "opencode", "secret-tool", "PATH"):
+                with self.subTest(operation=operation.__name__, missing=missing):
+                    environment = self.env.copy()
+                    if missing == "PATH":
+                        environment["PATH"] = os.defpath
+
+                    def command_status(command: str) -> str | None:
+                        return None if command == missing else shutil.which(command, path=self.env["PATH"])
+
+                    with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(
+                        installer, "command_status", side_effect=command_status
+                    ), self.assertRaisesRegex(
+                        installer.InstallerError, "is not on PATH" if missing == "PATH" else f"missing command {missing}"
+                    ):
+                        operation(args)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_activate_does_not_require_runtime_preflight(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.plan_env(blocked=False)
+        environment["PATH"] = os.defpath
+
+        def command_status(command: str) -> str | None:
+            if command in {"git", "opencode", "secret-tool"}:
+                return None
+            return shutil.which(command, path=self.env["PATH"])
+
+        with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(
+            installer, "command_status", side_effect=command_status
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(installer.activate(SimpleNamespace(root=self.root, version="v1.1.0")), 0)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+
+    def test_activate_without_opencode_still_refuses_unsafe_paths(self) -> None:
+        self.prepare_a_blocked_release()
+        paths = installer.paths_for(self.root)
+        moved_systemd = self.root / "moved-systemd"
+        moved_systemd.mkdir()
+        paths.systemd_user_dir.parent.mkdir(parents=True, exist_ok=True)
+        paths.systemd_user_dir.symlink_to(moved_systemd, target_is_directory=True)
+        (self.commands / "opencode").unlink()
+
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"refusing symlinked managed path {paths.systemd_user_dir}", result.stderr)
+        self.assertNotIn("missing command opencode", result.stderr)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue(self.prepared_path.exists())
+        self.assertTrue(self.fence_path.exists())
 
     def test_activate_holds_the_fence_through_the_swap_and_closes_it(self) -> None:
         """The shared session-admission exclusion is open while the swap

@@ -1,8 +1,9 @@
 # Concord Rollout Plan
 
 > **Status:** Public bootstrap and Concord coordination sequence.
-> **Authority:** [`priorities.md`](./priorities.md) owns the ranked priorities and
-> operating envelope; this document owns sequencing and entry conditions.
+> **Authority:** [`goals.md`](./goals.md) owns Product direction and conflict rules;
+> [`priorities.md`](./priorities.md) owns the operating envelope and standing law.
+> This document describes sequencing and entry conditions under those authorities.
 > **Origin:** Product direction recorded 2026-07-25; public bootstrap execution
 > authorized 2026-08-07 under CD-0007.
 
@@ -55,17 +56,18 @@ Runtime implementation proceeds only when all of these are true:
 Missing conditions block runtime implementation but do not block documentation,
 research, or clarification work.
 
-## 3. Replacement-ready floor
+## 3. First-usable floor and release evidence
 
-Concord is not replacement-ready after a partial dashboard, isolated tool, or
-single workflow. The full floor must be proven for one operator and many concurrent
-agents on one machine.
+The first-usable assessment is recorded in
+[`floor-readiness.md`](./floor-readiness.md) and
+[`floor-readiness.v1.json`](./floor-readiness.v1.json). The alpha maturity condition
+still requires the floor to stay met; this does not make predecessor replacement
+current Product direction.
 
-Replacement readiness is two bars: the **usability floor**, defined by the numbered
-conditions in [`priorities.md`](./priorities.md) *First-usable floor*, plus the
-**release-evidence bar** this section owns. `priorities.md` remains authorizing for
-the usability floor. Its conditions are linked rather than restated here, because
-restating them is how the two documents drifted.
+The six **usability-floor** conditions are defined in
+[`floor-readiness.md`](./floor-readiness.md) under *First-usable floor*. The
+**release-evidence bar** is defined below. Their conditions are linked rather than
+restated here.
 
 Two evidence expectations elaborate the usability floor without redefining it. They
 are decomposed as manifest items under the conditions they serve rather than as
@@ -78,7 +80,7 @@ conditions of their own:
 
 ### Release-evidence bar
 
-Beyond the usability floor, replacement readiness additionally requires:
+The floor's release-evidence bar requires:
 
 - release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.
 
@@ -89,8 +91,8 @@ the document and section that bears it.
 
 Concord coordinates explicitly managed development after issue #600 ships.
 Outside project work and authorized defect repair remain permitted under host
-permissions and repository rules. The replacement-readiness floor is an evidence
-claim, not a development gate, migration trigger, or migration plan.
+permissions and repository rules. The first-usable floor is maturity evidence,
+not a development gate, migration trigger, or migration plan.
 
 Migration and correction remain demand-driven and ad hoc. Each operation defines
 its local scope, authority, input, idempotency, provenance, recovery, and native
@@ -102,21 +104,21 @@ retirement sequence, or migration record applies unless a later decision accepts
 bounded need.
 
 [CD-0091](./decisions/CD-0091-maturity-promotion-ladder.md) is one such accepted
-bounded need. It defines the evidence bar that promotes a Product's maturity and
-audience commitment above the replacement-ready floor. It imposes no schedule, so
-the demand-driven model above still holds.
+bounded need. It owns the evidence bar for maturity and audience-commitment
+promotion. It imposes no schedule, so the demand-driven model above still holds.
 
 ## 5. Related authority
 
 | Document | Role |
 |---|---|
-| [`priorities.md`](./priorities.md) | Canonical priorities, operating envelope, and replacement floor. |
+| [`goals.md`](./goals.md) | Product purpose, goals, measures, and conflict rules. |
+| [`priorities.md`](./priorities.md) | Operating envelope and standing law. |
 | [`development-authority.md`](./development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
 | [`decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | Explicit workflow participation, outside project work, authorized defect repair, and host-role preservation. |
-| [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion ladder above the replacement-ready floor. |
+| [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |

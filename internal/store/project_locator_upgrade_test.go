@@ -227,7 +227,13 @@ func TestRemoteLocatorUpgradeSessionFence(t *testing.T) {
 	useStampedBuild(t)
 	s := remoteUpgradeFixture(t, ProjectLocator{ID: "https", Kind: LocatorGitRemote, Value: "https://host/o/r"})
 	before := remoteUpgradeSnapshot(t, s)
-	_, err := Upgrade(context.Background(), s.path, []HeldSchema{{PID: 1, SchemaVersion: CurrentSchemaVersion() - 1}})
+	held := 0
+	for _, m := range migrations {
+		if m.Name == remoteLocatorUpgradeName {
+			held = m.Version - 1
+		}
+	}
+	_, err := Upgrade(context.Background(), s.path, []HeldSchema{{PID: 1, SchemaVersion: held}})
 	assertFailureKind(t, err, KindUpgradeBlocked)
 	if before != remoteUpgradeSnapshot(t, s) {
 		t.Fatal("held older session refusal wrote state")

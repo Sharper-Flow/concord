@@ -827,12 +827,13 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 }
 
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
-// a conflicts_with pair canonically. A cross-source relation (CD-0200) names
-// another home's law, which the same-home foreign keys of law_relations
-// cannot reference: it projects into law_cross_source_relations with the
-// target's source identity. Rebuild-time validation refuses invalid and
-// conflicting edges, and every consequential law boundary revalidates the
-// persisted endpoints over the Product's verified current source set, so a
+// a conflicts_with pair canonically and recording the declaring record beside
+// it, since only that record can withdraw the conflict (CD-0015, CD-0159 D4).
+// A cross-source relation (CD-0200) names another home's law, which the
+// same-home foreign keys of law_relations cannot reference: it projects into
+// law_cross_source_relations with the target's source identity. Rebuild-time
+// validation refuses invalid and conflicting edges, and every consequential law
+// boundary revalidates the persisted endpoints over the Product's verified current source set, so a
 // later source removal or reindex cannot leave an orphaned edge behind a
 // passing check.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
@@ -848,7 +849,7 @@ func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home Knowledge
 			if relation.Kind == "conflicts_with" && source > target {
 				source, target = target, source
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit, law.record.ID); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law relation", true, "retry once the database is writable", err)
 			}
 		}
@@ -1100,15 +1101,34 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		return err
 	}
 	if watermark.Fresh {
-		// A work can become known without Git drift, so a fresh watermark
-		// proves the projection, not the standing of the law it carries. The
-		// legislated-authority admission reruns before the fresh answer.
-		if err := s.verifyFreshKnowledgeAuthority(ctx, home, current); err != nil {
+		undeclared, err := knowledgeConflictDeclarerMissing(ctx, s.db, home)
+		if err != nil {
 			return err
 		}
-		return nil
+		if !undeclared {
+			// A work can become known without Git drift, so a fresh watermark
+			// proves the projection, not the standing of the law it carries.
+			// The legislated-authority admission reruns before the fresh answer.
+			return s.verifyFreshKnowledgeAuthority(ctx, home, current)
+		}
 	}
 	return s.RebuildKnowledgeIndex(ctx, home)
+}
+
+// knowledgeConflictDeclarerMissing reports whether the home holds a
+// conflicts_with row an older writer projected without its declaring record.
+// The conflict check refuses such a row unless the contract revises both
+// derived ends, so a fresh watermark over one still rebuilds.
+func knowledgeConflictDeclarerMissing(ctx context.Context, q queryer, home KnowledgeHome) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND declarer_law_id IS NULL LIMIT 1`, home.HomeProjectID, home.HomeLocatorID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the declarers of projected law conflicts", true, "retry once the database is readable", err)
+	}
+	return true, nil
 }
 
 // verifyFreshKnowledgeAuthority reruns the legislated-authority resolver over

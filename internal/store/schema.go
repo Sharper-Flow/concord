@@ -6300,6 +6300,23 @@ ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(even
 		Version: 128, Name: remoteLocatorUpgradeName, Breaking: true, FoldMaintained: "advance",
 		SQL: `ALTER TABLE project_locators ADD COLUMN normalization_version INTEGER NOT NULL DEFAULT 1 CHECK(normalization_version IN (1,2));`,
 	},
+	{
+		Version:  129,
+		Name:     "law_relations_carry_declarer",
+		Breaking: false,
+		// The knowledge rebuild, not the fold, writes this column: one INSERT
+		// per relation row records the manifest record that declared it, and
+		// no later write moves it. A row an older writer inserted keeps NULL,
+		// which the conflict check treats as an unknown declarer and the
+		// demand-driven freshness check rebuilds.
+		FoldMaintained: "origin",
+		SQL: `
+-- A conflicts_with pair is stored in ID order, so the row alone cannot say
+-- which record declared it, and only that record can withdraw it (CD-0015,
+-- CD-0159 D4). The declarer is always one of the row's two endpoints.
+ALTER TABLE law_relations ADD COLUMN declarer_law_id TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

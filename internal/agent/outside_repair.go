@@ -21,13 +21,10 @@ import (
 // Service.ExternalEvidenceCommand and bound to the Project's git_remote.
 
 const (
-	OutsideRepairOperationDisposition = "outside_repair"
-
 	OutsideRepairModeCompleted = "completed"
 	OutsideRepairModeResume    = "resume"
 
 	outsideRepairRefreshedIntent = "refresh_outside_repair"
-	outsideRepairVerifiedIntent  = "verify_outside_repair"
 )
 
 // boundedExternalEvidenceWait caps one external command run while the runtime
@@ -938,10 +935,7 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+2, 10)}}
 		var intents []NextIntent
-		switch mode {
-		case OutsideRepairModeCompleted:
-			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", ReasonCode: outsideRepairVerifiedIntent, RequiredFields: []string{"work_id"}}}
-		case OutsideRepairModeResume:
+		if mode == OutsideRepairModeResume {
 			intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", ReasonCode: outsideRepairRefreshedIntent, RequiredFields: []string{"work_id"}}}
 		}
 		return mutationPayload(changed, intents), result.EventIDs, changed, nil

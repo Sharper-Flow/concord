@@ -1486,7 +1486,6 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		priority := in.Priority
 		urgency := in.Urgency
@@ -1528,7 +1527,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }

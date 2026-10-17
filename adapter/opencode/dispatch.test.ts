@@ -986,6 +986,26 @@ test.each([undefined, "retained-task"])("readback retains all identities, the ex
   expect(readExportSession(read.body, "session-1").ok).toBe(true)
 })
 
+test.each(["non-record", "invalid-parts"] as const)("readback projects newer page parts when the oldest message is %s", async (malformed) => {
+  const [opening, assistant] = transcript()
+  const oldest = malformed === "non-record" ? null : { ...opening, parts: "invalid" }
+  const retainedPart = { id: "retained-task", type: "tool", tool: "task", state: { status: "completed", output: workerBody() } }
+  const newest = { ...assistant, parts: [retainedPart, { type: "file", url: "discarded attachment" }] }
+  const reader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      return before ? okRoute([oldest]) : okRoute([newest], '<http://host/session/session-1/message?before=oldest>; rel="next"')
+    },
+  }
+  const read = await readWorkerSessionBody(reader, "session-1", SIGNAL, "retained-task")
+  expect(read.ok).toBe(true)
+  if (!read.ok) throw new Error(read.message)
+  const evidence = JSON.parse(read.body)
+  expect(evidence.messages[0]).toEqual(oldest)
+  expect(evidence.messages[1].parts).toEqual([retainedPart])
+  expect(readExportSession(read.body, "session-1").ok).toBe(false)
+})
+
 test.each(["duplicate", "model"] as const)("readback checks %s identity across pages before completion", async (conflict) => {
   const [opening, assistant] = transcript()
   const newer = { ...assistant, info: { ...assistant.info, id: conflict === "duplicate" ? assistant.info.id : "message-other-model", ...(conflict === "model" ? { modelID: "different-model" } : {}) } }

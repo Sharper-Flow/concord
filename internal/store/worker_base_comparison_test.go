@@ -177,7 +177,7 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	if strings.Contains(string(stored), "base_comparison") {
 		t.Fatalf("payload without a comparison carries the field anyway: %s", stored)
 	}
-	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "no-comparison-legacy"))
+	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane), "")
 	upcast, err := upcastWorkerCompletedV1(legacy)
 	if err != nil {
 		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)

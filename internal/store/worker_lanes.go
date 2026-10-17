@@ -1541,7 +1541,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed report_schema_version does not match the schema identity the attempt was dispatched with", false, "report the report_schema_version the dispatch packet carried")
 	}
 	// The host session can retain its old process directory after the host moves
-	// the session record. Refuse a reported directory that is not an active claim
+	// the session record. Require a reported directory that matches an active claim
 	// before the completion event can make the attempt terminal. The boundary
 	// reads the live host filesystem, which replay neither owns nor can reach:
 	// reclaimed worktrees no longer resolve, so replay trusts the recorded

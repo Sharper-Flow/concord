@@ -859,7 +859,6 @@ export async function readWorkerSessionBody(sessionReader: SessionReader, worker
   for (;;) {
     let result: RouteResult
     try {
-      signal.throwIfAborted()
       result = await sessionReader.messages(workerSessionID, READBACK_MESSAGE_PAGE, before, signal)
       signal.throwIfAborted()
     } catch (error) {
@@ -875,12 +874,10 @@ export async function readWorkerSessionBody(sessionReader: SessionReader, worker
     // Preserve every message identity for the full readback checks, but only
     // the oldest opening and selected retained Task need their original parts.
     pages.push(result.data.map((message, index) => {
+      if (index === 0 && opening) opening.parts = selectedParts(opening.parts)
       if (!isRecord(message) || !Array.isArray(message.parts)) return message
       const evidence = { ...message, parts: index === 0 ? message.parts : selectedParts(message.parts) }
-      if (index === 0) {
-        if (opening) opening.parts = selectedParts(opening.parts)
-        opening = evidence
-      }
+      if (index === 0) opening = evidence
       return evidence
     }))
     before = nextBeforeCursor(result.response)

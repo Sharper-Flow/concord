@@ -93,7 +93,7 @@ func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T)
 	if _, err := s.DatabaseForTesting().Exec("PRAGMA busy_timeout=1"); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := sql.Open("sqlite", "file:"+dbPath)
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -99,7 +99,7 @@ func build() {
 		return
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		buildErr = fmt.Errorf("storetest: reopen template: %w", err)
 		return

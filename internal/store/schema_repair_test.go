@@ -45,7 +45,7 @@ func schemaObjects(t *testing.T, db *sql.DB) map[string]bool {
 func openMigrated(t *testing.T) *sql.DB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "repair.db")
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", SQLiteFileURI(path))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

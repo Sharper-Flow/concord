@@ -168,7 +168,7 @@ func TestWorkerEvidenceDurableReconciliationIgnoresPinnedReader(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
-	reader, err := sql.Open("sqlite", "file:"+dbPath)
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

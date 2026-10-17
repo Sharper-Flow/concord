@@ -25,7 +25,7 @@ func TestConsequentialCommitDoesNotWaitForWALReaders(t *testing.T) {
 	if err := s.appendSeedEvent(ctx); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := sql.Open("sqlite", "file:"+path)
+	reader, err := sql.Open("sqlite", SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestDurableReplayForcesCommit(t *testing.T) {
 	if err := s.appendSeedEvent(ctx); err != nil {
 		t.Fatal(err)
 	}
-	observer, err := sql.Open("sqlite", "file:"+path)
+	observer, err := sql.Open("sqlite", SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}

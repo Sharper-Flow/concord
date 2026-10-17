@@ -83,7 +83,7 @@ func assertNoHistoricalSnapshot(t *testing.T, root string) {
 
 func historicalRefusalSequence(t *testing.T, path string) int64 {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,24 +2,30 @@ package neighbor
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestSQLiteNeighborProcess(t *testing.T) { Child(t) }
+func TestSQLiteNeighborProcess(t *testing.T) { Child(t, store.SQLiteFileURI) }
 
 // The fixture itself must prove it pins WAL frames, takes the write lock,
 // and releases that lock at cleanup. These checks use SQLite, not elapsed time.
 func TestNeighborProcessLocks(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "neighbor.db")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	dbPath := filepath.Join(t.TempDir(), "neighbor#?%23.db")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=50; CREATE TABLE domain_events(seq INTEGER); INSERT INTO domain_events VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatal(err)
 	}
 	t.Run("reader", func(t *testing.T) {

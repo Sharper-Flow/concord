@@ -480,7 +480,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 // schema objects nor migration rows, including pending additive steps.
 func releaseMigrationSnapshot(t *testing.T, path string) string {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +661,7 @@ var cutoverEvidenceQueries = []struct {
 // migration path, so the witness reads and seeds the exact rows on disk.
 func mustOpenCutoverStore(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}

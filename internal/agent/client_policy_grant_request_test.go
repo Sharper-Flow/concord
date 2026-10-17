@@ -626,7 +626,7 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "barrier-approval")
 
 	// The reader holds an open snapshot for the whole request.
-	reader, err := sql.Open("sqlite", "file:"+s.Path())
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path()))
 	if err != nil {
 		t.Fatal(err)
 	}

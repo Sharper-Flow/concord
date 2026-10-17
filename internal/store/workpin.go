@@ -48,8 +48,12 @@ type WorkPin struct {
 	// same typed absence as the definition identity above, while a managed
 	// pin still emits the key even for a definition that declares no
 	// obligations.
-	Obligations      *[]string       `json:"obligations,omitempty"`
-	NextValidIntents []WorkPinIntent `json:"next_valid_intents"`
+	Obligations *[]string `json:"obligations,omitempty"`
+	// OutstandingEvidenceKinds is known kind-debt, not proof that reference
+	// obligations are satisfied. Nil omits an unknown or partial view; a
+	// non-nil empty slice records computed zero kind-debt.
+	OutstandingEvidenceKinds *[]string       `json:"outstanding_evidence_kinds,omitempty"`
+	NextValidIntents         []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
@@ -421,6 +425,11 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
 			return jsonErr
 		}
+		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition, state.EvidenceRecovery)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		pin.OutstandingEvidenceKinds = kinds
 		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
 		if predicateErr != nil {
 			return predicateErr
@@ -797,11 +806,28 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-// Discovery and mutation share the recovery eligibility owner.
-func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
-	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
-	if err != nil {
-		return false, err
+func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, recovery *workflowEvidenceBindingRecoveryState) (*[]string, error) {
+	var requirements []workflowEvidenceRequirement
+	if recovery != nil {
+		if recovery.Refusal != nil {
+			return nil, nil
+		}
+		requirements = recovery.Requirements
 	}
-	return recovery.Refusal == nil && len(recovery.Requirements) != 0, nil
+	if requirements == nil {
+		required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+		if err != nil {
+			return nil, err
+		}
+		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var kinds []string
+	for _, requirement := range requirements {
+		kinds = append(kinds, requirement.Kind)
+	}
+	kinds = uniqueSorted(kinds)
+	return &kinds, nil
 }

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:cb6792a085840e4b9cae10d73376b5daddff82d0ee40d4726acddfe6be805b6d"
+const ManifestDigest = "sha256:09cf88642a997a6aeca8c18713f31b7976ed8da3f6fff76614bcae36b80de6d3"
 
 type OperationKind string
 
@@ -251,7 +251,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                                {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit"}},
 	"work_observation_page":                                 {Required: []string{"observations", "total"}, Properties: []string{"total", "observations"}},
 	"work_page":                                             {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                              {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "workflow_definition_version", "workflow_definition_digest", "obligations", "outside_repair_disposition", "outside_repair_route", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "work_context_unavailable", "verdict_evidence", "verified_criteria"}},
+	"work_pin":                                              {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "workflow_definition_version", "workflow_definition_digest", "obligations", "outstanding_evidence_kinds", "outside_repair_disposition", "outside_repair_route", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "work_context_unavailable", "verdict_evidence", "verified_criteria"}},
 	"work_pin_attempt":                                      {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state", "failure_attribution"}},
 	"work_pin_driving_session":                              {Required: []string{"session_ref", "last_action_id", "last_acted_at"}, Properties: []string{"session_ref", "last_action_id", "last_acted_at"}},
 	"work_pin_evidence":                                     {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},

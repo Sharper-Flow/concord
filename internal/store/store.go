@@ -492,7 +492,13 @@ func dataSourceName(path string) string {
 	for _, p := range pragmas {
 		query = append(query, "_pragma="+url.QueryEscape(p))
 	}
-	return "file:" + path + "?" + strings.Join(query, "&")
+	return "file:" + escapeSQLiteURIPath(path) + "?" + strings.Join(query, "&")
+}
+
+// escapeSQLiteURIPath protects the delimiters SQLite interprets in file: paths.
+// All other bytes stay unchanged, including ordinary relative paths.
+func escapeSQLiteURIPath(path string) string {
+	return strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
 }
 
 // verifyPragmas reads the settings back from a live connection. A data source

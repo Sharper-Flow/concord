@@ -167,7 +167,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		if !ok {
 			return newFailure(KindUnavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
 		}
-		operation, err := driverConn.NewBackup(destination)
+		operation, err := driverConn.NewBackup("file:" + escapeSQLiteURIPath(destination))
 		if err != nil {
 			return wrapFailure(KindUnavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
 		}

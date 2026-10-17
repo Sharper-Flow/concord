@@ -230,8 +230,7 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 	if len(older) == 0 {
 		return err
 	}
-	return fmt.Errorf("%w\nlive session(s) holding an older schema: %s\nend or move those sessions to the installed release, then run concord upgrade",
-		err, strings.Join(older, "; "))
+	return fmt.Errorf("%w\nlive session(s) holding an older schema: %s", err, strings.Join(older, "; "))
 }
 
 // leaseHolder names one live session the way the operator finds its terminal.

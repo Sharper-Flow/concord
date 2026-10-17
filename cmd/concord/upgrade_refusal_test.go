@@ -26,7 +26,6 @@ func TestActionableUpgradeRefusalNamesOlderHoldingSessions(t *testing.T) {
 	for _, want := range []string{
 		"pid 164135 holds /releases/v10.0.5 at schema version 92, directory /workspace/card-site",
 		"pid 81206 holds /releases/v9.0.4 at schema version 90",
-		"end or move those sessions to the installed release, then run concord upgrade",
 	} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("refusal %q must name %q", message, want)
@@ -39,10 +38,10 @@ func TestActionableUpgradeRefusalNamesOlderHoldingSessions(t *testing.T) {
 		t.Fatalf("enriched refusal %q lost the original message %q", message, refusal.Error())
 	}
 	// The enriched refusal stays typed, so stderr still carries the store's
-	// recovery, once and last.
+	// recovery, once and last, as the only remedy.
 	refusal.RecoveryAction = "run concord upgrade; it refuses while a live session holds a release that predates migration 93"
-	if text := diagnosticText(err); !strings.HasSuffix(text, "\nrecovery: "+refusal.RecoveryAction) || strings.Count(text, "recovery: ") != 1 {
-		t.Fatalf("enriched refusal renders %q, want the store recovery once as its last line", text)
+	if text := diagnosticText(err); !strings.HasSuffix(text, "\nrecovery: "+refusal.RecoveryAction) || strings.Count(text, "recovery: ") != 1 || strings.Count(text, "run concord upgrade") != 1 {
+		t.Fatalf("enriched refusal renders %q, want the store recovery once as its last line and no second remedy", text)
 	}
 }
 

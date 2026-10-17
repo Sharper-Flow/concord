@@ -58,9 +58,10 @@ func TestStoreRefusalPrintsItsRecoveryOnStderr(t *testing.T) {
 	}
 }
 
-// Every error a command prints reaches stderr through diagnosticText, so a
-// store refusal keeps its recovery. A diagnostic argument that calls Error()
-// itself has already flattened the refusal and dropped its recovery.
+// A diagnostic argument renders an error through diagnosticText, never by
+// calling Error() itself: Error() flattens a store refusal and drops its
+// recovery. The test does not see an error formatted with a verb or a
+// message built before the call.
 func TestDiagnosticsRenderErrorsThroughDiagnosticText(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

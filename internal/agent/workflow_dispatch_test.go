@@ -323,8 +323,12 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoredPath := filepath.Join(t.TempDir(), "restored.db")
-	if _, err := store.RestoreBackup(ctx, backup, restoredPath); err != nil {
+	restoreReport, err := store.RestoreBackup(ctx, backup, restoredPath)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if restoreReport.SourceSnapshot.EventWatermark != watermark || restoreReport.RestoredDatabase.EventWatermark != watermark || restoreReport.RestoredDatabase.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("restore inventories do not preserve the replay watermark: %+v", restoreReport)
 	}
 	restored, err := store.Open(ctx, restoredPath)
 	if err != nil {
@@ -666,9 +670,9 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
-	resultPayload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":5}],"next_valid_intents":[],"operation_id":"` + opID + `"}`
+	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workflowReplayWorkVersion(t, s), 10) + `}`
+	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	idempotencyChanged := "[]"
-	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
@@ -798,5 +802,96 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	}
 	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != pm1fixture.FixtureDomainRegistryContentHash || projection.ArchitectureBinding.HomeDomainID != pm1fixture.FixtureRootDomainID {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
+	}
+}
+
+// TestWorkflowLateHostApprovalNeedsOneChallenge walks the approval-gated
+// workflow path through the pending-challenge boundary: the operator's
+// affirmative answer arrives after the ten-minute mint deadline, the core
+// re-arms the expired unused invitation for its original interval, and the
+// same approved action advances without a second challenge or second ask.
+func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+		t.Fatalf("workflow seed version=%d, want 4", got)
+	}
+	ctx := context.Background()
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	// The canonical pre-contract walk is proposal, alignment, design: two
+	// events each over the version-4 capture, so the approval lands at
+	// expected version 10.
+	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+		fields := ""
+		if action == "record_design" {
+			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
+		}
+		if action == "record_proposal" {
+			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
+		}
+		if action == "record_alignment" {
+			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
+		}
+		expectedVersion := []int{4, 6, 8}[i]
+		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-late-` + action + `"}`)
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
+		if dispatchErr != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
+		}
+	}
+	input := workflowContractActionInput(t, "wf-late-approval", "")
+	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
+	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
+	}
+	summary := challenge.Error.ConsequenceSummary
+	ref, _ := challenge.Error.Details["approval_ref"].(string)
+	if summary == nil || len(ref) != 64 {
+		t.Fatalf("workflow challenge lost its exact bindings: %+v", challenge.Error)
+	}
+	// The prompt stays open past the ten-minute mint deadline while the
+	// answer is pending; the operator's answer is fresh.
+	answerAt := fixedTime().Add(11 * time.Minute)
+	service.Now = func() time.Time { return answerAt }
+	env.HostApproval = &HostApprovalAssertion{ChallengeRef: ref, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
+	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
+	if err != nil || approved.Outcome != OutcomeOK {
+		if approved.Error != nil {
+			t.Fatalf("late-approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
+		}
+		t.Fatalf("late-approved workflow action response=%+v err=%v", approved, err)
+	}
+	if countWorkflowApprovalChallenges(t, s) != 1 {
+		t.Fatal("late workflow answer minted a second challenge")
+	}
+	var status string
+	var used int
+	var issuedAt, expiresAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT status, used_count, issued_at, expires_at FROM agent_approval_challenges WHERE challenge_ref=?`, ref).Scan(&status, &used, &issuedAt, &expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "consumed" || used != 1 || issuedAt != fixedTime().Format(time.RFC3339Nano) || expiresAt != answerAt.Add(10*time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("late workflow exchange challenge state status=%s used=%d issued=%s expires=%s", status, used, issuedAt, expiresAt)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
+		t.Fatal("late workflow exchange did not consume exactly one derived approval")
+	}
+	var step string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	if step != "execution" {
+		t.Fatalf("late-approved action current step=%s, want execution", step)
+	}
+	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
+	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {
+		t.Fatalf("late workflow replay response=%+v err=%v", replayed, err)
+	}
+	if countWorkflowApprovalChallenges(t, s) != 1 {
+		t.Fatal("late workflow replay minted a challenge")
 	}
 }

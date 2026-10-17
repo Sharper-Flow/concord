@@ -21,6 +21,7 @@ type MutationIdempotencyRecord struct {
 	CanonicalDigest         string
 	OperationID             string
 	ResultPayload           string
+	ResultEventIDs          string
 	ChangedRefs             string
 	AuthorizedScopeSnapshot string
 }
@@ -82,8 +83,8 @@ func LookupMutationIdempotencyTx(ctx context.Context, transaction *Transaction, 
 
 func lookupMutationIdempotency(ctx context.Context, q queryer, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
 	var record MutationIdempotencyRecord
-	err := q.QueryRowContext(ctx, `SELECT canonical_digest,op_id,COALESCE(result_payload,''),changed_refs,authorized_scope_snapshot FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey).
-		Scan(&record.CanonicalDigest, &record.OperationID, &record.ResultPayload, &record.ChangedRefs, &record.AuthorizedScopeSnapshot)
+	err := q.QueryRowContext(ctx, `SELECT canonical_digest,op_id,COALESCE(result_payload,''),result_event_ids,changed_refs,authorized_scope_snapshot FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey).
+		Scan(&record.CanonicalDigest, &record.OperationID, &record.ResultPayload, &record.ResultEventIDs, &record.ChangedRefs, &record.AuthorizedScopeSnapshot)
 	if err == sql.ErrNoRows {
 		return MutationIdempotencyRecord{}, false, nil
 	}

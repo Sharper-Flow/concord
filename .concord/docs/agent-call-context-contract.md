@@ -194,6 +194,15 @@ the approval inapplicable. The core consumes a single-use approval in the same
 transaction that records the authorized domain intent; cross-authority execution
 then follows the durable operation's recovery contract.
 
+A pending single-use challenge has an explicit fresh-consent re-arm policy.
+Elapsed prompt time alone does not invalidate a fresh affirmative host answer.
+The core must revalidate the unchanged request, scope, versions, consequence,
+caller identity, and host binding before it re-arms an expired unused challenge.
+The replacement deadline uses the original finite challenge interval.
+Re-arm, approval creation, consumption, and authorized intent share one transaction.
+This policy never renews an issued approval, increases use count limits, or
+permits a stale host assertion. Any failure rolls back the whole exchange.
+
 Rejected approval forms:
 
 - `approved: true`, `target_confirmed`, or other self-asserted booleans;

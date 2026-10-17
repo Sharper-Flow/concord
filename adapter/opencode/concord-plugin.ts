@@ -34,7 +34,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition } from "./ci-watch"
+import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, redeliverQueuedCiReports, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -67,11 +67,13 @@ async function pushSessionGoalTitle(input: unknown, output: { context: string[] 
   }
 }
 
-export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, options?: PluginOptions) {
+export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, _options?: PluginOptions) {
   hostControlPlane().bind(input)
   // The CI watcher delivers through the same client, so the plugin factory is
   // the one place the watcher transport is bound.
   bindCiWatchClient(input)
+  // Bind before publication so a failed peer registration can log.
+  const ciPeer = registerCiWatchPeer(input)
   // CD-0111 D1/D2: claim the session's release lease before any tool can
   // run. The claim fails closed: a session that cannot claim a lease keeps
   // the release it runs visible to the installer, so the tools refuse rather
@@ -101,7 +103,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // The registration is the watcher tool's only name: its module lives
       // in the custom tools directory, where nothing but the plugin may name
       // a tool.
-      concord_ci_watch: ciWatchTool(),
+      concord_ci_watch: ciWatchTool(ciPeer.id),
     }),
     "chat.message": async (
       input: { sessionID: string; messageID?: string },
@@ -135,6 +137,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishCiWatchDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
+      redeliverQueuedCiReports(event)
       const result = await failDispatchedWorker(event)
       if (result?.error) {
         await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })
@@ -220,5 +223,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await agentSwitch.transform(input, output)
     },
     "experimental.session.compacting": pushSessionGoalTitle,
+    dispose: async () => ciPeer.dispose(),
   }
 }

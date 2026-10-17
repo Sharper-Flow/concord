@@ -632,10 +632,10 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 }
 
 // requireAcceptanceDeliverables refuses the acceptance-step transition while
-// the deliverables completion depends on are absent: a recorded workflow
-// verdict and every required evidence kind durably bound. Once the step
-// advances, no declared action can produce them, so the confirmation is the
-// last point the requirement can be enforced.
+// the deliverables completion depends on are absent: an independent verdict
+// for every approved predicate and every required evidence kind durably
+// bound. Once the step advances, no declared action can produce them, so the
+// confirmation is the last point the requirement can be enforced.
 func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
@@ -659,6 +659,25 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		return err
+	}
+	// Completion's clause 4 judges each verdict actor against the whole
+	// execution history, so a verdict whose actor executed after recording it
+	// fails there, past the last step that declares record_verdict.
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	if err != nil {
+		return err
+	}
+	for _, verdict := range verdicts {
+		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
+			continue
+		}
+		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable || failure.RecoveryAction == "contact_operator" {
+				return err
+			}
+			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+verdict.PredicateID+": "+failure.Detail, false, "record_verdict for "+verdict.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
+		}
 	}
 	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
 	if cutoffErr != nil {
@@ -766,21 +785,30 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // The executing model is read from the instance because it is a property of the
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
-func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
 	if err := workflowStepExecutorRefusal(ctx, tx, workID, verdictActor, "complete_workflow"); err != nil {
 		return err
 	}
 	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
 }
 
-func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+	return workflowActorsDistinctForExecutor(ctx, tx, workID, "", verdictActor, verdictModel, requireModelDistinct, operation)
+}
+
+// workflowActorsDistinctForExecutor evaluates distinctness against a supplied
+// executorRef, which must resolve, and otherwise against the instance's current lookup.
+func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
-	err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
-	if err == sql.ErrNoRows {
-		// Instances pinned before selector pinning carry no executor tuple.
-		// The selecting actor from the immutable definition event is the
-		// same identity the fold now pins, so distinctness evaluates
-		// against it instead of refusing outright (#970).
+	var err error
+	if executorRef == "" {
+		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	} else {
+		err = tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=? WHERE i.work_id=?`, executorRef, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	}
+	if err == sql.ErrNoRows && executorRef == "" {
+		// The immutable selecting actor supplies the tuple when the
+		// instance has no executor tuple.
 		derived, found, deriveErr := workflowSelectingActorTx(ctx, tx, workID)
 		if deriveErr != nil {
 			return deriveErr
@@ -820,7 +848,7 @@ func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs 
 		// qualifies (#974).
 		return newFailure(KindMissingEvidence, "complete_workflow", "verdict evidence is not durably bound: "+strings.Join(unbound, ", ")+"; verdict refs must equal a bound immutable_subject_ref", false, "provide_evidence")
 	}
-	return nil
+	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, refs)
 }
 
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {
@@ -1009,9 +1037,20 @@ func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind stri
 	return false, nil
 }
 
+// latestWorkflowVerdict keeps the unbounded latest-history read every live
+// caller uses; the bounded variant serves replay folds that see the intact
+// log.
 func latestWorkflowVerdict(ctx context.Context, tx queryer, workID string) (*workflowVerdictRecordedPayload, error) {
+	return latestWorkflowVerdictBefore(ctx, tx, workID, 0)
+}
+
+// latestWorkflowVerdictBefore is the single verdict-history query owner.
+// beforeSeq bounds the read for a replay fold: 0 keeps the unbounded
+// latest-history semantics, and a fold passes its own sequence so a verdict
+// recorded after it never enters the fold's decision.
+func latestWorkflowVerdictBefore(ctx context.Context, tx queryer, workID string, beforeSeq int64) (*workflowVerdictRecordedPayload, error) {
 	var raw []byte
-	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&raw); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

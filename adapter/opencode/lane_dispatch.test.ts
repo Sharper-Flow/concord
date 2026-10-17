@@ -1,10 +1,18 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import fs from "node:fs"
+import { createHash } from "node:crypto"
+import nodeFs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { AdapterContractDefect } from "./adapter-contract-defect"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
 
 beforeEach(() => {
   // Another file's landing tests can arm a claim that leaks into this run;
@@ -15,7 +23,10 @@ beforeEach(() => {
     post: async () => { throw new Error("dispatch does not move the host session") },
   })
 })
-afterEach(() => hostControlPlane().bind(undefined))
+afterEach(() => {
+  hostControlPlane().bind(undefined)
+  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
+})
 
 // The lane dispatcher reaches the Opencode plugin through ToolContext (typed
 // only) and the dispatch worker through dispatchWorker, but the test never
@@ -199,6 +210,7 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-1", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner, windows })
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(result.result?.worker_packet_digest).toBe(CORE_PACKET_DIGEST)
   expect(seen).toContain("concord_work_trace.continuity")
   expect(seen).toContain("concord_work_browse.scope")
   expect(seen).toContain("concord_work_transition.workflow_action")
@@ -548,6 +560,38 @@ test("core authorization refusal on dispatch_worker surfaces as unauthorized_dis
   expect(result.error?.message).toBe("no authorized dispatch window exists for this work item at the current step")
   expect(spawned).toBe(0)
   expect(workflowCalls).toBe(1)
+})
+
+// A core aggregate dispatch-context bound refusal is a typed limit_exceeded.
+// The bound itself is store-owned; this asserts the adapter contract for that
+// refusal class — the cause and recovery surface unchanged, no worker spawns,
+// and no Task window arms. There is deliberately no adapter-side byte
+// measurement to parallel the core bound.
+test("a core aggregate context bound refusal surfaces without arming a Task window", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreErrorEnvelope("limit_exceeded", "the dispatch context members measure 65537 bytes of canonical JSON, above the 65536-byte aggregate dispatch context bound; the request is refused whole and never trimmed")
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-agg-bound", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain("65537")
+  const core = (result.error?.details ?? {}) as Record<string, unknown>
+  expect((core.core_error as Record<string, unknown>).kind).toBe("limit_exceeded")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
 })
 
 for (const refusal of [
@@ -1149,4 +1193,368 @@ test("a provenance manifest over the store bound authorizes nothing in the core 
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(configDir, { recursive: true, force: true })
   }
+})
+
+// Every declared required reading resolves in the core before
+// a worker spawns. The core owns the entire resolution — the adapter adds no
+// second source resolver and no Git probe of its own. A typed core refusal
+// that names a declared reading reaches the coordinator with its cause and
+// recovery intact, spawns no native Task, and arms no window; a dispatch the
+// core admits over its resolved declared readings spawns exactly one native
+// Task.
+test("TestDispatchRequiredReadingResolutionBeforeTask: a core declared-reading refusal spawns no native Task", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreErrorEnvelope(
+        "projection_not_found",
+        'required reading 0 (project-repo/internal/store/work_context.go@' + "a".repeat(40) + "): the declared commit does not resolve in the declared Project's repository",
+      )
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-reading-refusal", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.message).toContain("required reading 0")
+  const core = (result.error?.details ?? {}) as Record<string, unknown>
+  expect((core.core_error as Record<string, unknown>).kind).toBe("projection_not_found")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("TestDispatchRequiredReadingResolutionBeforeTask: a core-admitted dispatch over its resolved declared readings arms exactly one native Task window", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-reading-admit", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
+  // The core resolved the declared readings and authorized the dispatch: the
+  // host runs exactly one native Task from the one armed window. The adapter
+  // itself spawns nothing (CD-0102 D5) and adds no second source resolution.
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(true)
+})
+
+// An oversized projection travels as lossless projection pages of one
+// canonical JSON document (CD-0016 as amended). The dispatch anchors —
+// product identity, step, instance absence, correction attempt count — are
+// authority-bearing, so the shared reconstruction helper joins every page
+// before any of them is read. The fixtures mirror the Go agent's page
+// emission: whole-code-point UTF-8 byte pages of the inline result's
+// canonical JSON, chained by the signed next_cursor the envelope carries.
+const pagedUtf8 = new TextEncoder()
+const pagedDocumentOf = (result: Record<string, unknown>) => JSON.stringify(result)
+const pagedDigestOf = (document: string) => `sha256:${createHash("sha256").update(pagedUtf8.encode(document)).digest("hex")}`
+
+const PAGED_PREMISE = `境content across page boundaries 🎯 ${"p".repeat(1600)}`
+const PAGED_CORRECTION = {
+  disposition: "failed",
+  attempt_count: 2,
+  attempt_limit: 3,
+  escalated: false,
+  diagnosis: "the paged attempt failed",
+  strategy: "retry the paged dispatch with a fresh fenced attempt",
+  predicate_ids: [],
+  evidence_refs: [],
+}
+
+// The oversized document grows through admitted store members the packet
+// builder never reads: the full observation window and the pinned
+// projection's second work-context copy. Their shapes and bounds follow the
+// closed continuity schema; the packet-bound fields stay within their own
+// recorded limits.
+const OVERSIZED_CONTEXT = {
+  source_event_frontier: 40,
+  required_reading: [],
+  findings: Array.from({ length: 30 }, (_, index) => ({
+    finding_id: `finding:40:${index}`,
+    kind: "direction",
+    statement: "境".repeat(340),
+    subject_ref: "internal/agent/runtime.go",
+    evidence_refs: ["internal/agent/continuity_collection_budget_test.go"],
+    domain_id: "agent-surface",
+    origin: "declaration",
+    status: "reported",
+    source_event_id: "record_work_context-work-dispatch-40:semantic",
+    source_event_seq: 40,
+    ordinal: index,
+  })),
+  domain_groups: [],
+}
+const oversizedObservation = (index: number) => ({
+  observation_id: `observation:paged-${index}`,
+  work_id: WORK_ID,
+  statement: "境".repeat(512),
+  recorded_at: "2026-09-09T00:00:00Z",
+  refs: [`evidence:paged-${index}`],
+  tags: ["paged"],
+})
+
+const pagedResult = (): Record<string, unknown> => ({
+  work_id: WORK_ID,
+  pinned: {
+    product_identity: [PRODUCT_ID],
+    workflow_step: WORKFLOW_STEP,
+    contract: { version: 1, premise: PAGED_PREMISE, outcome_predicates: [{ predicate_id: "predicate:primary", ordinal: 0, outcome_kind: OUTCOME_KIND, outcome_payload: OUTCOME_PAYLOAD }], required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false },
+    spec_mandate: [],
+    pending_operator_decision: null,
+    latest_checkpoint: null,
+    unresolved_failure: null,
+    work_pin: { correction: PAGED_CORRECTION },
+    work_context: OVERSIZED_CONTEXT,
+  },
+  boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
+  typed_availability: { restart: "unavailable", reason: "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call" },
+  pending_messages: 0,
+  observations: Array.from({ length: 16 }, (_, index) => oversizedObservation(index)),
+  observations_total: 16,
+  observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: WORK_ID } },
+})
+
+// pagedChain cuts the canonical document into whole-code-point pages of at
+// most limitBytes UTF-8 bytes and renders one page envelope per fragment.
+const pagedChain = (result: Record<string, unknown>, limitBytes: number) => {
+  const document = pagedDocumentOf(result)
+  const pages: { data: string; offset: number }[] = []
+  let data = ""
+  let dataBytes = 0
+  let offset = 0
+  for (const codePoint of document) {
+    const width = pagedUtf8.encode(codePoint).length
+    if (data.length > 0 && dataBytes + width > limitBytes) {
+      pages.push({ data, offset })
+      offset += dataBytes
+      data = ""
+      dataBytes = 0
+    }
+    data += codePoint
+    dataBytes += width
+  }
+  if (data.length > 0) pages.push({ data, offset })
+  const envelopes = pages.map((page, index) =>
+    envelope({
+      tool: "concord_work_trace", operation: "continuity", outcome: "ok", authority: "authoritative", freshness: null,
+      resolved_scope: { product_id: PRODUCT_ID, project_ids: [PRODUCT_ID], scope_version: "sha256:" + "b".repeat(64) },
+      next_cursor: index === pages.length - 1 ? null : `cursor-${index + 1}`,
+      result: {
+        work_id: WORK_ID,
+        workflow_instance: "present",
+        workflow_step: WORKFLOW_STEP,
+        watermark: "seq:1",
+        projection_page: {
+          encoding: "json-utf8",
+          digest: pagedDigestOf(document),
+          total_bytes: pagedUtf8.encode(document).length,
+          offset: page.offset,
+          data: page.data,
+          document_complete: index === pages.length - 1,
+        },
+        next_kind: index === pages.length - 1 ? null : "projection",
+      },
+    }),
+  )
+  return { document, envelopes }
+}
+
+// pagedScript serves the continuity chain by cursor token — repeated reads
+// replay the same unchanged pages — and answers the scope read and the
+// managed dispatch the way the happy path does.
+const pagedScript = (chain: unknown[], workflowInput: { value?: Record<string, unknown> }) => {
+  const seen: string[] = []
+  const byCursor = new Map<unknown, unknown>([[null, chain[0]]])
+  chain.slice(0, -1).forEach((envelope, index) => byCursor.set((envelope as any).next_cursor, chain[index + 1]))
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+    const key = `${toolName}.${args.operation}`
+    seen.push(key)
+    if (key === "concord_work_trace.continuity") {
+      const cursor = (args.input as any)?.page?.cursor ?? null
+      if (!byCursor.has(cursor)) throw new Error(`unscripted continuity cursor ${String(cursor)}`)
+      return byCursor.get(cursor)
+    }
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { workflowInput.value = args.input; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  return Object.assign(invoke, { seen: () => seen })
+}
+
+test("dispatch from a paged oversized item reaches the packet builder with the inline identity, step, and retry suffix", async () => {
+  const result = pagedResult()
+  const input = { work_id: WORK_ID, expected_version: 3, idempotency_key: "paged-dispatch", lane_id: lane.id }
+  // The canonical document is a genuinely oversized projection: its UTF-8
+  // length exceeds the whole-envelope cap the inline branch must fit.
+  expect(pagedUtf8.encode(pagedDocumentOf(result)).length).toBeGreaterThan(51_200)
+  const { envelopes } = pagedChain(result, 20_000)
+  expect(envelopes.length).toBeGreaterThan(2)
+  const workflowInput: { value?: Record<string, unknown> } = {}
+  const windows = new DispatchWindows()
+  const outcome = await dispatchLaneWorker(input, { context: contextFor(), invoke: pagedScript(envelopes, workflowInput) as any, credentials: testCredentials, windows })
+  expect(outcome.outcome, JSON.stringify(outcome)).toBe("ok")
+  const packet = (workflowInput.value!.fields as Record<string, unknown>).worker_packet as AgentLanePacket
+  // The paged anchors equal the inline ones: the ambient Product matched the
+  // joined product identity, the step is the pinned one, and the attempt
+  // keeps the correction's retry suffix.
+  expect(packet.step_id).toBe(WORKFLOW_STEP)
+  expect(packet.attempt_id).toBe(`${dispatchAttemptID(input)}-retry-2`)
+  // The joined packet is byte-identical to the same dispatch served the
+  // inline result: reconstruction changes transport, never packet content.
+  const inlineWorkflow: { value?: Record<string, unknown> } = {}
+  const inlineInvoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope({ pinned: { contract: (result.pinned as Record<string, unknown>).contract, work_pin: (result.pinned as Record<string, unknown>).work_pin } })
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { inlineWorkflow.value = args.input; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const inlineOutcome = await dispatchLaneWorker(input, { context: contextFor(), invoke: inlineInvoke as any, credentials: testCredentials, windows: new DispatchWindows() })
+  expect(inlineOutcome.outcome, JSON.stringify(inlineOutcome)).toBe("ok")
+  const inlinePacket = (inlineWorkflow.value!.fields as Record<string, unknown>).worker_packet as AgentLanePacket
+  expect(JSON.stringify(packet)).toBe(JSON.stringify(inlinePacket))
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(windows.has("session-1")).toBe(true)
+})
+
+test("a broken page sequence refuses dispatch without authorizing an attempt", async () => {
+  const result = pagedResult()
+  const cases: Array<[string, string, (chain: unknown[]) => void]> = [
+    ["missing page", "threw", (chain) => { chain.splice(1) }],
+    ["duplicated page", "offset", (chain) => {
+      const copy = JSON.parse(JSON.stringify(chain[1]))
+      ;(copy as any).next_cursor = "cursor-dup"
+      chain.splice(2, 0, copy)
+    }],
+    ["reordered page", "offset", (chain) => {
+      const swapped = chain[1]
+      chain[1] = chain[2]
+      chain[2] = swapped
+    }],
+    ["changed digest", "digest", (chain) => { ((chain[1] as any).result.projection_page as Record<string, unknown>).digest = `sha256:${"f".repeat(64)}` }],
+    ["joined digest mismatch", "digest", (chain) => {
+      // Same UTF-8 byte length, different bytes: every page's metadata stays
+      // consistent and only the joined-byte hash diverges from the digest
+      // the pages declare.
+      const last = chain[chain.length - 1] as any
+      const page = last.result.projection_page as Record<string, unknown>
+      const before = page.data as string
+      const after = before.replace('"observations_total":16', '"observations_total":17')
+      expect(after.length).toBe(before.length)
+      expect(after).not.toBe(before)
+      page.data = after
+    }],
+    ["work mismatch", "work", (chain) => { ((chain[1] as any).result as Record<string, unknown>).work_id = "work-elsewhere" }],
+    ["reconstructed work mismatch", "names work work-mismatch", (chain) => {
+      // The page headers keep naming the requested work. The corruption
+      // lands in the first fragment's actual bytes — the document's
+      // top-level work_id — and the digest is recomputed from the mutated
+      // fragments, so every metadata check passes and only the final
+      // parsed-work check can refuse.
+      const joinedBefore = chain.map((envelope) => (envelope as any).result.projection_page.data as string).join("")
+      const corrupted = joinedBefore.replace('"work_id":"work-dispatch"', '"work_id":"work-mismatch"')
+      expect(corrupted.length).toBe(joinedBefore.length)
+      expect(corrupted).not.toBe(joinedBefore)
+      const first = (chain[0] as any).result.projection_page as Record<string, unknown>
+      const mutated = (first.data as string).replace('"work_id":"work-dispatch"', '"work_id":"work-mismatch"')
+      expect(mutated.length).toBe((first.data as string).length)
+      expect(mutated).not.toBe(first.data)
+      first.data = mutated
+      expect(chain.map((envelope) => (envelope as any).result.projection_page.data as string).join("")).toBe(corrupted)
+      const digest = pagedDigestOf(corrupted)
+      for (const envelope of chain) ((envelope as any).result.projection_page as Record<string, unknown>).digest = digest
+    }],
+    ["incomplete final page", "complete", (chain) => {
+      const last = chain[chain.length - 1] as any
+      const page = last.result.projection_page as Record<string, unknown>
+      page.data = (page.data as string).slice(0, 8)
+    }],
+  ]
+  for (const [name, fragment, mutate] of cases) {
+    const { envelopes } = pagedChain(result, 20_000)
+    const chain: unknown[] = envelopes
+    mutate(chain)
+    const workflowInput: { value?: Record<string, unknown> } = {}
+    let spawned = 0
+    const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+    const windows = new DispatchWindows()
+    const invoke = pagedScript(chain, workflowInput)
+    const outcome = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: `paged-refusal-${name}`, lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
+    expect(outcome.outcome, `${name}: ${JSON.stringify(outcome)}`).toBe("error")
+    expect(outcome.error?.kind, name).toBe("transport_failure")
+    expect(outcome.error?.message, name).toContain("continuity")
+    expect(outcome.error?.message, name).toContain(fragment)
+    expect(invoke.seen(), name).not.toContain("concord_work_transition.workflow_action")
+    expect(spawned, name).toBe(0)
+    expect(windows.has("session-1"), name).toBe(false)
+  }
+})
+
+test("a throwing initial continuity read refuses dispatch without authorizing an attempt", async () => {
+  let continuityCalls = 0
+  let transitionCalls = 0
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") { continuityCalls++; throw new Error("the synthetic core is unreachable") }
+    if (key === "concord_work_transition.workflow_action") { transitionCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const outcome = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "continuity-initial-throw", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
+  expect(outcome.outcome, JSON.stringify(outcome)).toBe("error")
+  expect(outcome.error?.kind).toBe("transport_failure")
+  expect(outcome.error?.message).toContain("continuity")
+  expect(outcome.error?.message).toContain("unreachable")
+  expect(continuityCalls).toBe(1)
+  expect(transitionCalls).toBe(0)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("a throwing continuation read refuses dispatch without authorizing an attempt", async () => {
+  const { envelopes } = pagedChain(pagedResult(), 20_000)
+  let continuityCalls = 0
+  let transitionCalls = 0
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") {
+      continuityCalls++
+      const cursor = (args.input as any)?.page?.cursor ?? null
+      if (cursor === null) return envelopes[0]
+      throw new Error("the continuation core call failed")
+    }
+    if (key === "concord_work_transition.workflow_action") { transitionCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const outcome = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "continuation-throw", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
+  expect(outcome.outcome, JSON.stringify(outcome)).toBe("error")
+  expect(outcome.error?.kind).toBe("transport_failure")
+  expect(outcome.error?.message).toContain("continuity")
+  expect(outcome.error?.message).toContain("continuation core call failed")
+  expect(continuityCalls).toBe(2)
+  expect(transitionCalls).toBe(0)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
 })

@@ -1,10 +1,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
-import fs from "node:fs"
+import nodeFs from "node:fs"
 import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
 import { manifestDigest } from "./generated-contracts"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary, dispatchWorker, type AgentLanePacket } from "./dispatch"
 import { configureConcordAdapter } from "./concord"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -12,6 +13,13 @@ import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, work_start } from "./concord"
 import { resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn, questionRequiresNormalChat, TURN_MOVE_DISPATCH_REFUSAL, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
 
 configureCoreBinary("concord")
 
@@ -55,6 +63,8 @@ afterEach(() => {
   resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   configureConcordAdapter({ reset: true })
+  configureCiWatch({ reset: true })
+  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 
 const beforeHook = () => plugin["tool.execute.before"]

@@ -20,10 +20,11 @@ Only contracts approved through surface `2.2.0` carry the internal persisted
 law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
 checks the accepted Git-derived `law_subjects` and `law_relations` projection;
-an explicit conflict may pass planning only when a conflicting endpoint is in
-`law_modifies`. Completion reruns the check without that exception, so only a
-Git-authorized law delta can resolve the conflict. Earlier contracts retain
- their prior evidence-reference interpretation of `spec_mandate`.
+an explicit conflict may pass planning only when the endpoint whose record
+declares it is in `law_modifies`. Completion reruns the check without that
+exception, so only a Git-authorized law delta can resolve the conflict. Earlier
+contracts retain their prior evidence-reference interpretation of
+`spec_mandate`.
 
 CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a
@@ -313,7 +314,7 @@ Its bounded `result_json` is byte-identical to the green operation's
 
 An oracle receipt joins retained execution evidence and creates no producer
 authority. The candidate and pinned recipe remain separate identities.
-The initial native recipe supports pure-Go top-level tests only.
+The `go_top_level_v1` family supports pure-Go top-level tests only.
 Preparation derives a nonempty, build-selected witness set and compiles the
 pinned harness without running its binary, initialization, or `TestMain`.
 Execution stages the candidate with the exact pinned test and fixture bytes.
@@ -323,11 +324,13 @@ execution; only declared pinned fixtures and explicit compiler inputs enter.
 The producer pins the installed toolchain and native target, with
 `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `CGO_ENABLED=0`, and
 `GOWORK=off`. Each lease uses a private disposable `GOCACHE`.
-Unsupported recipes and missing dependencies remain unavailable; no install,
-download, shell fallback, or aggregate scratch-quota guarantee is implied.
+That family does not install or download missing dependencies. Target runners
+materialize verified cached dependencies into per-run scratch under CD-0205 D1.
+Unsupported recipes and unverified inputs remain unavailable. Ordinary shell
+output supplies no native fallback. No aggregate scratch-quota guarantee is implied.
 A pass requires actual run and terminal pass events for every selected case
 witness, not exit zero alone, a skipped test, or package-level success.
-The selected case events come from the process that links the candidate.
+For Go, selected case events come from the process that links the candidate.
 The producer does not authenticate those events against candidate code.
 Independent review judges candidate code for harness subversion, including
 process exit, output forgery, and initialization effects.
@@ -770,7 +773,15 @@ On `workflow.implementation` v27 and `workflow.break_fix` v24,
 recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
 oracle. Structure and retained readiness references join existing contract,
 Domain, Project, and law authority; preparation resolves pinned recipes
-before authorization. Older pins retain oracle-free content and behavior.
+before authorization. Supported Go and target-repository runners use the
+same native preparation, job, dispatch, and receipt authority joins.
+Preparation consumes recipe-commit bytes and supplies no verification pass.
+Execution consumes candidate-commit production inputs with pinned harness
+and runner inputs. Exact dependency pins, cached-byte integrity, input
+digests, and runtime policy remain the producer's obligations under CD-0205 D1.
+Its shared evidence limits apply to every recipe family.
+Unsupported or unavailable inputs refuse without a worker attempt or a
+readiness exception. Older pins retain oracle-free content and behavior.
 `worker.completed` v6 admits oracle receipts, ranked-finding ties, and closed
 resolution claims; historical upcasts invent none. `worker.failed` remains v2.
 Local job acceptance holds the step. Whole-work delivery still requires the

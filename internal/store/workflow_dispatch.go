@@ -150,12 +150,12 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if !stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable outside a worker-dispatch step", false, "reread_entities")
 		}
-		available, correctionErr := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0)
+		available, correctionErr := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
 		if correctionErr != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
-			return entry, workflowCorrectionActionDefinition(), nil
+			return entry, workflowCorrectionActionDefinitionFor(entry.Definition, "reject_worker_result"), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
@@ -169,7 +169,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
-			return entry, workflowCorrectionRequestActionDefinition(), nil
+			return entry, workflowCorrectionActionDefinitionFor(entry.Definition, "request_correction"), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 	}
@@ -264,6 +264,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, conflict
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
+	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
+		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
+			return result, err
+		}
+	}
 	// One admission derivation for the fold: the tx-scoped loader folds the
 	// instance history into the abstract admission state once, the request's
 	// consumed operator approval fills ordinary failed-retry approval, and the pure
@@ -328,6 +333,14 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		rejectRetry, parseErr = parseRejectRetryIntent(entry.Definition, request.Payload)
 		if parseErr != nil {
 			return result, parseErr
+		}
+		// A combined rejection with a retry prepared one dispatch proof
+		// before this transaction opened. The pre-rejection state the proof
+		// sampled must still stand at this outer entry.
+		if rejectRetry != nil {
+			if err := revalidateDispatchProofAtRejectEntry(ctx, tx, request.WorkID); err != nil {
+				return result, err
+			}
 		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
@@ -455,6 +468,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
 	if err != nil {
+		return result, err
+	}
+	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, assembly.events); err != nil {
 		return result, err
 	}
 	result.EventIDs = operationResult.EventIDs

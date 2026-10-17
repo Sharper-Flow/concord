@@ -1,0 +1,804 @@
+package store
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/csv"
+	"encoding/xml"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// runNativeTargetOracle executes one leased target_runner_v1 plan. It
+// materializes the sealed view (recipe commit at preparation, candidate
+// commit with the pinned harness overlay at execution), materializes
+// dependencies offline through the plan's materializer into private
+// scratch, and grades the exact selected witness population through
+// host-observed pinned invocations. No stage runs while any SQL transaction
+// is open; the caller holds no lease transaction here.
+func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, p nativeOraclePlan, capture *nativeStreamCapture, result *NativeOracleResult) (returnErr error) {
+	t := p.Target
+	m := t.Recipe
+	pair, err := nativeTargetPairOf(m)
+	if err != nil {
+		return err
+	}
+	root, err := os.MkdirTemp("", "concord-native-target-")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := os.RemoveAll(root); err != nil && returnErr == nil {
+			returnErr = err
+		}
+	}()
+	if err := nativeScratchDirectories(root); err != nil {
+		return err
+	}
+	snapshot := filepath.Join(root, "snapshot")
+	if err := os.Mkdir(snapshot, 0700); err != nil {
+		return err
+	}
+	commit := p.SubjectCommit
+	if req.Oracle.Phase == "prepare" {
+		commit = p.Bundle.Control.RecipeSource.CommitOID
+	}
+	if err := materializeNativeSnapshot(ctx, r, entry.Path, commit, snapshot); err != nil {
+		return err
+	}
+	if err := nativeTargetOverlayHarness(ctx, r, entry.Path, snapshot, p); err != nil {
+		return err
+	}
+	digest, err := nativeTargetInputDigest(p, snapshot, true)
+	if err != nil {
+		return err
+	}
+	result.InputManifestDigest = digest
+	env := nativeTargetControlledEnv(t, root)
+	cwd := filepath.Join(snapshot, filepath.FromSlash(m.Root))
+	if !nativeContained(snapshot, cwd) {
+		return nativeUnavailable("effective cwd escapes candidate snapshot")
+	}
+	binaryDigest := ""
+	if pair.Materializer == nativeTargetMaterializerNone {
+		// Check runners without a materializer consume only the pinned
+		// interpreters; their closure is digested once up front.
+		binaryDigest, err = nativeTargetRunnerDigest(t, root)
+		if err != nil {
+			return err
+		}
+		result.BinaryDigest = binaryDigest
+	}
+	// The run loop owns the stage ordinal: each executed test stage's
+	// position among the producer-generated test stages joins it to its
+	// selected witness, so no caller-supplied index can enter the join.
+	testOrdinal := 0
+	for _, stage := range p.Stages {
+		home, err := os.Lstat(filepath.Join(root, "home"))
+		if err != nil || !home.IsDir() || home.Mode()&os.ModeSymlink != 0 {
+			return nativeUnavailable("disposable scratch no longer realizes the leased plan slot")
+		}
+		if stage.Name == "test" {
+			actual, err := nativeTargetInputDigest(p, snapshot, false)
+			if err != nil || actual != digest {
+				return nativeUnavailable("candidate inputs changed before test launch")
+			}
+			if binaryDigest != "" {
+				current, err := nativeTargetRunnerDigest(t, root)
+				if err != nil || current != binaryDigest {
+					return nativeUnavailable("consumed dependency closure changed before launch")
+				}
+			}
+		}
+		argv := nativeTargetStageArgv(t, root, slices.Clone(stage.Argv))
+		var launched func()
+		if stage.Name == "test" {
+			launched = s.nativeOracleProgramLaunched
+		}
+		if s.nativeOracleStageObserved != nil {
+			s.nativeOracleStageObserved(stage.Name, cwd, slices.Clone(argv), slices.Clone(env))
+		}
+		stageCtx := ctx
+		cancel := func() {}
+		if stage.Name == "test" {
+			stageCtx, cancel, err = nativeOracleTestContext(ctx, req)
+			if err != nil {
+				return err
+			}
+		}
+		stageCapture := nativeTargetStageCapture(stage.Name, capture)
+		so, se := 0, 0
+		if stageCapture == capture {
+			so, se = len(capture.stdout), len(capture.stderr)
+		}
+		exit, runErr := runNativeOracleStage(stageCtx, cwd, argv, env, nil, stageCapture, launched)
+		cancel()
+		stage.ExitCode = exit
+		stage.StdoutOffset = so
+		stage.StderrOffset = se
+		stage.StdoutLength = len(stageCapture.stdout) - so
+		stage.StderrLength = len(stageCapture.stderr) - se
+		if stageCapture != capture {
+			// Diagnostics captured beside the retained evidence streams
+			// record zero evidence bounds; their bytes are not retained.
+			stage.StdoutLength, stage.StderrLength = 0, 0
+		}
+		result.Stages = append(result.Stages, stage)
+		if runErr != nil || !stageCapture.complete {
+			return nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
+		}
+		if exit != 0 && stage.Name == "test" && req.Oracle.Phase == "execute" {
+			result.Qualification = "fail"
+			return nil
+		}
+		if exit != 0 {
+			return nativeUnavailable("native " + stage.Name + " returned a nonzero exit")
+		}
+		switch stage.Name {
+		case "metadata":
+			if err := nativeTargetVerifyMaterialization(ctx, t, root); err != nil {
+				return err
+			}
+			// The materialized environment now binds the consumed runner
+			// closure for every uv pair; the runner's own toolcheck
+			// re-proves it before launch.
+			binaryDigest, err = nativeTargetRunnerDigest(t, root)
+			if err != nil {
+				return err
+			}
+			result.BinaryDigest = binaryDigest
+		case "toolcheck":
+			if err := nativeTargetVerifyToolVersion(t, stageCapture.stdout); err != nil {
+				return err
+			}
+			// The baseline never resets after the toolcheck: a drift between
+			// materialization and here refuses instead of blessing itself.
+			current, err := nativeTargetRunnerDigest(t, root)
+			if err != nil {
+				return err
+			}
+			if current != binaryDigest {
+				return nativeUnavailable("consumed dependency closure changed before collection")
+			}
+		case "collect":
+			if err := nativeTargetVerifyCollect(p, stageCapture.stdout); err != nil {
+				return err
+			}
+		case "test":
+			witnesses, err := nativeTargetStageWitnesses(t, p.Bundle.Control, stage.Argv, testOrdinal)
+			if err != nil {
+				return err
+			}
+			testOrdinal++
+			if err := nativeTargetVerifyTestStage(t, root, stage.Argv, stageCapture.stdout); err != nil {
+				return err
+			}
+			result.ObservedWitnessIDs = append(result.ObservedWitnessIDs, witnesses...)
+		}
+	}
+	actual, err := nativeTargetInputDigest(p, snapshot, false)
+	if err != nil || actual != digest {
+		return nativeUnavailable("consumed candidate inputs changed during execution")
+	}
+	current, err := nativeTargetRunnerDigest(t, root)
+	if err != nil || current != binaryDigest {
+		return nativeUnavailable("consumed dependency closure changed during execution")
+	}
+	if req.Oracle.Phase == "prepare" {
+		result.Qualification = "ready"
+		return nil
+	}
+	selected, err := nativeTargetCaseWitnesses(m, p.Bundle.Control)
+	if err != nil {
+		return err
+	}
+	slices.Sort(result.ObservedWitnessIDs)
+	if !slices.Equal(result.ObservedWitnessIDs, selected) {
+		return nativeUnavailable("observed witnesses differ from the exact selected population")
+	}
+	result.Qualification = "pass"
+	return nil
+}
+
+// nativeTargetStageCapture keeps dependency metadata, tool probes, and
+// check-input diagnostics out of the retained test-evidence streams.
+func nativeTargetStageCapture(name string, capture *nativeStreamCapture) *nativeStreamCapture {
+	if name == "metadata" || name == "toolcheck" || name == "check_inputs" {
+		return &nativeStreamCapture{complete: true}
+	}
+	return capture
+}
+
+// nativeTargetStageArgv resolves the plan's logical executable slots
+// against this run's sealed view. Slot resolution decides only argv[0], the
+// executable position the plan owns; every other value is producer-owned
+// scratch substitution or a literal argument the recipe pinned, so a data
+// argument that reads like a slot name keeps its exact bytes.
+func nativeTargetStageArgv(t *nativeTargetOraclePlan, root string, argv []string) []string {
+	if len(argv) == 0 {
+		return argv
+	}
+	switch argv[0] {
+	case "uv":
+		argv[0] = t.Environment.UV
+	case "bash":
+		argv[0] = t.Environment.Bash
+	case "python3":
+		// The uv materializer runs python3 slots through the
+		// materialized venv interpreter; the none materializer uses the
+		// pinned host interpreter.
+		if t.Environment.Materializer == nativeTargetMaterializerUV {
+			argv[0] = filepath.Join(root, "venv", "bin", "python")
+		} else {
+			argv[0] = t.Environment.Python
+		}
+	case "pytest":
+		argv[0] = filepath.Join(root, "venv", "bin", "pytest")
+	}
+	for i, part := range argv[1:] {
+		if strings.Contains(part, "$scratch/") {
+			argv[i+1] = strings.ReplaceAll(part, "$scratch/", root+string(filepath.Separator))
+		}
+	}
+	return argv
+}
+
+// nativeTargetControlledEnv builds the closed stage environment: inherited
+// PATH, LANG, and LC_ALL only, a private HOME and TMPDIR, and the closed
+// materializer's declared policy values. Ambient credentials, runner
+// overrides, plugin autoload, and user configuration cannot reach a stage.
+func nativeTargetControlledEnv(t *nativeTargetOraclePlan, root string) []string {
+	var env []string
+	for _, key := range []string{"PATH", "LANG", "LC_ALL"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	env = append(env, "HOME="+filepath.Join(root, "home"), "TMPDIR="+filepath.Join(root, "tmp"))
+	if t.Environment.Materializer == nativeTargetMaterializerUV {
+		env = append(env,
+			"PYTHONDONTWRITEBYTECODE=1",
+			"PYTHONNOUSERSITE=1",
+			"UV_CACHE_DIR="+t.Environment.UVCacheDir,
+			"UV_PROJECT_ENVIRONMENT="+filepath.Join(root, "venv"),
+			"UV_PYTHON="+t.Recipe.Pin.Python,
+			"UV_PYTHON_DOWNLOADS=never",
+			"UV_NO_CONFIG=1",
+			"UV_LINK_MODE=copy",
+			"UV_OFFLINE=1",
+			"UV_NO_PROGRESS=1",
+		)
+	}
+	return env
+}
+
+// nativeTargetOverlayHarness removes candidate runner discovery inputs and
+// writes the exact pinned harness and support bytes. Pinned bytes are
+// re-read from the recipe commit and digest-checked, so a worktree change
+// between plan and run cannot enter the sealed view.
+func nativeTargetOverlayHarness(ctx context.Context, r GitRunner, repo, root string, p nativeOraclePlan) error {
+	m := p.Target.Recipe
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rooted.Close() }()
+	if err := rooted.Remove(p.ManifestFile.Path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	rootDir := filepath.Join(root, filepath.FromSlash(m.Root))
+	if m.Runner == nativeTargetRunnerPytest {
+		if err := removeNamedFiles(rootDir, "conftest.py"); err != nil {
+			return err
+		}
+	}
+	for _, f := range p.Files {
+		observed, data, err := nativeGitFile(ctx, r, repo, p.Bundle.Control.RecipeSource.CommitOID, f.Path)
+		if err != nil {
+			return err
+		}
+		if observed != f {
+			return nativeUnavailable("pinned harness bytes changed")
+		}
+		if err := rooted.MkdirAll(path.Dir(f.Path), 0700); err != nil {
+			return err
+		}
+		if err := rooted.WriteFile(f.Path, data, 0600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func removeNamedFiles(dir, name string) error {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if err := removeNamedFiles(filepath.Join(dir, entry.Name()), name); err != nil {
+				return err
+			}
+			continue
+		}
+		if entry.Name() == name {
+			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// nativeTargetScratchDirs names the producer-owned per-run scratch
+// directories a candidate commit may never carry: a committed dependency or
+// cache tree would shadow the materialized environment.
+var nativeTargetScratchDirs = []string{".venv", "__pycache__", ".pytest_cache"}
+
+// nativeTargetInputDigest fingerprints every regular file in the consumed
+// snapshot. Declared harness, support, and dependency files must byte-match
+// their pins; every other input owns its identity as a typed immutable
+// source byte — docs, data, and configuration included — with no extension
+// filter. Symlinks and nonregular files refuse. With strict set, the
+// producer-owned scratch directories refuse; afterwards the dependency
+// materialization inside the snapshot is skipped by the digest walk.
+func nativeTargetInputDigest(p nativeOraclePlan, root string, strict bool) (string, error) {
+	t := p.Target
+	pinned := map[string]string{}
+	for _, f := range append(slices.Clone(p.Files), t.DependencyFiles...) {
+		pinned[f.Path] = f.SHA256
+	}
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rooted.Close() }()
+	var inventory []NativeOracleFile
+	err = fs.WalkDir(rooted.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			if slices.Contains(nativeTargetScratchDirs, d.Name()) {
+				if strict {
+					return nativeUnavailable("candidate carries a materialized dependency or cache tree: " + name)
+				}
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nativeUnavailable("source input symlink is unsupported: " + name)
+		}
+		if !d.Type().IsRegular() {
+			return nativeUnavailable("source inputs must remain regular files: " + name)
+		}
+		data, err := rooted.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		if want, ok := pinned[name]; ok {
+			if nativeDigest(data) != want {
+				return nativeUnavailable("declared pinned input differs from its recipe digest: " + name)
+			}
+		}
+		inventory = append(inventory, NativeOracleFile{Path: name, SHA256: nativeDigest(data)})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	slices.SortFunc(inventory, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
+	return nativeDigest([]byte(workflowJSON(inventory))), nil
+}
+
+// nativeTargetVerifyMaterialization proves the just-materialized dependency
+// environment: uv installs verify every installed file against its wheel
+// RECORD digest and the interpreter version pin.
+func nativeTargetVerifyMaterialization(ctx context.Context, t *nativeTargetOraclePlan, root string) error {
+	if t.Environment.Materializer != nativeTargetMaterializerUV {
+		return nativeUnavailable("dependency metadata stage ran without the uv materializer")
+	}
+	venv := filepath.Join(root, "venv")
+	if err := nativeTargetVerifyVenvRecords(venv); err != nil {
+		return err
+	}
+	out, err := exec.CommandContext(ctx, filepath.Join(venv, "bin", "python"), "-V").Output() //nolint:gosec // producer-built scratch interpreter, fixed argv.
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(t.Environment.Materializer, "venv python probe failed: "+err.Error())
+	}
+	if strings.TrimSpace(string(out)) != "Python "+t.Recipe.Pin.Python {
+		return nativeTargetUnavailableMaterializer(t.Environment.Materializer, "venv python does not match the exact pin")
+	}
+	return nil
+}
+
+// nativeTargetVerifyVenvRecords hashes every installed file against its
+// wheel RECORD entry. uv verifies downloaded archives once but never re-reads
+// cached unpacked bytes, so this gate is the dependency-integrity check for
+// the materialized environment: a corrupted cached wheel surfaces here.
+// Per the recording-installed-packages spec
+// (https://packaging.python.org/en/latest/specifications/recording-installed-packages/),
+// an installed project's .dist-info lives alongside its importable modules at
+// the top of site-packages, and its RECORD paths resolve against that parent;
+// entries may legitimately name the venv's own bin scripts through relative
+// parent steps and are verified there. Nested vendored .dist-info directories
+// are package data of the installed project, covered by its RECORD hashes, so
+// only top-level RECORDs are read directly and a missing one refuses. An
+// empty hash is legitimate only for the distribution's RECORD self-entry; any
+// other unhashed or mismatching entry refuses, a policy deliberately stricter
+// than the spec requires so every installed file is verified.
+func nativeTargetVerifyVenvRecords(venv string) error {
+	sites, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
+	if err != nil || len(sites) != 1 {
+		return nativeUnavailable("materialized venv has no single site-packages root")
+	}
+	siteRoot, venvRoot := sites[0], venv
+	entries, err := os.ReadDir(siteRoot)
+	if err != nil {
+		return nativeUnavailable("materialized venv site-packages is unreadable: " + err.Error())
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), ".dist-info") {
+			continue
+		}
+		name, selfRow := entry.Name(), entry.Name()+"/RECORD"
+		data, err := fs.ReadFile(os.DirFS(siteRoot), name+"/RECORD")
+		if err != nil {
+			return nativeUnavailable("installed distribution has no readable RECORD: " + name)
+		}
+		rows, err := csv.NewReader(bytes.NewReader(data)).ReadAll()
+		if err != nil {
+			return nativeUnavailable("malformed RECORD: " + name)
+		}
+		for _, row := range rows {
+			if len(row) != 3 {
+				return nativeUnavailable("malformed RECORD row in " + name)
+			}
+			rel, digest, size := row[0], row[1], row[2]
+			if rel == "" || strings.HasPrefix(rel, "/") {
+				return nativeUnavailable("malformed RECORD entry in " + name)
+			}
+			resolved := filepath.Clean(filepath.Join(siteRoot, rel))
+			if resolved != venvRoot && !strings.HasPrefix(resolved, venvRoot+string(filepath.Separator)) {
+				return nativeUnavailable("RECORD entry escapes the materialized venv in " + name)
+			}
+			if digest == "" {
+				if rel != selfRow {
+					return nativeUnavailable("unhashed RECORD entry is unsupported in " + name + ": " + rel)
+				}
+				continue
+			}
+			raw, err := os.ReadFile(resolved)
+			if err != nil {
+				return nativeUnavailable("RECORD entry is missing from the materialized environment: " + rel)
+			}
+			if size != "" && parseDecimal(size) != int64(len(raw)) {
+				return nativeUnavailable("RECORD size mismatch: " + rel)
+			}
+			want, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(digest, "sha256="))
+			if err != nil {
+				return nativeUnavailable("malformed RECORD digest: " + rel)
+			}
+			if nativeDigest(raw) != "sha256:"+hexEncode(want) {
+				return nativeUnavailable("materialized file differs from its wheel RECORD digest: " + rel)
+			}
+		}
+	}
+	return nil
+}
+
+func parseDecimal(s string) int64 {
+	var n int64
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return -1
+		}
+		n = n*10 + int64(s[i]-'0')
+	}
+	return n
+}
+
+func hexEncode(b []byte) string {
+	const hexDigits = "0123456789abcdef"
+	out := make([]byte, 0, len(b)*2)
+	for _, v := range b {
+		out = append(out, hexDigits[v>>4], hexDigits[v&0x0f])
+	}
+	return string(out)
+}
+
+// nativeTargetVerifyToolVersion pins the installed runner version from the
+// host-observed toolcheck output.
+func nativeTargetVerifyToolVersion(t *nativeTargetOraclePlan, stdout []byte) error {
+	line, _, _ := strings.Cut(strings.TrimSpace(string(stdout)), "\n")
+	line = strings.TrimSpace(line)
+	if t.Recipe.Runner != nativeTargetRunnerPytest {
+		return nativeUnavailable("runner toolcheck ran without the pytest runner")
+	}
+	if line != "pytest "+t.Recipe.Pin.Pytest {
+		return nativeTargetUnavailableMaterializer(t.Environment.Materializer, "installed pytest does not match the exact pin: "+line)
+	}
+	return nil
+}
+
+// nativeTargetSiteDigest digests every regular file in the materialized
+// site-packages tree, RECORD files included: the consumed dependency
+// closure itself, not only its entry points. Bytecode generation is
+// controlled by the closed environment, and a symlinked or nonregular
+// closure entry refuses instead of hiding from the walk.
+func nativeTargetSiteDigest(t *nativeTargetOraclePlan, root string) ([]byte, error) {
+	if t.Environment.Materializer != nativeTargetMaterializerUV {
+		return nil, nil
+	}
+	sites, err := filepath.Glob(filepath.Join(root, "venv", "lib", "python*", "site-packages"))
+	if err != nil || len(sites) != 1 {
+		return nil, nativeUnavailable("materialized venv has no single site-packages root")
+	}
+	siteRoot := sites[0]
+	rooted, err := os.OpenRoot(siteRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rooted.Close() }()
+	var parts [][]byte
+	walkErr := fs.WalkDir(rooted.FS(), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nativeUnavailable("materialized dependency closure is unreadable: " + name)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
+			return nativeUnavailable("dependency closure entry is a symlink or nonregular file: " + name)
+		}
+		data, err := rooted.ReadFile(name)
+		if err != nil {
+			return nativeUnavailable("dependency closure entry is unreadable: " + name)
+		}
+		parts = append(parts, []byte(name+"\x00"), data)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return bytes.Join(parts, []byte{0}), nil
+}
+
+// nativeTargetRunnerDigest binds the consumed executable closure: the
+// materialized runner entry point plus its interpreter for pytest, or the
+// exact interpreters the declared checks consume, together with the uv
+// materializer's whole installed dependency closure.
+func nativeTargetRunnerDigest(t *nativeTargetOraclePlan, root string) (string, error) {
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rooted.Close() }()
+	var parts [][]byte
+	switch {
+	case t.Recipe.Runner == nativeTargetRunnerPytest:
+		pytest, err := rooted.ReadFile("venv/bin/pytest")
+		if err != nil {
+			return "", nativeUnavailable("materialized pytest entry point is missing")
+		}
+		python, err := filepath.EvalSymlinks(filepath.Join(root, "venv", "bin", "python"))
+		if err != nil {
+			return "", nativeUnavailable("venv python is unreadable")
+		}
+		interpreter, err := os.ReadFile(python)
+		if err != nil {
+			return "", nativeUnavailable("venv python is unreadable")
+		}
+		parts = append(parts, pytest, interpreter)
+	default:
+		interpreters := map[string]bool{}
+		for _, check := range t.Recipe.Checks {
+			interpreters[check.Argv[0]] = true
+		}
+		for _, slot := range []struct{ name, resolved string }{
+			{"bash", t.Environment.Bash},
+			{"python3", t.Environment.Python},
+		} {
+			if !interpreters[slot.name] {
+				continue
+			}
+			if slot.name == "python3" && t.Environment.Materializer == nativeTargetMaterializerUV {
+				// The uv materializer grades python3 checks through the
+				// materialized venv interpreter.
+				venvPython, err := filepath.EvalSymlinks(filepath.Join(root, "venv", "bin", "python"))
+				if err != nil {
+					return "", nativeUnavailable("venv python is unreadable")
+				}
+				slot.resolved = venvPython
+			}
+			binary, err := os.ReadFile(slot.resolved)
+			if err != nil {
+				return "", nativeUnavailable("pinned interpreter is unreadable: " + slot.name)
+			}
+			parts = append(parts, []byte(slot.name+"\x00"), binary)
+		}
+	}
+	site, err := nativeTargetSiteDigest(t, root)
+	if err != nil {
+		return "", err
+	}
+	if len(site) > 0 {
+		parts = append(parts, []byte("site-packages\x00"), site)
+	}
+	return nativeDigest(bytes.Join(parts, []byte{0})), nil
+}
+
+func nativeTargetSelectedFor(p nativeOraclePlan) ([]string, error) {
+	return nativeTargetCaseWitnesses(p.Target.Recipe, p.Bundle.Control)
+}
+
+// nativeTargetVerifyCollect proves the complete collected population equals
+// the exact selected witness set, from a structured complete collection.
+func nativeTargetVerifyCollect(p nativeOraclePlan, stdout []byte) error {
+	t := p.Target
+	if t.Recipe.Runner != nativeTargetRunnerPytest {
+		return nativeUnavailable("collection stage ran without the pytest runner")
+	}
+	collected, err := nativeTargetPytestCollectOutput(stdout)
+	if err != nil {
+		return err
+	}
+	selected, err := nativeTargetSelectedFor(p)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(collected, selected) {
+		return nativeUnavailable("collected population differs from the exact selected witnesses")
+	}
+	return nil
+}
+
+var nativeTargetPytestCollectSummary = regexp.MustCompile(`^([0-9]+) tests? collected in `)
+
+// nativeTargetPytestCollectOutput parses the canonical quiet collection
+// listing: one node ID per line, then the collected-count summary. Any other
+// shape is malformed.
+func nativeTargetPytestCollectOutput(stdout []byte) ([]string, error) {
+	lines := strings.Split(strings.TrimRight(string(stdout), "\n"), "\n")
+	if len(lines) < 2 {
+		return nil, nativeUnavailable("pytest collection output is malformed")
+	}
+	match := nativeTargetPytestCollectSummary.FindStringSubmatch(strings.TrimSpace(lines[len(lines)-1]))
+	if match == nil {
+		return nil, nativeUnavailable("pytest collection output is malformed")
+	}
+	collected := make([]string, 0, len(lines)-1)
+	for _, line := range lines[:len(lines)-1] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.Contains(line, "::") {
+			return nil, nativeUnavailable("pytest collection output is malformed")
+		}
+		collected = append(collected, line)
+	}
+	if len(collected) != int(parseDecimal(match[1])) {
+		return nil, nativeUnavailable("pytest collection summary differs from its listing")
+	}
+	slices.Sort(collected)
+	return collected, nil
+}
+
+// nativeTargetStageWitnesses names the witness one recorded test stage
+// covers: the stage's trusted ordinal among the producer-generated test
+// stages — the producer renders exactly one test stage per selected
+// witness, in the sorted selected order — selects that witness from the
+// exact selected population, and the stage's own logical argv must equal
+// that witness's declared invocation. The check family's identity is each
+// declared invocation, not a unique argv, so two witnesses may share one
+// argv and each physical check is its own witness; a first-match lookup
+// would fold them into one observed identity.
+func nativeTargetStageWitnesses(t *nativeTargetOraclePlan, control OracleControl, argv []string, ordinal int) ([]string, error) {
+	selected, err := nativeTargetCaseWitnesses(t.Recipe, control)
+	if err != nil {
+		return nil, err
+	}
+	if ordinal < 0 || ordinal >= len(selected) {
+		return nil, nativeUnavailable("recorded test stage has no selected witness at its ordinal")
+	}
+	witness := selected[ordinal]
+	switch t.Recipe.Runner {
+	case nativeTargetRunnerPytest:
+		if len(argv) > 1 && argv[1] == witness {
+			return []string{witness}, nil
+		}
+	case nativeTargetRunnerCheck:
+		check, err := nativeTargetCheckFor(t.Recipe, witness)
+		if err != nil {
+			return nil, err
+		}
+		if len(argv) == len(check.Argv) && slices.Equal(argv, check.Argv) {
+			return []string{witness}, nil
+		}
+	}
+	return nil, nativeUnavailable("recorded test stage does not name its selected witnesses")
+}
+
+var nativeTargetJUnitSummary = regexp.MustCompile(`(?m)^(FAILED|ERROR|SKIPPED|XFAIL|XPASS) `)
+var nativeTargetPytestPassedSummary = regexp.MustCompile(`(?m)^1 passed(,| in |\r|$)`)
+
+type nativeTargetJUnitTestsuites struct {
+	Suites []nativeTargetJUnitTestsuite `xml:"testsuite"`
+}
+
+type nativeTargetJUnitTestsuite struct {
+	Tests     int `xml:"tests,attr"`
+	Failures  int `xml:"failures,attr"`
+	Errors    int `xml:"errors,attr"`
+	Skipped   int `xml:"skipped,attr"`
+	TestCases []struct {
+		Name string `xml:"name,attr"`
+	} `xml:"testcase"`
+}
+
+// nativeTargetVerifyTestStage grades one host-observed invocation against
+// its runner's structured result channel. The structured channel, not
+// candidate stdout, decides the outcome, and skip, todo, xfail, xpass,
+// duplicate, foreign, missing, zero-test, and malformed outcomes can never
+// pass. A check is its own evidence: the host observed the exact pinned
+// argv and the kernel exit status is zero.
+func nativeTargetVerifyTestStage(t *nativeTargetOraclePlan, root string, argv []string, stdout []byte) error {
+	switch t.Recipe.Runner {
+	case nativeTargetRunnerPytest:
+		return nativeTargetVerifyPytestRun(root, argv, stdout)
+	case nativeTargetRunnerCheck:
+		return nil
+	}
+	return nativeUnavailable("unsupported target runner")
+}
+
+func nativeTargetVerifyPytestRun(root string, argv []string, stdout []byte) error {
+	index := -1
+	for _, part := range argv {
+		if _, rest, ok := strings.Cut(part, "--junitxml=$scratch/junit-"); ok && strings.HasSuffix(rest, ".xml") {
+			index = int(parseDecimal(strings.TrimSuffix(rest, ".xml")))
+		}
+	}
+	if index < 0 {
+		return nativeUnavailable("pytest run recorded no junit result channel")
+	}
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return nativeUnavailable("pytest junit result channel is missing")
+	}
+	defer func() { _ = rooted.Close() }()
+	data, err := rooted.ReadFile("junit-" + strconv.Itoa(index) + ".xml")
+	if err != nil {
+		return nativeUnavailable("pytest junit result channel is missing")
+	}
+	var doc nativeTargetJUnitTestsuites
+	if xml.Unmarshal(data, &doc) != nil || len(doc.Suites) != 1 {
+		return nativeUnavailable("pytest junit result channel is malformed")
+	}
+	suite := doc.Suites[0]
+	if suite.Tests != 1 || suite.Failures != 0 || suite.Errors != 0 || suite.Skipped != 0 || len(suite.TestCases) != 1 {
+		return nativeUnavailable("pytest result is not exactly one passing witness: skipped, failed, errored, or duplicated outcomes are present")
+	}
+	if nativeTargetJUnitSummary.Match(stdout) {
+		return nativeUnavailable("pytest reported a non-pass outcome for the selected witness")
+	}
+	if !nativeTargetPytestPassedSummary.MatchString(string(stdout)) {
+		return nativeUnavailable("pytest recorded no single-pass terminal summary")
+	}
+	return nil
+}

@@ -22,9 +22,9 @@ import (
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
 	heads := map[string]int64{
-		"workflow.implementation": 30,
-		"workflow.break_fix":      27,
-		"workflow.research":       17,
+		"workflow.implementation": 32,
+		"workflow.break_fix":      29,
+		"workflow.research":       19,
 	}
 	for ref, want := range heads {
 		registered, err := LiveWorkflowDefinitionForRef(ref)
@@ -129,7 +129,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	before := events()
 
 	// The read-only preflight answers the same refusal the mutation applies.
-	preflightErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "checkpoint_context", Payload: json.RawMessage(`{}`), Actor: owner,
 	})
 	if !hasFailureKind(preflightErr, KindInvalidOperation) {
@@ -230,8 +230,8 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 30 {
-		t.Fatalf("canonical implementation head = v%d, want v30", definition.Version)
+	if definition.Version != 32 {
+		t.Fatalf("canonical implementation head = v%d, want v32", definition.Version)
 	}
 	for _, candidate := range definition.StepGraph.Steps {
 		if candidate.ID == "discovery" {
@@ -482,15 +482,15 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	}
 }
 
-func TestCanonicalResearchV17DerivesFailureWithVersionedPacket(t *testing.T) {
+func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 	t.Parallel()
 	registered, err := LiveWorkflowDefinitionForRef("workflow.research")
 	if err != nil {
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 17 {
-		t.Fatalf("canonical research head = v%d, want v17", definition.Version)
+	if definition.Version != 19 {
+		t.Fatalf("canonical research head = v%d, want v19", definition.Version)
 	}
 	if containsString(definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("record_worker_failure is still advertised on the canonical research head")
@@ -514,8 +514,8 @@ func TestCanonicalResearchV17DerivesFailureWithVersionedPacket(t *testing.T) {
 			}
 		}
 	}
-	if packetRef != "worker_packet2" {
-		t.Fatalf("canonical research dispatch packet ref = %q, want the versioned packet2 closure", packetRef)
+	if packetRef != "worker_packet3" {
+		t.Fatalf("canonical research dispatch packet ref = %q, want the research-context packet3 closure", packetRef)
 	}
 	historical, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 16)
 	if !ok {
@@ -554,9 +554,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     30,
-		"workflow.break_fix":          27,
-		"workflow.research":           17,
+		"workflow.implementation":     32,
+		"workflow.break_fix":          29,
+		"workflow.research":           19,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,
@@ -780,9 +780,9 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 		version int64
 		workID  string
 	}{
-		{"workflow.implementation", 30, "canonical-impl-30"},
-		{"workflow.break_fix", 27, "canonical-break-27"},
-		{"workflow.research", 17, "canonical-research-17"},
+		{"workflow.implementation", 32, "canonical-impl-32"},
+		{"workflow.break_fix", 29, "canonical-break-29"},
+		{"workflow.research", 19, "canonical-research-19"},
 	} {
 		pinned, ok := BuiltinWorkflowRegistry().Lookup(head.ref, head.version)
 		if !ok {
@@ -849,7 +849,9 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		t.Fatalf("investigate starts after the dispatch = %+v, want one dispatch start at epoch 1", starts)
 	}
 	detail := "the research lane failed before a judgeable report existed"
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-"+workID+"-1", detail, preferredModelForLane(lane))); err != nil {
+	// The research failure ingest carries the recorded observation the
+	// promoted pin requires; the derivation it proves is unchanged.
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live terminal worker.failed ingest: %v", err)
 	}
 	records := s2DerivedFailureRecords(t, s, workID, attempt)
@@ -1207,10 +1209,8 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, id := range []string{"a-archived", "b-contract-only"} {
-		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind-" + id), PackID: pack.PackID, Revision: 1, ExpectedVersion: int64(i + 1), Consumer: ResearchConsumer{ConsumerWorkID: id, UseRole: UseContext, Required: true}}); err != nil {
-			t.Fatal(err)
-		}
+	for _, id := range []string{"a-archived", "b-contract-only"} {
+		pinResearch(t, s, id, ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 	}
 	before := map[string]workProjection{}
 	for _, id := range []string{"a-archived", "b-contract-only", "c-canonical", "d-terminal", "e-superseded-contract"} {

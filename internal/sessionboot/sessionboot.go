@@ -17,6 +17,12 @@ const (
 	SessionContractVersion = "1.0"
 )
 
+// MaxBootPacketBytes is the session boot packet's own cap. The boot packet is
+// its own bounded population, not a request or a result envelope: the cap
+// keeps the size the boot packet has always carried, named here so the boot
+// population never moves when the request or response budgets change.
+const MaxBootPacketBytes = 65536
+
 type Packet struct {
 	SchemaVersion          string         `json:"schema_version"`
 	SessionType            string         `json:"session_type"`
@@ -32,19 +38,31 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 		return nil, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
 	}
 	// The boot read pages boundaries from the start, so the fit needs only
-	// the work identity to derive a boundary cursor.
-	raw, _, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, agent.MaxEnvelopeBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
-		raw, err := json.Marshal(Packet{
-			SchemaVersion: SchemaVersion, SessionType: SessionType,
-			SessionContractVersion: SessionContractVersion,
-			ManifestDigest:         agent.ManifestDigest,
-			ProductID:              productID, WorkID: fitted.WorkID,
-			Continuity: agent.ContinuityPayload(fitted),
-		})
+	// the work identity to derive a boundary cursor. The packet carries the
+	// inline projection whenever its measured complete-prefix fit fits the
+	// boot packet's own cap; no smaller fixed payload cap sits below it.
+	raw, size, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, MaxBootPacketBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
+		raw, err := json.Marshal(bootPacket(productID, fitted.WorkID, agent.ContinuityPayload(fitted)))
 		return raw, len(raw), err
 	})
 	if err != nil {
 		return nil, err
+	}
+	if size > MaxBootPacketBytes {
+		// CD-0090 D6: a fixed projection no complete-prefix reduction can
+		// shrink travels as the closed deterministic projection reference of
+		// the original captured snapshot, never of a reduced candidate. The
+		// reference names the exact work, the canonical digest and length,
+		// and the canonical initial continuity read; it mints no timestamp
+		// and no signature.
+		reference, err := agent.ContinuityProjectionReference(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		raw, err = json.Marshal(bootPacket(productID, snapshot.WorkID, reference))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := Validate(raw); err != nil {
 		return nil, err
@@ -52,9 +70,19 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 	return raw, nil
 }
 
+func bootPacket(productID, workID string, continuity map[string]any) Packet {
+	return Packet{
+		SchemaVersion: SchemaVersion, SessionType: SessionType,
+		SessionContractVersion: SessionContractVersion,
+		ManifestDigest:         agent.ManifestDigest,
+		ProductID:              productID, WorkID: workID,
+		Continuity: continuity,
+	}
+}
+
 func Validate(raw []byte) error {
-	if len(raw) > agent.MaxEnvelopeBytes {
-		return fmt.Errorf("session boot packet exceeds %d bytes", agent.MaxEnvelopeBytes)
+	if len(raw) > MaxBootPacketBytes {
+		return fmt.Errorf("session boot packet exceeds %d bytes", MaxBootPacketBytes)
 	}
 	if err := agent.ValidatePayloadSchema("session_boot_packet", raw); err != nil {
 		return fmt.Errorf("session boot packet schema: %w", err)

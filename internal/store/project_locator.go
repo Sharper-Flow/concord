@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -160,7 +161,41 @@ func normalizePath(value string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+var remoteURLFormPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+
+func checkRemoteCredentials(value string) error {
+	value = strings.TrimSpace(value)
+	credentials := false
+	if remoteURLFormPattern.MatchString(value) {
+		u, err := url.Parse(value)
+		if err != nil {
+			return newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
+		}
+		if u.User != nil {
+			_, password := u.User.Password()
+			credentials = password || u.Scheme == "http" || u.Scheme == "https"
+		}
+	}
+	if credentials {
+		return newFailure(KindInvalidFilter, "project_locator", "git remote contains credentials", false, "remove credentials from the remote URL; use a git credential helper")
+	}
+	return nil
+}
+
 func normalizeRemote(value string) (string, error) {
+	return normalizeRemoteVersion(value, 2)
+}
+
+func normalizeRemoteVersion(value string, version int) (string, error) {
+	if version != 1 && version != 2 {
+		return "", newFailure(KindUnsupportedPayloadVersion, "project_locator", "remote normalization version is unsupported", false, "use a supported locator event version")
+	}
+	if version == 2 {
+		// No identity must not admit malformed input refused by the legacy codec.
+		if _, err := normalizeRemoteVersion(value, 1); err != nil {
+			return "", err
+		}
+	}
 	value = strings.TrimSpace(value)
 	if value == "" || strings.ContainsRune(value, '\x00') {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is empty or contains NUL", false, "supply a valid git remote")
@@ -173,20 +208,27 @@ func normalizeRemote(value string) (string, error) {
 	if strings.Contains(value, "\\") {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote contains a backslash", false, "supply a normalized git remote")
 	}
-	if at := strings.IndexByte(value, ':'); at > 0 && !strings.Contains(value[:at], "/") && !strings.Contains(value[:at], "://") {
+	if at := strings.IndexByte(value, ':'); at > 0 && (version == 1 || !remoteURLFormPattern.MatchString(value)) && !strings.Contains(value[:at], "/") && !strings.Contains(value[:at], "://") {
 		value = "ssh://" + value[:at] + "/" + value[at+1:]
 	}
 	u, err := url.Parse(value)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil || u.Scheme == "" {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
 	}
 	scheme := strings.ToLower(u.Scheme)
-	if scheme != "ssh" && scheme != "git" && scheme != "http" && scheme != "https" {
-		return "", newFailure(KindInvalidFilter, "project_locator", "git remote scheme is not supported", false, "use ssh, git, http, or https")
-	}
-	host := strings.ToLower(u.Host)
+	supported := scheme == "ssh" || scheme == "git" || scheme == "http" || scheme == "https"
 	path := strings.Trim(strings.TrimSpace(u.EscapedPath()), "/")
 	path = strings.TrimSuffix(path, ".git")
+	if version == 2 && (!supported || u.Hostname() == "" || path == "") {
+		return "", nil
+	}
+	if !supported {
+		return "", newFailure(KindInvalidFilter, "project_locator", "git remote scheme is not supported", false, "use ssh, git, http, or https")
+	}
+	if u.Host == "" {
+		return "", newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
+	}
+	host := strings.ToLower(u.Host)
 	if path == "" || strings.Contains(path, "..") {
 		return "", newFailure(KindInvalidFilter, "project_locator", "git remote path is invalid", false, "supply a repository remote")
 	}
@@ -329,6 +371,11 @@ func (s *Store) applyLocatorEvent(ctx context.Context, projectID, kind string, l
 		locator.ID = hex.EncodeToString(raw)
 	}
 	if kind != "project.locator_removed" {
+		if locator.Kind == LocatorGitRemote {
+			if err := checkRemoteCredentials(locator.Value); err != nil {
+				return err
+			}
+		}
 		normalized, err := NormalizeProjectLocator(locator.Kind, locator.Value)
 		if err != nil {
 			return err
@@ -346,7 +393,11 @@ func (s *Store) applyLocatorEvent(ctx context.Context, projectID, kind string, l
 		"value": locator.Value, "normalized_value": locator.NormalizedValue,
 		"expected_version": expected, "resulting_version": expected + 1,
 	})
-	return ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: locatorEventID(kind, locator.ID), Kind: kind, SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, projectID): expected}})
+	version := 2
+	if kind == "project.locator_removed" {
+		version = 1
+	}
+	return ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: locatorEventID(kind, locator.ID), Kind: kind, SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: version, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, projectID): expected}})
 }
 
 func locatorEventID(kind, id string) string {
@@ -356,7 +407,11 @@ func locatorEventID(kind, id string) string {
 func NormalizeProjectLocator(kind LocatorKind, value string) (string, error) {
 	switch kind {
 	case LocatorGitRemote:
-		return normalizeRemote(value)
+		normalized, err := normalizeRemote(value)
+		if err == nil && normalized == "" {
+			err = newFailure(KindInvalidFilter, "project_locator", "git remote has no supported identity", false, "register a canonical_path locator")
+		}
+		return normalized, err
 	case LocatorCanonicalPath:
 		return normalizePath(value)
 	default:
@@ -465,6 +520,9 @@ func ResolveProjectHost(ctx context.Context, directory, worktree string, runner 
 	remoteOut, remoteErr := runner.Run(ctx, canonical, "config", "--get", "remote.origin.url")
 	remote := ""
 	if remoteErr == nil && strings.TrimSpace(string(remoteOut)) != "" {
+		if err := checkRemoteCredentials(string(remoteOut)); err != nil {
+			return ResolvedProjectHost{}, err
+		}
 		remote, err = normalizeRemote(string(remoteOut))
 		if err != nil {
 			return ResolvedProjectHost{}, err
@@ -620,7 +678,7 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 		// canonical_path, enforce the structural properties live normalization
 		// guaranteed at write time.
 		if payload.Kind == LocatorGitRemote {
-			normalized, err := NormalizeProjectLocator(payload.Kind, payload.Value)
+			normalized, err := normalizeRemoteVersion(payload.Value, projectLocatorEventVersion(event))
 			if err != nil {
 				return payload, err
 			}
@@ -632,6 +690,39 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 		}
 	}
 	return payload, nil
+}
+
+func upcastProjectLocatorV1(event Event) (Event, error) {
+	event.PayloadVersion = 2
+	return event, nil
+}
+
+func projectLocatorEventVersion(event Event) int {
+	if event.replaySourcePayloadVersion != 0 {
+		return event.replaySourcePayloadVersion
+	}
+	return event.PayloadVersion
+}
+
+func validateLiveProjectLocator(event Event) error {
+	if event.Kind != "project.locator_added" && event.Kind != "project.locator_updated" {
+		return nil
+	}
+	var p projectLocatorPayload
+	if err := json.Unmarshal(event.Payload, &p); err != nil {
+		return err
+	}
+	if p.Kind != LocatorGitRemote {
+		return nil
+	}
+	if event.PayloadVersion != 2 {
+		return newFailure(KindInvalidPayload, "project_locator", "new remote locator events require version 2", false, "use the current locator writer")
+	}
+	if err := checkRemoteCredentials(p.Value); err != nil {
+		return err
+	}
+	_, err := decodeProjectLocator(event)
+	return err
 }
 
 // checkRecordedCanonicalPath validates a recorded canonical_path locator pair
@@ -656,7 +747,7 @@ func foldProjectLocatorAdded(ctx context.Context, tx *sql.Tx, event Event) error
 	if err != nil {
 		return err
 	}
-	if err := insertProjectLocator(ctx, tx, p, event.OccurredAt); err != nil {
+	if err := insertProjectLocator(ctx, tx, p, event.OccurredAt, projectLocatorEventVersion(event)); err != nil {
 		return err
 	}
 	return bumpVersion(ctx, tx, "projects", event, p.ExpectedVersion, p.ResultingVersion, "Project")
@@ -670,7 +761,7 @@ func foldProjectLocatorUpdated(ctx context.Context, tx *sql.Tx, event Event) err
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE project_locators SET kind=?,locator_value=?,normalized_value=?,updated_at=? WHERE locator_id=? AND project_id=?`, p.Kind, p.Value, p.NormalizedValue, event.OccurredAt.UTC().Format(time.RFC3339Nano), p.LocatorID, p.ProjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE project_locators SET kind=?,locator_value=?,normalized_value=?,updated_at=?,normalization_version=? WHERE locator_id=? AND project_id=?`, p.Kind, p.Value, p.NormalizedValue, event.OccurredAt.UTC().Format(time.RFC3339Nano), projectLocatorEventVersion(event), p.LocatorID, p.ProjectID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindMembershipConflict, "fold_event", "Project locator is already claimed", false, "choose a unique normalized locator")
@@ -722,9 +813,9 @@ func foldProjectLocatorRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 	return bumpVersion(ctx, tx, "projects", event, p.ExpectedVersion, p.ResultingVersion, "Project")
 }
 
-func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPayload, occurred time.Time) error {
+func insertProjectLocator(ctx context.Context, tx *sql.Tx, p projectLocatorPayload, occurred time.Time, version int) error {
 	stamp := occurred.UTC().Format(time.RFC3339Nano)
-	_, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp)
+	_, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at,normalization_version) VALUES(?,?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp, version)
 	if err == nil {
 		return nil
 	}

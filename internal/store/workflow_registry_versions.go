@@ -1191,14 +1191,7 @@ func breakFixWorkerJobsV21() WorkflowDefinition {
 // CD-0205 worker-job lifecycle. Earlier versions keep the behavior and digest
 // they shipped with: no job binding, and an accept that advances as before.
 func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 24
-	case "workflow.break_fix":
-		return definition.Version >= 21
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityWorkerJobs)
 }
 
 func researchVerdictBatchV12() WorkflowDefinition {
@@ -1404,6 +1397,13 @@ func acceptanceOracleActionField() WorkflowPayloadField {
 	return actionObjectField("acceptance_oracle", true, "worker_acceptance_oracle")
 }
 
+// workflowOpenFindingsCorrectionField is the optional open-findings member
+// the owner-oracle families' request_correction payload declares: the
+// finding references the correction request carries beside its evidence.
+func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
+	return actionIDListField("open_finding_ids", false, 1, 32)
+}
+
 // withOwnerOracle restates record_worker_job's payload as the
 // oracle-carrying contract: the predecessor's fields plus the required
 // acceptance_oracle member. Released versions keep the payload they were
@@ -1418,7 +1418,7 @@ func withOwnerOracle(definition WorkflowDefinition) WorkflowDefinition {
 		case "record_worker_job":
 			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), acceptanceOracleActionField())
 		case "request_correction":
-			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionIDListField("open_finding_ids", false, 1, 32))
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), workflowOpenFindingsCorrectionField())
 		}
 	}
 	return definition

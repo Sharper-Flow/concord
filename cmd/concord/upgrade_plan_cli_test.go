@@ -224,27 +224,96 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 		t.Fatalf("open and migrate: %v", err)
 	}
 	_ = s.Close()
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version >= 111`); err != nil {
-		t.Fatalf("cannot remove the manifest tail: %v", err)
+	if err := rewindMigrationTail(db, 111, unpoison); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A zero floor selects only the newest manifest row. Poisoned fixtures keep
+// schema objects; clean reapplication requires an explicit entry for every step.
+func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if from == 0 {
+		if err := tx.QueryRow(`SELECT coalesce(max(version),0) FROM schema_migrations`).Scan(&from); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.Query(`SELECT version FROM schema_migrations WHERE version >= ? ORDER BY version DESC`, from)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	var versions []int
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return err
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if unpoison {
-		for _, statement := range []string{
-			`DROP TRIGGER native_oracle_plan_pair_insert`,
-			`DROP TRIGGER native_oracle_plan_pair_update`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
-			`DROP TABLE outside_repair_reconciliations`,
-			`DROP TABLE outside_repair_dispositions`,
-			// Restore the pre-117 column set and CHECK while retaining every row.
-			// DROP COLUMN alone leaves the widened instance_state constraint.
-			`CREATE TABLE workflow_instances_before_outside_repair (
+		for _, version := range versions {
+			if _, ok := migrationTailReversals[version]; !ok {
+				return fmt.Errorf("missing fixture reversal for migration %d", version)
+			}
+		}
+		for _, version := range versions {
+			for _, statement := range migrationTailReversals[version] {
+				if _, err := tx.Exec(statement); err != nil {
+					return fmt.Errorf("cannot unpoison migration %d with %q: %w", version, statement, err)
+				}
+			}
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE version >= ?`, from); err != nil {
+		return fmt.Errorf("cannot remove the manifest tail: %w", err)
+	}
+	return tx.Commit()
+}
+
+var migrationTailReversals = map[int][]string{
+	// Rebuild-only steps replace their own tables when reapplied.
+	111: nil,
+	119: nil,
+	126: nil,
+	129: {
+		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
+	},
+	128: {
+		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
+	},
+	127: {
+		`ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`,
+	},
+	125: {
+		`DROP TRIGGER native_oracle_plan_pair_insert`,
+		`DROP TRIGGER native_oracle_plan_pair_update`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
+	},
+	121: {
+		`DROP TABLE outside_repair_reconciliations`,
+		`DROP TABLE outside_repair_dispositions`,
+		// Restore the pre-121 column set and CHECK while retaining every row.
+		// DROP COLUMN alone leaves the widened instance_state constraint.
+		`CREATE TABLE workflow_instances_before_outside_repair (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,
     definition_version INTEGER NOT NULL,
@@ -274,43 +343,61 @@ CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work
 CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`DROP TABLE product_knowledge_sources`,
-			`DROP TABLE law_cross_source_relations`,
-			`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
-			`DROP TABLE project_handoffs`,
-			`DROP TABLE worker_job_revisions`,
-			`DROP TABLE durability_commits`,
-			`DROP TABLE runtime_state_writers`,
-			// Migration 120 attaches its maintenance triggers to
-			// pre-existing tables, so they drop by name before its tables.
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
-			`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
-			`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
-			`DROP VIEW IF EXISTS initiative_work_scope`,
-			`DROP TABLE IF EXISTS initiative_entry_violations`,
-			`DROP TABLE IF EXISTS initiative_scope_violations`,
-			// Migration 124's retirement dropped the planning mirror objects
-			// that the re-applied tail reads and drops again: migration 120
-			// attaches its maintenance triggers to initiative_entries, and
-			// migration 124 drops the mirror tables, the products planning
-			// mode, and the phase-0 issue-link shape it rebuilds. Restore
-			// each object's pre-124 shape from the migration that last
-			// created it (8, 76, 102), carrying any current rows forward.
-			`CREATE TABLE initiative_entries (
+	},
+	112: {
+		`DROP TABLE product_knowledge_sources`,
+	},
+	113: {
+		`DROP TABLE law_cross_source_relations`,
+	},
+	114: {
+		`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
+	},
+	115: {
+		`DROP TABLE project_handoffs`,
+	},
+	118: {
+		`DROP TABLE worker_job_revisions`,
+	},
+	116: {
+		`DROP TABLE durability_commits`,
+	},
+	117: {
+		`DROP TABLE runtime_state_writers`,
+	},
+	120: {
+		// Migration 120 attaches its maintenance triggers to
+		// pre-existing tables, so they drop by name before its tables.
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
+		`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
+		`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
+		`DROP VIEW IF EXISTS initiative_work_scope`,
+		`DROP TABLE IF EXISTS initiative_entry_violations`,
+		`DROP TABLE IF EXISTS initiative_scope_violations`,
+	},
+	124: {
+		// Migration 124's retirement dropped the planning mirror objects
+		// that the re-applied tail reads and drops again: migration 120
+		// attaches its maintenance triggers to initiative_entries, and
+		// migration 124 drops the mirror tables, the products planning
+		// mode, and the phase-0 issue-link shape it rebuilds. Restore
+		// each object's pre-124 shape from the migration that last
+		// created it (8, 76, 102), carrying any current rows forward.
+		`CREATE TABLE initiative_entries (
     initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     position       INTEGER NOT NULL CHECK(position >= 0),
@@ -319,11 +406,11 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
     UNIQUE(initiative_work_id, position),
     CHECK(initiative_work_id <> child_work_id)
 )`,
-			`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
-			`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
+		`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
+		`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
     CHECK (planning_mode IN ('local_only','linear_enabled'))`,
-			`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
-			`CREATE TABLE linear_issue_links (
+		`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
+		`CREATE TABLE linear_issue_links (
     work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
     human_key          TEXT NOT NULL DEFAULT '' CHECK(length(human_key) <= 64),
@@ -334,15 +421,15 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL
 )`,
-			`INSERT INTO linear_issue_links
+		`INSERT INTO linear_issue_links
     (work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
     SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v124_stage`,
-			`DROP TABLE linear_issue_links_v124_stage`,
-			`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
-			`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`DROP TABLE linear_issue_links_v124_stage`,
+		`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
+		`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TABLE linear_project_links (
+		`CREATE TABLE linear_project_links (
     work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_project_uuid TEXT NOT NULL UNIQUE CHECK(length(remote_project_uuid) BETWEEN 2 AND 128),
     name                TEXT NOT NULL DEFAULT '',
@@ -350,8 +437,8 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 )`,
-			`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
-			`CREATE TABLE linear_outbox (
+		`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
+		`CREATE TABLE linear_outbox (
     operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
     work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
     op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','issue_audit_comment','project_create','project_update')),
@@ -364,8 +451,8 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     updated_at       TEXT NOT NULL,
     CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
 )`,
-			`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
-			`CREATE TABLE linear_outbox_dispositions (
+		`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
+		`CREATE TABLE linear_outbox_dispositions (
     operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
     work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
@@ -374,27 +461,26 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     CHECK(length(operation_id) BETWEEN 2 AND 128),
     CHECK(length(work_id) BETWEEN 2 AND 128)
 )`,
-			`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
-			`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
+		`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_project_links_guard_update BEFORE UPDATE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_project_links_guard_delete BEFORE DELETE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			// Migration 122's guarded projection is one plain CREATE TABLE:
-			// its guard triggers and index are owned by the table and drop
-			// with it.
-			`DROP TABLE IF EXISTS worktree_ref_outcomes`,
-			`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
-		} {
-			if _, err := db.Exec(statement); err != nil {
-				t.Fatalf("cannot unpoison %q: %v", statement, err)
-			}
-		}
-	}
+	},
+	122: {
+		// Migration 122's guarded projection is one plain CREATE TABLE:
+		// its guard triggers and index are owned by the table and drop
+		// with it.
+		`DROP TABLE IF EXISTS worktree_ref_outcomes`,
+	},
+	123: {
+		`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
+	},
 }
 
 // A refused or failed migration closes the boundary it opened and commits
@@ -514,24 +600,18 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	t.Cleanup(func() { version.Value = previous })
 	path, root := cliStoreRoot(t)
 	pendingBreakingStore(t, path, true)
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The strand must survive the migration itself: migration 124 ends by
-	// clearing fold_guard, so a work item without its required membership
-	// strands finishOpen instead — no tail step repairs a membership
-	// invariant, and the committed store still refuses every open. The
-	// fold-only guard needs a transiently active fold to accept the row,
-	// and the strand keeps no fold_guard row behind.
-	for _, statement := range []string{
-		`INSERT INTO fold_guard(active) VALUES(1)`,
-		`INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at) VALUES ('finish-open-strand-probe', 'task', 'finishOpen refusal probe', 'needed', 0, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
-		`DELETE FROM fold_guard`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatalf("cannot strand the membership invariants with %q: %v", statement, err)
-		}
+	// The strand must survive the migration itself: the installation cursor
+	// key is finishOpen-only authority state. Migration 9 created its table
+	// and every recorded migration keeps it applied, so no pending step
+	// recreates it, snapshot qualification never reads it (projection
+	// digests, membership invariants, and staged inventory all skip it), and
+	// the committed store refuses every open at the cursor-key inspection.
+	if _, err := db.Exec(`DROP TABLE agent_installation_keys`); err != nil {
+		t.Fatalf("cannot drop the installation cursor key table: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -663,7 +743,7 @@ func TestSupportedReleasePairsCoexistWithOldSessionsAndNewAccess(t *testing.T) {
 		t.Fatalf("the older session's admission = %d: %s", code, errOut.String())
 	}
 	// The newer release applied one additive step this binary does not ship.
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -876,10 +956,40 @@ func seedCutoverPinStore(t *testing.T, path string) {
 		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, old.Digest),
 		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", 30, canonical.Digest),
 		fmt.Sprintf(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='%s' AND contract_version=1`, cutoverSupersededContractWork),
-		// The terminal historical item closed while its archived pin stayed
-		// recorded: terminal work opens, reads, and rebuilds.
-		fmt.Sprintf(`UPDATE work_items SET lifecycle='cancelled' WHERE id='%s'`, cutoverTerminalHistoryWork),
 	)
+	// The terminal historical item closed while its archived pin stayed
+	// recorded: terminal work opens, reads, and rebuilds. The cancellation is
+	// a retained work.transitioned event, so replay rebuilds the same
+	// terminal state and snapshot qualification accepts the fixture by
+	// design; a direct lifecycle row would not survive the staged rebuild.
+	terminalActor, err := store.WorkflowActorRef(cutoverFixtureActor(cutoverTerminalHistoryWork))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var terminalVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, cutoverTerminalHistoryWork).Scan(&terminalVersion); err != nil {
+		t.Fatal(err)
+	}
+	terminalPayload, err := json.Marshal(map[string]any{
+		"from": "needed", "to": "cancelled",
+		"reason":           "cutover pin fixture: the item closed while its archived pin stayed recorded",
+		"expected_version": terminalVersion, "resulting_version": terminalVersion + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
+		EventID:        "cutover-fixture:terminal-history-cancelled",
+		Kind:           "work.transitioned",
+		SubjectType:    store.SubjectWorkItem,
+		SubjectID:      cutoverTerminalHistoryWork,
+		Actor:          terminalActor,
+		OccurredAt:     time.Date(2026, 10, 12, 0, 1, 0, 0, time.UTC),
+		PayloadVersion: 1,
+		Payload:        terminalPayload,
+	}}}); err != nil {
+		t.Fatalf("cannot retain the terminal item's cancellation: %v", err)
+	}
 }
 
 // holdCutoverWorkUnderOutsideRepair adds one more archived-pin item and
@@ -1001,6 +1111,27 @@ func preCutoverUpgradeSnapshots(t *testing.T, root string) []string {
 		}
 	}
 	return snapshots
+}
+
+// preCutoverUpgradeManifests lists the pre-mutation snapshot manifests the
+// data root retains, so a refusal that must leave no snapshot at all also
+// proves no manifest survived it.
+func preCutoverUpgradeManifests(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "backups"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifests []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "pre-upgrade-") && strings.HasSuffix(entry.Name(), ".json") {
+			manifests = append(manifests, filepath.Join(root, "backups", entry.Name()))
+		}
+	}
+	return manifests
 }
 
 // cutoverCancellationProbe is the deterministic timing witness: the trigger
@@ -1175,8 +1306,13 @@ func TestUpgradeWithTheCancelInputFencesAndSnapshotsBeforeItCancels(t *testing.T
 	}
 
 	events := cutoverTransitionedEvents(t, path)
-	if len(events) != len(cutoverSelectedWorks) {
-		t.Fatalf("the disposition appended %+v, want one transition per selected item %v", events, cutoverSelectedWorks)
+	// The log holds the disposition's one transition per selected item plus
+	// the fixture's own retained terminal cancellation, nothing else.
+	if len(events) != len(cutoverSelectedWorks)+1 {
+		t.Fatalf("the log holds %+v, want one transition per selected item %v plus the fixture's terminal cancellation", events, cutoverSelectedWorks)
+	}
+	if terminal := events[cutoverTerminalHistoryWork]; terminal.From != "needed" || terminal.To != "cancelled" {
+		t.Fatalf("the fixture's terminal cancellation = %+v, want the retained needed->cancelled event", terminal)
 	}
 	for _, workID := range cutoverSelectedWorks {
 		transition, ok := events[workID]
@@ -1320,6 +1456,151 @@ func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnap
 	}
 }
 
+// genuinePreTailCutoverStore builds the test's source store from the pinned
+// released baseline. The v13.4.0 core initializes the real target at its own
+// schema 122 — actual physical schema and manifest, no copied DDL — and the
+// current-schema cutover fixture is seeded in a separate store, then only
+// its rows and events move into the baseline's existing tables.
+func genuinePreTailCutoverStore(t *testing.T, path string) {
+	t.Helper()
+	seedPath := filepath.Join(t.TempDir(), "cutover-seed.db")
+	seedCutoverPinStore(t, seedPath)
+	baseline := buildCoreFrom(t, extractReleasedSource(t, cutoverBaselineTag), "v0.0.0-con953-baseline-fixture")
+	code, out, errText := runRelease(t, baseline, path, "upgrade", `{}`)
+	if code != 0 {
+		t.Fatalf("the released baseline must initialize the fixture store: %d %s %s", code, out, errText)
+	}
+	var initialized struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal([]byte(out), &initialized); err != nil {
+		t.Fatalf("the baseline upgrade report is not JSON: %v: %s", err, out)
+	}
+	if initialized.SchemaVersion != cutoverBaselineSchema {
+		t.Fatalf("the baseline fixture store's schema = %d, want %d", initialized.SchemaVersion, cutoverBaselineSchema)
+	}
+	transferCutoverFixture(t, seedPath, path)
+}
+
+// transferCutoverFixture moves the seeded fixture's population into the
+// baseline store's existing tables: the fixture's own tables in foreign-key
+// order, through the columns both schemas share. The baseline's extra
+// members, such as products.planning_mode, keep their defaults, and its
+// manifest and physical schema stay untouched.
+func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
+	t.Helper()
+	tables := []string{
+		"products", "projects", "product_projects", "work_items", "work_projects",
+		"workflow_actors", "workflow_instances", "workflow_contracts", "domain_events",
+	}
+	seed, err := sql.Open("sqlite", store.SQLiteFileURI(seedPath)+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = seed.Close() }()
+	seed.SetMaxOpenConns(1)
+	target, err := sql.Open("sqlite", store.SQLiteFileURI(targetPath)+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = target.Close() }()
+	target.SetMaxOpenConns(1)
+	ctx := context.Background()
+	readTx, err := seed.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	writeTx, err := target.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writeTx.Rollback() }()
+	// The baseline's projections are fold-only, so the transfer writes under
+	// the same transient fold guard every fixture writer uses and leaves no
+	// guard row behind.
+	if _, err := writeTx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		common := sharedColumns(t, readTx, writeTx, table)
+		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(common, ",")+` FROM `+table)
+		if err != nil {
+			t.Fatalf("cannot read the seeded %s rows: %v", table, err)
+		}
+		insert, err := writeTx.PrepareContext(ctx, `INSERT INTO `+table+`(`+strings.Join(common, ",")+`) VALUES(`+strings.TrimSuffix(strings.Repeat("?,", len(common)), ",")+`)`)
+		if err != nil {
+			t.Fatalf("cannot prepare the %s transfer: %v", table, err)
+		}
+		for rows.Next() {
+			values := make([]any, len(common))
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				t.Fatalf("cannot scan the seeded %s rows: %v", table, err)
+			}
+			if _, err := insert.ExecContext(ctx, values...); err != nil {
+				t.Fatalf("cannot transfer the seeded %s rows: %v", table, err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("cannot read the seeded %s rows: %v", table, err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := insert.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := writeTx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// sharedColumns returns the columns both schemas hold, in the target's
+// order: the transfer writes only values the historical table stores, so
+// the baseline's own members keep their recorded shapes and defaults.
+func sharedColumns(t *testing.T, readTx, writeTx *sql.Tx, table string) []string {
+	t.Helper()
+	columns := func(tx *sql.Tx) []string {
+		rows, err := tx.QueryContext(context.Background(), `SELECT name FROM pragma_table_info(?)`, table)
+		if err != nil {
+			t.Fatalf("cannot inspect %s columns: %v", table, err)
+		}
+		defer rows.Close()
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			names = append(names, name)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
+	target := columns(writeTx)
+	held := make(map[string]bool)
+	for _, name := range columns(readTx) {
+		held[name] = true
+	}
+	var common []string
+	for _, name := range target {
+		if held[name] {
+			common = append(common, name)
+		}
+	}
+	return common
+}
+
 func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testing.T) {
 	for _, stamp := range []string{version.Development, "v-test"} {
 		t.Run(stamp, func(t *testing.T) {
@@ -1327,12 +1608,17 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 			version.Value = stamp
 			t.Cleanup(func() { version.Value = previous })
 			path, root := cliStoreRoot(t)
-			seedCutoverPinStore(t, path)
-			// Leave the first pending migration's trigger in place. A stamped
-			// run collides before commit; an unstamped run refuses migration.
-			db := mustOpenCutoverStore(t, path)
-			if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version >= 123`); err != nil {
-				t.Fatal(err)
+			genuinePreTailCutoverStore(t, path)
+			if stamp != version.Development {
+				// The stamped case's static fixture state is the source's own
+				// file mode: an owner-read-only database leaves qualification
+				// staging (a separately created writable copy) untouched while
+				// the live store's own migration refuses to write. The mode
+				// restores before the temporary tree goes away.
+				if err := os.Chmod(path, 0o400); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 			}
 			statesBefore := cutoverWorkStates(t, path)
 			eventsBefore := cutoverEventCount(t, path)
@@ -1348,13 +1634,42 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 			if strings.Contains(errOut, "the incompatible migration committed before this failure") {
 				t.Fatalf("a pre-commit failure must not claim a breaking commit: %s", errOut)
 			}
+			if stamp != version.Development {
+				// The refusal must come from the source's own migration, not
+				// from snapshot qualification of the staged copy.
+				if strings.Contains(errOut, "database snapshot or verification failed") {
+					t.Fatalf("the read-only source must refuse the live migration, not the snapshot: %s", errOut)
+				}
+				if !strings.Contains(strings.ToLower(errOut), "readonly") {
+					t.Fatalf("the stamped refusal must name the read-only source migration: %s", errOut)
+				}
+			}
 			if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
 				t.Fatalf("pre-commit failure must close its own fence: %+v, %v", fence, err)
 			}
-			if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 1 {
-				t.Fatalf("pre-commit failure must retain the pre-mutation snapshot: %v", snapshots)
-			} else if _, err := store.VerifyBackup(context.Background(), snapshots[0]); err != nil {
-				t.Fatal(err)
+			if stamp == version.Development {
+				// An unstamped build's pending tail refuses snapshot
+				// qualification and leaves no artifacts.
+				if !strings.Contains(errOut, "unstamped development build refuses schema migration for an existing store") {
+					t.Fatalf("the dev run must refuse at the unstamped qualification: %s", errOut)
+				}
+				// The snapshot route names the data root's owner too; this
+				// root has no installed release.
+				if !strings.Contains(errOut, "owning release: none found") || !strings.Contains(errOut, unstampedRecoveryLine) {
+					t.Fatalf("the snapshot refusal must name the owner and the recovery: %s", errOut)
+				}
+				if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
+					t.Fatalf("the unstamped qualification refusal retains no snapshot: %v", snapshots)
+				}
+				if manifests := preCutoverUpgradeManifests(t, root); len(manifests) != 0 {
+					t.Fatalf("the unstamped qualification refusal retains no manifest: %v", manifests)
+				}
+			} else {
+				if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 1 {
+					t.Fatalf("pre-commit failure must retain the pre-mutation snapshot: %v", snapshots)
+				} else if _, err := store.VerifyBackup(context.Background(), snapshots[0]); err != nil {
+					t.Fatal(err)
+				}
 			}
 			after, err := store.PlanUpgradeReadiness(context.Background(), path, options)
 			if err != nil || after.SchemaVersion != before.SchemaVersion || !reflect.DeepEqual(after.AppliedVersions, before.AppliedVersions) {

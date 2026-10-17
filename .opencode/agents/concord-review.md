@@ -4,6 +4,7 @@ mode: all
 hidden: true
 tools:
   task: false
+  concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false
@@ -42,16 +43,10 @@ sources. See
 
 ## Committed content
 
-Review every added comment and committed document against this rule. Report each
-violation as a review finding whose `detail` starts with `committed-content:`.
-
-> Commit only durable content. A committed comment or document states intent, a
-> constraint that is not obvious, or Product law. It carries only what the code,
-> types, tests, and generated contracts cannot show. Change history and
-> provenance, such as issue, pull request, and work identifiers, belong in
-> commits, pull requests, and work records. Write no diff labels, no account of
-> earlier versions of the code, and no reference to the conversation that
-> produced it.
+Review every added comment and committed document against the conduct rule that
+opens "Commit only durable content." in `.concord/instructions/change.md`.
+Report each violation as a review finding whose `detail` starts with
+`committed-content:`.
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying
@@ -91,6 +86,17 @@ conclusions, rejected routes, and open questions as report `context_findings`
 with a `domain_id` from the packet's Domains. The view carries at most
 32 readings and 32 findings.
 
+## Dispatch subject
+
+`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
+OID identity this attempt reviews; never author or replace it. Before
+reviewing, run `git rev-parse --verify HEAD^{commit}` and
+`git status --porcelain=v1 -z --untracked-files=all` in the dispatched
+worktree. If HEAD is not exactly that `subject_commit`, or the tree is not
+clean, the checked-out change is not the subject the packet pins: return one
+report with `status` `failed` that names the observed HEAD and the mismatch.
+Never review a different commit, and never author `subject_commit`.
+
 ## Coordinator checkpoint
 
 When `inputs.checkpoint` is present, its `strategy` and `diagnosis` are
@@ -112,37 +118,25 @@ an exact commit and the exact argument vector to run it from its contained
 working directory.
 
 The authenticated host owns `native_oracle_v2` preparation and execution
-through the existing `worktree_verify` operation. Preparation compiles the
-pinned pure-Go harness without test execution and grants readiness only.
-Execution requires the exact persisted job, attempt, epoch, packet digest,
-control, preparation reference, and recorded raw subject. Managed workers
-gain no Concord tools. Do not replace this producer with your own argument
-vector, automatic preparation, or a model assertion. Ordinary test output
+through the existing `worktree_verify` operation. Preparation qualifies one
+closed recipe family without test execution and grants readiness only: the
+pinned pure-Go harness compiles, and a `target_runner_v1` recipe (closed
+materializer and runner axes) materializes its pinned dependencies offline
+and runs only its collection or check-input stage. Unsupported families and
+materializer/runner pairs are unavailable. Execution requires the exact
+persisted job, attempt, epoch, packet digest, control, preparation
+reference, and recorded raw subject. Managed workers gain no Concord tools.
+Do not replace this producer with your own argument vector, automatic
+preparation, a preferred test, or a model assertion. Ordinary test output
 does not acquire a qualified oracle receipt.
 
-Report the host-produced execution as a typed `oracle_receipt` on an evidence
-entry: the control ids,
-case ids, the pinned recipe source, the result (`pass`, `fail`, `unavailable`,
-or `not_run`), the exit code for an executed result, and the immutable run
-locator your host produced. A receipt is reported evidence, not authority:
-when no producing route issued an immutable locator, report `unavailable`
-with an empty `run_ref` and name the missing producer honestly — never
-invent a locator. A timeout is `unavailable` evidence, never a measured
-failure and never a source defect claim. Never author `subject_commit`:
-the dispatch owns that identity.
-
-Do not replace a hard control with a preferred test, add an unrelated
-delivery condition, or treat the finite case list as proof of complete
-semantics. When you find a real entry path or transition the inventory
-omits, report it as a review finding classified `uncovered_case` with its
-owner and entry point: a missing case is a legitimate delivery blocker, not
-a rejection. An obligation failure of a declared owner is a
-`delivery_blocker`; a concern outside the approved owner or contract is a
-`follow_up` and never becomes a repair criterion; an obsolete, inconsistent,
-or unsound harness is an `oracle_defect`, which blocks oracle readiness
-rather than manufacturing a repair obligation. Receipts from earlier
-subjects stay regression baselines: report current-subject evidence for
-current acceptance.
+Report each host-produced execution as an `oracle_receipt` on an evidence
+entry. When no producing route issued an immutable locator, report
+`unavailable` and never invent a locator. A timeout is `unavailable` evidence,
+never a measured failure. Never author `subject_commit`: the dispatch owns that
+identity. Receipts from earlier subjects are regression baselines only: report
+current-subject evidence for current acceptance.
+Classify each finding the oracle governs with `review_finding.oracle`.
 
 ## Objective and binding
 
@@ -167,15 +161,6 @@ contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
 
-The store admits an approved contract premise of at most 4096 UTF-8 bytes; that
-approval limit counts bytes. Packet field limits such as `inputs.task`
-`maxLength=4096` count JSON Schema Unicode code points, a different unit. The
-lane budget `context_tokens_max` is a model token limit and is separate from
-both. Concord's CLI bootstrap and output guards are transport bounds of its own
-tools, not a prompt cap on any host Task surface. An oversize or invalid
-projection is refused as a typed failure before authorization; do not truncate
-approved content, and do not ask to reapprove unchanged scope to fit a limit.
-
 ## Concord context boundary
 
 The dispatched packet is your complete Concord context. Concord tools are
@@ -186,40 +171,12 @@ repository paths the packet names, and read Domain structure from the file
 evidence, and return `status` `failed` when the missing context blocks the
 assigned result.
 
-## Source lookup routing
-
-Route each technical lookup to the source class that owns the fact.
-Establish this repository's own behavior from local source lookup: `read`
-and `grep` over its files, or a connected code-search tool through
-`execute` (for example `tools.lgrep.search_semantic`) when one serves the
-question better. Query Context7 for a library, API, platform, or tool fact
-the repository does not settle. Search Exa for current external facts that
-change over time.
-Ground each technical claim in a source you actually
-consulted this attempt and cite it: recall is not a lookup. Discover the
-exact callable signatures first: enumerate the tool catalog inside
-`execute`, or search it for the service by name, then call the returned
-path exactly. Never reconstruct a tool path from memory.
-Context7 and Exa are host-connected options, and the host, not this
-instruction, controls whether they are connected. When a route the answer
-needs is not connected, or a source cannot answer the question, state that
-plainly, name the missing source, and continue with the evidence your role
-already allows. Never invent a lookup result, and never present recall as a
-research call.
-
 ## Command duration
 
 This lane's wall-time budget is 1200 seconds for the whole attempt. The
-shell tool ends a command at its `timeout` parameter, and without one it
-applies a short default of about 120 seconds, so a slow command dies before
-it finishes and the attempt loses the evidence.
-
-Before you run a command that can take minutes, set the shell tool `timeout`
-parameter in milliseconds to cover the expected runtime, and keep the time
-you spend inside the remaining lane budget. Treat full Go package suites
-(`go test ./...`, or one large package such as `./internal/store`) as able to
-exceed 400 seconds: give such a command an explicit `timeout` above 400000
-milliseconds, or run a narrower test tier instead.
+shell tool ends a command at its `timeout` parameter, about 120 seconds by
+default. Give a command that can take minutes an explicit `timeout` in
+milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
 
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `concord-worker-result-v1`.
@@ -253,11 +210,9 @@ Report contract constraints:
 - context_finding.evidence_refs: type=array, minItems=0, maxItems=8, items={"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256}.
 - context_finding.domain_id: type=string, minLength=1, maxLength=256, x-maxBytes=256. Name the registry Domain the finding concerns, from the packet's affected Domains; the store refuses a Domain outside the current registry or the approved affected scope.
 - context_finding.product_wide_rationale: optional; type=string, minLength=1, maxLength=512, x-maxBytes=512. Required when domain_id names the root Domain, and refused on a child Domain.
-- base_comparison: optional top-level object; type=object, additionalProperties=false, required=["checks"].
-- base_comparison.checks: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/base_comparison_check"}.
-- base_comparison_check shape: type=object, additionalProperties=false, required=["command", "branch_result", "base_result"].
-- base_comparison_check.command: type=string, minLength=1, maxLength=512.
-- base_comparison_check.branch_result and base_comparison_check.base_result: enum=["pass", "fail", "not_run"].
+- evidence_entry.oracle_receipt: optional object; type=object, additionalProperties=false, required=["control_ids", "case_ids", "recipe_source", "result", "run_ref", "evidence_refs"]. Report one control execution: `result` is one of `pass`, `fail`, `unavailable`, `not_run`. An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; `unavailable`/`not_run` carry the empty `run_ref` and name the explanation in `evidence_refs`. A receipt is reported evidence, never native-run authority: when no producing route issued an immutable locator, report `unavailable` and name the missing producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID identity: never author it; any echo is stripped and the observed subject is injected from the dispatch packet.
+- oracle_receipt.control_ids: type=array, minItems=1, maxItems=8, pattern="^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$".
+- oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
 - review: optional top-level object; type=object, additionalProperties=false, required=["verdict", "findings"].
 - review.verdict: enum=["ship", "no_ship"].
 - review.findings: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/review_finding"}.
@@ -265,14 +220,10 @@ Report contract constraints:
 - review_finding.severity: enum=["P0", "P1", "P2", "P3"].
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.
-- review_finding.oracle: optional object (CON-890); type=object, additionalProperties=false, required=["classification"]. Tie a finding on an oracle-capable job to the oracle: `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
-- review.resolved_findings: optional array (CON-890); type=array, minItems=0, maxItems=32, x-maxArrayBytes=8192. Claim the closure of a previously open ranked finding with its `finding_id` and the independent current-subject `evidence_refs` its control requires. A claim is a claim: omission, relabeling, or a confidence change never closes a finding. An array past the byte bound is refused whole: drop or split claims yourself, never truncate one to fit.
+- review_finding.oracle: optional object; type=object, additionalProperties=false, required=["classification"]. Tie a finding on an oracle-capable job to the oracle: `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
+- review.resolved_findings: optional array; type=array, minItems=0, maxItems=32, x-maxArrayBytes=8192. Claim the closure of a previously open ranked finding with its `finding_id` and the independent current-subject `evidence_refs` its control requires. A claim is a claim: omission, relabeling, or a confidence change never closes a finding. An array past the byte bound is refused whole: drop or split claims yourself, never truncate one to fit.
 - resolved_finding shape: type=object, additionalProperties=false, required=["finding_id", "evidence_refs"]; finding_id pattern="^finding:[0-9]+:[0-9]+$".
-- evidence_entry.oracle_receipt: optional object (CON-890); type=object, additionalProperties=false, required=["control_ids", "case_ids", "recipe_source", "result", "run_ref", "evidence_refs"]. Report one control execution: `result` is one of `pass`, `fail`, `unavailable`, `not_run`. An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; `unavailable`/`not_run` carry the empty `run_ref` and name the explanation in `evidence_refs`. A receipt is reported evidence, never native-run authority: when no producing route issued an immutable locator, report `unavailable` and name the missing producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID identity: never author it; any echo is stripped and the observed subject is injected from the dispatch packet.
-- oracle_receipt.control_ids: type=array, minItems=1, maxItems=8, pattern="^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$".
-- oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
 - review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
-- worker_job: optional top-level object; type=object, additionalProperties=false, required=["job_id", "revision", "digest"]. When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; `inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.
 
 ## Required report blocks
 

@@ -1,7 +1,8 @@
 import { test, expect, mock } from "bun:test"
+import { createHash } from "node:crypto"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -320,7 +321,7 @@ test("a correction past the attempt limit still projects into the packet", async
   expect(built.packet!.inputs.correction!.escalated).toBe(true)
 })
 
-// CON-887: the pin's work-context view rides the packet verbatim. The core
+// The pin's work-context view rides the packet verbatim. The core
 // refuses a dispatch whose inputs.work_context differs from the current view
 // byte-for-byte, so any re-derivation here would strand the dispatch.
 const WORK_CONTEXT: AgentLanePacketWorkContext = {
@@ -368,6 +369,118 @@ test("a work context projects verbatim into the packet", async () => {
   const packet = built.packet!
   expect(packet.inputs.work_context).toEqual(WORK_CONTEXT)
   expect(validateAgentLanePacket(packet)).toBe(true)
+})
+
+// The core records a work-context unavailability marker in place of the view,
+// never beside a work_context member, at either carrier the builder reads: the
+// pinned snapshot or the embedded work pin. A packet projected past the marker
+// would dispatch without the view the core's byte-for-byte comparison demands,
+// so the builder must refuse before it emits one.
+const WORK_CONTEXT_UNAVAILABLE = { reason: "limit_exceeded" }
+const withSnapshotMarker = (envelope: any) => {
+  envelope.result.pinned.work_context_unavailable = WORK_CONTEXT_UNAVAILABLE
+  return envelope
+}
+
+test.each([
+  ["embedded pin marker only", () => continuityEnvelope(pinnedContract(), null, { work_context_unavailable: WORK_CONTEXT_UNAVAILABLE })],
+  ["snapshot marker, no pin", () => withSnapshotMarker(continuityEnvelope())],
+  ["snapshot marker beside partial pin {}", () => withSnapshotMarker(continuityEnvelope(pinnedContract(), null, {}))],
+  ["both marker locations", () => withSnapshotMarker(continuityEnvelope(pinnedContract(), null, { work_context_unavailable: WORK_CONTEXT_UNAVAILABLE }))],
+] as [string, () => Record<string, unknown>][])("an unavailable work context marker (%s) refuses the packet", async (_label, continuity) => {
+  const invoke = scriptedInvoke({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuity(),
+  })
+  const result = await buildAgentLanePacket(
+    { workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" } as any,
+    { context: contextFor(), invoke: invoke as any },
+  )
+  expect(result.failure?.kind).toBe("packet_refused")
+  expect(result.failure?.message).toContain("work_context_unavailable")
+  expect(result.failure?.message).toContain("limit_exceeded")
+  expect(result.packet).toBeUndefined()
+  expect(invoke.seen()).toEqual(["concord_work_browse.scope", "concord_work_trace.continuity"])
+})
+
+// The selected research entries ride the same verbatim copy. The adapter
+// copies the work pin's view; no parallel research fetch, special packet
+// input, or adapter selection policy exists, and the generated packet schema
+// admits the research member and the research view ids in the group id
+// namespace.
+const RESEARCH_FINDING: AgentLanePacketWorkContextResearchEntryResolved = {
+  selection: { pack_id: "pack-packet-copy", revision: 1, finding_id: "f-packet-copy", domain_id: "child-alpha" },
+  view_id: "research:19:0",
+  selection_event_id: "record_work_context-work-335-11:semantic",
+  selection_event_seq: 19,
+  ordinal: 0,
+  required: true,
+  state: "resolved",
+  finding: {
+    pack_id: "pack-packet-copy",
+    revision: 1,
+    finding_id: "f-packet-copy",
+    kind: "observation",
+    statement: "the selected research finding rides the shared view",
+    confidence: "high",
+    freshness: "current",
+    status: "active",
+    source_ids: ["src-packet-copy"],
+    scopes: { mode: "home" },
+  },
+  sources: [
+    {
+      pack_id: "pack-packet-copy",
+      revision: 1,
+      source_id: "src-packet-copy",
+      kind: "source_code",
+      locator: "internal/store/work_context.go",
+      title: "the selected source",
+      publisher_or_author: "concord",
+      accessed_at: "2026-01-01T00:00:00Z",
+    },
+  ],
+}
+const RESEARCH_CONTEXT = {
+  ...WORK_CONTEXT,
+  research_findings: [RESEARCH_FINDING],
+  domain_groups: [
+    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0", "research:19:0"] },
+    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [] },
+  ],
+}
+
+test("selected research projects verbatim into the packet through the work pin copy", async () => {
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: RESEARCH_CONTEXT }),
+  })
+  expect(built.failure).toBeUndefined()
+  const packet = built.packet!
+  expect(packet.inputs.work_context).toEqual(RESEARCH_CONTEXT)
+  expect(packet.inputs.work_context!.research_findings).toEqual([RESEARCH_FINDING])
+  expect(validateAgentLanePacket(packet)).toBe(true)
+})
+
+test("closed research entry branches decide the packet verdict", async () => {
+  const built = await build(defaultScript())
+  const base = built.packet!
+  const withResearch = (entry: AgentLanePacketWorkContextResearchFindingView) =>
+    validateAgentLanePacket({ ...base, inputs: { ...base.inputs, work_context: { ...RESEARCH_CONTEXT, research_findings: [entry] } } })
+  // A typed unresolved entry carries references and provenance only; the
+  // resolved entry carries the native finding and its linked sources; a
+  // resolved-state entry without its body refuses, and an unresolved-state
+  // entry carrying a body refuses. The body members are omitted from the
+  // object, not set to undefined: absent and undefined are the same absence
+  // on the wire. The two refusing packets are deliberately invalid, so only
+  // they carry the test-only cast past the mirror's closed branches.
+  const { finding: _finding, sources: _sources, ...provenanceOnly } = RESEARCH_FINDING
+  const unresolved: AgentLanePacketWorkContextResearchEntryUnresolved = { ...provenanceOnly, state: "missing" }
+  const withoutBody = { ...provenanceOnly } as any
+  expect(withResearch(unresolved)).toBe(true)
+  expect(withResearch(RESEARCH_FINDING)).toBe(true)
+  expect(withResearch(withoutBody)).toBe(false)
+  expect(withResearch({ ...unresolved, finding: RESEARCH_FINDING.finding, sources: RESEARCH_FINDING.sources } as any)).toBe(false)
 })
 
 test("a card-bearing work context refuses the current card-free packet", async () => {
@@ -1241,11 +1354,8 @@ test("strict binding rejection", () => {
 })
 
 // Generated worker guidance teaches the canonical task, the binding
-// authority, and the one-result scope, and states the approval premise limit
-// in UTF-8 bytes apart from the packet's code-point field limits and the
-// model token budget. It directs no truncation and no reapproval, and names
-// no host Task prompt cap.
-test("generated guidance teaches the canonical task, binding authority, and count units", async () => {
+// authority, and the one-result scope, and names no host Task prompt cap.
+test("generated guidance teaches the canonical task and binding authority", async () => {
   const agent = (await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()).replace(/\s+/g, " ")
   expect(agent).toContain("## Objective and binding")
   expect(agent).toContain("`inputs.task` is the canonical objective, carried verbatim")
@@ -1254,11 +1364,6 @@ test("generated guidance teaches the canonical task, binding authority, and coun
   expect(agent).toContain("`objective_source`")
   expect(agent).toContain("`contract_version` is null before a contract is approved")
   expect(agent).toContain("Complete only that assigned result")
-  expect(agent).toContain("at most 4096 UTF-8 bytes")
-  expect(agent).toContain("count JSON Schema Unicode code points")
-  expect(agent).toContain("`context_tokens_max` is a model token limit")
-  expect(agent).toContain("do not truncate approved content")
-  expect(agent).toContain("do not ask to reapprove unchanged scope")
   expect(agent).not.toMatch(/Task prompt (cap|limit)/i)
 })
 
@@ -1407,4 +1512,271 @@ test("an oracle past the closed control bound refuses the packet build", async (
   const overflow = { ...ORACLE, controls: [...ORACLE.controls, ...Array.from({ length: 64 }, (_, index) => ({ ...ORACLE.controls[0], control_id: `control:extra-${index}` }))] }
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...ORACLE_JOB, acceptance_oracle: overflow }]) })
   expect(built.failure?.kind).toBe("packet_refused")
+})
+
+test("TestReviewSubjectLaneMismatch", async () => {
+  const agent = await Bun.file(new URL(`../../.opencode/agents/concord-review.md`, import.meta.url)).text()
+  expect(agent).toContain("`inputs.work_context.subject_commit`")
+  expect(agent).toContain("`git rev-parse --verify HEAD^{commit}`")
+  expect(agent).toContain("`git status --porcelain=v1 -z --untracked-files=all`")
+  expect(agent).toContain("`failed`")
+})
+
+// An oversized projection travels as lossless projection pages of one
+// canonical JSON document (CD-0016 as amended), and a consumer reconstructs
+// every page before it uses any authority-bearing field. The fixtures mirror
+// the Go agent's page emission: whole-code-point UTF-8 byte pages of the
+// inline result's canonical JSON, each bound to one document digest, chained
+// by the signed next_cursor the envelope carries.
+const pagedUtf8 = new TextEncoder()
+const pagedDocumentOf = (result: Record<string, unknown>) => JSON.stringify(result)
+const pagedDigestOf = (document: string) => `sha256:${createHash("sha256").update(pagedUtf8.encode(document)).digest("hex")}`
+
+const PAGED_UTF8_TEXT = "境contenido 🎯 anchor"
+const PAGED_CONTEXT_FINDING = {
+  ...WORK_CONTEXT.findings[0],
+  finding_id: "finding:21:1",
+  statement: `the paged statement repeats across page boundaries ${PAGED_UTF8_TEXT} ${"x".repeat(900)}`,
+  source_event_seq: 21,
+  ordinal: 1,
+}
+const PAGED_WORK_CONTEXT = {
+  ...WORK_CONTEXT,
+  // The paged projection carries the selected research bytes too,
+  // so the paged-join assertions prove the research entry and its group view
+  // id survive reconstruction verbatim.
+  research_findings: [
+    {
+      ...RESEARCH_FINDING,
+      view_id: "research:21:0",
+      selection_event_id: "record_work_context-work-335-21:semantic",
+      selection_event_seq: 21,
+    },
+  ],
+  domain_groups: [
+    { ...WORK_CONTEXT.domain_groups[0], finding_ids: ["finding:19:0", "research:21:0"] },
+    ...WORK_CONTEXT.domain_groups.slice(1),
+  ],
+  findings: [PAGED_CONTEXT_FINDING, ...WORK_CONTEXT.findings],
+}
+const PAGED_CORRECTION: AgentLanePacketCorrection = {
+  disposition: "failed",
+  attempt_count: 2,
+  attempt_limit: 3,
+  escalated: false,
+  diagnosis: "the paged attempt failed",
+  strategy: "retry the paged dispatch with a fresh fenced attempt",
+  predicate_ids: [],
+  evidence_refs: [],
+}
+
+// The oversized document grows through admitted store members the packet
+// builder never reads: the full observation window and the pinned
+// projection's second work-context copy. Their shapes and bounds follow the
+// closed continuity schema; the packet-bound fields stay within their own
+// recorded limits.
+const OVERSIZED_CONTEXT = {
+  source_event_frontier: 40,
+  required_reading: [],
+  findings: Array.from({ length: 30 }, (_, index) => ({
+    finding_id: `finding:40:${index}`,
+    kind: "direction",
+    statement: "境".repeat(340),
+    subject_ref: "internal/agent/runtime.go",
+    evidence_refs: ["internal/agent/continuity_collection_budget_test.go"],
+    domain_id: "agent-surface",
+    origin: "declaration",
+    status: "reported",
+    source_event_id: "record_work_context-work-335-40:semantic",
+    source_event_seq: 40,
+    ordinal: index,
+  })),
+  domain_groups: [],
+}
+const oversizedObservation = (index: number) => ({
+  observation_id: `observation:paged-${index}`,
+  work_id: WORK_ID,
+  statement: "境".repeat(512),
+  recorded_at: "2026-09-09T00:00:00Z",
+  refs: [`evidence:paged-${index}`],
+  tags: ["paged"],
+})
+
+const pagedPinned = () => ({
+  product_identity: [PRODUCT_ID],
+  workflow_step: WORKFLOW_STEP,
+  step_actions: ["dispatch_worker", "record_worker_job"],
+  contract: pinnedContract(),
+  spec_mandate: [],
+  pending_operator_decision: null,
+  latest_checkpoint: CHECKPOINT,
+  design_record: null,
+  unresolved_failure: null,
+  work_pin: { correction: PAGED_CORRECTION, work_context: PAGED_WORK_CONTEXT },
+  ready_worker_jobs: [ORACLE_JOB],
+  work_context: OVERSIZED_CONTEXT,
+})
+
+const pagedResult = (): Record<string, unknown> => ({
+  work_id: WORK_ID,
+  pinned: pagedPinned(),
+  boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
+  typed_availability: { restart: "unavailable", reason: RESTART_UNAVAILABLE_REASON },
+  pending_messages: 0,
+  observations: Array.from({ length: 16 }, (_, index) => oversizedObservation(index)),
+  observations_total: 16,
+  observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: WORK_ID } },
+})
+
+// fragmentPages cuts the canonical document the way the Go agent emits it:
+// whole code points only, at most limitBytes UTF-8 bytes per page.
+const fragmentPages = (document: string, limitBytes: number) => {
+  const pages: { data: string; offset: number }[] = []
+  let data = ""
+  let dataBytes = 0
+  let offset = 0
+  for (const codePoint of document) {
+    const width = pagedUtf8.encode(codePoint).length
+    if (data.length > 0 && dataBytes + width > limitBytes) {
+      pages.push({ data, offset })
+      offset += dataBytes
+      data = ""
+      dataBytes = 0
+    }
+    data += codePoint
+    dataBytes += width
+  }
+  if (data.length > 0) pages.push({ data, offset })
+  return pages
+}
+
+const defaultToken = (index: number, count: number) => (index === count - 1 ? null : `cursor-${index + 1}`)
+
+// pageEnvelope mirrors the agent's continuityProjectionEnvelope for one page
+// of document: the scalar identity header, the exact byte page, and the
+// continuation kind.
+const pageEnvelope = (document: string, page: { data: string; offset: number }, index: number, count: number, nextCursor: string | null) =>
+  coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+    next_cursor: nextCursor,
+    result: {
+      work_id: WORK_ID,
+      workflow_instance: "present",
+      workflow_step: WORKFLOW_STEP,
+      watermark: "seq:1",
+      projection_page: {
+        encoding: "json-utf8",
+        digest: pagedDigestOf(document),
+        total_bytes: pagedUtf8.encode(document).length,
+        offset: page.offset,
+        data: page.data,
+        document_complete: index === count - 1,
+      },
+      next_kind: index === count - 1 ? null : "projection",
+    },
+  })
+
+// pageChain serves the continuity read by cursor token, so repeated reads —
+// the dispatch caller's and the packet builder's — replay the same unchanged
+// page sequence. A cursor the chain does not script throws, the way an
+// unscripted core read refuses; tests mutate the chain to break it.
+const pageChain = (chain: unknown[], extra: Record<string, unknown> = {}) => {
+  const seen: string[] = []
+  const byCursor = new Map<unknown, unknown>([[null, chain[0]]])
+  chain.slice(0, -1).forEach((envelope, index) => byCursor.set((envelope as any).next_cursor, chain[index + 1]))
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+    const key = `${toolName}.${args.operation}`
+    seen.push(key)
+    if (key === "concord_work_trace.continuity") {
+      const cursor = (args.input as any)?.page?.cursor ?? null
+      if (!byCursor.has(cursor)) throw new Error(`unscripted continuity cursor ${String(cursor)}`)
+      return byCursor.get(cursor)
+    }
+    if (!(key in extra)) throw new Error(`unscripted read ${key}`)
+    return extra[key]
+  }
+  return Object.assign(invoke, { seen: () => seen })
+}
+
+const pagedBuild = async (result: Record<string, unknown>, limitBytes: number, mutate?: (chain: unknown[]) => void) => {
+  const document = pagedDocumentOf(result)
+  const pages = fragmentPages(document, limitBytes)
+  const chain: unknown[] = pages.map((page, index) => pageEnvelope(document, page, index, pages.length, defaultToken(index, pages.length)))
+  mutate?.(chain)
+  return buildAgentLanePacket(
+    { workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" },
+    { context: contextFor(), invoke: pageChain(chain, { "concord_work_browse.scope": scopeEnvelope() }) as any },
+  )
+}
+
+// splitBuild pages the document into exactly two fragments whose boundary is
+// the given code-unit index, so a test decides where one page ends.
+const splitBuild = async (result: Record<string, unknown>, splitAt: number) => {
+  const document = pagedDocumentOf(result)
+  const first = document.slice(0, splitAt)
+  const pages = [{ data: first, offset: 0 }, { data: document.slice(splitAt), offset: pagedUtf8.encode(first).length }]
+  const chain = pages.map((page, index) => pageEnvelope(document, page, index, pages.length, defaultToken(index, pages.length)))
+  return buildAgentLanePacket(
+    { workId: WORK_ID, productId: PRODUCT_ID, laneId: "implement", attemptId: "attempt-1", stepId: "step-1" },
+    { context: contextFor(), invoke: pageChain(chain, { "concord_work_browse.scope": scopeEnvelope() }) as any },
+  )
+}
+
+const inlineEnvelopeOf = (result: Record<string, unknown>) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", { result })
+
+test("a paged oversized continuity builds the exact packet the inline result builds", async () => {
+  const result = pagedResult()
+  // The canonical document is a genuinely oversized projection: its UTF-8
+  // length exceeds the whole-envelope cap the inline branch must fit.
+  expect(pagedUtf8.encode(pagedDocumentOf(result)).length).toBeGreaterThan(51_200)
+  const inlineBuilt = await build({ ...defaultScript(), "concord_work_trace.continuity": inlineEnvelopeOf(result) })
+  expect(inlineBuilt.failure).toBeUndefined()
+  const built = await pagedBuild(result, 20_000)
+  expect(built.failure).toBeUndefined()
+  expect(built.packet).toEqual(inlineBuilt.packet)
+  // The oracle-bearing ready job, the pin's context and correction, and the
+  // latest checkpoint all survive the page join verbatim.
+  expect(built.packet!.inputs.worker_job).toEqual(ORACLE_JOB)
+  expect(built.packet!.inputs.work_context).toEqual(PAGED_WORK_CONTEXT)
+  expect(built.packet!.inputs.checkpoint).toEqual(CHECKPOINT)
+  expect(built.packet!.inputs.correction!.attempt_count).toBe(2)
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+})
+
+test("two ready jobs split across fragments still refuse the packet", async () => {
+  const result = pagedResult()
+  const second = { ...ORACLE_JOB, job_id: "job:paged-second", revision: 3, digest: `sha256:${"b".repeat(64)}` }
+  ;(result.pinned as Record<string, unknown>).ready_worker_jobs = [ORACLE_JOB, second]
+  const document = pagedDocumentOf(result)
+  const secondAt = document.indexOf("job:paged-second")
+  expect(secondAt).toBeGreaterThan(0)
+  // The page boundary falls exactly before the second job, so a
+  // fragment-only reader would see one ready revision and wrongly succeed.
+  const built = await splitBuild(result, secondAt)
+  expect(built.failure?.kind).toBe("worker_job_ambiguous")
+  expect(built.failure?.message).toContain("job:paged-second")
+  const inlineBuilt = await build({ ...defaultScript(), "concord_work_trace.continuity": inlineEnvelopeOf(result) })
+  expect(inlineBuilt.failure?.kind).toBe("worker_job_ambiguous")
+})
+
+test("a page boundary before a multi-byte code point keeps byte offsets exact", async () => {
+  const result = pagedResult()
+  const document = pagedDocumentOf(result)
+  const marker = "🎯"
+  const markerAt = document.indexOf(marker)
+  expect(markerAt).toBeGreaterThan(0)
+  expect(pagedUtf8.encode(marker).length).toBe(4)
+  const built = await splitBuild(result, markerAt)
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.work_context).toEqual(PAGED_WORK_CONTEXT)
+  const inlineBuilt = await build({ ...defaultScript(), "concord_work_trace.continuity": inlineEnvelopeOf(result) })
+  expect(built.packet).toEqual(inlineBuilt.packet)
+})
+
+test("a fragment carrying a lonely surrogate refuses instead of replacing it", async () => {
+  const result = pagedResult()
+  const built = await pagedBuild(result, 20_000, (chain) => {
+    ;((chain[1] as any).result.projection_page as Record<string, unknown>).data = "\uD800git"
+  })
+  expect(built.failure?.kind).toBe("transport_failure")
+  expect(built.failure?.message).toContain("surrogate")
 })

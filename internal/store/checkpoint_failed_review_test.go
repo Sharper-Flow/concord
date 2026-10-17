@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,120 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	return epoch
 }
 
+// seedCheckpointReviewAcceptedDelivery gives a review-lane dispatch its
+// prerequisite: one real Git worktree claim whose qualified HEAD is the
+// shared verify subject, and one implementation-lane delivery dispatched,
+// completed with a clean core observation, and accepted on that claim at the
+// named effect step — the accepted delivery a review of implementation work
+// joins. It leaves the instance parked at parkBackStep.
+func seedCheckpointReviewAcceptedDelivery(t *testing.T, s *Store, workID string, owner WorkflowActor, effectStep, parkBackStep string) {
+	t.Helper()
+	reviewSubjectClaim(t, s, workID)
+	parkWorkflowInstanceAt(t, s, workID, effectStep)
+	seedAcceptedImplementationDeliveryAt(t, s, workID, owner, effectStep)
+	parkWorkflowInstanceAt(t, s, workID, parkBackStep)
+}
+
+// checkpointEffectStep derives the pinned definition's external-effect
+// dispatch step the accepted implementation delivery rides: the first step
+// whose kind admits the implementation lane and that is not the named
+// checkpoint.
+func checkpointEffectStep(t *testing.T, s *Store, workID, checkpoint string) string {
+	t.Helper()
+	var ref string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		t.Fatal(err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+	}
+	for _, step := range registered.Definition.StepGraph.Steps {
+		if step.Kind == WorkflowStepExternalEffect && step.ID != checkpoint && slices.Contains(step.Actions, "dispatch_worker") {
+			return step.ID
+		}
+	}
+	t.Fatalf("pinned definition %s@%d carries no external-effect dispatch step beside %q", ref, version, checkpoint)
+	return ""
+}
+
+// parkWorkflowInstanceAt parks the pinned instance at one step under the
+// fold guard, the fixture idiom for reaching a step a shared seeding needs
+// without replaying history.
+func parkWorkflowInstanceAt(t *testing.T, s *Store, workID, step string) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM fold_guard`, step, workID); err != nil {
+		t.Fatalf("park %s at %s: %v", workID, step, err)
+	}
+}
+
+// seedAcceptedImplementationDeliveryAt dispatches, completes, and accepts one
+// implementation attempt at the named step: the accepted delivery with a clean
+// core observation that a review-lane dispatch on implementation work joins.
+// The worker-job revision records only on a job-capable pin; an older pin
+// dispatches unbound.
+func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string, owner WorkflowActor, stepID string) {
+	t.Helper()
+	ctx := context.Background()
+	lane := laneForID(t)
+	var registered RegisteredDefinition
+	var ref string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		t.Fatal(err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+	}
+	var job *WorkerJobBinding
+	if workflowWorkerJobsActive(registered.Definition) {
+		binding := WorkerJobBinding{JobID: "job:accepted-delivery-" + workID, Revision: 1}
+		recordWorkerJobRevisionForTest(t, s, workID, owner, &binding)
+		job = &binding
+	}
+	attemptID := "attempt:accepted-delivery:" + workID
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	if job != nil {
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	}
+	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
+	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
+		t.Fatalf("accepted-delivery dispatch refused: %v", err)
+	}
+	laneDispatchPayload := WorkerDispatchedPayload{
+		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
+		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
+		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: job,
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
+		t.Fatal(err)
+	}
+	subject, subjectErr := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID)
+	if subjectErr != nil || subject == "" {
+		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
+	}
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: job,
+	})}
+	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
+	if prepErr != nil {
+		t.Fatalf("accepted-delivery observation refused: %v", prepErr)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), s, completion)
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: owner.PrincipalRef, ClientRef: owner.ClientRef, AgentRef: "agent/accepted-delivery-acceptor", SessionRef: "session/" + workID + "-delivery-acceptor", ActorClass: ActorAgent}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), 0, acceptor); err != nil {
+		t.Fatalf("accept implementation delivery: %v", err)
+	}
+}
+
 func failCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	lane := reviewGateLane(t, "review")
@@ -59,7 +174,8 @@ func failCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID strin
 // the operator and the premise confirmation.
 func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "verify", []string{"verification"}, []string{"verification", "artifact"})
+	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, "verify"), "verify")
 	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record_verdict refused: %v", err)
@@ -170,8 +286,9 @@ func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 // the earlier completed attempt cannot advance the step with its own epoch.
 func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	const workID = "effect-step-stale-completed-attempt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "repair")
 	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
 		t.Fatal(err)
@@ -181,10 +298,16 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// The first window opens, its worker dispatches, and the report lands
 	// completed but unaccepted. The derived-start head opens the repair
 	// window through the qualifying checkpoint, whose started event fences
-	// the step exactly as the callable start did.
+	// the step exactly as the callable start did. The accepted-delivery
+	// prerequisite consumed the earlier epochs, so the window opens at the
+	// next epoch.
 	version := verdictItemVersion(t, s, workID)
+	var nextEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionStarted).Scan(&nextEpoch); err != nil {
+		t.Fatal(err)
+	}
 	start := workflowEventWithActor("effect-stale-start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": 1,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": nextEpoch,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

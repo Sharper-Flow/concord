@@ -8,7 +8,8 @@ import (
 // A two-sided fold validates one version per work item. The refusal must name
 // the item whose version actually disagreed. Naming the event subject instead
 // sends the caller to re-read an item that is already current, and the carried
-// current_versions entry then asserts a version that item does not hold.
+// current_versions entry then asserts a version that item does not hold. The
+// rendered attribution separately keeps the original event header subject.
 func TestVersionConflictNamesTheDisagreeingWorkItem(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "from-work")
@@ -22,16 +23,15 @@ func TestVersionConflictNamesTheDisagreeingWorkItem(t *testing.T) {
 	err := applyWorkEvent(t, s, event, workVersion("from-work", 2))
 	assertFailureKind(t, err, KindVersionConflict)
 
-	if strings.Contains(err.Error(), "from-work") {
-		t.Fatalf("refusal names the event subject rather than the disagreeing item: %v", err)
-	}
-	if !strings.Contains(err.Error(), "to-work") {
-		t.Fatalf("refusal does not name the disagreeing item to-work: %v", err)
-	}
-
 	var failure *Failure
 	if !failureAs(err, &failure) {
 		t.Fatalf("version conflict is not a typed failure: %v", err)
+	}
+	if strings.Contains(failure.Detail, "from-work") {
+		t.Fatalf("Detail names the event subject rather than the disagreeing item: %v", failure.Detail)
+	}
+	if !strings.Contains(failure.Detail, "to-work") {
+		t.Fatalf("Detail does not name the disagreeing item to-work: %v", failure.Detail)
 	}
 	if len(failure.CurrentVersions) != 1 {
 		t.Fatalf("current_versions = %d entries, want 1", len(failure.CurrentVersions))
@@ -41,5 +41,11 @@ func TestVersionConflictNamesTheDisagreeingWorkItem(t *testing.T) {
 	}
 	if failure.CurrentVersions[0].Version != 2 {
 		t.Fatalf("current_versions reports version %d, want to-work's actual 2", failure.CurrentVersions[0].Version)
+	}
+	if failure.SubjectType != SubjectWorkItem || failure.SubjectID != "from-work" {
+		t.Fatalf("attribution names %s %q, want the original event subject work item from-work", failure.SubjectType, failure.SubjectID)
+	}
+	if failure.EventID != "stale-to" || failure.EventKind != "relation.added" || failure.PayloadVersion != 1 {
+		t.Fatalf("attribution carries event %q kind %q payload version %d, want the original stale-to header", failure.EventID, failure.EventKind, failure.PayloadVersion)
 	}
 }

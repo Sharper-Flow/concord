@@ -17,7 +17,7 @@ import (
 func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-unrelated-job"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner := fixture.store, fixture.owner
+	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -39,8 +39,12 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "job-window-1", correctiveJob)
-	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "job-window-f1")
+	// The counting journeys' terminal fact goes through the live ingest with
+	// the recorded observation the promoted pin requires; the pinned
+	// definition derives the failure record in the same commit, so the
+	// explicit record disposition the fixture used to apply beside it is
+	// replaced, never duplicated.
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
 		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
@@ -84,7 +88,7 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	const workID = "correction-window-satisfying-job"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner := fixture.store, fixture.owner
+	s := fixture.store
 	defer s.Close()
 	lane := reviewGateLane(t, "implementation")
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -110,8 +114,10 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "job-satisfy-1", correctiveJob)
-	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "job-satisfy-f1")
+	// The live ingest carries the recorded observation and derives the
+	// failure record in the same commit, replacing the explicit record
+	// disposition.
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 1 {
 		t.Fatalf("correction after one failed job-bound attempt = %#v, want one counted attempt", pin.Correction)
@@ -142,8 +148,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, nil, worker, pin.Version, "job-satisfy-3", correctiveJobRevision3)
-	failWorkerAttemptWithKind(t, s, workID, attempt3, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt3, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "job-satisfy-f3")
+	s2WorkerFailedAttributedLive(t, s, workID, attempt3, "lane fallback blocked before the model ran")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
 		t.Fatalf("correction after the satisfying acceptance = %#v, want one counted attempt in a fresh window", pin.Correction)
@@ -156,7 +161,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	const workID = "correction-window-partial-satisfaction"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner := fixture.store, fixture.owner
+	s := fixture.store
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	workerRef, err := WorkflowActorRef(worker)
@@ -177,16 +182,14 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "job-partial-1", jobA)
-	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "job-partial-f1")
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	pin := issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 
 	attempt2 := "attempt:" + workID + ":2"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "job-partial-2", jobB)
-	failWorkerAttemptWithKind(t, s, workID, attempt2, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt2, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "job-partial-f2")
+	s2WorkerFailedAttributedLive(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 
 	// Satisfying job A leaves job B unresolved, so the window keeps every
 	// counted dispatch: the two failures and the satisfying dispatch.
@@ -257,7 +260,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, dispatcher, issue1013Pin(t, s, workID).Version, "derived-budget-1", jobA)
 	detailA := "the lane failed before a judgeable result existed"
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt1, "failed-"+workID+"-1", detailA, preferredModelForLane(lane))); err != nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt1, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detailA, time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live terminal worker.failed ingest for %s: %v", attempt1, err)
 	}
 	records1 := s2DerivedFailureRecords(t, s, workID, attempt1)
@@ -297,7 +300,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 		t.Fatalf("retry dispatch binding = %#v, want A's original recorded revision %s@%d", retryJob, jobA.JobID, jobA.Revision)
 	}
 	detailRetry := "the retry failed before a judgeable result existed"
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3", detailRetry, preferredModelForLane(lane))); err != nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt3, "failed-"+workID+"-3", preferredModelForLane(lane), WorkerFailureWorkerError, detailRetry, time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live terminal worker.failed ingest for %s: %v", attempt3, err)
 	}
 	records3 := s2DerivedFailureRecords(t, s, workID, attempt3)
@@ -431,7 +434,7 @@ func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, 
 // inputs.worker_job shape.
 func recordedPacketJobForTest(t *testing.T, s *Store, workID string, job WorkerJobBinding) map[string]any {
 	t.Helper()
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +514,7 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +644,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	job := &WorkerJobBinding{JobID: "job:record-core", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, worker, job)
-	ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +732,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 	if pin := issue1013Pin(t, s, workID); pin.Step != "repair" {
 		t.Fatalf("step after the job-bound accept = %q, want repair held", pin.Step)
 	}
-	ready, err = s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err = readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +838,7 @@ func TestWorkerJobRecordingAuthorityAndReadinessGates(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("record revision behind an unsatisfied prerequisite: %v", err)
 	}
-	ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -885,7 +888,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatalf("local accept of the job-bound attempt at refine: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "refine")
-			views, err := s.WorkerJobRevisions(context.Background(), workID)
+			views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 			if err != nil {
 				t.Fatal(err)
 			}

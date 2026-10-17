@@ -37,7 +37,7 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, fields); err != nil {
 				t.Fatal(err)
 			}
-			ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+			ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 			if err != nil || len(ready) != 1 {
 				t.Fatalf("ready jobs = %#v, error = %v, want one recorded revision", ready, err)
 			}
@@ -107,6 +107,16 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			}
 			recorded := recordedPacketJobForTest(t, s, workID, *job)
 			packet["inputs"].(map[string]any)["worker_job"] = recorded
+			if lane.CapabilityClass == "review" {
+				// The review gate requires an accepted implementation
+				// delivery before the bound review dispatch below. The
+				// seeded delivery carries its own job, so this lane's
+				// recorded revision stays ready.
+				seedAcceptedImplementationDelivery(t, s, workID, fixture.owner)
+				packet = joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+				packet["inputs"].(map[string]any)["worker_job"] = recorded
+				packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
+			}
 			for _, mutation := range []struct {
 				name, field string
 				value       any
@@ -153,9 +163,15 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {
 				t.Fatalf("superseded %s job error = %v, want readiness refusal", lane.ID, err)
 			}
-			views, err := s.WorkerJobRevisions(context.Background(), workID)
+			allViews, err := readWorkerJobRevisions(context.Background(), s.db, workID)
+			var views []WorkerJobRevisionView
+			for _, view := range allViews {
+				if view.Binding.JobID == job.JobID {
+					views = append(views, view)
+				}
+			}
 			if err != nil || len(views) != 2 {
-				t.Fatalf("revisions = %#v, error=%v, want two immutable revisions", views, err)
+				t.Fatalf("revisions of %s = %#v, error=%v, want two immutable revisions", job.JobID, views, err)
 			}
 			packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(views[1])
 			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {

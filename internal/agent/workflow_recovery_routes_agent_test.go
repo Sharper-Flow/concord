@@ -110,9 +110,9 @@ const (
 // live journeys run on; the store's live-authoring owner pins the same
 // versions.
 var workflowRecoveryCanonicalHeads = map[string]int64{
-	"workflow.implementation": 30,
-	"workflow.break_fix":      27,
-	"workflow.research":       17,
+	"workflow.implementation": 32,
+	"workflow.break_fix":      29,
+	"workflow.research":       19,
 }
 
 // workflowRecoveryArchivedFamilies names the families whose live authoring
@@ -713,6 +713,117 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 		// the typed diagnosis, and no discovery marker. Their entries ride the
 		// qualifying checkpoints the derived-start pins admit.
 		{
+			Ref: "workflow.implementation", Version: 31,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v31-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 31,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v31-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 28,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v28-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 28,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v28-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 18,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v18-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 18,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v18-complete",
+		},
+		// The research-context heads: the same six live journeys run
+		// at the promoted v32/v29/v19 pins, whose declared route tables the
+		// promotion appended unchanged.
+		{
+			Ref: "workflow.implementation", Version: 32,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v32-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 32,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v32-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 29,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v29-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 29,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v29-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 19,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v19-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 19,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v19-complete",
+		},
+		// The CD-0218 predecessor heads keep their released route tables
+		// covered after the canonical heads advanced: the registry retains
+		// every released pin, so the v30/v27/v17 rows stay in the table as
+		// recorded history next to the v31/v28/v18 heads.
+		{
 			Ref: "workflow.implementation", Version: 30,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
@@ -776,8 +887,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 72 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 72 (66 baseline rows + the six CD-0218 canonical-head rows)", len(tuples))
+	if len(tuples) != 84 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 84 (72 prior rows + the six retained predecessor-head rows + the six CON-911 head rows)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -864,11 +975,13 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 			t.Errorf("%s declares no route for (step=%q, trigger=%q)", tuple.WorkflowID, tuple.Step, tuple.Trigger)
 		}
 	}
-	// The disposition split is the CD-0218 battery shape: six live canonical
-	// journeys, the retained-family released pins as recorded history, and
-	// the 32 retired-family rows as archived-refusal coverage.
-	if live != 6 || history != 34 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/34/32", live, history, refusals)
+	// The disposition split is the CD-0218 battery shape: the six live
+	// canonical journeys run at the current heads (v32/v29/v19), the
+	// retained-family released pins plus every retained predecessor-head row
+	// (v31/v28/v18 now among them) as recorded history, and the 32
+	// retired-family rows as archived-refusal coverage.
+	if live != 6 || history != 46 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/46/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -1023,7 +1136,7 @@ func runWorkflowRecoveryRouteArchivedRefusal(t *testing.T, tuple workflowRecover
 	}
 	// The read-only preflight answers the same refusal, so the agent can
 	// classify the parked instance before it attempts anything.
-	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "checkpoint_context", Payload: retryJSON(refusalAction["fields"]), Actor: grantActor}); err == nil {
+	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "checkpoint_context", Payload: retryJSON(refusalAction["fields"]), Actor: grantActor}); err == nil {
 		t.Fatal("archived-family preflight admitted the action")
 	}
 	afterStep, afterVersion, afterEvents, afterContracts := state()
@@ -1206,7 +1319,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		"fields": map[string]any{"diagnosis": "The accepted result fails the successor objective", "strategy": "Produce and verify a fresh result at " + tuple.Target, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{initialAttempt}},
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
+	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
 		t.Fatalf("correction preflight: %v", err)
 	}
 	requireRecoveryOK(t, "approved correction", approvedRecoveryAction(t, s, service, env, correction))
@@ -1835,6 +1948,37 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 		// predicates alone and the post-supersede verdicts ride the
 		// batched form.
 		{
+			Ref: "workflow.implementation", Version: 31,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v31-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 28,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v28-complete-supersede",
+		},
+		// The research-context heads republish the same
+		// complete-step supersede routes; their journeys follow the same
+		// local-accept + record_delivery integration the CD-0218 authors do.
+		{
+			Ref: "workflow.implementation", Version: 32,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v32-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 29,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v29-complete-supersede",
+		},
+		// The CD-0218 predecessor heads keep their released complete-step
+		// supersede routes covered after the canonical heads advanced; the
+		// registry retains every released pin, so the v30/v27 rows stay in
+		// the table as recorded history.
+		{
 			Ref: "workflow.implementation", Version: 30,
 			Step: "release", Target: "execution",
 			RecordWorkerJob: true,
@@ -2350,7 +2494,11 @@ func appendLaneCompletion(t *testing.T, s *store.Store, grant Authority, lane st
 // requires a review block. The dispatch evidence carries the
 // worker-job binding the dispatch_worker authorization recorded
 // (CD-0205), so a job-bound pin admits the worker evidence without
-// forging a job the core did not authorize.
+// forging a job the core did not authorize. The completion lands at
+// the current payload version through the live terminal seam: an
+// implementation attempt carries the core delivery observation the
+// authenticated preparation sampled, and a review lane carries its
+// typed review block.
 func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authority, lane store.LaneDefinition, attemptID, suffix, reviewVerdict string) {
 	t.Helper()
 	ctx := context.Background()
@@ -2360,13 +2508,18 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 		payload.WorkerJob = job
 	}
 	dispatch := store.Event{EventID: "regroute-dispatch-" + suffix + "-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(payload)}
-	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
-	if job != nil {
-		completedPayload.WorkerJob = job
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = store.AppendLaneActorDispatchTx(ctx, tx, enriched)
+		return err
+	}); err != nil {
+		t.Fatalf("append lane dispatch for %s: %v", attemptID, err)
 	}
-	payloadVersion := 1
+	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job}
 	if len(lane.RequiredReportBlocks) > 0 {
-		payloadVersion = 3
 		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
 		completedPayload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
 		if oracle := recordedAgentOracle(t, s, job); oracle != nil {
@@ -2375,33 +2528,7 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 				Classification: store.OracleClassificationFollowUp,
 				OwnerID:        owner.OwnerID, PredicateIDs: owner.PredicateIDs,
 			}
-			payloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
 		}
 	}
-	// The worker_job field on the worker.completed event is reserved for
-	// payload version >= 4 (CD-0205): the fold uses the version to admit
-	// job-bound dispositions and refuses earlier payloads that carry
-	// the field, so a job-bearing completion must be written at v4+.
-	if job != nil && payloadVersion < 4 {
-		payloadVersion = 4
-	}
-	// A job-bound completion at v4+ must declare the evidence origin
-	// (CD-0205): the fold refuses payloads without it.
-	if payloadVersion >= 4 && completedPayload.EvidenceOrigin == "" {
-		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-	}
-	completion := store.Event{EventID: "regroute-completion-" + suffix + "-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(completedPayload)}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
-		if err != nil {
-			return err
-		}
-		if _, err := store.AppendLaneActorDispatchTx(ctx, tx, enriched); err != nil {
-			return err
-		}
-		_, err = store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{completion}})
-		return err
-	}); err != nil {
-		t.Fatalf("append lane completion for %s: %v", attemptID, err)
-	}
+	agentWorkerCompletedThroughSeam(t, s, attemptID, "regroute-completion-"+suffix+"-"+attemptID, completedPayload)
 }

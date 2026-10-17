@@ -262,6 +262,11 @@ type Failure struct {
 	// keeps the marker out of the agent envelope, whose schema this failure
 	// does not amend.
 	StaleDomainRegistryPin *StaleDomainRegistryPin `json:"-"`
+	// UnstampedMigration marks an unstamped build's refusal to migrate an
+	// existing store (CD-0139) and carries the manifest facts it read, so the
+	// command layer adds the owning release without matching refusal text.
+	// The empty json tag keeps it out of the agent envelope.
+	UnstampedMigration *UnstampedMigrationRefusal `json:"-"`
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
@@ -308,10 +313,15 @@ type ExternalRefConflict struct {
 }
 
 func (f *Failure) Error() string {
+	message := fmt.Sprintf("store: %s: %s: %s", f.Op, f.Kind, f.Detail)
 	if f.Err != nil {
-		return fmt.Sprintf("store: %s: %s: %s: %v", f.Op, f.Kind, f.Detail, f.Err)
+		message += fmt.Sprintf(": %v", f.Err)
 	}
-	return fmt.Sprintf("store: %s: %s: %s", f.Op, f.Kind, f.Detail)
+	if f.EventID != "" {
+		message += fmt.Sprintf(" [event_id=%q sequence=%d event_kind=%q payload_version=%d subject_type=%q subject_id=%q stage=%q]",
+			f.EventID, f.Sequence, f.EventKind, f.PayloadVersion, f.SubjectType, f.SubjectID, f.Stage)
+	}
+	return message
 }
 
 // Unwrap exposes the underlying cause to errors.Is and errors.As.

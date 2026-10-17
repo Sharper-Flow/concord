@@ -136,6 +136,13 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScop
 	if err != nil {
 		return result, record, workflowProjectionError(err, "cannot encode the retry dispatch payload")
 	}
+	// The derived retry reuses the one proof prepared before the outer
+	// rejection transaction. A changed work-context view or claim cannot
+	// borrow that proof; the whole combined operation refuses rather than
+	// splitting the rejection from the retry.
+	if err := revalidateDispatchProofForRetryTx(ctx, tx, request.WorkID); err != nil {
+		return result, record, err
+	}
 	sum := sha256.Sum256(retryPayload)
 	retryRequest := request
 	retryRequest.ActionID = "dispatch_worker"
@@ -146,7 +153,7 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScop
 	retryRequest.IdempotencyKey = request.IdempotencyKey + ":retry"
 	retryRequest.RequestID = request.RequestID + ":retry"
 	retryRequest.AcceptedInputsDigest = "sha256:" + hex.EncodeToString(sum[:])
-	retryResult, err := applyWorkflowActionRawTx(ctx, tx, scope, registry, retryRequest)
+	retryResult, err := applyWorkflowActionRawTx(withWorkerDispatchRetryRecursion(ctx), tx, scope, registry, retryRequest)
 	if err != nil {
 		return result, record, err
 	}
@@ -189,9 +196,12 @@ func workflowInstanceStateTx(ctx context.Context, tx *sql.Tx, workID string) (st
 // workerPacketSchemaIdentity resolves the packet schema version and the
 // report protocol from the generated worker-packet contract, so the derived
 // packet reads the live published identity instead of restating it. The
-// derived packet is the versioned packet2 identity: only definitions that
-// declare worker_packet2 derive retry dispatches, so the versioned
-// definition is the one published contract the derived bytes answer to.
+// packet2 and packet3 closures share the same schema_version and report
+// protocol, so reading the identity through the packet2 definition is
+// generation-neutral. The pinned dispatch admission owns the generation
+// closure — packet2 on the retained heads, packet3 on the research heads —
+// and the combined response returns exactly the bytes that admission
+// produced.
 func workerPacketSchemaIdentity() (string, string, error) {
 	doc := payloadschema.Document()
 	defs, _ := doc["$defs"].(map[string]any)
@@ -481,4 +491,17 @@ func workflowInstanceStateVersionTx(ctx context.Context, tx *sql.Tx, workID stri
 		return 0, wrapFailure(KindUnavailable, "workflow_action", "cannot read the work version", true, "retry once the work item is readable", err)
 	}
 	return version, nil
+}
+
+// RejectRetryMemberPresent reports whether a reject_worker_result payload
+// carries the retry dispatch member, so the mutation boundary prepares the
+// one dispatch proof before its transaction opens. It performs no
+// validation: the closed retry parsing stays the transaction's own.
+func RejectRetryMemberPresent(payload json.RawMessage) bool {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return false
+	}
+	raw, present := fields["retry"]
+	return present && string(raw) != "null"
 }

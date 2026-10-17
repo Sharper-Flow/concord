@@ -73,6 +73,7 @@ type Event struct {
 	// replaySourcePayloadVersion records the stored version when an upcaster
 	// changes the in-memory event. Folds use it only for versioned replay rules.
 	replaySourcePayloadVersion int
+	recordedPayloadShape       recordedPayloadShape
 	legacyVerdictPredicate     bool
 	// Payload is a JSON object.
 	Payload []byte
@@ -140,6 +141,9 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	// initiative work item, refuses here before the log row exists (CD-0213
 	// D4).
 	if err := refuseRetiredPlanningAppend(ctx, tx, e, prepared); err != nil {
+		return 0, err
+	}
+	if err := validateLiveProjectLocator(e); err != nil {
 		return 0, err
 	}
 

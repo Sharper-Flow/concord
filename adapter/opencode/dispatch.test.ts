@@ -3,8 +3,8 @@ import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
-import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
@@ -74,6 +74,7 @@ const coreOk = () => ({ schema_version: "1.0", request_id: "auth-test", origin: 
 const permissiveAuthorizer = (): DispatchAuthorizer => async () => coreOk()
 
 const lane = agentLanes[0]
+const packetSchemaVersions = agentLanePacketSchema.properties.schema_version.enum
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 // CD-0067 D6: dispatchWorker needs packetDigest on the happy path so the
 // signed assertion can quote the value the core recorded. Tests that
@@ -1258,6 +1259,59 @@ test("missing model readback records one durable failed attempt", async () => {
   expect(result.error?.predicate).toBe("export_assistant_message")
 })
 
+// the born-failed dispatch observation records the readback
+// refusal as a typed validator source bound to the export digest, and the
+// v2 assertion signs its canonical observation digest.
+test("attribution-born-failed-readback: the born-failed dispatch carries the readback observation", async () => {
+  const { workerFailureObservationDigest } = await import("./dispatch")
+  const calls: { argv: string[]; input: string }[] = []
+  const exportReader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      if (before) return okRoute([])
+      return okRoute([
+        { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+      ])
+    },
+  }
+  const result = await complete(workerBody(), {
+    sessionReader: exportReader,
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  const request = JSON.parse(calls[0].input)
+  const observed = request.failure_attribution as WorkerFailureObservation
+  expect(observed.observer).toBe("host_adapter")
+  expect(observed.phase).toBe("readback")
+  expect(observed.cause).toBe("report_contract")
+  expect(observed.basis).toBe("hypothesis")
+  expect(observed.sources).toHaveLength(1)
+  expect(observed.sources[0].kind).toBe("validator")
+  expect(observed.sources[0].message).toBe("export session contained no assistant readback")
+  expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(observed.sources[0].locator).toBeUndefined()
+  const assertion = request.assertion as Record<string, unknown>
+  expect(assertion.version).toBe(2)
+  expect(assertion.observation_digest).toBe(workerFailureObservationDigest(observed))
+})
+
+// dispatch and completion signatures stay v1 — no assertion
+// gains a version or observation digest unless a failure attribution rides
+// the write.
+test("attribution-v1-exact: dispatch and completion assertions stay v1", async () => {
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await complete(workerBody(), {
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("ok")
+  for (const record of calls.filter((call) => call.argv[1].startsWith("worker-"))) {
+    const request = JSON.parse(record.input)
+    expect(request.failure_attribution).toBeUndefined()
+    expect(request.assertion.version).toBeUndefined()
+    expect(request.assertion.observation_digest).toBeUndefined()
+  }
+})
+
 // The sanitized export carries the executing agent on each message info; the
 // readback takes executor identity from the latest assistant message, exactly
 // where it takes model identity from.
@@ -2072,9 +2126,9 @@ test("legacy report identity forbids a worker-job claim", () => {
 })
 
 test("report admission derives schema identity from the packet, not the worker", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const p = { ...packet(), schema_version }
-    for (const workerVersion of ["1.0", "1.1", "invalid", null, 11, undefined]) {
+    for (const workerVersion of [...packetSchemaVersions, "invalid", null, 11, undefined]) {
       const workerReport = report({ schema_version: workerVersion })
       for (const admitted of [
         resolveWorkerReportFromText(JSON.stringify(workerReport), p),
@@ -2131,7 +2185,7 @@ for (const [label, worker_job] of workerJobEchoes) {
 }
 
 test("report admission keeps packets without jobs unbound regardless of worker-job echoes", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const p = { ...packet(), schema_version }
     for (const [, worker_job] of workerJobEchoes) {
       const workerReport = report({ schema_version: "1.1", worker_job })
@@ -2187,8 +2241,8 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
-test("terminal evidence preserves both legacy and current schema pairs without relabeling", async () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+test("terminal evidence preserves historical and current schema pairs without relabeling", async () => {
+  for (const schema_version of packetSchemaVersions) {
     const { result, verbs, payloads } = await terminalEvidence(report({ schema_version }), { ...packet(), schema_version })
     expect(result.outcome).toBe("ok")
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -2198,15 +2252,17 @@ test("terminal evidence preserves both legacy and current schema pairs without r
   }
 })
 
-test("a legacy worker schema echo on a current packet records completion with current identity", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(report({ schema_version: "1.0" }), { ...packet(), schema_version: "1.1" })
-  expect(result.outcome).toBe("ok")
-  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[0].packet_schema_version).toBe("1.1")
-  expect(payloads[0].report_schema_version).toBe("1.1")
-  expect(payloads[1].report_schema_version).toBe("1.1")
-  expect(payloads[1].evidence).toEqual(reportEvidence())
-})
+for (const schema_version of packetSchemaVersions.filter(version => version !== "1.0")) {
+  test(`a 1.0 worker schema echo on a ${schema_version} packet records completion with packet identity`, async () => {
+    const { result, verbs, payloads } = await terminalEvidence(report({ schema_version: "1.0" }), { ...packet(), schema_version })
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(payloads[0].packet_schema_version).toBe(schema_version)
+    expect(payloads[0].report_schema_version).toBe(schema_version)
+    expect(payloads[1].report_schema_version).toBe(schema_version)
+    expect(payloads[1].evidence).toEqual(reportEvidence())
+  })
+}
 
 for (const [label, worker_job] of workerJobEchoes) {
   test(`terminal evidence carries the dispatched worker-job binding with ${label} echo`, async () => {
@@ -2221,7 +2277,7 @@ for (const [label, worker_job] of workerJobEchoes) {
 }
 
 test("terminal evidence never invents a worker-job binding for an unbound packet", async () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const { result, verbs, payloads } = await terminalEvidence(report({ worker_job: dispatchedJobBinding }), { ...packet(), schema_version })
     expect(result.outcome).toBe("ok")
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -2452,6 +2508,147 @@ test("an unknown report top-level field is worker-fail with invalid_report", asy
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toContain("carries undeclared property unexpected")
+})
+
+// The producer source overflow policy: an observed string rides a source only
+// byte-exact within the bound. An over-bound observation omits the copied
+// message and keeps the digest that binds the full content — never a
+// truncation into a new claim.
+test("attribution-report-overflow: an over-bound validator refusal omits the copied message and keeps the full-output digest", async () => {
+  const { reportRefusalFailureObservation } = await import("./dispatch")
+  const detail = "worker report failed the closed agent-lane-report.v1 schema: " + "x".repeat(2500)
+  const observation = reportRefusalFailureObservation(detail, "the-observed-output")
+  expect(observation.sources[0].message).toBeUndefined()
+  const expectedDigest = "sha256:" + createHash("sha256").update("the-observed-output", "utf8").digest("hex")
+  expect(observation.sources[0].digest).toBe(expectedDigest)
+  expect(observation.phase).toBe("report_validation")
+})
+
+test("attribution-report-overflow-exact: a within-bound refusal message rides byte-exact", async () => {
+  const { reportRefusalFailureObservation } = await import("./dispatch")
+  const observation = reportRefusalFailureObservation("worker output carried no agent-lane-report.v1 report", "body")
+  expect(observation.sources[0].message).toBe("worker output carried no agent-lane-report.v1 report")
+  expect(observation.phase).toBe("report_parse")
+})
+
+test("attribution-evidence-write-overflow: an over-bound close refusal omits the copied message and keeps the full-payload digest", async () => {
+  const { evidenceWriteFailureObservation } = await import("./dispatch")
+  const refused = { evidence_origin: "reported", evidence: [{ obligation: "bounded_findings", detail: "discharged" }] }
+  const observation = evidenceWriteFailureObservation("worker-complete refused: " + "y".repeat(2500), refused)
+  expect(observation.sources[0].message).toBeUndefined()
+  const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify(refused), "utf8").digest("hex")
+  expect(observation.sources[0].digest).toBe(expectedDigest)
+  expect(observation.phase).toBe("evidence_write")
+})
+
+// An attribution echo inside the worker's own report JSON is report content
+// the closed schema refuses, never an attribution the adapter records: the
+// echoed object reaches no request, and the recorded observation stays the
+// host's validation observation.
+test("attribution-report-echo-inert: a report echoing failure_attribution is refused and never gains authority", async () => {
+  const echoed = { observer: "coordinator", phase: "integration", cause: "implementation", basis: "supported", sources: [{ kind: "native_run", locator: "run-echo", digest: "sha256:" + "e".repeat(64) }] }
+  const { payloads } = await terminalEvidence(report({ failure_attribution: echoed }))
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("carries undeclared property failure_attribution")
+  const observed = payloads[1].failure_attribution as Record<string, any>
+  expect(observed.observer).toBe("host_adapter")
+  expect(observed.phase).toBe("report_validation")
+  expect(JSON.stringify(payloads[1])).not.toContain("run-echo")
+})
+
+// the invalid-report arms record a typed observation whose
+// phase separates a parse refusal from a validation refusal precisely, and
+// the v2 assertion binds the canonical observation digest.
+test("attribution-report-parse: a missing report records the parse phase", async () => {
+  const { payloads } = await terminalEvidence(null)
+  const observed = payloads[1].failure_attribution as Record<string, any>
+  expect(observed.observer).toBe("host_adapter")
+  expect(observed.phase).toBe("report_parse")
+  expect(observed.cause).toBe("report_contract")
+  expect(observed.basis).toBe("hypothesis")
+  expect(observed.sources).toHaveLength(1)
+  expect(observed.sources[0].kind).toBe("validator")
+  expect(observed.sources[0].message).toBe("worker output carried no agent-lane-report.v1 report")
+  expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  const assertion = payloads[1].assertion as Record<string, unknown>
+  expect(assertion.version).toBe(2)
+  expect(assertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+})
+
+test("attribution-report-validation: a schema-refused report records the validation phase", async () => {
+  const { workerFailureObservationDigest } = await import("./dispatch")
+  const evidence = [...reportEvidence(), { obligation: "vibes", detail: "felt right" }]
+  const carried = report({ evidence })
+  const { payloads } = await terminalEvidence(carried)
+  const observed = payloads[1].failure_attribution as WorkerFailureObservation
+  expect(observed.phase).toBe("report_validation")
+  expect(observed.cause).toBe("report_contract")
+  expect(observed.basis).toBe("hypothesis")
+  expect(observed.sources).toHaveLength(1)
+  expect(observed.sources[0].kind).toBe("validator")
+  expect(observed.sources[0].message).toContain("worker report failed the closed agent-lane-report.v1 schema:")
+  expect(observed.sources[0].message).toContain("evidence[3].obligation")
+  // The source digest binds the exact output the validator refused.
+  const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify(carried), "utf8").digest("hex")
+  expect(observed.sources[0].digest).toBe(expectedDigest)
+  const assertion = payloads[1].assertion as Record<string, unknown>
+  expect(assertion.version).toBe(2)
+  expect(assertion.observation_digest).toBe(workerFailureObservationDigest(observed))
+})
+
+// an admitted failed report is the worker's own observation.
+// Its source is the admitted report bound by the content hash of its exact
+// JSON, the observer is the worker report boundary, and its basis can never
+// be supported.
+test("attribution-worker-report: an admitted failed report rides as worker_report evidence", async () => {
+  const { workerFailureObservationDigest } = await import("./dispatch")
+  const { resolveWorkerReportFromText } = await import("./dispatch")
+  const carried = report({ status: "failed" })
+  const { payloads } = await terminalEvidence(carried)
+  expect(payloads[1].failure_kind).toBe("worker_error")
+  const observed = payloads[1].failure_attribution as WorkerFailureObservation
+  expect(observed.observer).toBe("worker_report")
+  expect(observed.phase).toBe("worker_execution")
+  expect(observed.cause).toBe("unknown")
+  expect(observed.basis).toBe("unknown")
+  expect(observed.sources).toHaveLength(1)
+  expect(observed.sources[0].kind).toBe("admitted_report")
+  expect(observed.sources[0].locator).toBeUndefined()
+  const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet())
+  expect("report" in admitted).toBe(true)
+  if ("report" in admitted) {
+    const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify(admitted.report), "utf8").digest("hex")
+    expect(observed.sources[0].digest).toBe(expectedDigest)
+  }
+  const assertion = payloads[1].assertion as Record<string, unknown>
+  expect(assertion.version).toBe(2)
+  expect(assertion.observation_digest).toBe(workerFailureObservationDigest(observed))
+})
+
+// the evidence-write close of a refused completion records
+// its own observation at the evidence_write phase.
+test("attribution-evidence-write: the precommit close records the evidence_write phase", async () => {
+  const verbs: string[] = []
+  let failureInput: Record<string, unknown> | undefined
+  await complete(workerBody(), {
+    evidenceRunner: { async run(argv, input) {
+      verbs.push(argv[1])
+      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "worker report leaves lane evidence obligations undischarged" } }), stderr: "invalid report evidence" }
+      if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const observed = failureInput?.failure_attribution as Record<string, any>
+  expect(observed.observer).toBe("host_adapter")
+  expect(observed.phase).toBe("evidence_write")
+  expect(observed.cause).toBe("report_contract")
+  expect(observed.basis).toBe("hypothesis")
+  expect(observed.sources).toHaveLength(1)
+  expect(observed.sources[0].kind).toBe("validator")
+  expect(observed.sources[0].message).toContain("worker-complete refused: worker report leaves lane evidence obligations undischarged")
+  expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  const assertion = failureInput?.assertion as Record<string, unknown>
+  expect(assertion.version).toBe(2)
 })
 
 // CD-0056 D7 as amended 2026-09-17: a near-identical echoed attempt id is
@@ -2785,8 +2982,8 @@ test("the report schema admits the optional context_findings array and closes it
   }
 })
 
-test("context_findings stay optional content on both report schema identities", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+test("context_findings stay optional content on all supported report schema identities", () => {
+  for (const schema_version of agentLaneReportSchema.properties.schema_version.enum) {
     expect(validateAgentLaneReport(report({ schema_version, context_findings: [contextFinding()] }))).toBe(true)
   }
 })

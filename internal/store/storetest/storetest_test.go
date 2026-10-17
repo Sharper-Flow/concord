@@ -29,7 +29,7 @@ func openTwo(t *testing.T) (string, string) {
 
 func query[T any](t *testing.T, path, statement string) T {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
@@ -86,7 +86,7 @@ func TestTemplateSchemaMatchesAColdOpen(t *testing.T) {
 // not reach another.
 func TestTemplateBackedStoresAreIndependent(t *testing.T) {
 	first, second := openTwo(t)
-	db, err := sql.Open("sqlite", first)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(first))
 	if err != nil {
 		t.Fatalf("open first: %v", err)
 	}
@@ -96,6 +96,17 @@ func TestTemplateBackedStoresAreIndependent(t *testing.T) {
 	}
 	if got := query[int](t, second, `SELECT COUNT(*) FROM agent_installation_keys`); got != 1 {
 		t.Fatalf("second store observed the first store's write: %d key rows", got)
+	}
+}
+
+func TestTemplateQueriesKeepLiteralPaths(t *testing.T) {
+	s, err := storetest.OpenNamed(t.TempDir(), "query?%23#probe.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if got := query[int](t, s.Path(), `SELECT count(*) FROM agent_installation_keys`); got != 1 {
+		t.Fatalf("fixture key rows = %d, want 1", got)
 	}
 }
 

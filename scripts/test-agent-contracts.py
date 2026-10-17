@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, io, json, os, re, subprocess, tempfile, unittest, unittest.mock
+import copy, importlib.util, io, json, os, re, subprocess, sys, tempfile, unittest, unittest.mock
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -16,6 +16,26 @@ lane_registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
 packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
+
+_SCRIPTS_DIR = str(ROOT / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+
+def _load_cli_module(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+lanes_generator = _load_cli_module("cli_safety_lanes", "generate-agent-lanes.py")
+work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
+native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
+relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
+durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
+branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
+lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
 
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
@@ -991,16 +1011,17 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The canonical heads anchor dispatch at worker_packet2 in every
-        # family, so the two families' identical pairs dedupe to one
-        # variant whose public override stays the lane identity alone.
+        # The canonical heads anchor dispatch at the research-context
+        # worker_packet3 closure in every family, so the three
+        # families' identical pairs dedupe to one variant whose public
+        # override stays the lane identity alone.
         action = self.action("dispatch_worker")
         self.assertEqual(len(action["variants"]), 1)
         variant = action["variants"][0]
         self.assertNotEqual(variant["payload"], variant["public_payload"])
         self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
         packet_refs = {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
-        self.assertEqual(packet_refs, {"worker_packet2"})
+        self.assertEqual(packet_refs, {"worker_packet3"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
         self.assertEqual(len(branches), 1)
@@ -1139,10 +1160,11 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("native_lane_generator", ROOT / "scripts/generate-agent-lanes.py")
         lanes = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(lanes)
-        text = lanes.acceptance_oracle_instructions(packet_schema)
+        text = lanes.acceptance_oracle_instructions(packet_schema, {"id": "implement"})
         for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
                       "Managed workers", "gain no Concord tools", "Ordinary test output",
-                      "Never author `subject_commit`", "never", "invent a locator"):
+                      "Never author `subject_commit`", "never", "invent a locator",
+                      "target_runner_v1", "materializer", "runner", "collection"):
             self.assertIn(claim, text)
         self.assertNotIn("candidate_subject", text)
         self.assertNotIn("Run the declared controls within your lane permissions", text)
@@ -1365,6 +1387,13 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(invalid, name)
         self.assertIn("readiness_evidence_refs", defs["worker_oracle_control"]["required"])
+        # The prepare teaching names both recipe families explicitly: the
+        # pure-Go harness compiles, a target_runner_v1 recipe runs only its
+        # collection or check-input stage, and both grant readiness only.
+        description = defs["native_oracle_request"]["description"]
+        for claim in ("target_runner_v1", "compiles", "collection", "check-input", "readiness only"):
+            self.assertIn(claim, description)
+        self.assertNotIn("prepare compiles", description)
 
     def test_output_read_has_bounded_bytes_and_no_mutation_or_path_selector(self):
         name = "work_browse_worktree_inspect_input"
@@ -1436,6 +1465,70 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         incomplete["streams_complete"] = False
         with self.assertRaises(ValueError):
             self.validate(incomplete, "native_oracle_result")
+        go_pass_without_witnesses = {key: value for key, value in execute.items() if key != "observed_test_names"}
+        with self.assertRaises(ValueError):
+            self.validate(go_pass_without_witnesses, "native_oracle_result")
+        # The target_runner_v1 family is the second closed branch of the same
+        # record: the discriminator and both axes are required, real witness
+        # IDs replace the Go test-name grammar, and the legacy Go fields are
+        # forbidden. Only the three admitted pairs validate.
+        target = {key: value for key, value in preparation.items()
+                  if key not in ("selected_test_names", "case_to_test_map")}
+        witness = "tests/test_billing.py::test_invoice_total"
+        target.update({
+            "recipe_kind": "target_runner_v1", "target_materializer": "uv", "target_runner": "pytest",
+            "selected_witness_ids": [witness], "case_to_witness_map": {"case:one": [witness]},
+        })
+        self.validate(target, "native_oracle_preparation")
+        for pair in ({"target_materializer": "none", "target_runner": "check"},
+                     {"target_materializer": "uv", "target_runner": "check"}):
+            self.validate(target | pair, "native_oracle_preparation")
+        partial_target = {key: value for key, value in preparation.items() if key != "selected_test_names"}
+        partial_target.update({"recipe_kind": "target_runner_v1", "target_materializer": "uv",
+                               "target_runner": "pytest", "selected_witness_ids": [witness],
+                               "case_to_witness_map": {"case:one": [witness]}})
+        for invalid in (
+            target | {"target_materializer": "none", "target_runner": "pytest"},
+            target | {"target_materializer": "future", "target_runner": "pytest"},
+            target | {"target_runner": "future"},
+            target | {"recipe_kind": "target_runner_v2"},
+            target | {"selected_test_names": ["TestOne"]},
+            target | {"case_to_test_map": {"case:one": ["TestOne"]}},
+            partial_target,
+            target | {"selected_witness_ids": []},
+            target | {"selected_witness_ids": [witness, witness]},
+            target | {"selected_witness_ids": ["x" * 257]},
+            target | {"selected_witness_ids": ["na\x00l"]},
+            target | {"case_to_witness_map": {}},
+            target | {"case_to_witness_map": {"not-a-case": [witness]}},
+            target | {"case_to_witness_map": {"case:one": [f"w{index}" for index in range(9)]}},
+            target | {"selected_witness_ids": [f"w{index}" for index in range(41)],
+                      "selected_distinct_count": 41,
+                      "case_to_witness_map": {f"case:c{index}": [f"w{index}"] for index in range(41)}},
+            # Cross-field joins the schema cannot express — count equality
+            # and map-witness membership — are the readiness and core
+            # consumer obligation, proven in the adapter's readiness tests.
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_preparation")
+        target_prepare_result = target | {"control_id": "control:one", "stages": []}
+        self.validate(target_prepare_result, "native_oracle_result")
+        target_execute = target_prepare_result | {"phase": "execute", "qualification": "pass", "attempt_id": "attempt-1",
+            "attempt_epoch": 1, "worker_packet_digest": "sha256:" + "a" * 64,
+            "worker_job_binding": {"job_id": "job:one", "revision": 1, "digest": "sha256:" + "b" * 64},
+            "preparation_run_ref": "run:prepare", "authorization_event_id": "event:dispatch", "authorization_seq": 9, "start_seq": 8,
+            "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64,
+            "observed_witness_ids": [witness]}
+        self.validate(target_execute, "native_oracle_result")
+        for invalid in (
+            target_execute | {"observed_test_names": ["TestOne"]},
+            {key: value for key, value in target_execute.items() if key != "observed_witness_ids"},
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
+        for invalid in (execute | {"observed_witness_ids": ["w"]},):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
 
     def test_projection_is_idempotent_and_keeps_navigation_and_report_pins(self):
         actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
@@ -2454,6 +2547,336 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
     def _property(self, schema, fallback_properties, key):
         properties = schema.get("properties") or fallback_properties or {}
         return properties.get(key, {"type": "string"})
+
+
+class ResearchContextProjectionTests(unittest.TestCase):
+    """The selected-research projection is canonical, not copied.
+
+    The lane packet contract owns the research member and its closed defs;
+    the payloads document projects them under the shared names through
+    project_native_oracle_metadata, the current public view carries the same
+    projected member, and the frozen packet3/view3/group3 identities anchor
+    the research-enabled closure beside the byte-exact packet2 identities.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(copy.deepcopy(payload_schema), actions, workflows, teaching)
+
+    def validate(self, value, name):
+        generator.schema_validate(value, self.projected["$defs"][name], self.projected)
+
+    _RESEARCH_ALIASES = {
+        "lane_work_context_research_selection": "work_context_research_selection",
+        "lane_work_context_research_finding": "work_context_research_finding",
+        "lane_work_context_research_finding_view": "work_context_research_finding_view",
+        "lane_research_scopes": "research_scopes",
+        "lane_research_source": "research_source",
+    }
+
+    def _remap(self, node):
+        """The canonical lane node under its shared payload name: every
+        lane-local $ref renamed through the projection aliases."""
+        def remap(node):
+            if isinstance(node, list):
+                return [remap(value) for value in node]
+            if not isinstance(node, dict):
+                return node
+            result = {key: remap(value) for key, value in node.items()}
+            if "$ref" in result:
+                result["$ref"] = "#/$defs/" + self._RESEARCH_ALIASES[result["$ref"].removeprefix("#/$defs/")]
+            return result
+        return remap(copy.deepcopy(node))
+
+    def _remapped_def(self, name):
+        return self._remap(packet_schema["$defs"][name])
+
+    def test_the_shipped_mirror_projects_the_canonical_research_defs(self):
+        for lane, shared in (("lane_work_context_research_selection", "work_context_research_selection"),
+                             ("lane_work_context_research_finding", "work_context_research_finding"),
+                             ("lane_work_context_research_finding_view", "work_context_research_finding_view")):
+            self.assertEqual(self.projected["$defs"][shared], self._remapped_def(lane))
+        # The current public view carries the same projected member the
+        # canonical view declares, under the shared def names.
+        lane_member = packet_schema["$defs"]["lane_work_context_view"]["properties"]["research_findings"]
+        self.assertEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"],
+                         self._remap(lane_member))
+
+    def _project_with_lane_packet(self, lane_document):
+        """Project against a temporary canonical lane packet on disk: the
+        projection owner reads the canonical file, so a canonical-change test
+        mutates the file and restores its exact bytes."""
+        lane_path = generator.LANE_PACKET
+        original = lane_path.read_bytes()
+        lane_path.write_text(json.dumps(lane_document, ensure_ascii=False, indent=2) + "\n")
+        try:
+            actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
+            return generator.project_workflow_action_schema(copy.deepcopy(payload_schema), actions, workflows, teaching)[0]
+        finally:
+            lane_path.write_bytes(original)
+
+    def test_a_canonical_research_change_lands_on_regeneration(self):
+        canonical = copy.deepcopy(packet_schema)
+        canonical["$defs"]["lane_work_context_view"]["properties"]["research_findings"]["maxItems"] = 17
+        regenerated = self._project_with_lane_packet(canonical)
+        self.assertEqual(regenerated["$defs"]["work_context_view"]["properties"]["research_findings"]["maxItems"], 17)
+        self.assertNotEqual(self.projected["$defs"]["work_context_view"]["properties"]["research_findings"]["maxItems"], 17)
+
+    def test_an_unprojected_research_reference_fails_loudly(self):
+        canonical = copy.deepcopy(packet_schema)
+        canonical["$defs"]["lane_work_context_research_finding"]["properties"]["scopes"] = {"$ref": "#/$defs/lane_plan"}
+        with self.assertRaises(ValueError) as ctx:
+            self._project_with_lane_packet(canonical)
+        self.assertIn("lane_plan", str(ctx.exception))
+
+    def test_the_frozen_research_identities_stay_published(self):
+        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+        for name in ("worker_packet3", "work_context_view3", "work_context_domain_group3"):
+            self.assertEqual(self.projected["$defs"][name], frozen[name],
+                             f"the frozen {name} identity drifted from the published shape")
+        work_context = self.projected["$defs"]["worker_packet3"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(work_context["$ref"], "#/$defs/work_context_view3")
+        group_ref = self.projected["$defs"]["work_context_view3"]["properties"]["domain_groups"]["items"]["$ref"]
+        self.assertEqual(group_ref, "#/$defs/work_context_domain_group3")
+        self.assertEqual(
+            self.projected["$defs"]["work_context_domain_group3"]["properties"]["finding_ids"]["items"]["pattern"],
+            "^(finding|research):[0-9]+:[0-9]+$")
+        self.assertEqual(
+            self.projected["$defs"]["work_context_domain_group2"]["properties"]["finding_ids"]["items"]["pattern"],
+            "^finding:[0-9]+:[0-9]+$",
+            "the old frozen group keeps its generic-only id namespace")
+
+    def test_the_closed_research_entry_branches_decide_the_verdict(self):
+        selection = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"}
+        self.validate(selection, "work_context_research_selection")
+        with self.assertRaises(ValueError):
+            self.validate(selection | {"unknown_member": True}, "work_context_research_selection")
+        provenance = {"selection": selection, "view_id": "research:9:0", "selection_event_id": "event:9:semantic",
+                      "selection_event_seq": 9, "ordinal": 0, "required": True}
+        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
+                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
+                   "status": "active", "scopes": {"mode": "home"}}
+        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
+                  "locator": "internal/store", "title": "the selected source",
+                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
+        self.validate(provenance | {"state": "resolved", "finding": finding, "sources": [source]},
+                      "work_context_research_finding_view")
+        self.validate(provenance | {"state": "missing"}, "work_context_research_finding_view")
+        for invalid in (
+            # A resolved-state entry without its body, and an unresolved-state
+            # entry carrying a body, are outside the closed branches.
+            provenance | {"state": "resolved"},
+            provenance | {"state": "missing", "finding": finding, "sources": []},
+            provenance | {"state": "fabricated"},
+            # An unsourced native finding stays accurate: sources may be
+            # empty, but the scopes member the Go reader always serializes
+            # can never drop off the finding.
+            provenance | {"state": "resolved", "finding": {k: v for k, v in finding.items() if k != "scopes"}, "sources": []},
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "work_context_research_finding_view")
+
+
+class RetryResponsePacketUnionTests(unittest.TestCase):
+    """The combined rejection's response transports the packet generation
+    the pinned dispatch already admitted.
+
+    mutation_result.retry_worker_packet is a closed anyOf over the unchanged
+    worker_packet2 and worker_packet3 closures. The two overlap — a plain
+    packet validates under both — so oneOf would refuse exactly the ordinary
+    packets the union must keep admitting. The response member carries no
+    schema_version gate of its own: the pinned dispatch admission selects the
+    generation the work's pinned definition declares, and the response
+    returns exactly those admitted bytes.
+    """
+
+    def member(self):
+        return payload_schema["$defs"]["mutation_result"]["properties"]["retry_worker_packet"]
+
+    def validate(self, value):
+        generator.schema_validate(value, self.member(), payload_schema)
+
+    def plain_packet(self, name):
+        return _schema_sample(payload_schema["$defs"][name], payload_schema)
+
+    def research_packet3(self):
+        packet = self.plain_packet("worker_packet3")
+        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
+                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
+                   "status": "active", "scopes": {"mode": "home"}}
+        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
+                  "locator": "internal/store", "title": "the selected source",
+                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
+        entry = {"selection": {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"},
+                 "view_id": "research:9:0", "selection_event_id": "event:9:research", "selection_event_seq": 9,
+                 "ordinal": 0, "required": True, "state": "resolved", "finding": finding, "sources": [source]}
+        view = packet["inputs"].get("work_context")
+        if view is None:
+            view = _schema_sample(payload_schema["$defs"]["work_context_view3"], payload_schema)
+            packet["inputs"]["work_context"] = view
+        view["research_findings"] = [entry]
+        view["domain_groups"] = [{"domain_id": "root", "required_reading_ordinals": [],
+                                  "finding_ids": ["research:9:0"]}]
+        return packet
+
+    def test_the_retry_response_is_the_closed_two_generation_anyof(self):
+        member = self.member()
+        self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3"])
+        self.assertNotIn("oneOf", member)
+        self.assertNotIn("$ref", member)
+        self.assertNotIn("always the versioned packet2 identity", member["description"],
+                         "the response description must not pin one packet generation")
+
+    def test_overlapping_plain_packets_admit_under_the_union(self):
+        # A plain packet validates under both closures, so a oneOf here would
+        # refuse exactly the ordinary packets the transport must keep
+        # admitting.
+        self.validate(self.plain_packet("worker_packet2"))
+        self.validate(self.plain_packet("worker_packet3"))
+
+    def test_research_bearing_packet3_transports_and_malformed_refuses(self):
+        self.validate(self.research_packet3())
+        malformed = self.research_packet3()
+        malformed["inputs"]["work_context"]["research_findings"][0]["selection"]["unknown_member"] = True
+        with self.assertRaises(ValueError):
+            self.validate(malformed)
+        # The retained packet2 closure keeps refusing the research member —
+        # the frozen decoder replay and the live retained route own that
+        # verdict, and a packet3-shaped view can never re-enter it.
+        frozen_member = payload_schema["$defs"]["worker_packet2"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(frozen_member["$ref"], "#/$defs/work_context_view2")
+        self.assertNotIn("research_findings", payload_schema["$defs"]["work_context_view2"]["properties"])
+
+
+class _WorkloadReached(Exception):
+    """Marks that a generator main entered its workload during a reach test."""
+
+
+class GeneratorCLISafetyTests(unittest.TestCase):
+    """Shared CLI contract for all eight generate-* main entry points.
+
+    Help must exit 0 with usage on stdout and perform no main-workload read,
+    write, mkdir, or subprocess work. Unrecognized arguments — abbreviations
+    of --check, bare positionals, unknown flags, and unknown flags mixed with
+    check or the contracts freeze flag — must exit 2 with an error on stderr
+    and perform no main work. Valid no-argument and --check invocations must
+    still reach the workload, and the contracts freeze flag must keep
+    dispatching the freeze, with its schema refs, before check.
+    """
+
+    # (script name, module, the first workload input the main reads)
+    GENERATORS = (
+        ("generate-agent-contracts.py", generator, "MANIFEST"),
+        ("generate-agent-lanes.py", lanes_generator, "MANIFEST"),
+        ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
+        ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
+        ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
+        ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
+        ("generate-branch-freshness.py", branch_freshness_generator, "DECLARATION"),
+        ("generate-lane-step-dispatch.py", lane_step_dispatch_generator, "JOIN"),
+    )
+    REFUSAL_ARGSETS = (
+        ("unknown-flag", ["--unknown-option"]),
+        ("positional", ["unexpected-positional"]),
+        ("check-abbreviation", ["--ch"]),
+        ("freeze-abbreviation", ["--freeze"]),
+        ("check-with-unknown", ["--check", "--unknown-option"]),
+    )
+
+    def _argv(self, script: str, args: list[str]):
+        return unittest.mock.patch.object(sys, "argv", [script, *args])
+
+    @staticmethod
+    def _refuse(action: str):
+        def guard(*args, **kwargs):
+            raise AssertionError(f"generator main attempted {action} before argument handling")
+        return guard
+
+    def _guard_main_work(self):
+        stack = ExitStack()
+        for target, action in (
+            ("pathlib.Path.read_text", "a file read"),
+            ("pathlib.Path.write_text", "a file write"),
+            ("pathlib.Path.mkdir", "a directory create"),
+            ("subprocess.run", "a subprocess"),
+        ):
+            stack.enter_context(unittest.mock.patch(target, self._refuse(action)))
+        return stack
+
+    def test_help_exits_zero_with_usage_and_no_main_work(self):
+        for script, module, _ in self.GENERATORS:
+            for flag in ("-h", "--help"):
+                with self.subTest(generator=script, flag=flag):
+                    with (
+                        redirect_stdout(io.StringIO()) as stdout,
+                        redirect_stderr(io.StringIO()),
+                        self._guard_main_work(),
+                        self._argv(script, [flag]),
+                        self.assertRaises(SystemExit) as exit,
+                    ):
+                        module.main()
+                    self.assertEqual(exit.exception.code, 0)
+                    self.assertIn("usage", stdout.getvalue().lower())
+
+    def test_invalid_arguments_exit_two_with_no_main_work(self):
+        for script, module, _ in self.GENERATORS:
+            for name, args in self.REFUSAL_ARGSETS:
+                with self.subTest(generator=script, args=name):
+                    with (
+                        redirect_stdout(io.StringIO()),
+                        redirect_stderr(io.StringIO()) as stderr,
+                        self._guard_main_work(),
+                        self._argv(script, args),
+                        self.assertRaises(SystemExit) as exit,
+                    ):
+                        module.main()
+                    self.assertEqual(exit.exception.code, 2)
+                    self.assertTrue(stderr.getvalue().strip())
+
+    def test_contracts_freeze_with_unknown_argument_refuses_without_work(self):
+        args = ["--freeze-historical-decoder", "--unknown-option"]
+        with (
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self._guard_main_work(),
+            self._argv("generate-agent-contracts.py", args),
+            self.assertRaises(SystemExit) as exit,
+        ):
+            generator.main()
+        self.assertEqual(exit.exception.code, 2)
+
+    def test_valid_modes_reach_the_workload(self):
+        for script, module, first_input in self.GENERATORS:
+            for args in ([], ["--check"]):
+                with self.subTest(generator=script, args=args):
+                    stub = unittest.mock.MagicMock()
+                    stub.read_text.side_effect = _WorkloadReached("workload reached")
+                    with (
+                        self._guard_main_work(),
+                        unittest.mock.patch.object(module, first_input, stub),
+                        self._argv(script, args),
+                        self.assertRaises(_WorkloadReached),
+                    ):
+                        module.main()
+
+    def test_contracts_freeze_dispatch_precedes_check(self):
+        schema_refs = {"current": ["alpha"], "historical": ["beta"]}
+        for args in (["--freeze-historical-decoder"], ["--check", "--freeze-historical-decoder"]):
+            with self.subTest(args=args):
+                load_mock = unittest.mock.MagicMock(return_value=([], [], {}, schema_refs))
+                freeze_mock = unittest.mock.MagicMock(return_value=0)
+                validate_mock = unittest.mock.MagicMock(
+                    side_effect=AssertionError("freeze dispatch reached the normal projection workload"))
+                with unittest.mock.patch.object(generator, "load_workflow_action_contracts", load_mock), \
+                        unittest.mock.patch.object(generator, "freeze_historical_decoder", freeze_mock), \
+                        unittest.mock.patch.object(generator, "validate_historical_decoder", validate_mock), \
+                        self._argv("generate-agent-contracts.py", args):
+                    self.assertEqual(generator.main(), 0)
+                load_mock.assert_called_once_with()
+                freeze_mock.assert_called_once_with(schema_refs)
+                validate_mock.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

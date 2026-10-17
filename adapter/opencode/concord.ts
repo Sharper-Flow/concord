@@ -8,7 +8,7 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
-import { abandonWorkerAttempt, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
+import { abandonWorkerAttempt, hostAbandonmentObservation, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
@@ -2041,12 +2041,30 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   const lane = agentLanes.find((candidate) => candidate.id === abandonInput.lane_id)
   if (!lane) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon does not recognize lane ${JSON.stringify(abandonInput.lane_id)}`)
   const token = workerAbandonToken(abandonInput.idempotency_key)
+  const abandonEventID = `worker-abandon-${token}`
   const result = await abandonWorkerAttempt(lane, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id }, abandonInput.detail, {
     credentials: credentialsOverride ?? undefined,
     evidenceRunner: runner,
-    abandonEventID: `worker-abandon-${token}`,
+    abandonEventID,
+    failureAttribution: hostAbandonmentObservation(abandonInput.detail, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id, lane_id: abandonInput.lane_id, event_id: abandonEventID }),
   }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
-  const message = result.error?.message ?? "worker abandonment returned no diagnostic"
+  // The receipt follows the explicit committed fact the abandon route
+  // returned: the CLI success result. A committed close runs the receipt
+  // before any refusal vocabulary is matched: its envelope carries the
+  // coordinator's own detail as the diagnostic, so a detail quoting a
+  // refusal shape must never reroute the close through the release or
+  // recovery routes below. A refusal never reaches the receipt and never
+  // claims the attempt was closed: a none effect reports the core
+  // message, a possible effect keeps the reconcile instruction, and an
+  // untyped failure reports the uncertain effect.
+  if (result.committed) {
+    const receipt = await invokeConcordOperation("concord_work_transition", args, context)
+    if (receipt.outcome === "ok") {
+      return receipt
+    }
+    return workerAbandonReceiptFailure(requestID, receipt)
+  }
+  const message = result.envelope.error?.message ?? "worker abandonment returned no diagnostic"
   if (workerAbandonFoundNothingDurable(message)) {
     // nothing-durable-release: the durable state refused because the attempt
     // never dispatched, so the retained record this session still holds has no
@@ -2063,20 +2081,17 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (ownRowAbandonRefusal(message, context.sessionID)) {
     return recoverOwnRowAbandon(args, context, abandonInput, lane, token, requestID, message)
   }
-  if (result.error?.retry_safe && result.error.details?.effect_state === "possible") {
+  const effectState = result.envelope.error?.details?.effect_state
+  if (effectState === "none") {
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_none", message)
+  }
+  if (effectState === "possible") {
     // The refusal keeps the same-abandon receipt instruction and the
     // underlying durable cause; the reconcile recovery replaces the retry,
     // which cannot confirm a receipt the adapter never read.
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", `the abandonment has an uncertain effect: ${message}; reconcile the original worker_abandon attempt and its receipt`)
   }
-  if (result.error?.retry_safe === false) {
-    const receipt = await invokeConcordOperation("concord_work_transition", args, context)
-    if (receipt.outcome === "ok") {
-      return receipt
-    }
-    return workerAbandonReceiptFailure(requestID, receipt)
-  }
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, result.error?.details?.effect_state === "none" ? "worker_abandon_refused_none" : "worker_abandon_refused_possible", "worker abandonment could not be recorded", { abandon_error_message: message })
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", "worker abandonment could not be recorded", { abandon_error_message: message })
 }
 
 function workerAbandonReceiptFailure(requestID: string, receipt: CoreConcordEnvelope, steps: string[] = []): HostConcordEnvelope {
@@ -2176,18 +2191,22 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     credentials: credentialsOverride ?? undefined,
     evidenceRunner: runner,
     abandonEventID: `worker-abandon-${token}`,
+    failureAttribution: hostAbandonmentObservation(abandonInput.detail, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id, lane_id: abandonInput.lane_id, event_id: `worker-abandon-${token}` }),
   }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
   // A recorded abandonment is itself an error envelope — the attempt is
-  // closed, so its result is terminal — and marks that outcome with
-  // retry_safe false. Any other error envelope is a genuine refusal of the
-  // retry (transport, signing, or a durable gate that still refuses).
-  if (!retry.error || retry.error.retry_safe !== false) {
-    const retryMessage = retry.error?.message ?? "the abandon retry returned no diagnostic"
+  // closed, so its result is terminal — and the retry's committed fact comes
+  // from its CLI success result. Any other outcome is a refusal of the retry
+  // (transport, signing, or a durable gate that still refuses) and reports
+  // its bound effect: none carries the core message without a closure claim,
+  // possible keeps the reconcile instruction.
+  const retryEffectState = retry.envelope.error?.details?.effect_state
+  if (!retry.committed) {
+    const retryMessage = retry.envelope.error?.message ?? "the abandon retry returned no diagnostic"
     // The vacate moved this session to the registered main checkout, so the
     // re-land runs before the stop: a refusal that ended at the main checkout
     // would strand the coordinator away from its claimed worktree.
     await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", "the own-row recovery released the occupancy row, but the abandon retry still refused", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, retryEffectState === "none" ? "worker_abandon_refused_none" : "worker_abandon_refused_possible", retryEffectState === "none" ? retryMessage : "the own-row recovery released the occupancy row, but the abandon retry still refused", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("worker_abandon: the retry closed the dispatched attempt")
   // 3. Return to the linked worktree before the receipt's authority check.

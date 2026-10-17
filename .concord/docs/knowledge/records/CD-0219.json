@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "CON-908",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-10-09T00:00:00Z",
   "doc_contract_profile": "current",
@@ -51,7 +49,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7be1917e3d449727993f66a9df7300651e3c566d3874b1e25f7e341210304d26",
+  "sha256": "sha256:631efbf21df784d714b3b2ffb8fc2414205d90a5795d2ba01f00b664e2eae976",
   "status": "accepted",
   "summary": "The interactive terminal launcher TUI, its verb, its bare-invocation route, the internal/launcher tree, and the charm.land rendering modules are removed; the launcher contracts and portfolio scenario retire with the surface, the obligations whose subject was the TUI are vacated, and the session entry route the retirement preserved is itself removed, with the kept clauses binding host-started managed sessions and the verified worktree claim, occupancy, landing, and vacate rules untouched.",
   "tags": [

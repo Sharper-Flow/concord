@@ -17,7 +17,7 @@ func holdReplayDurabilityReader(t *testing.T, s *store.Store) func() {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, "PRAGMA busy_timeout=100"); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := sql.Open("sqlite", "file:"+s.Path()+"?mode=ro")
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path())+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	metadataBefore := replayMetadataCount(t, s, "durability-replay")
 	beforeEvents := countWorkflowEvents(t, s)
 	beforeVersion := workflowReplayWorkVersion(t, s)
-	writer, err := sql.Open("sqlite", "file:"+s.Path())
+	writer, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path()))
 	if err != nil {
 		t.Fatal(err)
 	}

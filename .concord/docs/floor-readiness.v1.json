@@ -1,7 +1,7 @@
 {
  "schema_version": "2.0",
  "source": {
-  "path": ".concord/docs/priorities.md",
+  "path": ".concord/docs/floor-readiness.md",
   "section": "First-usable floor"
  },
  "conditions": [
@@ -371,7 +371,7 @@
    "id": "fc3-lane-eval-baseline",
    "condition": "fc3",
    "title": "Lane sufficiency is measured by a recorded eval baseline",
-   "requirement": "A recorded baseline run of the advisory lane evals binds every registered lane's id, version, and digest to per-attempt readback model evidence, covers every packet including seeded-defect review scenarios, and is validated on every CI run (issue #212).",
+   "requirement": "A recorded baseline run of the advisory lane evals binds every registered lane's id, version, and digest to per-attempt readback model evidence, covers every packet including seeded-defect review scenarios, and is validated on every CI run.",
    "state": "satisfied",
    "evidence": [
     {

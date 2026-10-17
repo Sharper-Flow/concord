@@ -404,7 +404,7 @@ func validateOracleControlDefinition(control OracleControl) error {
 	if err := validateOracleArgv(control); err != nil {
 		return err
 	}
-	if err := validateWorkContextRepoPath(control.Cwd); err != nil {
+	if err := validateOracleControlDirectory(control.Cwd); err != nil {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" cwd must be a contained relative directory", "supply a contained working directory")
 	}
 	if control.ExpectedResult != OracleExpectedResultPass {
@@ -414,6 +414,15 @@ func validateOracleControlDefinition(control OracleControl) error {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" required_evidence_role must be reported or independently_executed", "declare the evidence role the control's receipt must carry")
 	}
 	return nil
+}
+
+// A control directory can name the repository root. Every other directory
+// retains the normalized containment and byte bounds of repository paths.
+func validateOracleControlDirectory(directory string) error {
+	if directory == "." {
+		return nil
+	}
+	return validateWorkContextRepoPath(directory)
 }
 
 // validateOracleArgv enforces one control's exact argument vector: 1 to 32

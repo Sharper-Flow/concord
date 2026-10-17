@@ -33,7 +33,7 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		Worktree  string `json:"worktree"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	if request.Directory == "" {
@@ -51,12 +51,12 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 
 	resolution, err := s.ResolveProject(ctx, request.Directory, worktree)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	scopeVersion, productIDs, err := s.ScopeVersion(ctx, resolution.ProjectID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	if productIDs == nil {

@@ -57,6 +57,17 @@ const (
 // (CD-0205). Stored completions below it never carried one.
 const workflowActionCompletedWorkerJobVersion = 4
 
+// workflowActionCompletedAttributionVersion is the payload version at which
+// a workflow.action_completed completion may carry the typed failure
+// attribution and the derived failure record's attribution reference
+// . A stored completion whose recorded source version sits below
+// the boundary cannot carry recorded attribution content: the store never
+// derived it when that version was released. The upcast's explicit
+// legacy_unavailable marker is the one legal shape below the boundary, and
+// the recorded source version distinguishes that upcast-generated absence
+// from a forged new-legacy claim.
+const workflowActionCompletedAttributionVersion = 5
+
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -248,8 +259,15 @@ type workflowActionCompletedPayload struct {
 	// obligations. The list marshals unconditionally, empty when the packet
 	// declared no typed predicates, so the fold can refuse a dispatch record
 	// that carries no list instead of reading its absence as none.
-	WorkerPacketPredicateIDs []string                  `json:"worker_packet_predicate_ids"`
-	WorkerWorktreeIdentity   string                    `json:"worker_worktree_identity,omitempty"`
+	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids"`
+	WorkerWorktreeIdentity   string   `json:"worker_worktree_identity,omitempty"`
+	// WorkerContextFrontier is the source-event frontier of the admitted
+	// work-context view the dispatch_worker authorization recorded
+	// New authorizations always record it — explicit zero when
+	// the view was absent — and the terminal ingest reads it as the frontier
+	// the terminal report consumed. Nil on authorizations recorded before
+	// the field existed: their absence is history, never a zero.
+	WorkerContextFrontier    *int64                    `json:"worker_context_frontier,omitempty"`
 	CorrectionDiagnosis      string                    `json:"correction_diagnosis,omitempty"`
 	CorrectionStrategy       string                    `json:"correction_strategy,omitempty"`
 	CorrectionEvidenceRefs   []string                  `json:"correction_evidence_refs,omitempty"`
@@ -266,6 +284,22 @@ type workflowActionCompletedPayload struct {
 	// field only and never re-derives the verdict, so an event without the
 	// field advances as recorded and recorded history replays unchanged.
 	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
+	// FailureAttribution is the coordinator's typed failure attribution on
+	// a rejected result or a correction request : the direct
+	// producer observation the request carried, beside the core-derived
+	// identity the store resolved from the cited run or the exact action
+	// attempt. The terminal worker.failed event owns an attempt's
+	// attribution; a derived failure record never duplicates the block and
+	// refers to it by event id instead. Absent on every completion that
+	// predates the attribution payload version.
+	FailureAttribution *WorkerFailureAttribution `json:"failure_attribution,omitempty"`
+	// FailureAttributionRef names the terminal worker.failed event whose
+	// attribution one derived failure record references (CD-0198 D5
+	// at the derived attribution fact): the terminal owns the observation and the
+	// derived record refers to it by event id, never a copied block. The
+	// fold verifies the reference against the same retained event and
+	// attempt the derivation pair admits.
+	FailureAttributionRef string `json:"failure_attribution_ref,omitempty"`
 	// WorkerJob carries the recorded worker-job disposition an acceptance
 	// satisfies (CD-0205). The accept guard derives it from the accepted
 	// attempt's worker.dispatched binding — the caller never asserts it —
@@ -397,7 +431,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 		raw = json.RawMessage(`{}`)
 	}
 	var content workflowProposalContent
-	if err := decodePredicateStrict(raw, &content); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
 		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
 	}
 	if err := validateWorkflowProposalContent(content); err != nil {
@@ -1270,7 +1304,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if p.SuccessorContract != nil {
-		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event.SubjectID, p.SuccessorContract); err != nil {
+		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event, p.SuccessorContract); err != nil {
 			return err
 		}
 	}
@@ -1296,7 +1330,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 // foldCompleteStepContractCorrectionTx keeps the route marker, historical
 // replay, and admission checks together before it returns the pinned instance
 // to its external-effect step. The caller holds the fold transaction.
-func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workID string, successor *workflowContractApprovedPayload) error {
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	workID := event.SubjectID
 	var foldStep, foldState string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&foldStep, &foldState); err != nil {
 		return workflowProjectionError(err, "cannot read the workflow step for the supersession route check")
@@ -1328,7 +1363,13 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workI
 		}
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
-	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event")
+	// Replay retains the whole log. Admission sees only the history that
+	// preceded this supersession, just as it did on the live path.
+	beforeSeq, err := eventSequenceTx(ctx, tx, event.EventID)
+	if err != nil {
+		return err
+	}
+	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event", beforeSeq)
 	if err != nil {
 		return err
 	}
@@ -1681,7 +1722,7 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 }
 
 // Execution history and the current lease both prohibit self-evaluation.
-func workflowStepExecutorRefusal(ctx context.Context, tx *sql.Tx, workID, verdictActor, operation string) error {
+func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
 	if verdictActor == "" {
 		return nil
 	}
@@ -1763,6 +1804,15 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 			if err != nil {
 				return err
 			}
+		}
+	}
+	if !admitted {
+		// The recorded admission is the denial alternative only: the
+		// disposer fence stays the rule, and a stored prefix that proves the
+		// archived executor-equality policy re-admits its recorded writer.
+		admitted, err = workflowRecordedCheckpointAdmission(ctx, tx, event, p, entry.Definition, currentStep, executionActor)
+		if err != nil {
+			return err
 		}
 	}
 	if !admitted {
@@ -2076,6 +2126,12 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.WorkerSubjectCommit != "" && (p.ActionID != "dispatch_worker" || !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit)) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit is reserved for dispatch_worker and must be one raw commit OID", false, "record the admitted dispatch subject only")
 	}
+	// The frontier attribution is dispatch authority: only a
+	// dispatch_worker completion records it, and a frontier is never
+	// negative.
+	if p.WorkerContextFrontier != nil && (p.ActionID != "dispatch_worker" || *p.WorkerContextFrontier < 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_context_frontier is reserved for dispatch_worker and must be a nonnegative source-event frontier", false, "record the admitted view frontier only")
+	}
 	if p.CorrectionOpenFindingIDs != nil && ((p.ActionID != "reject_worker_result" && p.ActionID != "request_correction") || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
 		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result or a correction request with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result or request_correction")
 	}
@@ -2135,6 +2191,17 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	}
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
+	}
+	// the typed failure attribution is the coordinator correction
+	// completion's own observation surface, and the attribution reference is
+	// the derived failure record's alone: the terminal worker.failed event
+	// owns the observation and the derived record refers to it by event id,
+	// never a copied block.
+	if p.FailureAttribution != nil && !workflowFailureAttributionCorrectionActions[p.ActionID] {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution is reserved for reject_worker_result and request_correction; the derived failure record refers to the terminal attribution by event id", false, "record the coordinator attribution on the correction completion that observed it")
+	}
+	if p.FailureAttributionRef != "" && p.ActionID != "record_worker_failure" {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref is reserved for the derived worker failure record", false, "record the terminal attribution reference on the record_worker_failure completion the derivation authored")
 	}
 	// The fold is the last line before a reject commits. The correction pin
 	// serializes predicate ids with the generated id rules and evidence refs
@@ -2208,11 +2275,12 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
-		if recoveryErr != nil {
-			return recoveryErr
+		if !isWorkflowReplay(ctx) {
+			if _, recoveryErr := validateWorkerResultRejection(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", p.WorkerAttemptID, p.AttemptEpoch, event.Seq); recoveryErr != nil {
+				return recoveryErr
+			}
 		}
+		correctionRecovery = true
 	}
 	if p.ActionID == "request_correction" {
 		if isWorkflowReplay(ctx) {
@@ -2275,9 +2343,26 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 				}
 			}
 		}
+		// The recorded admission is the declared-requirement alternative
+		// only: the outstanding filter stays the rule, and a mapped archived
+		// completion whose own binding satisfied a declared requirement
+		// re-admits its recorded eligibility.
+		recorded, recordedErr := workflowRecordedRecoveryBindingAdmission(ctx, tx, event, p, entry.Definition, currentStep, binding)
+		if recordedErr != nil {
+			return recordedErr
+		}
+		if recorded {
+			return nil
+		}
 		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
 	return nil
+}
+
+// workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
+func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
+	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
+	return ok && mode == ActionAdvance && (p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")))
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -2301,6 +2386,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	// fabricated disposition.
 	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
+	}
+	// the attribution reference is the derived record's alone, and
+	// the source-version marker rules apply to both attribution members.
+	// Below the attribution version the reference is smuggled bytes; the
+	// derived record's identity and step/epoch joins are verified beside
+	// the derivation pair below.
+	if err := verifyWorkflowActionCompletedAttributionMembersTx(ctx, tx, event, p); err != nil {
+		return err
 	}
 	// CD-0205: an accepted worker result records the worker-job disposition
 	// it satisfies, on the exact revision the accept guard derived from the
@@ -2336,11 +2429,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	advancesStep := false
 	if p.ActionID != "" {
-		executionMode, ok := workflowActionExecutionMode(entry.Definition, p.ActionID)
-		if !ok && !isWorkflowReplay(ctx) {
+		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		advancesStep = ok && executionMode == ActionAdvance
 		// A non-settling accepted review keeps the step current: refine does
 		// not advance to delivery behind a no_ship review, and the advance
 		// waits for a settling review (CD-0201 D3). The decision is the
@@ -2354,11 +2445,19 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		// job and holds the parent step. Whole-work delivery stays with
 		// record_delivery and the delivery-asserting accept. The fold reads
 		// the recorded worker_job and delivery fields only.
-		if p.ActionID == "accept_worker_result" {
-			advancesStep = advancesStep && !p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")
+		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
+		// Replay honors recorded advances; the rejection hold polices live appends.
+		if !isWorkflowReplay(ctx) && p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
+			rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
+			if rejectionHoldErr != nil {
+				return rejectionHoldErr
+			}
+			if failure := workflowRejectionAdvanceFailure(rejectionHeld, p.ActionID, advancesStep); failure != nil {
+				return failure
+			}
 		}
 		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, currentStep, event, p); err != nil {
 				return err
 			}
 		}
@@ -2428,20 +2527,15 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		nextStep = workflowNextStep(entry.Definition, currentStep)
 		if p.ActionID == "confirm_premise" {
 			var nextErr error
-			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID)
+			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID, event.Seq)
 			if nextErr != nil {
 				return nextErr
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		// The declared unhealthy_verdict route owns the return: the fold
-		// moves the instance to the route's producer step (or, at a
-		// delivery gate, the route of the verdict step it serves), the
-		// same target the admission fold, the work pin, and the dispatched
-		// packet read from the one table.
-		nextStep = workflowCorrectionReturnTarget(entry.Definition, currentStep)
-		if nextStep == "" {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
+		nextStep, err = workflowFoldCorrectionReturnTarget(ctx, entry, p.StepID, currentStep)
+		if err != nil {
+			return err
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2586,12 +2680,23 @@ func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepI
 	return attemptID, lifecycle, true, nil
 }
 
-func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, beforeSeq int64) error {
-	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, stepID, beforeSeq)
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, stepID string, event Event, p workflowActionCompletedPayload) error {
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, event.SubjectID, stepID, event.Seq)
 	if err != nil {
 		return err
 	}
-	if !held || actionID == "accept_worker_result" {
+	if !held || p.ActionID == "accept_worker_result" {
+		return nil
+	}
+	// A recorded historical completion whose own stored prefix already
+	// satisfied the released hold predicate keeps folding: the recorded
+	// admission answers this hold decision alone and refuses every shape it
+	// cannot prove.
+	recorded, recordedErr := workflowRecordedHoldAdmission(ctx, tx, event, p, definition, stepID)
+	if recordedErr != nil {
+		return recordedErr
+	}
+	if recorded {
 		return nil
 	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
@@ -2909,14 +3014,7 @@ var workflowDerivedStartCheckpoints = map[string]string{
 // action (CD-0198 D3). Earlier versions keep the callable starts and the
 // behavior and digest they shipped with.
 func workflowDerivedStepStartActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 28
-	case "workflow.break_fix":
-		return definition.Version >= 25
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityDerivedStepStart)
 }
 
 // workflowDerivedCheckpointStartTx derives the step start a qualifying
@@ -3027,11 +3125,8 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		allowed = allowed || derivedPair
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
-		var recoveryErr error
-		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", event.Seq)
-		if recoveryErr != nil {
-			return recoveryErr
-		}
+		// Live rejection eligibility is checked below.
+		allowed = true
 	}
 	if !allowed {
 		// The pinned definition is code and its step graph moves on, so a
@@ -3048,8 +3143,8 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
-	var attemptWorkID, lifecycle, readback string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
+	var attemptWorkID, lifecycle, readback, capability string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,capability_class FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &capability); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before recording its result")
 		}
@@ -3058,6 +3153,14 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if attemptWorkID != event.SubjectID {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
+	var target workflowRejectableResult
+	if payload.ActionID == "reject_worker_result" && !isWorkflowReplay(ctx) {
+		var rejectionErr error
+		target, rejectionErr = validateWorkerResultRejection(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", payload.WorkerAttemptID, payload.AttemptEpoch, event.Seq)
+		if rejectionErr != nil {
+			return rejectionErr
+		}
+	}
 	var attemptSeq int64
 	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND seq<? AND ((kind=? AND json_extract(payload,'$.attempt_id')=?) OR (? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.step_id')=?)) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, event.Seq, WorkerDispatched, payload.WorkerAttemptID, requiredLifecycle == "failed", WorkflowActionCompleted, payload.WorkerAttemptID, currentStep).Scan(&attemptSeq); err != nil {
 		if err == sql.ErrNoRows {
@@ -3065,16 +3168,24 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
+	if payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
+		// Recorded executor identity does not depend on current rejection eligibility.
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE seq=?`, attemptSeq).Scan(&target.ExecutorRef); err != nil {
+			return workflowProjectionError(err, "cannot read recorded worker executor")
+		}
+	}
 	// Failure can bind to the authorization that created the attempt even
 	// when no worker dispatch evidence was admitted. Success still requires
 	// an actual dispatch. The epoch fence (CD-0133, CD-0148) remains the same.
 	// At a human_checkpoint step the
 	// attempt anchors to the dispatch window that opened it (CD-0193): an
 	// authorized window no worker used must not orphan the failed attempt the
-	// operator records there. Every other step keeps the prior rule: the
-	// epoch must match the latest workflow action start on the step, and the
-	// dispatch must follow that start, so a stale completed attempt cannot
-	// advance the step past the current one.
+	// operator records there. Every other step keeps the prior rule for the
+	// accept and failure dispositions: the epoch must match the latest
+	// workflow action start on the step, and the dispatch must follow that
+	// start, so a stale completed attempt cannot advance the step past the
+	// current one. Live rejection skips that anchor: its exact target validation
+	// above owns the epoch and dispatch provenance at this bound.
 	anchorSeq := event.Seq
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
 		anchorSeq = attemptSeq
@@ -3083,10 +3194,10 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if err != nil {
 		return err
 	}
-	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
+	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the attempt with the epoch of the workflow action start that dispatched it")
 	}
-	if attemptSeq <= startSeq {
+	if attemptSeq <= startSeq && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")
 	}
 	if lifecycle != requiredLifecycle {
@@ -3099,9 +3210,12 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
 	if !derivedPair {
-		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
+		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef, "", false, "fold_event"); err != nil {
 			return err
 		}
+	}
+	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
+		return workflowAcceptanceSubjectCurrent(ctx, tx, event.SubjectID, []string{payload.WorkerAttemptID}, nil)
 	}
 	return nil
 }
@@ -3115,7 +3229,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 	return ""
 }
 
-func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string) (string, error) {
+func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, beforeSeq int64) (string, error) {
 	step := workflowStep(definition, current)
 	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
 		return workflowNextStep(definition, current), nil
@@ -3141,7 +3255,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if err != nil {
 		return "", err
 	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, tx, workID, contract.Version, beforeSeq)
 	if err != nil {
 		return "", err
 	}
@@ -3707,6 +3821,49 @@ func upcastWorkflowActionCompletedV3(event Event) (Event, error) {
 	return event, nil
 }
 
+// workflowFailureAttributionCorrectionActions names the coordinator
+// correction completions whose payload may carry the typed failure
+// attribution . The derived failure record is deliberately absent:
+// the terminal worker.failed event owns the observation and the derived
+// record refers to it by event id, never a copied block.
+var workflowFailureAttributionCorrectionActions = map[string]bool{
+	"reject_worker_result": true,
+	"request_correction":   true,
+}
+
+// upcastWorkflowActionCompletedV4 carries a v4 completion into the v5 payload
+// that may carry the typed failure attribution . Only the two
+// coordinator correction completions record one, so the upcast stamps the
+// explicit legacy_unavailable marker there alone: an ordinary action opens
+// no attribution surface and upcasts unchanged without a block, and a
+// derived failure record keeps its reference-only shape. The recorded source
+// version keeps the marker distinguishable from a forged new-legacy claim,
+// and bytes that already carry the member stay untouched for the fold's
+// source-version gate to refuse.
+func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &members); err != nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed payload is not a JSON object", false, "repair the stored workflow action completion")
+	}
+	if _, authored := members["failure_attribution"]; authored {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed failure_attribution on a stored payload version below the attribution boundary is authored bytes no store ever recorded; the upcaster stamps the explicit legacy marker alone", false, "record the coordinator attribution on the current correction completion")
+	}
+	var payload workflowActionCompletedPayload
+	if err := decodeWorkflowPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if workflowFailureAttributionCorrectionActions[payload.ActionID] && payload.FailureAttribution == nil {
+		payload.FailureAttribution = workerFailureLegacyAttribution()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.action_completed payload", false, "repair the stored workflow action completion", err)
+		}
+		event.Payload = raw
+	}
+	event.PayloadVersion = 5
+	return event, nil
+}
+
 func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowImpactNoticeRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -3848,7 +4005,11 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
+	// The completion fold sees the intact log during replay: a skipped
+	// verdict fold leaves its row in the log, so the read stops before this
+	// event and a later evaluator's verdict never satisfies this
+	// completion's evaluator-equality rule.
+	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
 	if err != nil {
 		return err
 	}

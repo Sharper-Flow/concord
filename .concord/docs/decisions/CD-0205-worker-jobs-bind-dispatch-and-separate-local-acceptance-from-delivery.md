@@ -66,15 +66,65 @@ each prerequisite revision is satisfied.
 
 Oracle readiness references support harness availability and a nonempty
 selector. Native preparation resolves the exact pinned recipe, cwd, declared
-case witnesses, and build environment, then compiles without test execution.
-Its qualified lease record is readiness only, never verification authority.
+case witnesses, and runtime environment. The producer and generated schema
+declare the closed set of supported recipe families, materializers, and runners.
+Changes to the supported set require an approved design and executable tests
+for the obligations below. Concrete members belong to code and schema, not law.
+The Project keeps its own language and tests. No unrelated module is required
+to satisfy a native recipe.
+
+Preparation materializes the recipe commit, not the candidate commit. Go
+preparation compiles without launching its test program. Target-runner
+preparation proves the exact selected witness population or check availability
+without invoking acceptance bodies. Collection may import code and run
+configuration or registration hooks from the pinned recipe snapshot. These
+actions grant neither verification evidence nor a worker attempt.
+
+Each materializer owns the dependency manifest, lockfile, and cache-integrity
+proof for its inputs. Candidate dependency inputs must equal the pinned
+recipe bytes. A recipe with no dependencies must declare that state;
+missing or unequal declared inputs produce `unavailable`, not a download
+or readiness exception. Every runner pins its interpreter, executable inputs,
+collection behavior, exact witness population, and result grammar.
+
+The producer excludes ambient credentials, runner overrides, plugin autoload,
+and user configuration. Only the closed materializer and runner contracts may
+add declared environment inputs.
+The producer resolves installed exact runtime versions and fingerprints their
+executables and consumed dependency inputs. It materializes dependencies from
+existing caches into per-run scratch with downloads disabled (offline mode)
+for that materialization. Lock verification and dependency-integrity checks are required.
+An offline or frozen option alone is not evidence of cached-byte integrity.
+Dependency materialization disables build and lifecycle scripts.
+A missing artifact, corrupt cache entry, unsupported runtime, or unverified
+dependency produces `unavailable`, not a download or readiness exception.
+Private dependency copies or a post-run integrity check must keep a run from
+changing shared dependency inputs without detection.
+
+Execution materializes the candidate commit and replaces harness, fixture,
+runner configuration, and support inputs with the pinned recipe bytes.
+The producer verifies subject blob identity and rechecks pinned file digests.
+It fingerprints consumed source, runtime, dependencies, and executable inputs
+before and after execution. A changed input cannot produce a qualified pass.
+
+The preparation lease supplies readiness only, never verification authority.
 Preparation precedes the ready job record; the native owner derives a digest
 over the exact owner, case, and control bundle except its readiness references.
 The recorded job must match that bundle and parent authority exactly.
-Dispatch requires preparation for the same candidate and build environment.
+Dispatch requires preparation bound to the same candidate and runtime environment.
 A readiness refusal creates no attempt and spends no dispatch budget.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
+
+The following evidence limits apply to every recipe family, including Go:
+
+- Same-UID changes between digest observations can escape those observations.
+- Native test and collection processes have no enforced network isolation.
+- `PATH`, `LANG`, and `LC_ALL` remain inherited environment inputs.
+- Candidate initialization or shared-interpreter code can forge reporter output.
+
+Native observations do not attest protection against hostile candidate code.
+Independent semantic review and the existing acceptance authorities remain required.
 
 ### D2. A job-capable dispatch binds one ready revision end to end
 
@@ -91,6 +141,21 @@ stays the complete parent premise.
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
 A satisfied revision refuses a new dispatch, on resume and on the first ask.
+
+The host derives canonical report identity from the authorized packet. Worker
+echoes cannot select another job, revision, attempt, or subject. The store
+refuses a canonical report whose binding differs from its dispatch.
+
+On attribution-capable definition versions, reported predicate ties are
+subsets of the exact dispatched job's predicates. The complete parent
+predicates remain context and whole-work obligations. A report cannot use
+parent context to claim another job's predicate. Dispatches without a job
+keep their declared predicate vocabulary.
+
+Attribution records reference the existing core-observed delivery or native
+run. They neither copy a subject commit into another owner nor infer a final
+subject from a dispatch commit. A missing historical observation stays
+missing.
 
 Native oracle execution joins that completion to its exact `worker_attempts`
 row, preceding action start and epoch, canonical packet digest, and recorded
@@ -130,6 +195,47 @@ the candidate's changed harness does not replace the pinned recipe. Earlier
 receipts remain visible as regression baselines, not current-subject proof.
 Independent evidence, per-predicate verdicts, and operator authority remain
 required by their existing owners.
+
+Amended 2026-10-13 for the delivery observation and the review subject
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+a completed implementation-lane completion carries the store's own clean or
+dirty `observed_delivery` when the store observed its claimed worktree
+(CD-0067 D2); an authorization with no recorded worktree binding keeps
+explicit absence. The
+observation is the delivery's producer-owned Git identity, not a verdict: it
+grants no semantic acceptance, no integration proof, no delivery assertion,
+and no review qualification by itself. A failed attempt records no delivery
+observation, probes no Git, and retains its consumed frontier.
+
+A review dispatch retains the newest accepted implementation delivery on its
+claimed worktree as the delivery anchor. The join runs through acceptance,
+the exact completed attempt, and the dispatch identity. The anchor must carry
+a clean core observation. The review subject is the shared qualified subject
+the packet carries, and it must equal the live clean `HEAD`.
+
+A review subject equal to the anchor's observed commit admits. Otherwise it
+admits only when the core observed strict descent from that commit and no
+editing dispatch on this work item is newer than the anchor's dispatch.
+An editing dispatch names any lane with `edit_scoped_files`, whatever the
+attempt's state: in flight, failed, rejected, completed but unaccepted, or
+abandoned. The core observes descent through the existing pre-transaction
+freshness preparation, outside any SQL transaction. The transaction
+revalidates the sealed result and claim identity through SQL only.
+The anchor never replaces the review subject. These controls do not establish
+per-worker attribution of the anchor-to-subject delta (CD-0220 D5).
+
+An accepted delivery recorded under an earlier contract version of the same
+work item may host the review under the active contract. The judging
+contract is the packet's own binding, which the admission admits only at the
+active contract; the accepted delivery's own contract version stays readable
+through the existing records. Rejected, failed, or unaccepted results cannot
+replace the anchor. A delivery from another work item, Project, or worktree
+cannot host the review, and a cancelled or superseded work item cannot review.
+Historical completions without the observation refuse the review. The
+approved remedy is a fresh implementation attempt, never a fabricated
+observation. This join resets no correction budget, refunds no attempt, and
+opens no approval challenge; the walls of CD-0164 and CD-0148 hold exactly
+as before.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -226,6 +332,62 @@ require the oracle through the declared `record_worker_job` payload.
 Released pins retain their oracle-free shape and behavior. Replay never
 invents an oracle or uses today's registry to reinterpret historical content.
 
+### D7. Failure attribution preserves source and authority
+
+One typed attribution block extends existing terminal and coordinator
+correction records. It separates the producer observation from core-derived
+identity. The producer names its observed phase, source, error or check,
+diagnosis, and causal basis. The core derives identity from the existing
+dispatch, job, result, and native-run records.
+
+Cause is unknown, a hypothesis, or a source-backed assertion. A citation alone
+proves no cause. Bare cancellation proves the terminal message, not a provider
+fault. A prior retry observation does not establish terminal causality. A
+typed provider error records the observed fault and retains its actual source
+identity and code where available.
+
+Worker observations remain worker claims. A schema failure cannot invent an
+implementation cause. Native evidence retains its native authority. A
+coordinator diagnosis creates neither native evidence nor independent
+verification.
+
+Coordinator integration attribution names the failed standalone verification
+run by its verify-lease or operation reference. The core resolves the run's
+observed subject from the lease result, and clean unchanged runs only. The
+lease records, at acquire time and in its own insert transaction, the highest
+committed event sequence then visible. No Git read and no second read path
+supplies it. The input population is exactly the accepted job revisions of
+this work item whose acceptance event sequence is at or below that watermark,
+with their digests and result references. The coordinator supplies only the
+run reference, never a population, a commit, or a sequence. A mutated or
+aborted run, or a run without a clean subject, cannot anchor integration
+attribution and refuses with a typed cause. A lease row without the watermark
+reports the population as unavailable, and no timestamp backfill ever supplies
+it. A worker count, predicate union, mutable latest-job read, or timestamps
+alone cannot replace that population.
+
+The authenticated worker-evidence route binds the canonical producer-
+observation digest with a versioned assertion. The core derives identity
+separately. Changed content or mismatched source joins refuse before the
+terminal write commits. Historical signature bytes remain exact.
+
+An attribution block is at most 8192 UTF-8 bytes in canonical JSON. It carries
+at most eight sources. Each locator is at most 512 bytes, each observed
+message 2048 bytes, and diagnosis 1024 bytes. Overflow refuses whole.
+Attribution cannot truncate a source into a different claim.
+
+Attribution supplies no verification evidence, effect, retry, delivery, or
+acceptance authority. Every dispatched attempt still counts. Exact retry
+approval, the convergence wall, independent verdicts, and the sole delivery
+admission keep their owners.
+
+Existing event, attempt, and history reads expose attribution with its source
+version. Released definitions keep their original behavior. Historical
+attribution absence upcasts to an explicit unavailable origin. That origin is
+separate from completion evidence origin. Upcasts invent no job, subject,
+source, or cause. Live and rebuild folds validate the same retained structural
+joins without current-host reads.
+
 ## Alternatives considered
 
 - Infer the job from checkpoint prose. Rejected: no check can read prose as
@@ -291,6 +453,39 @@ Scenario: Current core candidate must agree with the dispatch and `HEAD`
   When the host requests native oracle execution
   Then execution refuses and the test-program launch count is zero
 
+Scenario: Review admits a descendant subject without a newer editing dispatch
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject B equals the live clean HEAD
+  And the core observed B as a strict descendant of A
+  And no editing dispatch is newer than A's dispatch
+  When the coordinator dispatches independent review of B
+  Then review admits with subject B and delivery anchor A
+  And A's completion and acceptance records remain unchanged
+
+Scenario: A newer editing dispatch blocks review beyond the delivery anchor
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject B equals the live clean HEAD
+  And the core observed B as a strict descendant of A
+  And an editing dispatch on this work item is newer than A's dispatch
+  When the coordinator dispatches independent review of B
+  Then the review dispatch refuses regardless of the editing attempt's state
+  And the action records no durable effect
+
+Scenario: Review refuses a subject outside the delivery anchor's descendants
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject S equals the live clean HEAD
+  And S differs from A and is not a descendant of A
+  When the coordinator dispatches independent review of S
+  Then the review dispatch refuses
+  And the action records no durable effect
+
+Scenario: Terminal acceptance refuses an unobserved subject change
+  Given the current subject pin is A and the clean worktree HEAD is B
+  And A differs from B
+  When the operator confirms the premise or completes the work
+  Then the action refuses with stale_requires_review
+  And the action records no durable effect
+
 Scenario: An unrelated accepted job keeps the failed job's window
   Given a job-bound attempt that failed or whose result was rejected
   When the coordinator accepts a different job, or a rewritten revision of the same job
@@ -308,6 +503,48 @@ Scenario: Every reachable state stays live on the new versions
   When the admission model explores local acceptance as a held successor
   Then each reachable state reaches the terminal state
   And the real fold equals the model after a local acceptance
+
+Scenario: A report cannot tie evidence outside its dispatched job
+  Given a job-bound dispatch whose parent declares a predicate outside the job
+  When its canonical report ties evidence to that predicate on an
+  attribution-capable pin
+  Then completion refuses with no result credit
+
+Scenario: Bare cancellation proves no provider fault
+  Given a terminal host observation that contains only Task cancelled
+  When the terminal record carries attribution
+  Then its causal basis remains unknown
+
+Scenario: A prior retry is not a terminal cause
+  Given a prior retry observation and a later cancelled Task
+  When the terminal record carries both observations
+  Then neither source becomes a proven terminal cause
+
+Scenario: Integration correction cites the run and its watermark population
+  Given a standalone verification run of the integrated work that failed on a
+  clean subject
+  When the coordinator records integration correction
+  Then attribution references that run and exactly the accepted input
+  revisions at or below its lease watermark
+  And a job accepted after the run started stays outside the population
+
+Scenario: Unfit runs cannot anchor integration attribution
+  Given a mutated or aborted verification run, or a run without a clean
+  subject
+  When a correction names that run as the integration anchor
+  Then the anchor refuses with a typed cause and records no attribution
+
+Scenario: A lease without a watermark reports the population unavailable
+  Given a historical lease row without the acquire-time watermark
+  When the coordinator attributes integration through that run
+  Then the input population reports unavailable
+  And no timestamp backfill supplies it
+
+Scenario: Rebuild equals live for attribution joins
+  Given an attribution-bearing event log
+  When the store rebuilds its projections
+  Then recorded source joins and historical unavailable origins equal the
+  live read
 ```
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.

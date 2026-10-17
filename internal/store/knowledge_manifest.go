@@ -1306,14 +1306,22 @@ func validateKnowledgeRecordIdentity(record KnowledgeRecord, supported, indexed 
 }
 
 // validateKnowledgeRecordAuthority validates the record's authority tier and
-// the fields each tier admits.
+// the fields each tier admits. A legislated authority must name a work item
+// with the shared work- id grammar and a positive contract version, and a
+// declared vehicle reference must name a frozen default-cohort member at
+// exactly the committed asset's vehicle version; the version stays a decoded
+// non-boolean integer, and a schema 1.2 record that declares no authority
+// keeps its applied derived default above.
 func validateKnowledgeRecordAuthority(record KnowledgeRecord) error {
 	if record.Authority.Tier != "legislated" && record.Authority.Tier != "derived" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record authority tier is not closed", false, "use legislated or derived")
 	}
 	if record.Authority.Tier == "legislated" {
-		if !validManifestID(record.Authority.LegislatedBy) || record.Authority.ContractVersion < 1 {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "legislated record authority is incomplete", false, "name the approving work and positive contract version")
+		if len(record.Authority.LegislatedBy) > maxManifestID || !criterionWorkIDPattern.MatchString(record.Authority.LegislatedBy) || record.Authority.ContractVersion < 1 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "legislated record authority is incomplete", false, "name the approving work with the work- id form and a positive contract version")
+		}
+		if err := validateKnowledgeAuthorityDefault(record); err != nil {
+			return err
 		}
 	} else if record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "derived record authority carries legislative fields", false, "remove legislated_by and contract_version")
@@ -1631,7 +1639,15 @@ func domainRegistryContentHash(registry KnowledgeDomainRegistry) string {
 // it is read in; a commit with neither is the legacy, explicitly-supported
 // state with no manifest.
 func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
-	shards, sharded, err := readKnowledgeShardsAtCommit(ctx, repo, commit)
+	return readKnowledgeManifestRunner(ctx, runGitRunner{}, repo, commit, role)
+}
+
+// readKnowledgeManifestRunner reads the manifest at a commit through the
+// caller's runner, so the dispatch reading resolution proves the committed
+// manifest under its committed-read policy runner and tests can inject a
+// deterministic runner.
+func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
+	shards, sharded, err := readKnowledgeShardsAtCommitRunner(ctx, runner, repo, commit)
 	if err != nil {
 		return KnowledgeManifest{}, false, err
 	}
@@ -1644,15 +1660,15 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowle
 		// carries (CD-0194 D2): an external record is law only while its
 		// anchor decision, read from this same commit, carries the closed
 		// approve instruction for the override's exact Product and path.
-		if err := validateOverrideAnchors(manifest, committedOverrideAnchorReader(ctx, repo, commit)); err != nil {
+		if err := validateOverrideAnchors(manifest, committedOverrideAnchorReaderRunner(ctx, runner, repo, commit)); err != nil {
 			return KnowledgeManifest{}, false, err
 		}
 		return manifest, false, nil
 	}
-	entry, err := gitTreeEntry(ctx, repo, commit, knowledgeManifestPath)
+	entry, err := gitTreeEntryRunner(ctx, runner, repo, commit, knowledgeManifestPath)
 	if err != nil {
 		// A missing manifest is the legacy, explicitly-supported state.
-		out, gitErr := runGit(ctx, repo, "ls-tree", "-z", commit, "--", knowledgeManifestPath)
+		out, gitErr := runner.Run(ctx, repo, "ls-tree", "-z", commit, "--", knowledgeManifestPath)
 		if gitErr != nil {
 			return KnowledgeManifest{}, false, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot inspect the knowledge manifest", true, "restore the git object and retry", gitErr)
 		}
@@ -1668,7 +1684,7 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowle
 	if entry.kind != "blob" || entry.mode != "100644" {
 		return KnowledgeManifest{}, false, newFailure(KindInvalidNoteProof, "read_knowledge_manifest", "manifest is not a regular blob", false, "commit a regular manifest file")
 	}
-	content, err := runGit(ctx, repo, "cat-file", "blob", commit+":"+knowledgeManifestPath)
+	content, err := runner.Run(ctx, repo, "cat-file", "blob", commit+":"+knowledgeManifestPath)
 	if err != nil {
 		return KnowledgeManifest{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed manifest blob", true, "restore the manifest blob and retry", err)
 	}
@@ -1676,7 +1692,7 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowle
 	if err != nil {
 		return KnowledgeManifest{}, false, err
 	}
-	if err := validateOverrideAnchors(manifest, committedOverrideAnchorReader(ctx, repo, commit)); err != nil {
+	if err := validateOverrideAnchors(manifest, committedOverrideAnchorReaderRunner(ctx, runner, repo, commit)); err != nil {
 		return KnowledgeManifest{}, false, err
 	}
 	return manifest, false, nil
@@ -1707,7 +1723,15 @@ func aggregateRecordPathPrefix(data []byte) string {
 }
 
 func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, role)
+	return verifyManifestRecordRunner(ctx, runGitRunner{}, repo, commit, record, role)
+}
+
+// verifyManifestRecordRunner verifies one projected manifest record through
+// the caller's runner: the committed manifest declares the record, the
+// projection agrees with the declaration, and the declared blob's bytes hash
+// to the recorded revision.
+func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
+	manifest, missing, err := readKnowledgeManifestRunner(ctx, runner, repo, commit, role)
 	if err != nil {
 		return err
 	}
@@ -1727,11 +1751,11 @@ func verifyManifestRecord(ctx context.Context, repo, commit string, record Knowl
 	if differences := knowledgeProjectionDifferences(*declared, record); len(differences) > 0 {
 		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection differs from manifest fields: "+strings.Join(differences, ", "), false, "rebuild from the manifest commit and preserve its metadata")
 	}
-	entry, err := gitTreeEntry(ctx, repo, commit, record.Path)
+	entry, err := gitTreeEntryRunner(ctx, runner, repo, commit, record.Path)
 	if err != nil || entry.kind != "blob" || entry.mode != "100644" {
 		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "manifest record blob is missing or not regular", false, "restore the referenced regular markdown blob")
 	}
-	content, err := runGit(ctx, repo, "cat-file", "blob", commit+":"+record.Path)
+	content, err := runner.Run(ctx, repo, "cat-file", "blob", commit+":"+record.Path)
 	if err != nil {
 		return wrapFailure(KindInvalidNoteProof, "verify_manifest_record", "cannot read the referenced manifest blob", true, "restore the git object and retry", err)
 	}

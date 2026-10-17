@@ -6,7 +6,19 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/store.TestDerivedRevisionCompletesOnlyAfterItLands"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTierAdmittedConflictRecordsTheContractRevisionLine"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAmendmentPathRefusesADerivedRevisionOfALegislatedDeclaration"
     },
     {
       "kind": "validator",

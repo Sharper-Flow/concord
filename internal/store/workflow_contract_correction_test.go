@@ -11,14 +11,18 @@ import (
 
 func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner WorkflowActor, operator WorkflowActor) error {
 	t.Helper()
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
+	if err != nil {
+		return err
+	}
 	version := verdictItemVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -284,7 +288,7 @@ func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner,
 	}); err != nil {
 		t.Fatalf("public correction preflight after contract supersession: %v", err)
@@ -312,13 +316,13 @@ func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testin
 	version := verdictItemVersion(t, s, workID)
 	payload := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:preflight"]}`)
 	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "acceptance", ActionID: "supersede_contract", Payload: payload, Actor: owner}
-	if err := InspectWorkflowActionAdmission(context.Background(), s, request); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), request); err != nil {
 		t.Fatalf("contract correction preflight: %v", err)
 	}
 
 	request.ActionID = "undeclared_action"
 	request.Payload = json.RawMessage(`{}`)
-	if err := InspectWorkflowActionAdmission(context.Background(), s, request); err == nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), request); err == nil {
 		t.Fatal("undeclared action passed preflight")
 	}
 }

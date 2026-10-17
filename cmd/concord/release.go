@@ -55,7 +55,7 @@ func selfRelease() (root string, binary string, err error) {
 func writeCoreDescriptor(out, errOut io.Writer) int {
 	root, binary, err := selfRelease()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "--version", err.Error())
+		writeOperatorDiagnostic(errOut, "--version", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, map[string]any{
@@ -92,17 +92,17 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 	}
 	start, err := hostlease.ProcessStart(request.PID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "host-lease", err.Error())
+		writeOperatorDiagnostic(errOut, "host-lease", diagnosticText(err))
 		return 1
 	}
 	root, binary, err := selfRelease()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "host-lease", err.Error())
+		writeOperatorDiagnostic(errOut, "host-lease", diagnosticText(err))
 		return 1
 	}
 	dataRoot, err := leaseDataRoot()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "host-lease", err.Error())
+		writeOperatorDiagnostic(errOut, "host-lease", diagnosticText(err))
 		return 1
 	}
 	lease := hostlease.Lease{
@@ -118,7 +118,7 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 		Worktree:       request.Worktree,
 	}
 	if err := hostlease.Write(dataRoot, lease); err != nil {
-		writeOperatorDiagnostic(errOut, "host-lease", err.Error())
+		writeOperatorDiagnostic(errOut, "host-lease", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, lease, errOut)
@@ -131,12 +131,12 @@ func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) in
 	}
 	dataRoot, err := leaseDataRoot()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "host-leases", err.Error())
+		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
 	}
 	live, err := hostlease.List(dataRoot)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "host-leases", err.Error())
+		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
 	}
 	if live == nil {
@@ -193,11 +193,14 @@ func unfenceableReleaseRoots(dataRoot, selfRoot string) ([]string, error) {
 // before a pending breaking migration, the refusal is turned actionable: it
 // names every live session holding an older schema, with its directory, so
 // the operator ends the right terminals instead of correlating pids by hand.
+// An unstamped build's migration refusal names the owner of the store's data
+// root instead; the two refusals never share a kind.
 func openStoreForCommand(ctx context.Context, path string) (*store.Store, error) {
 	s, err := store.Open(ctx, path)
 	if err == nil {
 		return s, nil
 	}
+	err = unstampedRefusalDiagnostic(err, filepath.Dir(path))
 	dataRoot, rootErr := leaseDataRoot()
 	if rootErr != nil {
 		return nil, err
@@ -222,17 +225,83 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 		if lease.SchemaVersion >= current {
 			continue
 		}
-		holder := fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion)
-		if lease.Directory != "" {
-			holder += ", directory " + lease.Directory
-		}
-		older = append(older, holder)
+		older = append(older, leaseHolder(lease))
 	}
 	if len(older) == 0 {
 		return err
 	}
-	return fmt.Errorf("%s\nlive session(s) holding an older schema: %s\nend or move those sessions to the installed release, then run concord upgrade",
-		err.Error(), strings.Join(older, "; "))
+	return fmt.Errorf("%w\nlive session(s) holding an older schema: %s", err, strings.Join(older, "; "))
+}
+
+// leaseHolder names one live session the way the operator finds its terminal.
+func leaseHolder(lease hostlease.Lease) string {
+	holder := fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion)
+	if lease.Directory != "" {
+		holder += ", directory " + lease.Directory
+	}
+	return holder
+}
+
+// unstampedRefusalDiagnostic appends the owner lines to an unstamped build's
+// migration refusal (CD-0139) and keeps the typed refusal reachable, so
+// diagnosticText still adds its recovery. dataRoot is the refused store's
+// directory. Every other error is returned unchanged.
+func unstampedRefusalDiagnostic(err error, dataRoot string) error {
+	var failure *store.Failure
+	if !errors.As(err, &failure) || failure.UnstampedMigration == nil {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, unstampedOwnerLines(dataRoot))
+}
+
+// unstampedOwnerLines names the installed release as the owner and the live
+// sessions on the data root as observations. The store records no migration
+// writer, so the owner is the installer's record and the label says so.
+func unstampedOwnerLines(dataRoot string) string {
+	lines := []string{"owning release: " + installedRelease(dataRoot)}
+	live, err := hostlease.List(dataRoot)
+	if err != nil {
+		lines = append(lines, fmt.Sprintf("live session(s) on this data root: unknown (%v)", err))
+	} else if len(live) > 0 {
+		holders := make([]string, 0, len(live))
+		for _, lease := range live {
+			holders = append(holders, leaseHolder(lease))
+		}
+		lines = append(lines, "live session(s) on this data root: "+strings.Join(holders, "; "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// installedRelease reads the installer's record for a data root: it links
+// <data_root>/current to <data_root>/<version> (scripts/install.py).
+func installedRelease(dataRoot string) string {
+	link := filepath.Join(dataRoot, "current")
+	info, err := os.Lstat(link)
+	if os.IsNotExist(err) {
+		return "none found (" + link + " does not exist; no installed release manages this data root)"
+	}
+	var target, root string
+	if err == nil && info.Mode()&os.ModeSymlink == 0 {
+		err = errors.New("not a symlink")
+	}
+	// The installer links an absolute target, so a relative data root is made
+	// absolute before the two resolved paths are compared.
+	if err == nil {
+		root, err = filepath.Abs(dataRoot)
+	}
+	if err == nil {
+		root, err = filepath.EvalSymlinks(root)
+	}
+	if err == nil {
+		target, err = filepath.EvalSymlinks(filepath.Join(root, "current"))
+	}
+	if err == nil && filepath.Dir(target) != root {
+		err = fmt.Errorf("points outside the installer layout: %s", target)
+	}
+	if err != nil {
+		return fmt.Sprintf("unknown (%s: %v)", link, err)
+	}
+	return fmt.Sprintf("%s (installed release at %s; installer record, not a migration-writer record)", filepath.Base(target), link)
 }
 
 // upgradeInput is the JSON-stdin surface of the upgrade verb. plan asks for
@@ -294,12 +363,12 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	path, err := databasePath()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 		return 1
 	}
 	dataRoot, err := leaseDataRoot()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 		return 1
 	}
 	// A migrating run holds the maintenance lock from before it reads the
@@ -309,7 +378,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if !request.Plan {
 		release, err := hostlease.AcquireMaintenance(dataRoot)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		defer release()
@@ -318,7 +387,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// unreadable exclusion record may be an open boundary.
 	fenceBefore, err := hostlease.ReadFence(dataRoot)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 		return 1
 	}
 	// Readiness is established by reading before anything is applied or
@@ -326,14 +395,14 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	options := store.UpgradeOptions{CancelCutoverPinnedWork: request.CancelCutoverPinnedWork}
 	plan, err := store.PlanUpgradeReadiness(context.Background(), path, options)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 		return 1
 	}
 	maintenanceRequired := len(plan.PendingBreaking) > 0 || request.CancelCutoverPinnedWork
 	if request.Plan {
 		_, binary, err := selfRelease()
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		plan.MigrationCommand = shellWord(binary) + " upgrade"
@@ -345,7 +414,10 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	if request.CancelCutoverPinnedWork && plan.ActivationBlocked && len(plan.PendingBreaking) == 0 {
-		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; "))
+		// With the disposition clear and nothing breaking pending, the plan's
+		// only blocker is the unstamped-build rule (CD-0139). It carries no
+		// refusal, so the owner and recovery lines are added here.
+		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; ")+"\n"+unstampedOwnerLines(dataRoot)+"\n"+recoveryLine(store.UnstampedRecovery))
 		return 1
 	}
 	// A breaking migration or cutover cancellation requires the maintenance
@@ -363,12 +435,12 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if maintenanceRequired {
 		root, binary, err := selfRelease()
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		candidate, err := hostlease.NewFenceID()
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		ensured, err := hostlease.EnsureFence(dataRoot, hostlease.Fence{
@@ -380,7 +452,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			Notice:        "session admission reopens when the prepared release activates; activation command: " + activationCommandFor(dataRoot),
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		fenceIsOurs = ensured.FenceID == candidate
@@ -408,7 +480,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return
 		}
 		if removeErr := hostlease.RemoveFenceOwned(dataRoot, openedFenceID); removeErr != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", removeErr.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
 		}
 	}
 	// The lease list is read after the fence is in place, so the check
@@ -417,7 +489,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	live, err := hostlease.List(dataRoot)
 	if err != nil {
 		closeOwnedFence()
-		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+diagnosticText(err))
 		return 1
 	}
 	// A legacy lease names a core that admits sessions without reading the
@@ -457,13 +529,13 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		selfRoot, _, err := selfRelease()
 		if err != nil {
 			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		unfenceable, err := unfenceableReleaseRoots(dataRoot, selfRoot)
 		if err != nil {
 			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", "cannot enumerate installed release trees: "+err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", "cannot enumerate installed release trees: "+diagnosticText(err))
 			return 1
 		}
 		if len(unfenceable) > 0 && !request.ConfirmSessionsStopped {
@@ -490,7 +562,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if maintenanceRequired {
 		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
 			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		var present bool
@@ -500,13 +572,13 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		if err != nil {
 			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %v", snapshotPath, err))
+			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(unstampedRefusalDiagnostic(err, dataRoot))))
 			return 1
 		}
 	}
 	report, err := store.Upgrade(context.Background(), path, held, options)
 	if err != nil {
-		diagnostic := err.Error()
+		diagnostic := diagnosticText(unstampedRefusalDiagnostic(err, dataRoot))
 		if snapshotPath != "" {
 			diagnostic += "\nverified database snapshot: " + snapshotPath
 		}
@@ -546,7 +618,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		// names the exact command that completes it.
 		current, err := hostlease.ReadFence(dataRoot)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		fence = current
@@ -555,7 +627,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		// boundary this run opened closes — by identity, so a boundary a
 		// concurrent operation opened in between survives untouched.
 		if removeErr := hostlease.RemoveFenceOwned(dataRoot, openedFenceID); removeErr != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", removeErr.Error())
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
 			return 1
 		}
 	}
@@ -646,7 +718,7 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 		return 0
 	}
 	if err := decodeObject(raw, target); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	return 0

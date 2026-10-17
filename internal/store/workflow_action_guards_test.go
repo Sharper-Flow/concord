@@ -177,6 +177,22 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, diagnosisS1Actor(workID, "completer")); err != nil {
 		t.Fatalf("complete the corrected implementation: %v", err)
 	}
+	before := make(map[string]string)
+	for _, table := range []string{"work_items", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "workflow_premise_confirmations", "domain_events"} {
+		before[table] = cutoverTableSnapshot(t, s, table)
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild the completed external-check journey: %v", err)
+	}
+	for table, snapshot := range before {
+		if after := cutoverTableSnapshot(t, s, table); after != snapshot {
+			t.Fatalf("rebuild changed %s: %s -> %s", table, snapshot, after)
+		}
+	}
+	verdicts, err := latestWorkflowVerdicts(ctx, s.db, workID, 2)
+	if err != nil || len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:required-ci-green" || verdicts[0].VerdictKind != "ok" {
+		t.Fatalf("rebuilt successor verdicts = %v, error = %v", verdicts, err)
+	}
 }
 
 func assertRecoveryRefusalWithoutEffect(t *testing.T, s *Store, workID string, kind FailureKind, action func() error) {
@@ -366,8 +382,9 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			if available, err := workflowEvidenceBindingRecoveryAvailable(ctx, s.db, entry.Definition, workID, "acceptance"); available || err != nil {
-				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, available, err)
+			state, _, _, err := loadWorkflowAdmissionStateTx(ctx, s.db, workID, entry.Definition, "acceptance", "test")
+			if state.EvidenceRecoveryRoute || err != nil {
+				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}
 			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)

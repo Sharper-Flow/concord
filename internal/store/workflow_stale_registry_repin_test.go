@@ -320,7 +320,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract consumes a superseded law revision" {
 		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the superseded revision", err)
 	}
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, "ok"), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, "ok"), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
 		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
 	}
 	var recorded int

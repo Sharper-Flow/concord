@@ -102,7 +102,20 @@ Oracle receipts remain reported evidence. The terminal boundary joins the
 dispatch's job, candidate subject, controls, cases, recipe, and retained
 execution authority. Native-run and worktree-verification producers retain
 their existing authority. Native oracle preparation supplies readiness only;
-a reported pass requires qualified execution, not compilation or zero tests.
+a reported pass requires qualified execution, not compilation, collection, or
+zero selected witnesses. A closed recipe driver determines witness identity
+and result grammar. Go retains its top-level test names. Target runners
+retain exact framework test identities or separate pinned check invocations.
+A command invocation supplies no framework test-count claim.
+
+A framework pass requires the complete selected witness population to run
+and pass exactly once. Empty, missing, duplicate, foreign, skipped, todo,
+xfail, or xpass witnesses cannot qualify a pass. Each pinned script check
+requires its host-observed invocation and successful process exit. Malformed
+results, incomplete capture, or changed consumed inputs cannot qualify a pass.
+Runtime, dependency, and snapshot guarantees share CD-0205 D1's evidence limits.
+An unsupported driver or witness format is unavailable, not ordinary command evidence.
+
 A full-output reference requires complete stdout and stderr retained by the
 native producer, with byte lengths and SHA-256 digests for the same streams.
 The existing inspect read route resolves these references within work/Project
@@ -199,6 +212,18 @@ schema-aware legacy candidate enumeration: exactly one strict report-shaped
 candidate selects, an announced malformed final candidate refuses, and two
 candidates refuse as ambiguous. No admission path selects a report by taking
 the last parseable JSON object.
+
+Amended 2026-10-13 for the core-derived terminal identity
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+the terminal boundary also carries producer-owned identity the core derives,
+not reported evidence. A completed implementation report's
+`observed_delivery` and every terminal event's `consumed_context_frontier`
+come from the store's own observation and the attempt's dispatch
+authorization (CD-0067 D2). A worker echo of either field refuses the report
+closed, the adapter supplies neither field, and the closed schema carries no
+worker-authored member for them. Reported findings and evidence keep their
+reported-claim standing. Neither the observation nor the frontier turns a
+finding into a verdict or an obligation into a discharge.
 
 ### D8. What this decision does not do
 

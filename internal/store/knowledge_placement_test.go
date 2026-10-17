@@ -27,7 +27,7 @@ func overrideManifestBytes(t *testing.T, overrides []KnowledgeOperatorOverride, 
 			{
 				ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-override.md", Status: "accepted",
 				Date: "2026-09-29T00:00:00Z", Title: "Override anchor", Summary: "Carries the operator instruction", Tags: []string{},
-				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "operator", ContractVersion: 1},
+				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 				Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 				HomeDomainID: "product-root:concord", ProductWideRationale: "The override route is Product-wide law.",
 				SHA256: "sha256:" + strings.Repeat("a", 64),
@@ -116,7 +116,7 @@ func canonicalAnchorShard() map[string]any {
 		"id": "CD-0001", "kind": "decision", "path": ".concord/docs/decisions/CD-0001-override.md",
 		"status": "accepted", "date": "2026-09-29T00:00:00Z", "title": "Override anchor",
 		"summary": "Carries the operator instruction", "tags": []string{},
-		"authority":      map[string]any{"tier": "legislated", "legislated_by": "operator", "contract_version": 1},
+		"authority":      map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1},
 		"scopes":         map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
 		"sha256":         "sha256:" + strings.Repeat("a", 64),
 		"home_domain_id": "product-root:concord", "product_wide_rationale": "The override route is Product-wide law.",
@@ -275,12 +275,12 @@ func TestLegacyCompactionEventRemainsFoldable(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	seedEventDerivedLocator(t, s, "p", "l", repo)
 	seedKnowledgeWork(t, s, "work-done", "Completed legacy work")
-	payload, err := json.Marshal(compactionLinkPayload{
+	payload, err := json.Marshal(compactionLinkPayloadV2{compactionLinkPayload: compactionLinkPayload{
 		ID: "work-done", Type: "work_note", Title: "Completed legacy work", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
 		LessonTags: []string{}, TerminalState: "completed", Summary: "Legacy durable summary", ProductIDs: []string{}, ProjectIDs: []string{},
 		DomainIDs: []string{}, TagIDs: []string{}, HomeProjectID: "p", HomeLocatorID: "l", NotePath: "docs/work/legacy.md",
-		CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "Verified legacy compaction", ExpectedVersion: 3, ResultingVersion: 4,
-	})
+		CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "Verified legacy compaction", ExpectedVersion: 3,
+	}, ResultingVersion: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestLegacyCompactionEventRemainsFoldable(t *testing.T) {
 	}
 	defer func() { _ = scope.close(ctx) }()
 	event := Event{EventID: "legacy-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: payload}
-	if err := foldCompactionLinkPublished(ctx, tx, event); err != nil {
+	if err := foldRecordedEvent(ctx, tx, event, scope); err != nil {
 		t.Fatalf("existing legacy compaction event cannot fold: %v", err)
 	}
 }

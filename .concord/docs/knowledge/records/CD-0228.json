@@ -1,0 +1,38 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-15T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "operator-surface",
+  "id": "CD-0228",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0161"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0168"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fd6fbbe14af1be3439b654345bb47d59f8663b3c0b754135808df55a7322170c",
+  "status": "accepted",
+  "summary": "Merge waits select the newest attempt per CheckRun name/workflow or StatusContext context from the existing rollup. A selected failed or cancelled check ends an open wait unless GitHub reports UNSTABLE. Newer passing and pending reruns replace older failures, different identities remain distinct, and lifecycle outcomes retain precedence. Checks-mode completeness and the query boundary remain unchanged.",
+  "tags": [
+    "ci-wait",
+    "cli",
+    "github",
+    "operator-surface"
+  ],
+  "title": "Merge waits report observed check failures unless GitHub reports UNSTABLE"
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
@@ -94,6 +95,60 @@ const (
 // report bytes: the members did not exist when that version was released,
 // so any bytes that name them are fabricated ties no store ever recorded.
 const workerCompletedOracleReportVersion = 6
+
+// workerCompletedTerminalDeliveryVersion and
+// workerFailedTerminalDeliveryVersion are the payload versions at which the
+// terminal events first carry the core-derived consumed_context_frontier
+// (both) and the core-observed observed_delivery (completed). A
+// stored event whose recorded source version sits below the boundary cannot
+// carry those members: the store never derived them when that version was
+// released, so any bytes that name them are fabricated identities no store
+// ever recorded.
+const (
+	workerCompletedTerminalDeliveryVersion = 7
+	workerFailedTerminalDeliveryVersion    = 3
+)
+
+// workerFailedAttributionVersion and workerDispatchedAttributionVersion are
+// the payload versions at which each worker event kind may first carry the
+// typed failure_attribution block . A stored event whose recorded
+// source version sits below the boundary cannot carry recorded attribution
+// content: the store never derived the block when that version was released,
+// so any content-bearing bytes that name it are forged attribution no store
+// ever recorded. The one legal shape below the boundary is the pure
+// legacy_unavailable marker the upcaster stamps, and the recorded source
+// version is the marker that distinguishes that upcast-generated absence
+// from a forged new-legacy claim: a marker on an event born at or above the
+// boundary refuses.
+const (
+	workerFailedAttributionVersion     = 4
+	workerDispatchedAttributionVersion = 6
+)
+
+// workerFailureLegacyAttribution is the explicit historical-absence marker
+// the upcasters stamp onto replayed terminals that predate the attribution
+// boundary. It carries no observation and no identity.
+func workerFailureLegacyAttribution() *WorkerFailureAttribution {
+	return &WorkerFailureAttribution{Origin: WorkerFailureAttributionLegacyUnavailable}
+}
+
+// workerFailureAuthoredAttributionKeyRefused is the upcasters' authored-member
+// gate: a stored payload version below the attribution boundary that already
+// carries the failure_attribution key — a marker, a null, any bytes — was
+// never recorded by a store, because the field did not exist when that
+// version was released. The upcaster refuses it instead of stamping around
+// it, so the upcast-generated legacy marker is the only below-boundary shape
+// the fold can ever see.
+func workerFailureAuthoredAttributionKeyRefused(event Event, kind string) error {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &members); err != nil {
+		return invalidWorkerPayload(kind + " payload is not a JSON object")
+	}
+	if _, authored := members["failure_attribution"]; authored {
+		return invalidWorkerPayload(kind + " failure_attribution on a stored payload version below the attribution boundary is authored bytes no store ever recorded; the upcaster stamps the explicit legacy marker alone")
+	}
+	return nil
+}
 
 // WorkerEvidenceEventPayloadVersion resolves the payload version the event
 // registry currently owns for the named worker evidence kind (CD-0205), so
@@ -192,6 +247,15 @@ type WorkerDispatchedPayload struct {
 	// dispatched payload that predates job-bound dispatch; those histories
 	// keep the CD-0164 D2 reset unchanged.
 	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
+	// FailureAttribution is the typed failure attribution of a born-failed
+	// terminal dispatch . Only Terminal="failed" carries one; an
+	// ordinary dispatch opens no terminal outcome to attribute and refuses
+	// the member. The producer supplies the observation only; the store
+	// derives the core identity from the dispatch authorization at ingest,
+	// so the recorded block always carries the exact authorized attempt
+	// identity. Absent on every payload that predates the attribution
+	// version, and on born-failed terminals recorded before the boundary.
+	FailureAttribution *WorkerFailureAttribution `json:"failure_attribution,omitempty"`
 }
 
 // WorkerJobBinding is the dispatch-side binding of one worker-job revision:
@@ -333,6 +397,45 @@ type WorkerCompletedPayload struct {
 	// Nil (absent) and empty are both legal; an over-bound array is refused
 	// whole, never truncated.
 	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
+	// ConsumedContextFrontier is the core-derived frontier attribution
+	// The field is the worker_context_frontier the attempt's own dispatch
+	// authorization recorded. The terminal ingest owner derives it from
+	// that authorization; a caller can never supply, change, or omit a
+	// value the authorization did not carry. Nil means the authorization
+	// predates the field and keeps explicit absence.
+	ConsumedContextFrontier *int64 `json:"consumed_context_frontier,omitempty"`
+	// ObservedDelivery is the closed delivery observation the core took
+	// itself: one raw commit OID plus the clean or dirty state of
+	// the attempt's authorized worktree at completion. Only a completed
+	// implementation-lane attempt carries one, and only the store's own
+	// read-only Git observation can produce it; a report, request, or
+	// adapter value can neither supply nor alter it.
+	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
+}
+
+// WorkerObservedDelivery is the closed core-owned delivery observation
+// State is clean or dirty only; dirty-but-reachable records
+// dirty and cannot qualify a review subject. There is no unavailable state:
+// a Git failure or deadline refuses the completion with zero effects
+// instead of recording an observation.
+type WorkerObservedDelivery struct {
+	Commit string `json:"commit"`
+	State  string `json:"state"`
+}
+
+var workerObservedDeliveryStates = map[string]bool{"clean": true, "dirty": true}
+
+func validateWorkerObservedDelivery(delivery *WorkerObservedDelivery) error {
+	if delivery == nil {
+		return nil
+	}
+	if !worktreeSHAPattern.MatchString(delivery.Commit) {
+		return invalidWorkerPayload("worker.completed observed_delivery.commit must be one raw commit OID")
+	}
+	if !workerObservedDeliveryStates[delivery.State] {
+		return invalidWorkerPayload("worker.completed observed_delivery.state must be clean or dirty")
+	}
+	return nil
 }
 
 type WorkerFailedPayload struct {
@@ -347,6 +450,22 @@ type WorkerFailedPayload struct {
 	// readback failures, and abandonment — carry no worker claims. Nil
 	// (absent) and empty are both legal on every kind.
 	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
+	// ConsumedContextFrontier is the core-derived frontier attribution
+	// The field is the frontier the attempt's own dispatch authorization
+	// recorded, derived by the terminal ingest owner even when the failure
+	// carries no report at all. A failed terminal records no delivery
+	// observation and never probes Git. Nil means the authorization
+	// predates the field and keeps explicit absence.
+	ConsumedContextFrontier *int64 `json:"consumed_context_frontier,omitempty"`
+	// FailureAttribution is the typed failure attribution of the terminal
+	// failure : what the observing boundary saw, beside the
+	// core-derived identity the store derives from the attempt's own
+	// dispatch authorization at ingest. The producer supplies the
+	// observation only; origin and identity are core-owned. Absent on every
+	// payload that predates the attribution version, and on terminals
+	// recorded without an observation — a replayed history reads those
+	// through the upcaster's explicit legacy_unavailable marker.
+	FailureAttribution *WorkerFailureAttribution `json:"failure_attribution,omitempty"`
 }
 
 // WorkerHostProvenance is the typed record of host prompt-injection surfaces
@@ -417,6 +536,12 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	}
 	if err := ValidateWorkerContextFindings(payload.ContextFindings); err != nil {
 		return err
+	}
+	if err := validateWorkerObservedDelivery(payload.ObservedDelivery); err != nil {
+		return err
+	}
+	if payload.ConsumedContextFrontier != nil && *payload.ConsumedContextFrontier < 0 {
+		return invalidWorkerPayload("worker.completed consumed_context_frontier must be a nonnegative frontier")
 	}
 	if err := ValidateWorkerOracleReportShape(payload); err != nil {
 		return err
@@ -691,7 +816,15 @@ func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
 	if len(payload.ContextFindings) > 0 && payload.FailureKind != WorkerFailureWorkerError {
 		return invalidWorkerPayload("worker.failed context_findings are reserved for the worker_error failure kind")
 	}
-	return ValidateWorkerContextFindings(payload.ContextFindings)
+	if err := ValidateWorkerContextFindings(payload.ContextFindings); err != nil {
+		return err
+	}
+	// the attribution block carries its closed structural shape on
+	// every version. The source-version rules — upcast-generated legacy
+	// absence versus forged or smuggled bytes — are the fold's, which reads
+	// the recorded source version; this validator runs after the upcast,
+	// where that distinction no longer exists.
+	return ValidateWorkerFailureAttribution(payload.FailureAttribution)
 }
 
 func decodeClosedWorkerPayload(event Event, target any) error {
@@ -738,6 +871,15 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if payload.Terminal == "failed" && modelReadbackFailureKind(payload.TerminalFailureKind) && payload.ReadbackModel != "" {
 		return invalidWorkerPayload("worker.dispatched readback failure cannot carry a readback_model")
 	}
+	// the born-failed attribution block carries its closed
+	// structural shape; an ordinary dispatch opens no terminal outcome to
+	// attribute and refuses the member at every version.
+	if payload.Terminal != "failed" && payload.FailureAttribution != nil {
+		return invalidWorkerPayload("worker.dispatched failure_attribution is reserved for a born-failed terminal record; an ordinary dispatch records no attribution")
+	}
+	if err := ValidateWorkerFailureAttribution(payload.FailureAttribution); err != nil {
+		return err
+	}
 	return ValidateWorkerHostProvenance(payload.HostProvenance)
 }
 
@@ -750,14 +892,25 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 // whose recorded digest is empty predates the boundary and refuses with a typed
 // cutover failure so the operator opens a fresh authorization.
 type WorkerDispatchWindow struct {
-	WorkID           string
-	StepID           string
-	AttemptID        string
-	AttemptEpoch     int64
-	StartSeq         int64
-	PacketDigest     string
+	WorkID       string
+	StepID       string
+	AttemptID    string
+	AttemptEpoch int64
+	StartSeq     int64
+	PacketDigest string
+	// SubjectCommit is the admitted core subject the authorization
+	// recorded, empty when the authorization predates the field.
 	SubjectCommit    string
 	WorktreeIdentity string
+	// ContextFrontier is the recorded worker_context_frontier of the
+	// dispatch completion: the source-event frontier of the
+	// work-context view the authorization admitted. ContextFrontierPresent
+	// distinguishes a recorded zero (a new authorization over an absent
+	// view) from explicit absence (a historical authorization recorded
+	// before the field existed); the reader never substitutes one for the
+	// other.
+	ContextFrontier        int64
+	ContextFrontierPresent bool
 }
 
 // FindAuthorizedDispatchWindowTx reads the dispatch_worker authorization
@@ -773,27 +926,56 @@ type WorkerDispatchWindow struct {
 // completion that did not record worker_packet_digest; the gate owns the
 // empty-versus-non-empty refusal so this read does not double-classify.
 func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (WorkerDispatchWindow, error) {
+	return findAuthorizedDispatchWindowCore(ctx, tx, workID, attemptID)
+}
+
+// readAuthorizedDispatchWindowBefore is the raw SQL read both window readers
+// share: exclusive at beforeSeq (0 reads the current prefix), the nullable
+// frontier keeps explicit absence, and the completion epoch returns beside the window.
+func readAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, attemptID string, beforeSeq int64) (WorkerDispatchWindow, int64, error) {
 	var window WorkerDispatchWindow
+	var frontier sql.NullInt64
+	var completionEpoch, startEpoch int64
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID, beforeSeq, beforeSeq).Scan(&window.StartSeq, &window.StepID, &completionEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
+			return window, 0, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
-		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
+		return window, 0, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
 	}
+	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
-	if err := tx.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq, beforeSeq, beforeSeq).Scan(&window.StartSeq, &startEpoch); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
+			return window, 0, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
-		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
+		return window, 0, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
 	}
+	window.AttemptEpoch = startEpoch
 	if window.SubjectCommit != "" && !worktreeSHAPattern.MatchString(window.SubjectCommit) {
-		return window, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
+		return window, 0, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
+	}
+	return window, completionEpoch, nil
+}
+
+// findAuthorizedDispatchWindowBefore is the strict read: the completion epoch must match the recorded start.
+func findAuthorizedDispatchWindowBefore(ctx context.Context, q queryer, workID, attemptID string, beforeSeq int64) (WorkerDispatchWindow, error) {
+	window, completionEpoch, err := readAuthorizedDispatchWindowBefore(ctx, q, workID, attemptID, beforeSeq)
+	if err != nil {
+		return window, err
+	}
+	if completionEpoch != window.AttemptEpoch {
+		return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completion attempt_epoch does not match the starting authorization epoch", false, "reopen the workflow action against a fresh step epoch")
 	}
 	return window, nil
+}
+
+// findAuthorizedDispatchWindowCore is the current-prefix read without the strict epoch equality.
+func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, attemptID string) (WorkerDispatchWindow, error) {
+	window, _, err := readAuthorizedDispatchWindowBefore(ctx, q, workID, attemptID, 0)
+	return window, err
 }
 
 // WorkerDispatchWindowIsOpenTx reports whether the window has already been
@@ -1050,6 +1232,59 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
+	// the source-version marker rules for the born-failed
+	// attribution block, then the identity join for recorded content — the
+	// exact authorized window, the payload's own lane, and the binding the
+	// authorization bound. An ordinary dispatch refuses the member entirely.
+	if err := validateWorkerFailureAttributionSource(payload.FailureAttribution, event.replaySourcePayloadVersion, workerDispatchedAttributionVersion); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution: "+err.Error(), false, "record the attribution on the current born-failed dispatch payload")
+	}
+	if payload.Terminal == "failed" {
+		// A promoted definition requires the recorded block on a born-failed
+		// terminal too: the authorization is being consumed at the
+		// attribution-capable version, so a missing block and the upcast's
+		// legacy marker are the same refusal and an old source version
+		// cannot bypass the requirement. Released pins keep the optional
+		// absence they shipped with.
+		required, gateErr := workflowFailureAttributionActiveForWorkTx(ctx, tx, event.SubjectID)
+		if gateErr != nil {
+			return gateErr
+		}
+		if required && !workerFailureAttributionContent(payload.FailureAttribution) {
+			return newFailure(KindInvalidPayload, "fold_event", "the pinned definition requires recorded failure_attribution on this born-failed terminal; record the observation through the authenticated dispatch evidence route", false, "record the born-failed dispatch with its producer observation")
+		}
+	}
+	if workerFailureAttributionContent(payload.FailureAttribution) {
+		if payload.Terminal != "failed" {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution is reserved for a born-failed terminal record; an ordinary dispatch records no attribution", false, "record the observation on the terminal outcome that was observed")
+		}
+		window, windowErr := findAuthorizedDispatchWindowCore(ctx, tx, event.SubjectID, payload.AttemptID)
+		if windowErr != nil {
+			var failure *Failure
+			if failureAs(windowErr, &failure) && failure.Kind == KindUnauthorizedDispatch {
+				return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution names no authorized dispatch window for attempt "+payload.AttemptID+"; the recorded identity cannot verify", false, "record the attribution through the authenticated dispatch evidence route")
+			}
+			return windowErr
+		}
+		block := workerFailureAttemptIdentity(payload.AttemptID, payload.LaneID, window, payload.WorkerJob)
+		if payload.FailureAttribution.Identity == nil || payload.FailureAttribution.Identity.Kind != WorkerFailureIdentityAttempt || payload.FailureAttribution.Identity.Attempt == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution carries recorded content without the core-derived attempt identity", false, "record the attribution through the authenticated dispatch evidence route")
+		}
+		if mismatch := workerFailureAttemptIdentityMismatch(payload.FailureAttribution.Identity.Attempt, block.Attempt); mismatch != "" {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution identity "+mismatch+" does not equal the attempt's authorized dispatch window", false, "record the attribution through the authenticated dispatch evidence route")
+		}
+		// A born-failed terminal is the host adapter's record: the worker
+		// cannot describe the readback terminal it never reported.
+		if payload.FailureAttribution.Observation == nil || payload.FailureAttribution.Observation.Observer != WorkerFailureObserverHostAdapter {
+			return newFailure(KindInvalidPayload, "fold_event", "a born-failed terminal records the host adapter's observation; the worker cannot describe the readback terminal it never reported", false, "record the attribution through the authenticated dispatch evidence route")
+		}
+		if err := workerFailureAbandonmentTagCoupling(payload.TerminalFailureKind, payload.FailureAttribution.Observation); err != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution: "+err.Error(), false, "record the attribution through the authenticated dispatch evidence route")
+		}
+		if payload.FailureAttribution.Identity.Attempt.Subject != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution names an observed subject; a born-failed attempt records no delivery", false, "record the attribution through the authenticated dispatch evidence route")
+		}
+	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	lifecycleState := "dispatched"
 	failureKind, failureDetail := "", ""
@@ -1145,6 +1380,24 @@ func PrepareLaneActorDispatch(ctx context.Context, transaction *Transaction, dis
 	}
 	if payload.AttemptID == "" || payload.LaneID == "" {
 		return nil, invalidWorkerPayload("worker.dispatched payload has invalid identity")
+	}
+	// a born-failed terminal record's attribution observation
+	// derives its core identity here, inside the authenticated dispatch
+	// transaction. The window is still open at this boundary, so the
+	// identity derives from the authorization the dispatch consumes. An
+	// ordinary dispatch carries no block and keeps its recorded bytes.
+	if payload.Terminal == "failed" && payload.FailureAttribution != nil {
+		if err := enrichWorkerBornFailedAttributionTx(ctx, tx, dispatch, &payload); err != nil {
+			return nil, err
+		}
+		raw, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return nil, wrapFailure(KindInvalidPayload, "worker_lane_actor_prepare", "cannot encode the born-failed dispatch payload", false, "report the encoding failure", marshalErr)
+		}
+		dispatch.Payload = raw
+	} else if payload.FailureAttribution != nil {
+		// An ordinary dispatch records no attribution, at the boundary too.
+		return nil, invalidWorkerPayload("worker.dispatched failure_attribution is reserved for a born-failed terminal record")
 	}
 	laneActor := WorkflowActor{
 		PrincipalRef: principalRef,
@@ -1264,6 +1517,14 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 			return newFailure(KindInvalidPayload, "fold_event", "worker.completed oracle report content requires the worker-job revision the attempt was dispatched under", false, "report oracle content only for a job-bound dispatch")
 		}
 	}
+	// The core-derived delivery identity is reserved for the terminal
+	// delivery payload version. A replayed event whose recorded
+	// source version sits below the boundary cannot carry a consumed
+	// frontier or an observed delivery: the store never derived either when
+	// that version was released, and recorded history is never re-observed.
+	if (payload.ConsumedContextFrontier != nil || payload.ObservedDelivery != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedTerminalDeliveryVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed consumed_context_frontier and observed_delivery are reserved for payload version >= 7", false, "record the terminal delivery identity on the current completion payload")
+	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
 	}
@@ -1360,13 +1621,34 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		// recorded completion: history folded before this check may carry ties
 		// the live fold now refuses, or a dispatch recorded before the
 		// predicate list existed.
-		if live && payload.EvidenceOrigin == WorkerEvidenceReported {
-			declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
-			if err != nil {
-				return err
+		//
+		// The job-subset tie rule: on a promoted pin whose attempt was dispatched under
+		// a job revision, the permitted tie list is that exact recorded job
+		// revision's own predicate list, and the membership check runs with
+		// the same SQL on the live fold and on rebuild. The parent packet
+		// list stays the context and keeps its released live-only behavior
+		// on every older pin and on every job-free attempt.
+		if payload.EvidenceOrigin == WorkerEvidenceReported {
+			tiesActive, tiesErr := workflowFailureAttributionActiveForWorkTx(ctx, tx, attempt.WorkID)
+			if tiesErr != nil {
+				return tiesErr
 			}
-			if err := verifyWorkerPredicateTies(declared, payload.Evidence); err != nil {
-				return err
+			if tiesActive && dispatchedJob != nil {
+				declared, declaredErr := workerJobRevisionPredicateIDsTx(ctx, tx, attempt.WorkID, *dispatchedJob)
+				if declaredErr != nil {
+					return declaredErr
+				}
+				if err := verifyWorkerPredicateTies(declared, payload.Evidence); err != nil {
+					return err
+				}
+			} else if live {
+				declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
+				if err != nil {
+					return err
+				}
+				if err := verifyWorkerPredicateTies(declared, payload.Evidence); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1393,6 +1675,35 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.failed context_findings are reserved for payload version >= 2", false, "record the context_findings on the current failure payload")
 	}
+	// The core-derived frontier attribution is reserved for the failed
+	// terminal delivery payload version. A replayed event whose
+	// recorded source version sits below the boundary cannot carry a consumed
+	// frontier: the store never derived one when that version was released,
+	// and recorded history is never re-attributed.
+	if payload.ConsumedContextFrontier != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedTerminalDeliveryVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.failed consumed_context_frontier is reserved for payload version >= 3", false, "record the frontier attribution on the current failure payload")
+	}
+	// the source-version marker rules apply before anything else
+	// about the block. Below the attribution version only the upcast's
+	// legacy marker may ride the event; recorded content there is smuggled
+	// bytes no store ever recorded. At or above the version the marker
+	// itself is a forged new-legacy claim.
+	if err := validateWorkerFailureAttributionSource(payload.FailureAttribution, event.replaySourcePayloadVersion, workerFailedAttributionVersion); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.failed failure_attribution: "+err.Error(), false, "record the attribution block on the current failure payload")
+	}
+	// A promoted definition requires the recorded block on every failed
+	// terminal: a missing block and the upcast's legacy marker are the same
+	// refusal, so an old source version cannot bypass the requirement by
+	// arriving without attribution bytes. The pin is the one the active
+	// workflow instance recorded — it cannot have changed retroactively —
+	// and every released pin keeps the optional absence it shipped with.
+	required, gateErr := workflowFailureAttributionActiveForWorkTx(ctx, tx, event.SubjectID)
+	if gateErr != nil {
+		return gateErr
+	}
+	if required && !workerFailureAttributionContent(payload.FailureAttribution) {
+		return newFailure(KindInvalidPayload, "fold_event", "the pinned definition requires recorded failure_attribution on this failed terminal; record the observation through the authenticated ingest", false, "record the failure with its producer observation")
+	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
 	}
@@ -1408,6 +1719,14 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, admittedTerminal)
 	if err != nil {
 		return err
+	}
+	// a terminal carrying recorded attribution content verifies its
+	// identity against the same authorization owners the ingest derived it
+	// from — identical SQL on the live fold and on rebuild.
+	if workerFailureAttributionContent(payload.FailureAttribution) {
+		if err := verifyWorkerFailureAttemptAttributionTx(ctx, tx, event.SubjectID, payload.AttemptID, attempt.LaneID, payload.FailureKind, payload.FailureAttribution); err != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.failed failure_attribution: "+err.Error(), false, "record the attribution through the authenticated terminal ingest")
+		}
 	}
 	if payload.FailureKind == WorkerFailureAbandoned && !isWorkflowReplay(ctx) {
 		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, payload.AttemptID); err != nil {
@@ -1705,6 +2024,53 @@ func verifyWorkerPredicateTies(declared []string, evidence []WorkerReportEvidenc
 	return nil
 }
 
+// workerJobRevisionPredicateIDsTx reads the permitted report evidence tie
+// list of one exact recorded job revision: the predicate_ids the retained
+// worker.job_recorded event carries under the binding's job, revision, and
+// digest. A binding that names no retained recording with that digest is a
+// corrupt join and refuses fail-closed, so a missing projection can never
+// silently widen the predicates a report may tie.
+func workerJobRevisionPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID string, job WorkerJobBinding) ([]string, error) {
+	var raw *string
+	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "the dispatched job revision "+job.JobID+":"+strconv.FormatInt(job.Revision, 10)+" names no retained worker.job_recorded recording under its digest", false, "reconcile_operation")
+		}
+		return nil, wrapFailure(KindUnavailable, "worker_predicate_discharge", "cannot read the recorded job revision predicates", true, "retry once the database is readable", err)
+	}
+	if raw == nil {
+		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "worker.job_recorded recorded no predicate_ids for "+job.JobID+":"+strconv.FormatInt(job.Revision, 10), false, "reconcile_operation")
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(*raw), &ids); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "worker.job_recorded recorded malformed predicate_ids for "+job.JobID+":"+strconv.FormatInt(job.Revision, 10), false, "reconcile_operation")
+	}
+	return ids, nil
+}
+
+// workflowFailureAttributionActiveForWorkTx reports whether the work item's
+// pinned definition carries the failure-attribution semantics. A work item
+// with no workflow instance keeps every released behavior, so the absence
+// reads as inactive rather than refusing. The gate reads the pin's ref and
+// version alone and never adds a digest authority of its own: the pin's
+// digest is the owning preflight and fold checks' strict boundary, and a
+// retained pin resolves the structure it names.
+func workflowFailureAttributionActiveForWorkTx(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
+	var ref string
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "worker_predicate_discharge", "cannot read the workflow instance", true, "retry once the database is readable", err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		return false, nil
+	}
+	return workflowFailureAttributionActive(registered.Definition), nil
+}
+
 func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDetail string) error {
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -1833,11 +2199,89 @@ func upcastWorkerCompletedV5(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkerCompletedV6 carries a v6 completion into the v7 payload that
+// may carry the core-derived consumed_context_frontier and observed_delivery
+// v6 payloads never carried either, so the upcast is the bytes
+// unchanged at the new version: a replayed completion stays the report the
+// worker returned, with no fabricated frontier and no fabricated delivery
+// observation. Recorded history is never re-observed.
+func upcastWorkerCompletedV6(event Event) (Event, error) {
+	event.PayloadVersion = 7
+	return event, nil
+}
+
 // upcastWorkerFailedV1 carries a v1 failure into the v2 payload that may
 // carry typed context findings (CON-887). v1 payloads never carried any, so
 // the upcast is the bytes unchanged at the new version: a replayed failure
 // stays the diagnostic the host recorded, with no fabricated worker claims.
 func upcastWorkerFailedV1(event Event) (Event, error) {
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+// upcastWorkerFailedV2 carries a v2 failure into the v3 payload that may
+// carry the core-derived consumed_context_frontier. v2 payloads
+// never carried one, so the upcast is the bytes unchanged at the new
+// version: a replayed failure stays the diagnostic the host recorded, with
+// no fabricated frontier attribution.
+func upcastWorkerFailedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
+	return event, nil
+}
+
+// upcastWorkerFailedV3 carries a v3 failure into the v4 payload that may
+// carry the typed failure_attribution block . v3 payloads never
+// carried one, so the upcast stamps the explicit legacy_unavailable marker:
+// a replayed failure stays visibly without attribution instead of reading
+// as a shape the store could have recorded. The recorded source version
+// keeps the marker distinguishable from a forged new-legacy claim, which
+// the fold refuses. Bytes that already carry an attribution member are left
+// untouched so the fold's source-version gate — not the upcaster — refuses
+// the smuggled content.
+func upcastWorkerFailedV3(event Event) (Event, error) {
+	if err := workerFailureAuthoredAttributionKeyRefused(event, "worker.failed"); err != nil {
+		return Event{}, err
+	}
+	var payload WorkerFailedPayload
+	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if payload.FailureAttribution == nil {
+		payload.FailureAttribution = workerFailureLegacyAttribution()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return Event{}, wrapFailure(KindInvalidPayload, "worker_event_upcast", "cannot encode the worker failure payload", false, "repair the worker event payload", err)
+		}
+		event.Payload = raw
+	}
+	event.PayloadVersion = 4
+	return event, nil
+}
+
+// upcastWorkerDispatchedV5 carries a v5 dispatch into the v6 payload that may
+// carry the typed failure attribution of a born-failed terminal .
+// Only a born-failed terminal records one, so the upcast stamps the explicit
+// legacy_unavailable marker there alone: an ordinary dispatch opens no
+// terminal outcome to attribute and upcasts unchanged without a block. The
+// recorded source version keeps the marker distinguishable from a forged
+// new-legacy claim, and bytes that already carry the member stay untouched
+// for the fold's source-version gate to refuse.
+func upcastWorkerDispatchedV5(event Event) (Event, error) {
+	if err := workerFailureAuthoredAttributionKeyRefused(event, "worker.dispatched"); err != nil {
+		return Event{}, err
+	}
+	var payload WorkerDispatchedPayload
+	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if payload.Terminal == "failed" && payload.FailureAttribution == nil {
+		payload.FailureAttribution = workerFailureLegacyAttribution()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return Event{}, wrapFailure(KindInvalidPayload, "worker_event_upcast", "cannot encode the worker dispatch payload", false, "repair the worker event payload", err)
+		}
+		event.Payload = raw
+	}
+	event.PayloadVersion = 6
 	return event, nil
 }

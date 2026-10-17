@@ -190,19 +190,19 @@ func runContinuityBlockCommandWithDirectory(args []string, out, errOut io.Writer
 	}
 	database, err := databasePath()
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	packet, err := bootstrap(context.Background(), database, args[0])
 	if err != nil {
-		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		writeDiagnostic(errOut, "concord continuity-block: "+diagnosticText(err))
 		return 1
 	}
 	if len(packet) == 0 {
 		return 0
 	}
 	if _, err := out.Write(packet); err != nil {
-		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		writeDiagnostic(errOut, "concord continuity-block: "+diagnosticText(err))
 		return 1
 	}
 	return 0

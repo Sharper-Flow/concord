@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate and deterministically generate the TS8 agent contract projections."""
 from __future__ import annotations
-import copy, hashlib, json, re, subprocess, sys
+import argparse, copy, hashlib, json, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -200,7 +200,7 @@ SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "t
 # byte length can still reach the floor — so a core-admitted string can never
 # be refused by the code-point bounds. The byte bounds travel as x-maxBytes
 # and x-minBytes from the same registry metadata and the byte-aware
-# validators (adapter dispatch.ts, Go payloadschema) enforce them (CON-412).
+# validators (adapter dispatch.ts, Go payloadschema) enforce them.
 BYTE_LIMIT_GUIDANCE = (
     "The store counts this field's length in UTF-8 bytes: x-maxBytes and "
     "x-minBytes carry the enforcing byte bounds, and the code-point "
@@ -654,7 +654,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         # The enforcing unit is the UTF-8 byte; the standard code-point
         # bounds are derived so publication never refuses a core-admitted
         # string, and the byte bounds ride as x-* keywords the byte-aware
-        # validators enforce (see BYTE_LIMIT_GUIDANCE, CON-412).
+        # validators enforce (see BYTE_LIMIT_GUIDANCE).
         if "max_length" in field:
             schema["maxLength"] = field["max_length"]
             schema["x-maxBytes"] = field["max_length"]
@@ -673,7 +673,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     # ignored under the draft this surface publishes: the authored bound
     # would declare an enforcement no validator applies. Inline the target
     # and attach the siblings to the copy, so one schema carries both the
-    # referenced shape and the declared bounds (CON-412).
+    # referenced shape and the declared bounds.
     if "$ref" in schema and any(key != "$ref" and key != "description" for key in schema):
         target_name = schema["$ref"].split("/")[-1]
         target = defs.get(target_name)
@@ -703,7 +703,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         schema["description"] = rule
     elif byte_bounded and "description" not in schema:
         # One concise byte-limit guidance line for every byte-bounded field
-        # no guard-owned rule already teaches (CON-412).
+        # no guard-owned rule already teaches.
         schema["description"] = BYTE_LIMIT_GUIDANCE
     return schema
 
@@ -780,7 +780,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
         # the same declaration. A group whose declared kind match pairs a
         # scalar field with an object field's discriminator expands into one
         # closed branch per kind, so outcome_kind and outcome_payload.kind
-        # cannot disagree in any published branch (CON-412).
+        # cannot disagree in any published branch.
         branches: list[dict] = []
         for group in alternatives:
             branches.extend(workflow_payload_alternative_branches(payload, defs, field_teaching, alternatives, group, (cross_field or {}).get("kind_matches", [])))
@@ -792,7 +792,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
 # match to its per-kind closed branches: the discriminator consts of the
 # referenced oneOf. The kinds are derived from the same outcome schema the
 # store's DecodeWorkflowPredicate enforces, never hand-listed, and a branch
-# without a discriminator const fails generation (CON-412).
+# without a discriminator const fails generation.
 def outcome_payload_kind_branches(field_name: str, object_field: dict, defs: dict, discriminator: str) -> list[tuple[str, dict]]:
     target_name = object_field.get("schema_ref", "")
     if not target_name:
@@ -939,8 +939,12 @@ def project_native_oracle_requests(defs: dict) -> None:
     defs["native_oracle_request"] = closed_operation_variants([prepare, execute], ["phase"])
     defs["native_oracle_request"]["properties"]["phase"] = {"type": "string", "enum": ["prepare", "execute"]}
     defs["native_oracle_request"]["description"] = (
-        "native_oracle_v2: prepare compiles the pinned pure-Go harness without test execution; execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. "
-        "The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes are unavailable. No install, automatic preparation, or new worker authority."
+        "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. "
+        "The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned "
+        "dependencies offline and runs only its collection or check-input stage. Execute requires the exact persisted dispatch, "
+        "job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and "
+        "streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Both phases are explicit "
+        "preparation and readiness only: no acceptance body, no install, no automatic preparation, no new worker authority."
     )
     verify = defs["work_transition_worktree_verify_input"]
     verify = verify.get("oneOf", [verify])[0]
@@ -1054,14 +1058,33 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
 
 def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     """The packet owns the shared native preparation projection; results add
-    only the fields the store producer publishes, never caller observations."""
+    only the fields the store producer publishes, never caller observations.
+    The canonical packet also owns the selected-research projection:
+    the shared view's research member and its closed defs project from the
+    lane contract, so the public read view and the frozen view3 anchor the
+    same schema content instead of independently copied runtime policy."""
     aliases = {
         "lane_native_oracle_stream": "native_oracle_stream",
         "lane_native_oracle_file": "native_oracle_file",
         "lane_native_oracle_test_name": "native_oracle_test_name",
         "lane_native_oracle_preparation": "native_oracle_preparation",
         "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
+        "lane_work_context_research_selection": "work_context_research_selection",
+        "lane_work_context_research_finding": "work_context_research_finding",
+        "lane_work_context_research_finding_view": "work_context_research_finding_view",
+        "lane_research_scopes": "research_scopes",
+        "lane_research_source": "research_source",
     }
+    # The lane-local research defs the payloads document does not author: the
+    # canonical lane contract owns their bytes and the projection copies them
+    # under the shared payload names. lane_research_scopes and
+    # lane_research_source only remap references; the payloads document's own
+    # research defs stay the published tool-surface owner.
+    projected_research_defs = (
+        "lane_work_context_research_selection",
+        "lane_work_context_research_finding",
+        "lane_work_context_research_finding_view",
+    )
 
     def remap(node):
         if isinstance(node, list):
@@ -1077,10 +1100,14 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         return result
 
     for source, target in aliases.items():
-        if source.startswith("lane_native_"):
+        if source.startswith("lane_native_") or source in projected_research_defs:
             defs[target] = remap(packet_defs[source])
     for name in ("subject_commit", "oracle_preparations"):
         defs["work_context_view"]["properties"][name] = remap(packet_defs["lane_work_context_view"]["properties"][name])
+    research = packet_defs["lane_work_context_view"]["properties"].get("research_findings")
+    if not isinstance(research, dict):
+        fail("the canonical lane work-context view carries no research_findings member")
+    defs["work_context_view"]["properties"]["research_findings"] = remap(research)
     defs["work_context_view"]["properties"].pop("candidate_subject", None)
     receipt = defs["worker_oracle_receipt"]
     receipt["properties"].pop("candidate_subject", None)
@@ -1094,15 +1121,27 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
                   ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
     defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": list(stage), "properties": stage}
+
+    def project_phase_into_branches(node: dict, properties: dict, required: list[str]) -> None:
+        """Each closed family branch carries the phase's own fields: a
+        result fixture synthesizes from one branch alone, so a branch that
+        omits a phase-required field would build an invalid result."""
+        for branch in node.get("oneOf", []):
+            branch["properties"] = {**branch.get("properties", {}), **copy.deepcopy(properties)}
+            known = list(branch.get("required", []))
+            branch["required"] = known + [name for name in required if name not in known]
+
     prepare = copy.deepcopy(defs["native_oracle_preparation"])
-    prepare["properties"].update({
+    prepare_fields = {
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
         "detail": {"type": "string", "maxLength": 4096},
-    })
+    }
+    prepare["properties"].update(copy.deepcopy(prepare_fields))
     prepare["required"].extend(["control_id", "stages"])
+    project_phase_into_branches(prepare, prepare_fields, ["control_id", "stages"])
     execute = copy.deepcopy(prepare)
     execute["properties"]["phase"] = {"type": "string", "const": "execute"}
     execute["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
@@ -1116,16 +1155,42 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                 "items": {"$ref": "#/$defs/native_oracle_test_name"}},
+        "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
+                                 "items": {"type": "string", "minLength": 1, "maxLength": 256,
+                                           "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
     })
     execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
+    project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
+                                          ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
+                                           "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq",
+                                           "input_manifest_digest", "binary_digest", "observed_test_names", "observed_witness_ids")},
+                                ["attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
+                                 "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq"])
+    # The family branches restate the phase fields they inherited from the
+    # preparation union; an execute branch speaks the execute phase grammar.
+    for branch in execute.get("oneOf", []):
+        branch["properties"]["phase"] = {"type": "string", "const": "execute"}
+        branch["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
     execute["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
-    execute["then"] = copy.deepcopy(prepare["then"])
-    execute["then"]["required"] = ["input_manifest_digest", "binary_digest", "observed_test_names"]
-    execute["then"]["properties"]["observed_test_names"] = {"minItems": 1}
+    # A pass names the witnesses the run actually observed, in the record's
+    # own family grammar: observed_test_names for a Go preparation and
+    # observed_witness_ids for a target_runner_v1 preparation, never both.
+    # The ready-then streams block lives in each family branch of the
+    # authored preparation union.
+    streams_then = copy.deepcopy(defs["native_oracle_preparation"].get("oneOf", [{}])[0].get("then", {}))
+    def pass_branch(observed: str) -> dict:
+        branch = copy.deepcopy(streams_then)
+        branch["required"] = ["input_manifest_digest", "binary_digest", observed]
+        branch["not"] = {"required": ["observed_witness_ids" if observed == "observed_test_names" else "observed_test_names"]}
+        branch["properties"] = {**branch.get("properties", {}), observed: {"minItems": 1}}
+        return branch
+    execute["then"] = {"oneOf": [pass_branch("observed_test_names"), pass_branch("observed_witness_ids")]}
     defs["native_oracle_result"] = {"oneOf": [prepare, execute], "description": (
         "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
-        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses, complete streams, pinned inputs/cwd/environment, "
-        "and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. "
+        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar "
+        "(observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, "
+        "and the persisted live dispatch's three-way clean subject equality. "
+        "Qualified green result metadata is byte-identical to lease result_json. "
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     )}
     defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}
@@ -1198,7 +1263,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
-    # S4 narrows the live outcome union before any branch copy is taken: the
+    # The live outcome union narrows before any branch copy is taken: the
     # published tokens are exactly what the live heads pin, and the
     # decision_record authoring surface retires (CD-0218 D1). The frozen
     # historical decoder keeps the full retired vocabulary for replay.
@@ -1208,7 +1273,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # The pinned-token annotation lands on the outcome def BEFORE any branch
     # copies are taken: the per-kind item branches and the supersede pair
     # branches deepcopy the outcome branches, and each copy must teach the
-    # per-workflow allowed tokens (CON-412).
+    # per-workflow allowed tokens.
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):
         fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
@@ -1219,7 +1284,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # the engine's kind-match declaration. The item branches derive from the
     # same outcome oneOf the fold decodes — never a hand-listed kind set —
     # so publication cannot admit an outcome_kind/outcome_payload pair the
-    # core refuses (CON-412).
+    # core refuses.
     outcome_kinds = outcome_payload_kind_branches("outcome_payload", {"schema_ref": "workflow_action_outcome"}, defs, "kind")
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
@@ -1597,7 +1662,7 @@ def validate(manifest: dict) -> str:
     # proliferation is what this rule exists to prevent: a ceiling may only
     # differ where accepted scenario evidence fixes it. Two operations are
     # evidence-fixed today: workflow_action at 30 (TS1) and worktree_verify
-    # at 1800 (the 367.08s verification lane measured in CON-317). This rule
+    # at 1800 (the verification lane measured 367.08s). This rule
     # pins both operations to their evidence-fixed values, so a new distinct
     # value arrives only with accepted evidence and this rule failing loudly,
     # never by quiet accretion.
@@ -1682,13 +1747,12 @@ def go_projection(manifest: dict, digest: str) -> str:
     return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agent\n\nimport ("encoding/json"; "fmt"; "sort"; "strings")\nconst ManifestDigest = "{digest}"\n\ntype OperationKind string\nconst ( OperationRead OperationKind = "read"; OperationMutation OperationKind = "mutation" )\ntype Capability string\ntype OperationConsequence string\ntype ApprovalClass string\ntype Availability string\nconst ( AvailabilityAlways Availability = "always"; AvailabilityWorkflowDefinition Availability = "workflow_definition" )\ntype ContractOperation struct {{ ID, Tool, Operation string; Kind OperationKind; QueryID string; Capability Capability; Consequence OperationConsequence; Approval ApprovalClass; Availability Availability; SupportedBudgetSeconds int; InputSchema, ResultSchema string }}\nvar ContractOperations = []ContractOperation{{\n{ops},\n}}\nfunc ValidateContractOperation(tool, operation string) (ContractOperation, bool) {{\n    for _, candidate := range ContractOperations {{ if candidate.Tool == tool && candidate.Operation == operation {{ return candidate, true }} }}\n    return ContractOperation{{}}, false\n}}\nfunc WorkflowActionAvailable() bool {{ return false }}\ntype GeneratedPayloadRule struct {{ Required []string; Properties []string }}\nvar GeneratedPayloadRules = map[string]GeneratedPayloadRule{{\n{chr(10).join(rules)}\n}}\nvar GeneratedPayloadFieldOwners = map[string]map[string][]string{{\n{chr(10).join(owner_rules)}\n}}\n// ValidateGeneratedPayload admits an operation's payload against the closed\n// per-operation rule. The published host tool schema is one permissive shape\n// merged across a tool's operations, so a caller can send a field a sibling\n// operation owns; naming that owner here is the only place the caller can\n// learn it, because the published schema cannot discriminate and no validator\n// runs in front of the core.\n// One refusal names every missing required field in declared order, then\n// every undeclared field sorted by name, so a caller repairs the payload in\n// one retry; each segment keeps its per-field message.\nfunc ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {{\n    rule, ok := GeneratedPayloadRules[schemaName]; if !ok {{ return fmt.Errorf("unknown payload schema %s", schemaName) }}\n    var object map[string]json.RawMessage; if err := json.Unmarshal(data, &object); err != nil {{ return fmt.Errorf("payload is not an object: %w", err) }}\n    allowed := map[string]bool{{}}; for _, name := range rule.Properties {{ allowed[name] = true }}\n    segments := []string{{}}\n    for _, name := range rule.Required {{ if _, ok := object[name]; !ok {{ segments = append(segments, fmt.Sprintf("missing payload field %s", name)) }} }}\n    unknown := []string{{}}\n    for name := range object {{ if !allowed[name] {{ unknown = append(unknown, name) }} }}\n    sort.Strings(unknown)\n    direction := "input"; if result {{ direction = "result" }}\n    for _, name := range unknown {{\n        owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]\n        if len(owners) != 0 {{ segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))) }} else {{ segments = append(segments, fmt.Sprintf("unknown payload field %s", name)) }}\n    }}\n    if len(segments) != 0 {{ return fmt.Errorf("%s", strings.Join(segments, "; ")) }}\n    return nil\n}}\n'''
 
 
-def validate_host_manifest(manifest: dict, schema: dict) -> str:
-    schema_validate(manifest, schema, schema)
-    tools = manifest.get("tools", [])
-    if [tool.get("name") for tool in tools] != ["concord_work_start"]:
-        fail("host tool manifest must declare concord_work_start once")
-    args = tools[0].get("args", {})
-    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "defect_intake"]
+def validate_work_start_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    # The projection preserves the authored declaration order, so the
+    # published capture surface is pinned in exactly the contract's own
+    # (lexicographic) property order.
+    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
     resume_required = ["work_id"]
     resume_properties = ["work_id"]
     branches = args.get("oneOf")
@@ -1708,6 +1772,65 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
             fail("concord_work_start must derive Product identity")
     if "project_id" in branches[0].get("properties", {}):
         fail("concord_work_start capture must derive Project identity")
+
+
+def validate_ci_watch_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_ci_watch host schema must be a closed object")
+    if list(properties) != ["repo", "selector", "mode", "time_seconds_max"]:
+        fail("concord_ci_watch must publish exactly repo, selector, mode, and time_seconds_max")
+    if args.get("required") != ["repo", "selector"]:
+        fail("concord_ci_watch must require only repo and selector")
+    repo = properties.get("repo", {})
+    if (repo.get("type") != "string"
+            or repo.get("pattern") != "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$"
+            or repo.get("minLength") != 3 or repo.get("maxLength") != 256):
+        fail("concord_ci_watch repo must carry the owner/name pattern bounded 3..256")
+    selector = properties.get("selector", {})
+    selector_properties = selector.get("properties", {})
+    if selector.get("type") != "object" or selector.get("additionalProperties") is not False:
+        fail("concord_ci_watch selector must be a closed object")
+    if selector.get("required") != ["kind", "value"] or list(selector_properties) != ["kind", "value"]:
+        fail("concord_ci_watch selector must carry only the required kind and value")
+    if selector_properties.get("kind", {}).get("enum") != ["pr", "sha", "run"]:
+        fail("concord_ci_watch selector.kind must admit pr, sha, and run only")
+    value = selector_properties.get("value", {})
+    if value.get("type") != "string" or value.get("minLength") != 1 or value.get("maxLength") != 64:
+        fail("concord_ci_watch selector.value must be a string bounded 1..64")
+    if properties.get("mode", {}).get("enum") != ["checks", "merge"]:
+        fail("concord_ci_watch mode must admit checks and merge only")
+    budget = properties.get("time_seconds_max", {})
+    if budget.get("type") != "integer" or budget.get("minimum") != 0 or budget.get("maximum") != 1800:
+        fail("concord_ci_watch time_seconds_max must be an integer bounded 0..1800")
+
+
+# The named host-tool validators: one named check per host-published tool.
+# A new host tool joins by adding its contract entry and its validator here;
+# the manifest must declare exactly this set once each, so an unknown,
+# missing, or duplicated tool fails generation instead of widening silently.
+HOST_TOOL_VALIDATORS = {
+    "concord_work_start": validate_work_start_host_tool,
+    "concord_ci_watch": validate_ci_watch_host_tool,
+}
+
+
+def validate_host_manifest(manifest: dict, schema: dict) -> str:
+    schema_validate(manifest, schema, schema)
+    tools = manifest.get("tools", [])
+    names = [tool.get("name") for tool in tools]
+    unknown = [name for name in names if name not in HOST_TOOL_VALIDATORS]
+    if unknown:
+        fail(f"host tool manifest declares tool(s) with no named validator: {unknown}")
+    if len(names) != len(set(names)):
+        fail("host tool manifest must declare each host tool once")
+    missing = sorted(set(HOST_TOOL_VALIDATORS) - set(names))
+    if missing:
+        fail(f"host tool manifest must declare every named host tool; missing: {missing}")
+    by_name = {tool["name"]: tool for tool in tools}
+    for name, validate_tool in HOST_TOOL_VALIDATORS.items():
+        validate_tool(by_name[name])
     return "sha256:" + hashlib.sha256(canonical(manifest)).hexdigest()
 
 
@@ -1717,8 +1840,13 @@ def ts_projection(manifest: dict, digest: str, host_manifest: dict, host_digest:
     variants = json.dumps(public_variants, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     host_schemas = {tool["name"]: tool["args"] for tool in host_manifest["tools"]}
     host_descriptions = {tool["name"]: tool["description"] for tool in host_manifest["tools"]}
-    host_data = json.dumps(host_schemas, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    description_data = json.dumps(host_descriptions, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    # Host projection preserves the authored declaration order: the published
+    # host document must stay byte-identical to the authored contract's own
+    # args serialization, so the projection never reorders keys. The
+    # authored contract pins each tool's key order; array element order is
+    # untouched either way.
+    host_data = json.dumps(host_schemas, ensure_ascii=False, sort_keys=False, separators=(",", ":"))
+    description_data = json.dumps(host_descriptions, ensure_ascii=False, sort_keys=False, separators=(",", ":"))
     return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\nexport const manifestDigest = "{digest}" as const;\nexport const maxEnvelopeBytes = 51200 as const;\nexport const contractOperations = {data} as const;\nexport const payloadSchemas = {payload_defs} as const;\n// One closed action-discriminated variant per workflow action, in registry\n// order. Host publication emits one closed branch per entry instead of a\n// merged union, so the published workflow_action input keeps each action's\n// exact requireds and fields from the same authored structure the core reads.\nexport const workflowActionPublicVariants = {variants} as const;\nexport const hostToolManifestDigest = "{host_digest}" as const;\nexport const hostToolDescriptions = {description_data} as const;\nexport const hostToolSchemas = {host_data} as const;\n'''
 
 def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
@@ -1726,7 +1854,7 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     # The workflow_action fixture is assembled from the first registry
     # action's closed variant — the same variant host publication emits —
     # because the merged union form's minimal call (a bare action_id string)
-    # is not a call any closed variant admits (CON-412). The fixture proves
+    # is not a call any closed variant admits. The fixture proves
     # both directions only when the first action's core and public payloads
     # are one declaration; a divergent first action must fail generation
     # rather than emit a fixture the published surface refuses.
@@ -1834,7 +1962,7 @@ def go_historical_schema_projection() -> str:
         "// beside the public authoring document. The engine resolves retained\n"
         "// workflow definitions' declared payload schemas against this frozen\n"
         "// baseline closure, so a public authoring change cannot break historical\n"
-        "// payload validation (CON-902 S0).\n"
+        "// payload validation.\n"
         "const GeneratedHistoricalSchemaDocument = `" + document + "`\n"
     )
 
@@ -1898,7 +2026,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
-  // outcome_kind/outcome_payload pair validates no branch (CON-412).
+  // outcome_kind/outcome_payload pair validates no branch.
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {{}};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
@@ -2059,9 +2187,15 @@ console.log(JSON.stringify(total));'''
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on generated contract drift instead of writing projections")
+    parser.add_argument("--freeze-historical-decoder", action="store_true",
+                        help="freeze or union-extend the historical decoder document, then exit")
+    args = parser.parse_args()
     try:
-        check = "--check" in sys.argv[1:]
-        freeze = "--freeze-historical-decoder" in sys.argv[1:]
+        check = args.check
+        freeze = args.freeze_historical_decoder
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())

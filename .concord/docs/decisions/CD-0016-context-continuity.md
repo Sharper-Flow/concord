@@ -6,6 +6,8 @@
 **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-points the CD-0031
 continuity supply to work-start preparation under the Snowball coordinator's
 operator-delegated approval.
+**Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
+**Bounded-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
 
 > **Subsequent decision:** CD-0031 supplies core-derived continuity to operator sessions through work-start preparation. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
@@ -62,26 +64,93 @@ The canonical read is `concord_work_trace.continuity`, added in surface 2.3.0
 while retaining 2.1/2.2 negotiation and replay. It returns a closed continuity
 snapshot with the derived pinned projection, latest checkpoint, authenticated
 cursor history, one source watermark, monotonic boundary count, and explicit
-typed restart availability.
+typed restart availability. An oversized projection travels as lossless,
+authenticated JSON-fragment pages, never as an authority-bearing summary.
+Each page binds one complete projection digest and states its remaining bytes
+and continuation. The read refuses a continuation whose projection changed, so
+a completed page sequence is one projection. A consumer joins every page before
+it uses the projection's authority. The required content and pre-write reading
+obligations remain unchanged.
 
 ## Work context
 
 The next version of each built-in definition adds the closed, unapproved
 `record_work_context` action to every step except the delivery gates. The
 action records `workflow.work_context_recorded` with ordered required reading,
-references to earlier findings, and new typed findings. A reading source is a
+references to earlier findings, selected research references, and new typed
+findings. A reading source is a
 repository file pinned by Project, path, and commit OID, or a law revision
 pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these events and from the terminal worker reports that follow them. The reader
+these events, the terminal worker reports that follow them, and exact research
+selections resolved from the research authority. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
 view past these bounds refuses the read and leaves the events unchanged. Each
-finding keeps its source event and ordinal and stays a reported claim.
+event-owned finding keeps its source event and ordinal and stays a reported
+claim. A research entry keeps its selection event and ordinal, exact pack,
+revision, finding identity, native finding fields, and complete linked source
+descriptors. Research entries and event-owned findings share the 32-finding
+bound. A research selection stores references, never corpus content, in events.
 Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
+
+A declaration refuses without effects if its resulting shared view exceeds the bounds. The
+check runs once in the live action transaction after its events fold and never
+during replay. A declaration that restores a bounded view remains admissible.
+Valid completed and failed worker reports, oracle blockers, retained receipts,
+acceptance, job records, and native verification evidence remain retained even
+when the resulting view exceeds its read bound.
+
+When the shared reader refuses with `limit_exceeded`, the work pin and continuity
+snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}`
+member instead of `work_context`. The two members are mutually exclusive. A
+successfully evaluated absent context emits neither member. Other reader errors
+propagate. The outside-repair hold and ambiguous-contract partial-pin exits
+remain unchanged. Strict readers and dispatch still refuse the over-bound view.
+Packet construction refuses the unavailable marker and never transmits it as
+work context.
+
+The shared reader reports missing, stale, rebound, or inactive research
+selections as typed entries without content. A required unresolved selection
+refuses dispatch before a worker launches. Optional unresolved selections stay
+visible without content and do not create a required reliance blocker.
+A missing consumer binding cannot establish optional reliance and refuses
+dispatch. Later revisions never replace selected content. Research body or
+selection-state changes participate in the existing full-view equality and
+dispatch revalidation, not a second context watermark or digest.
+
+Amended 2026-10-13 for pre-dispatch reading resolution and the dispatch
+context bound
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+every declared reading resolves before a worker spawns. A repository-file
+reading resolves in the declared Project's own repository: the pinned commit
+must resolve as one commit object, and the pinned path must resolve as one
+ordinary blob at that commit. The dispatch checkout is never the proof, so a
+changed or deleted checkout file cannot invalidate a reachable pinned
+commit, and a missing object refuses. A law reading resolves through the
+registered knowledge source its `source_id` names. The law ID and content
+hash must join that source's exact projected law revision, and the
+revision's canonical locator must resolve in the git-derived projection. A
+moved law revision whose canonical locator no longer exists refuses as
+unavailable; an old recorded locator that still resolves stays valid. The
+store never rescans Git history to guess a home, never repins the declared
+hash, and keeps no replacement revision registry. Resolution never registers
+a source, fetches from the network, or mutates the declared readings. The
+resolution runs before the dispatch transaction opens, and the admission
+revalidates the sampled source identities inside it. A failure names the
+reading's ordinal and source identity and commits no dispatch effect.
+Replay and rebuild resolve nothing again.
+
+The view bounds above constrain the derived view, not retained terminal
+evidence. The dispatch context is a separate capacity. The canonical JSON object
+formed from exactly the packet's present `inputs.work_context`, `inputs.checkpoint`, and
+`inputs.correction` members may not exceed 65,536 UTF-8 bytes, inclusive,
+with member names and delimiters counted. An over-bound dispatch refuses
+whole and never trims a finding, preparation, checkpoint, or correction to
+fit. The per-entry and view bounds above stay unchanged.
 
 ## Consequences
 

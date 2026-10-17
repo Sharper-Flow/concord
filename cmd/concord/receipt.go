@@ -22,7 +22,7 @@ func runReceipt(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		WorkID string `json:"work_id"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "receipt", err.Error())
+		writeOperatorDiagnostic(errOut, "receipt", diagnosticText(err))
 		return 1
 	}
 	if request.WorkID == "" {
@@ -31,7 +31,7 @@ func runReceipt(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	receiptText, err := receipt.RenderForWork(context.Background(), s, request.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "receipt", err.Error())
+		writeOperatorDiagnostic(errOut, "receipt", diagnosticText(err))
 		return 1
 	}
 	if receiptText == "" {
@@ -42,7 +42,7 @@ func runReceipt(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		return 1
 	}
 	if _, err := fmt.Fprintln(out, receiptText); err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	return 0

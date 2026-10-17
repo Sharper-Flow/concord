@@ -137,7 +137,6 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 // A schema migration applied while an item is mid-flight must leave it advanceable
 // and its history readable.
 func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -149,9 +148,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	// Start in-flight work with every current projection present, then
-	// roll back only the newest schema step. Migrate reapplies that step
-	// while the work remains open.
+	// Start work on the current schema before introducing its next step.
 	for _, migration := range migrations {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
@@ -171,15 +168,12 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	last := migrations[len(migrations)-1]
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, last.Version); err != nil {
-		t.Fatalf("cannot roll the manifest back to v%d: %v", last.Version-1, err)
-	}
-	// The newest schema step's objects must leave with its manifest row
-	// before the test reapplies that step while work remains open.
-	if err := dropMigration125Objects(ctx, db); err != nil {
-		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", last.Version, err)
-	}
+	original := migrations
+	t.Cleanup(func() { migrations = original })
+	migrations = append(append([]migration(nil), migrations...), migration{
+		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
+		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,
+	})
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)
@@ -228,5 +222,60 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("re-running the migration on in-flight work failed: %v", err)
+	}
+}
+
+func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
+	ctx := context.Background()
+	s := remoteUpgradeFixtureForProject(t, "project", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: "https://host/o/r"})
+	if err := ensureInstallationKey(ctx, s.db); err != nil {
+		t.Fatal(err)
+	}
+	beforeVersion, err := readSchemaManifestVersion(ctx, s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workID = "remote-upgrade-inflight-work"
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	if err := Migrate(ctx, s.db); err != nil {
+		t.Fatal(err)
+	}
+	afterVersion, err := readSchemaManifestVersion(ctx, s.db)
+	if err != nil || afterVersion <= beforeVersion || afterVersion != CurrentSchemaVersion() {
+		t.Fatalf("schema %d -> %d err=%v", beforeVersion, afterVersion, err)
+	}
+	locators, err := s.ProjectLocators(ctx, "project")
+	if err != nil || len(locators) != 1 || locators[0].NormalizedValue != "https://host/o/r" {
+		t.Fatalf("remote not corrected for in-flight Project: %+v err=%v", locators, err)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil || pin.ProjectID != "project" || pin.Step != "proposal" || pin.Version != version {
+		t.Fatalf("work after migration: %+v err=%v", pin, err)
+	}
+	next, err := continuityAction(t, s, workID, version, "record_proposal", "remote-upgrade-proposal", map[string]any{}, actor)
+	if err != nil || next <= version {
+		t.Fatalf("in-flight action version=%d err=%v", next, err)
+	}
+	pin, err = ReadWorkPin(ctx, s, workID)
+	if err != nil || pin.Step != "alignment" || pin.Version != next {
+		t.Fatalf("work did not advance: %+v err=%v", pin, err)
+	}
+	ref, pinnedVersion, digest := workflowInstancePin(t, s, workID)
+	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
+		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
+	}
+	snapshot := func() string {
+		return projectionSnapshot(t, s) + remoteUpgradeSnapshot(t, s) + fullWorkflowProjectionSnapshot(t, s)
+	}
+	before := snapshot()
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot() != before {
+		t.Fatal("rebuild drifted remote or in-flight workflow projections")
 	}
 }

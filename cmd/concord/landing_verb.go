@@ -22,7 +22,7 @@ type landingVerbInput struct {
 func runLandingVerb(raw []byte, out, errOut io.Writer, verb string, record func(context.Context, landingVerbInput, time.Time) (any, error)) int {
 	var request landingVerbInput
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, verb, err.Error())
+		writeOperatorDiagnostic(errOut, verb, diagnosticText(err))
 		return 1
 	}
 	if request.WorkID == "" || request.SessionRef == "" || request.LandedDirectory == "" || request.HostPID <= 0 {
@@ -31,7 +31,7 @@ func runLandingVerb(raw []byte, out, errOut io.Writer, verb string, record func(
 	}
 	landing, err := record(context.Background(), request, time.Now().UTC())
 	if err != nil {
-		writeOperatorDiagnostic(errOut, verb, err.Error())
+		writeOperatorDiagnostic(errOut, verb, diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, landing, errOut)

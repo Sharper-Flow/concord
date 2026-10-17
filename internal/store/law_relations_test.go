@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
@@ -12,7 +13,7 @@ import (
 func lawTestRecord(id, kind, status, path string, relations ...KnowledgeRelation) KnowledgeRecord {
 	authority := KnowledgeAuthority{Tier: "derived"}
 	if kind == "constitution" || kind == "decision" {
-		authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+		authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
 	}
 	return KnowledgeRecord{
 		ID: id, Kind: kind, Path: path, Status: status, Date: "2026-08-11T00:00:00Z",
@@ -121,12 +122,12 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	var source, target, scanned string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT source_law_id,target_law_id,scanned_commit_oid FROM law_relations`).Scan(&source, &target, &scanned); err != nil {
+	var source, target, scanned, declarer string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT source_law_id,target_law_id,scanned_commit_oid,declarer_law_id FROM law_relations`).Scan(&source, &target, &scanned, &declarer); err != nil {
 		t.Fatal(err)
 	}
-	if source != "law-a" || target != "law-b" || scanned != commit {
-		t.Fatalf("projected conflict = %s -> %s at %s", source, target, scanned)
+	if source != "law-a" || target != "law-b" || scanned != commit || declarer != "law-a" {
+		t.Fatalf("projected conflict = %s -> %s at %s declared by %s", source, target, scanned, declarer)
 	}
 	before := lawProjectionSnapshot(t, s)
 	bad := records
@@ -141,11 +142,60 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 	}
 }
 
+// TestRebuildRecordsTheDeclarerOfAConflictStoredInIDOrder holds that the
+// projection keeps which record declared a conflict when the pair is stored in
+// ID order with the declarer second, and that a demand-driven freshness check
+// rebuilds a conflict row an older writer left without a declarer.
+func TestRebuildRecordsTheDeclarerOfAConflictStoredInIDOrder(t *testing.T) {
+	t.Parallel()
+	repo := initKnowledgeRepo(t)
+	records := []KnowledgeRecord{
+		lawTestRecord("law-z", "spec", "accepted", ".concord/docs/law-z.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "law-b"}),
+		lawTestRecord("law-b", "spec", "accepted", ".concord/docs/law-b.md"),
+	}
+	for i, record := range records {
+		content := record.ID + "\n"
+		writeKnowledgeFile(t, repo, record.Path, content)
+		sum := sha256.Sum256([]byte(content))
+		records[i].SHA256 = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	writeLawManifest(t, repo, records)
+	commitKnowledgeRepo(t, repo, "declared conflict")
+	s := openTemp(t)
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "law-project", HomeLocatorID: "law-locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "concord", home)
+	declared := func() (string, string, sql.NullString) {
+		t.Helper()
+		var source, target string
+		var declarer sql.NullString
+		if err := s.DatabaseForTesting().QueryRow(`SELECT source_law_id,target_law_id,declarer_law_id FROM law_relations WHERE kind='conflicts_with'`).Scan(&source, &target, &declarer); err != nil {
+			t.Fatal(err)
+		}
+		return source, target, declarer
+	}
+	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	if source, target, declarer := declared(); source != "law-b" || target != "law-z" || declarer.String != "law-z" {
+		t.Fatalf("projected conflict = %s -> %s declared by %v, want law-b -> law-z declared by law-z", source, target, declarer)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_relations SET declarer_law_id=NULL; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, declarer := declared(); declarer.String != "law-z" {
+		t.Fatalf("a fresh check left a conflict without its declarer: %v", declarer)
+	}
+}
+
 func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','a','conflicts_with','b','commit','a'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -281,7 +331,7 @@ func lawProjectionSnapshot(t *testing.T, s *Store) string {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(group_concat(law_id||'|'||status||'|'||content_hash,''),'') FROM law_subjects ORDER BY law_id`).Scan(&subject); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(group_concat(source_law_id||'|'||kind||'|'||target_law_id||'|'||scanned_commit_oid,''),'') FROM law_relations ORDER BY source_law_id,target_law_id`).Scan(&relation); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(group_concat(source_law_id||'|'||kind||'|'||target_law_id||'|'||scanned_commit_oid||'|'||COALESCE(declarer_law_id,''),''),'') FROM law_relations ORDER BY source_law_id,target_law_id`).Scan(&relation); err != nil {
 		t.Fatal(err)
 	}
 	return subject + "\n" + relation

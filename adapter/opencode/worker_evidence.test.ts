@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test"
+import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { abandonWorkerAttempt, canonicalWorkerEvidence, completeWorkerAttempt, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { canonicalObservationJSON, canonicalWorkerEvidence, workerFailureObservationDigest, abandonWorkerAttempt, completeWorkerAttempt, type AgentLanePacket, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { hostControlPlane, type SessionReader } from "./move-session"
 import workerEvidenceVector from "./worker-evidence-vector.json"
@@ -49,7 +50,7 @@ test("worker-abandon observes no sessions and sends a signed typed close request
     const result = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", {
       runner, concordBinary: "concord", credentials: testCredentials,
     }, new AbortController().signal)
-    expect(result.error?.message).toContain("the host observed that the lane never reported")
+    expect(result.envelope.error?.message).toContain("the host observed that the lane never reported")
     expect(calls).toHaveLength(1)
     expect(calls[0].argv).toEqual(["concord", "worker-abandon"])
     // worker-fail carries no host session observation; the core reads process
@@ -57,6 +58,28 @@ test("worker-abandon observes no sessions and sends a signed typed close request
     expect(calls[0].input.observed_session_directories).toBeUndefined()
     expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
     expect(typeof (calls[0].input.assertion as Record<string, unknown>).signature).toBe("string")
+  } finally {
+    hostControlPlane().bind(undefined)
+  }
+})
+
+// The committed fact is the CLI success result itself: the store recorded the
+// closure. Nothing infers commitment from retry flags or a missing effect
+// state, so the fact is explicit on both arms.
+test("abandonWorkerAttempt returns the explicit committed fact from the CLI result", async () => {
+  hostControlPlane().bind({
+    get: async () => ({ response: new Response("", { status: 200 }), data: [{ id: "ses_other", directory: "/other/worktree" }] }),
+    post: async () => ({ response: new Response("", { status: 204 }) }),
+  })
+  try {
+    const recorded: DispatchRunner = { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }
+    const closed = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", { runner: recorded, concordBinary: "concord", credentials: testCredentials }, new AbortController().signal)
+    expect(closed.committed).toBe(true)
+    const refusing: DispatchRunner = { async run() {
+      return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "operation_conflict", operation: "worker_evidence", retry_safe: false, effect_state: "none", message: "store: worker_fail: the attempt cannot close" } }), stderr: "" }
+    } }
+    const refused = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", { runner: refusing, concordBinary: "concord", credentials: testCredentials }, new AbortController().signal)
+    expect(refused.committed).toBe(false)
   } finally {
     hostControlPlane().bind(undefined)
   }
@@ -268,19 +291,35 @@ const SIGNING_ENVELOPE_FIELDS = ["client_ref", "issued_at", "nonce", "signature"
 
 test("every verb signs exactly the field set its CLI binding populates", async () => {
   const signed = new Map<string, Record<string, unknown>>()
+  const requests = new Map<string, Record<string, unknown>>()
   for (const body of [completedBody(), failedBody()]) {
     const recorded: Record<string, unknown>[] = []
     await completeWorkerAttempt(lane, packet(), body, { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
-    for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
+    for (const entry of recorded) {
+      signed.set(entry.command as string, (entry.request as any).assertion)
+      requests.set(entry.command as string, entry.request as Record<string, unknown>)
+    }
   }
   expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
 
+  // a worker-fail assertion signs the canonical observation digest of
+  // the attribution its request carries, so the signed field set gains the v2
+  // members exactly on the failing verbs. Dispatch and completion stay v1.
+  const V2_ATTRIBUTION_FIELDS = ["version", "observation_digest"]
   for (const vectorCase of workerEvidenceVector.cases) {
     const assertion = signed.get(vectorCase.verb)
     expect(assertion).toBeDefined()
-    const want = [...vectorCase.bound_fields, ...SIGNING_ENVELOPE_FIELDS].sort()
+    const attributionFields = vectorCase.verb === "worker-fail" ? V2_ATTRIBUTION_FIELDS : []
+    const want = [...vectorCase.bound_fields, ...attributionFields, ...SIGNING_ENVELOPE_FIELDS].sort()
     expect(Object.keys(assertion as Record<string, unknown>).sort()).toEqual(want)
   }
+  const failAssertion = signed.get("worker-fail") as Record<string, unknown>
+  expect(failAssertion.version).toBe(2)
+  expect(failAssertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(typeof (requests.get("worker-fail") as Record<string, unknown>).failure_attribution).toBe("object")
+  const completedAssertion = signed.get("worker-complete") as Record<string, unknown>
+  expect(completedAssertion.version).toBeUndefined()
+  expect(completedAssertion.observation_digest).toBeUndefined()
 })
 
 // Without a credential the adapter cannot authorize evidence. A run that cannot
@@ -323,4 +362,160 @@ test("completion refuses to sign without packetDigest", async () => {
   expect(result.error?.recovery_action).toBe("reconcile_operation")
   expect(result.error?.message).toContain("packet digest")
   expect(recorded).toHaveLength(0)
+})
+
+// Vector structure is not production signer parity or observation authenticity.
+type WorkerEvidenceVectorV2Case = {
+  verb: string
+  bound_fields: string[]
+  canonical_base64: string
+  assertion: { version: number; observation_digest: string; verb: string } & Record<string, unknown>
+}
+
+const v2VectorCases = (workerEvidenceVector as { v2_cases: WorkerEvidenceVectorV2Case[] }).v2_cases
+const V2_PREFIX = Buffer.from("worker-evidence-v2\0", "binary")
+
+// production signer parity. The same canonical encoder the
+// adapter signs with must reproduce every v2 vector byte for byte, exactly as
+// the v1 loop above pins the released format — a structure witness alone
+// cannot prove the production signer agrees with the Go encoder.
+for (const vectorCase of v2VectorCases) {
+  test(`the TypeScript canonical encoder matches the Go v2 vector byte for byte for ${vectorCase.verb}`, () => {
+    const encoded = canonicalWorkerEvidence(vectorCase.assertion as Record<string, unknown>)
+    expect(Buffer.from(encoded).toString("base64")).toBe(vectorCase.canonical_base64)
+  })
+}
+
+test("v2 canonical encoding is order-fixed, not object-key dependent", () => {
+  const vectorCase = v2VectorCases[0]
+  const reversed = Object.fromEntries(Object.entries(vectorCase.assertion).reverse())
+  expect(Buffer.from(canonicalWorkerEvidence(reversed)).toString("base64")).toBe(vectorCase.canonical_base64)
+})
+
+// The observation digest hashes exactly the bytes Go's json.Marshal produces
+// for the same observation: fixed member order, omitempty members that
+// vanish when empty, and Go's default HTML escaping. The canonical string is
+// pinned literally here, so an escaping drift fails this test before it can
+// forge a signature the core would refuse.
+test("the observation digest canonicalizes exactly the Go marshal form", () => {
+  const observation: WorkerFailureObservation = {
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause: "host_provider",
+    basis: "supported",
+    sources: [
+      {
+        kind: "host_event",
+        locator: "msg-1",
+        digest: "sha256:" + "a".repeat(64),
+        message: 'fault <&> "quoted"\n\té🎉',
+        host: { tag: "terminal", event_type: "message.updated", session_id: "ses_1", message_id: "msg-1", error_name: "APIError", status_code: 429 },
+      },
+      { kind: "validator", message: "schema: <probe>" },
+    ],
+  }
+  expect(canonicalObservationJSON(observation)).toBe(
+    '{"observer":"host_adapter","phase":"host_execution","cause":"host_provider","basis":"supported","sources":[' +
+    '{"kind":"host_event","locator":"msg-1","digest":"sha256:' + "a".repeat(64) +
+    '","message":"fault \\u003c\\u0026\\u003e \\"quoted\\"\\n\\té🎉",' +
+    '"host":{"tag":"terminal","event_type":"message.updated","session_id":"ses_1","message_id":"msg-1","error_name":"APIError","status_code":429}},' +
+    '{"kind":"validator","message":"schema: \\u003cprobe\\u003e"}]}',
+  )
+  expect(workerFailureObservationDigest(observation)).toBe(
+    "sha256:" + createHash("sha256").update(canonicalObservationJSON(observation), "utf8").digest("hex"),
+  )
+})
+
+// Observation-digest parity. The observation_vectors samples carry exact
+// observations — Go's HTML escaping of < > &, raw U+2028/U+2029 line
+// separators, multibyte text, and observations whose optional members are
+// omitted — beside the digest the Go production helper
+// (store.WorkerFailureObservationDigest) computed when the fixture was
+// written. The TypeScript production digest helper must reproduce each one
+// exactly: a divergence here would sign an assertion the core refuses, or
+// worse, authenticate an observation the client never saw.
+type ObservationVectorCase = {
+  name: string
+  observation: WorkerFailureObservation
+  observation_digest: string
+}
+
+const observationVectors = (workerEvidenceVector as { observation_vectors?: ObservationVectorCase[] }).observation_vectors ?? []
+
+test("the TypeScript production observation digest matches every Go vector digest", () => {
+  expect(observationVectors.length).toBeGreaterThan(0)
+  for (const vectorCase of observationVectors) {
+    expect(workerFailureObservationDigest(vectorCase.observation), `observation digest mismatch for ${vectorCase.name}`).toBe(vectorCase.observation_digest)
+  }
+})
+
+test("v2 vector cases declare well-formed worker-evidence-v2 vector structure", () => {
+  expect(Array.isArray(v2VectorCases)).toBe(true)
+  expect(v2VectorCases.length).toBeGreaterThan(0)
+  const wantOrder = [
+    "client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version",
+    "lane_digest", "readback_model", "failure_kind", "host_provenance_digest",
+    "packet_digest", "observation_digest", "issued_at", "nonce",
+  ]
+  for (const vectorCase of v2VectorCases) {
+    const raw = Buffer.from(vectorCase.canonical_base64, "base64")
+    expect(Buffer.compare(raw.subarray(0, V2_PREFIX.length), V2_PREFIX)).toBe(0)
+    const segments = raw.subarray(V2_PREFIX.length).toString("binary").split("|").filter((segment) => segment.length > 0)
+    const names = segments.map((segment) => segment.slice(0, segment.indexOf("=")))
+    expect(names).toEqual(wantOrder)
+    const signed: Record<string, string> = {}
+    for (const segment of segments) {
+      const name = segment.slice(0, segment.indexOf("="))
+      const declared = Number(segment.slice(segment.indexOf("=") + 1, segment.indexOf(":")))
+      const value = segment.slice(segment.indexOf(":") + 1)
+      expect(Buffer.byteLength(value, "utf8")).toBe(declared)
+      signed[name] = value
+    }
+    expect(signed["observation_digest"]).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(vectorCase.assertion.version).toBe(2)
+    expect(vectorCase.assertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(vectorCase.assertion.observation_digest).toBe(signed["observation_digest"])
+    expect(vectorCase.assertion.verb).toBe(vectorCase.verb)
+    expect(vectorCase.bound_fields).toContain("version")
+    expect(vectorCase.bound_fields).toContain("observation_digest")
+  }
+})
+
+// A typed Git observation refusal from the
+// core's terminal ingest reaches the coordinator as one typed, retry-safe,
+// zero-effect failure. The adapter surfaces it and stops: it never retries
+// the write in a loop and never takes the invalid_report close path, so the
+// attempt stays recoverable through the retained-report recovery route.
+test("a typed git observation refusal is surfaced once and never retried", async () => {
+  const calls: { command: string; request: Record<string, unknown> }[] = []
+  const refusingRunner: DispatchRunner = {
+    async run(argv, input) {
+      calls.push({ command: argv[1]!, request: JSON.parse(input) as Record<string, unknown> })
+      if (argv[1] === "worker-dispatch") return { exitCode: 0, stdout: "", stderr: "" }
+      return {
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          event_ids: [],
+          error: {
+            kind: "git_unreachable",
+            operation: "worker_terminal_observation",
+            retry_safe: true,
+            effect_state: "none",
+            message: "store: worker_terminal_observation: git_unreachable: cannot observe the attempt's clean status",
+          },
+        }),
+        stderr: "",
+      }
+    },
+  }
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: refusingRunner, concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("cannot observe the attempt's clean status")
+  expect(result.error?.retry_safe).toBe(true)
+  expect((result.error as any)?.details?.effect_state).toBe("none")
+  expect((result.error as any)?.details?.operation).toBe("worker_terminal_observation")
+  expect((result.error as any)?.details?.core_kind).toBe("git_unreachable")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(calls.map((call) => call.command)).toEqual(["worker-dispatch", "worker-complete"])
 })

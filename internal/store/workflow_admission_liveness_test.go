@@ -98,6 +98,12 @@ type admissionModelState struct {
 	// discharged it (CD-0205 D4). While set, an acceptance is productive
 	// — resets the nonprogress window — only when it discharges the debt.
 	jobDebt bool
+	// unboundRejectionStep is the step whose unbound rejection stands
+	// unconsumed. The model's reject_worker_result is the unbound rejection —
+	// it opens no job debt — and only a materialized dispatch consumes it, so
+	// hold acceptance and step entry keep the memory. The lift exposes it
+	// only at the remembered step while that step is non-checkpoint.
+	unboundRejectionStep string
 	// contracts is the active contract count: 2 is the duplicated
 	// projection the supersede recovery owns.
 	contracts int64
@@ -142,8 +148,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -246,7 +252,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	checkpoint := containsString(step.Actions, "complete") ||
 		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
 		(step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker"))
+		(step.Kind != WorkflowStepHumanCheckpoint && containsString(step.Actions, "dispatch_worker") && !admissionTerminalStep(definition, state.step))
 	switch {
 	case !checkpoint:
 		return false
@@ -333,6 +339,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		LateVerdictRoute:            admissionLateVerdictRoute(definition, state),
 		WorkerFailureRecovery:       admissionWorkerFailureRecovery(definition, state),
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
+		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,
 		NonProgressAttempts:         state.nonprogress,
 		DispatchHold:                admissionDispatchHold(definition, state),
 		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
@@ -560,6 +567,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		// The latest dispatch consumes every basis, including one whose
 		// host worker never materializes (CD-0148 as amended).
 		next.convergence = ""
+		// The materialized dispatch is the one consumption of a standing
+		// unbound rejection, whatever outcome the successors carry; hold
+		// acceptance and step entry never close it.
+		next.unboundRejectionStep = ""
 		completed := next
 		completed.attempt = "completed"
 		completed.attemptFresh = true
@@ -668,6 +679,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		next.attemptProduces, next.attemptFresh = false, false
 	case "reject_worker_result":
 		next.attempt = "rejected"
+		// The model's rejection is the unbound one — no job debt opens — so
+		// the record stands at this step until a materialized dispatch
+		// consumes it.
+		next.unboundRejectionStep = state.step
 		if state.ready != "no_ship" && next.nonprogress < workflowCorrectionAttemptLimit {
 			next.nonprogress++
 		}
@@ -1814,5 +1829,81 @@ func TestAdmissionModelDispatchKeepsEvaluatorAndProducerAlternatives(t *testing.
 		if revised.attemptFresh {
 			t.Fatalf("contract revision preserved a pre-revision producing origin: %s", revised)
 		}
+	}
+}
+
+// TestAdmissionModelUnboundRejectionHoldsUntilMaterializedDispatch pins the
+// unconsumed-unbound-rejection memory over the break-fix pin: the unbound
+// rejection stands at its step and lifts only there, a materialized dispatch
+// consumes it in every successor, hold acceptance and step entry never
+// close it, and a human checkpoint carries no hold at all.
+func TestAdmissionModelUnboundRejectionHoldsUntilMaterializedDispatch(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	lifts := func(state admissionModelState) bool {
+		return admissionWorkflowState(definition, state).UnconsumedUnboundRejection
+	}
+	if admissionCheckpointStep(definition, "refine") || !admissionCheckpointStep(definition, "verify") {
+		t.Fatalf("pinned step kinds changed: refine checkpoint %v, verify checkpoint %v", admissionCheckpointStep(definition, "refine"), admissionCheckpointStep(definition, "verify"))
+	}
+	if !admissionLocalJobAcceptStep(definition, "repair") {
+		t.Fatal("repair lost the worker-job lifecycle; the hold-acceptance leg no longer exercises the pin")
+	}
+
+	// The unbound rejection records its step, and the lift exposes it only
+	// at that step.
+	rejected := admissionSuccessor(definition, admissionModelState{step: "refine", contracts: 1, debt: ReviewDebtNone}, "reject_worker_result")
+	if rejected.unboundRejectionStep != "refine" {
+		t.Fatalf("unbound rejection remembered step %q, want refine: %s", rejected.unboundRejectionStep, rejected)
+	}
+	if !lifts(rejected) {
+		t.Fatalf("the unbound rejection at refine lifts no hold: %s", rejected)
+	}
+
+	// The materialized dispatch consumes the record whatever outcome the
+	// successors carry.
+	for _, successor := range admissionSuccessors(definition, rejected, "dispatch_worker") {
+		if successor.unboundRejectionStep != "" || lifts(successor) {
+			t.Fatalf("dispatch successor kept the unconsumed rejection: %s", successor)
+		}
+	}
+
+	// The held local job acceptance keeps the memory and its lift: the
+	// CD-0205 hold dispositions no rejection.
+	jobAccept := admissionModelState{
+		step: "repair", contracts: 1, debt: ReviewDebtNone, attempt: "completed", jobs: "required",
+		jobsUnsatisfied: admissionModelJobKeys("required"), jobsScope: admissionModelJobScope("required"),
+		unboundRejectionStep: "repair",
+	}
+	heldAccepts := 0
+	for _, successor := range admissionSuccessors(definition, jobAccept, "accept_worker_result") {
+		if successor.step != "repair" {
+			continue
+		}
+		heldAccepts++
+		if successor.unboundRejectionStep != "repair" || !lifts(successor) {
+			t.Fatalf("held local acceptance consumed the unconsumed rejection: %s", successor)
+		}
+	}
+	if heldAccepts == 0 {
+		t.Fatal("the job-capable accept produced no held successor; the hold-acceptance leg is vacuous")
+	}
+
+	// A step entry keeps the memory: the lift is false away from the
+	// remembered step and true again on re-entry.
+	moved := admissionEnterStep(definition, rejected, "delivery")
+	if moved.unboundRejectionStep != "refine" || lifts(moved) {
+		t.Fatalf("step entry moved or exposed the remembered rejection: %s", moved)
+	}
+	if returned := admissionEnterStep(definition, moved, "refine"); !lifts(returned) {
+		t.Fatalf("re-entry at the remembered step lifts no hold: %s", returned)
+	}
+
+	// A human-checkpoint step carries no hold, and a rejection remembered at
+	// another step lifts none.
+	if lifts(admissionModelState{step: "verify", contracts: 1, unboundRejectionStep: "verify"}) {
+		t.Fatal("a human checkpoint lifted the unconsumed-rejection hold")
+	}
+	if lifts(admissionModelState{step: "refine", contracts: 1, unboundRejectionStep: "verify"}) {
+		t.Fatal("a rejection remembered at another step lifted a hold at refine")
 	}
 }

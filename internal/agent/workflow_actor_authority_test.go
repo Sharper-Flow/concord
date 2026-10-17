@@ -90,18 +90,21 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
-	snapshot := func() (works, instances, events int) {
+	type captureState struct {
+		works, instances, contracts, events, changes int
+	}
+	snapshot := func() captureState {
 		t.Helper()
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&works); err != nil {
+		var state captureState
+		if err := s.DatabaseForTesting().QueryRow(`SELECT
+			(SELECT count(*) FROM work_items),
+			(SELECT count(*) FROM workflow_instances),
+			(SELECT count(*) FROM workflow_contracts),
+			(SELECT count(*) FROM domain_events),
+			total_changes()`).Scan(&state.works, &state.instances, &state.contracts, &state.events, &state.changes); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances`).Scan(&instances); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
-			t.Fatal(err)
-		}
-		return works, instances, events
+		return state
 	}
 	// Every dispatch re-reads the scope version first: each accepted capture
 	// bumps it, so a stale envelope would refuse a later capture.
@@ -126,7 +129,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		}
 		return captured
 	}
-	baselineWorks, baselineInstances, baselineEvents := snapshot()
+	baseline := snapshot()
 
 	for _, ref := range []string{"workflow.architecture_spike", "workflow.ops_runbook", "workflow.static_analysis", "workflow.generic_one_off"} {
 		refused := capture("task", ref, "retired-"+ref, false)
@@ -138,8 +141,8 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		if !strings.Contains(refused.Error.Message, ref) {
 			t.Fatalf("retired capture refusal %q must name the family", refused.Error.Message)
 		}
-		if works, instances, events := snapshot(); works != baselineWorks || instances != baselineInstances || events != baselineEvents {
-			t.Fatalf("retired capture %s wrote state: works=%d/%d instances=%d/%d events=%d/%d", ref, baselineWorks, works, baselineInstances, instances, baselineEvents, events)
+		if after := snapshot(); after != baseline {
+			t.Fatalf("retired capture %s wrote state: before=%+v after=%+v", ref, baseline, after)
 		}
 	}
 
@@ -155,8 +158,8 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		if !strings.Contains(refused.Error.Message, "explicit retained workflow family") {
 			t.Fatalf("unnamed %s refusal %q must name the explicit-family rule", kind, refused.Error.Message)
 		}
-		if works, instances, events := snapshot(); works != baselineWorks || instances != baselineInstances || events != baselineEvents {
-			t.Fatalf("unnamed %s capture wrote state: works=%d/%d instances=%d/%d events=%d/%d", kind, baselineWorks, works, baselineInstances, instances, baselineEvents, events)
+		if after := snapshot(); after != baseline {
+			t.Fatalf("unnamed %s capture wrote state: before=%+v after=%+v", kind, baseline, after)
 		}
 	}
 
@@ -170,11 +173,11 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		wantVersion        int64
 		defectIntake       bool
 	}{
-		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 30},
-		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 27, defectIntake: true},
-		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 17},
-		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 27},
-		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 17},
+		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 32},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 29, defectIntake: true},
+		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 19},
+		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 29},
+		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 19},
 	} {
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
@@ -213,7 +216,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, target).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
-	_, _, beforeEvents := snapshot()
+	beforeEvents := snapshot().events
 	workVersionOf := func(id string) int64 {
 		t.Helper()
 		var version int64
@@ -247,7 +250,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	if gotVersion := workVersionOf(target); gotVersion != beforeVersion {
 		t.Fatalf("retired revise moved the work from %d to %d", beforeVersion, gotVersion)
 	}
-	if _, _, gotEvents := snapshot(); gotEvents != beforeEvents {
+	if gotEvents := snapshot().events; gotEvents != beforeEvents {
 		t.Fatalf("retired revise wrote %d events over baseline %d", gotEvents, beforeEvents)
 	}
 	repinned := revise("workflow.research", "revise-explicit-family")

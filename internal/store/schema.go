@@ -6277,6 +6277,46 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  127,
+		Name:     "verify_lease_event_watermark",
+		Breaking: false,
+		// The acquire INSERT, not the fold, writes this column, once per
+		// lease, and first write wins: a rebuild's operational snapshot and
+		// the writer agree, the origin class migration 125 declared for its
+		// acquire- and release-written columns.
+		FoldMaintained: "origin",
+		SQL: `
+-- The verify lease records the event-order position at which its run starts:
+-- this work item's highest committed event sequence, written by the acquire
+-- INSERT in its own transaction. NULL means the lease predates the column, so
+-- attribution reports that run's input population as unavailable; no backfill
+-- reconstructs the position from timestamps. The lease table is operational
+-- state: the acquire INSERT, not the fold, owns the value.
+ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(event_watermark IS NULL OR (typeof(event_watermark)='integer' AND event_watermark>=0));
+`,
+	},
+	{
+		Version: 128, Name: remoteLocatorUpgradeName, Breaking: true, FoldMaintained: "advance",
+		SQL: `ALTER TABLE project_locators ADD COLUMN normalization_version INTEGER NOT NULL DEFAULT 1 CHECK(normalization_version IN (1,2));`,
+	},
+	{
+		Version:  129,
+		Name:     "law_relations_carry_declarer",
+		Breaking: false,
+		// The knowledge rebuild, not the fold, writes this column: one INSERT
+		// per relation row records the manifest record that declared it, and
+		// no later write moves it. A row an older writer inserted keeps NULL,
+		// which the conflict check treats as an unknown declarer and the
+		// demand-driven freshness check rebuilds.
+		FoldMaintained: "origin",
+		SQL: `
+-- A conflicts_with pair is stored in ID order, so the row alone cannot say
+-- which record declared it, and only that record can withdraw it (CD-0015,
+-- CD-0159 D4). The declarer is always one of the row's two endpoints.
+ALTER TABLE law_relations ADD COLUMN declarer_law_id TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -6502,7 +6542,7 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such column: breaking") {
-			return nil, false, unstampedManifestRefused()
+			return nil, false, unstampedManifestRefused(ctx, db)
 		}
 		return nil, false, err
 	}
@@ -6517,16 +6557,57 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
+// UnstampedMigrationRefusal is what an unstamped build read before it refused
+// to migrate an existing store (CD-0139): the applied head and the pending
+// tail this build defines. No manifest row names the release that applied it,
+// so the refusal carries no owner.
+type UnstampedMigrationRefusal struct {
+	SchemaVersion    int
+	HeadName         string
+	FirstPending     int
+	FirstPendingName string
+	Pending          int
+	PendingBreaking  int
+}
+
+// UnstampedRecovery is the isolation route every unstamped migration refusal
+// names (CD-0139 D4). The readiness plan blocks on the same rule without a
+// refusal, so the command layer names it from here.
+const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
+
 func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
-	version := 0
-	for appliedVersion := range applied {
-		if appliedVersion > version {
-			version = appliedVersion
+	refusal := unstampedRefusalFacts(applied)
+	return refusal.failure(fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking))
+}
+
+func (refusal UnstampedMigrationRefusal) failure(detail string) *Failure {
+	failure := newFailure(KindInvalidOperation, "open", detail, true, UnstampedRecovery)
+	failure.UnstampedMigration = &refusal
+	return failure
+}
+
+func unstampedRefusalFacts(applied map[int]appliedMigration) UnstampedMigrationRefusal {
+	var refusal UnstampedMigrationRefusal
+	for recorded := range applied {
+		refusal.SchemaVersion = max(refusal.SchemaVersion, recorded)
+	}
+	for _, m := range migrations {
+		if m.Version == refusal.SchemaVersion {
+			refusal.HeadName = m.Name
+		}
+		if _, done := applied[m.Version]; done {
+			continue
+		}
+		if refusal.Pending == 0 {
+			refusal.FirstPending, refusal.FirstPendingName = m.Version, m.Name
+		}
+		refusal.Pending++
+		if m.Breaking {
+			refusal.PendingBreaking++
 		}
 	}
-	return newFailure(KindInvalidOperation, "open",
-		fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d", version),
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+	return refusal
 }
 
 // openStopsBefore reports the breaking step an open-scoped pass may not
@@ -6618,7 +6699,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			applied, err := appliedMigrations(ctx, tx)
 			if err != nil {
 				if strings.Contains(err.Error(), "no such column: breaking") {
-					return rollback(unstampedManifestRefused())
+					return rollback(unstampedManifestRefused(ctx, tx))
 				}
 				return rollback(err)
 			}
@@ -6636,6 +6717,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 	}
 
+	if scope == migrateForUpgrade {
+		// Last-locator refusal must precede even manifest and schema writes.
+		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot create the schema manifest", true,
 			"check database permissions", err))
@@ -6653,6 +6740,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	}
 
 	var stopped *migration
+	remoteUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -6670,12 +6758,19 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		if err := applyMigration(ctx, tx, m); err != nil {
 			return rollback(err)
 		}
+		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
+		}
+	}
+	if remoteUpgrade {
+		// Event application and invariant checks require the complete head schema.
+		if err := upgradeRemoteLocators(ctx, tx, nowFromClock(firstClock(clock))); err != nil {
+			return rollback(err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -6688,10 +6783,14 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	return nil
 }
 
-func unstampedManifestRefused() *Failure {
-	return newFailure(KindInvalidOperation, "open",
-		"unstamped development build refuses to repair an existing store's schema manifest",
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+// unstampedManifestRefused reads the pre-column manifest through the caller's
+// queryer, the open transaction when there is one, and writes nothing.
+func unstampedManifestRefused(ctx context.Context, q queryer) error {
+	applied, err := legacyManifestMigrations(ctx, q)
+	if err != nil {
+		return err
+	}
+	return unstampedRefusalFacts(applied).failure("unstamped development build refuses to repair an existing store's schema manifest")
 }
 
 func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {

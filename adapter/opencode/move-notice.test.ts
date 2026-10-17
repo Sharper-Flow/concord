@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import { manifestDigest } from "./generated-contracts"
 import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_transition } from "./concord"
@@ -95,7 +96,7 @@ async function bindHost(post: (body: any) => { status: number; body: any }, get:
         },
       },
     } as never,
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   })
 }
 
@@ -133,6 +134,7 @@ afterEach(async () => {
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
+  configureCiWatch({ reset: true })
 })
 
 describe("a confirmed worktree_claim move records the move notice", () => {

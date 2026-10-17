@@ -21,10 +21,6 @@ Say when you do not know. If a lookup is blocked, unavailable, or inconclusive,
 report that plainly and carry the uncertainty in the record. Never fill the gap
 with a plausible answer presented as a fact.
 
-These phrases mean stop and check: I think, should be, typically, usually, from
-memory, as I recall, probably. So does any confident claim about external
-behaviour you have not verified in this session.
-
 A request for a quick answer shortens the reply. It never lowers this bar.
 
 For a technical unknown, choose the source to fit the surface: official

@@ -83,7 +83,7 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 				t.Fatalf("pending review has wrong disposition/correction intents: %#v", pin.NextValidIntents)
 			}
 
-			if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID),
 				ActionID: "accept_worker_evidence", Payload: payload, Actor: acceptor,
 			}); err != nil {
@@ -291,12 +291,12 @@ func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *test
 	for _, recordedFailure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recorded-failure-%v", recordedFailure), func(t *testing.T) {
 			workID := fmt.Sprintf("review-evidence-unsettled-%v", recordedFailure)
-			definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-			if err != nil {
-				t.Fatal(err)
-			}
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
+			// The retained review-evidence correction baseline records an
+			// un-attributed failed review, so the seed pins the latest head
+			// that predates the attribution requirement.
+			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "refine", []string{"review"}, []string{"review"})
 			s := fixture.store
+			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
 			ownerRef, err := WorkflowActorRef(fixture.owner)
 			if err != nil {
 				t.Fatal(err)
@@ -354,6 +354,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			}
 			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
 			s := fixture.store
+			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)

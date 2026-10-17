@@ -6,11 +6,6 @@ machine-readable contracts and scenarios, a SQLite-backed storage and workflow
 engine, a JSON CLI, an OpenCode TypeScript adapter, and repository validators.
 Linux amd64 is the only release platform.
 
-This file carries what you must decide before acting. Everything else is a
-pointer to the artifact that owns the answer, because a prose copy of a
-derivable fact drifts from its source and no check catches it.
-[`scripts/check-agents-md.py`](scripts/check-agents-md.py) enforces that split.
-
 ## Authority
 
 - Linear owns planning; read and write it only through the Linear MCP server under
@@ -20,45 +15,15 @@ derivable fact drifts from its source and no check catches it.
   constitutional documents own Product law. Ordinary prose cannot acquire that
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
-- One branch and worktree per change. Never implement directly on `main`.
-  `concord_work_start` captures the item, claims its canonical worktree, and moves
-  the session; the move result states what the move changed for the agent's next
-  actions. A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
+- One branch and worktree per change. Never implement directly on `main`, and
+  never hand-make a worktree ([`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
 - Concord coordinates explicitly managed development. Other project work and
   defect repair may proceed outside the workflow under host permissions and
   repository rules; they receive no Concord workflow authority or evidence.
   Asked to fix a Concord defect that the Concord workflow would hit or obstruct,
   tell the operator and recommend the general build agent, not a Concord agent.
 - Advance is public predecessor evidence only. Do not create or dual-write
-  Advance state, and do not route Concord work through ADV. A local
-  `project.json` may appear; it is ignored by git and must never be committed.
-  [`scripts/check-predecessor-independence.py`](scripts/check-predecessor-independence.py)
-  enforces this for repository-owned agent surfaces (generated lanes, the lane
-  manifest and generator, and the adapter); host configuration outside the
-  repository is out of scope, and predecessor citations under `.concord/docs/` remain
-  permitted.
-
-## Context discipline
-
-Context is the scarcest resource in a session. Spend it on decisions.
-
-- **Be surgical.** Read the smallest artifact that answers the question — a
-  symbol before a file, a file before a directory. Reading for orientation is
-  how a session runs out of room to think.
-- **Delegate exploration.** Send scans, inventories, and "where is X" questions
-  to a sub-agent, and state the exact return shape you need. Bring back
-  findings, not transcripts. Worker lanes are defined in
-  [`.opencode/agents/`](.opencode/agents/).
-- **Interrogate the source, not a description of it.** To learn what a
-  validator, generator, or command does, run it — `--help`, `--check`, and a
-  deliberately failing run are cheaper and more reliable than reading the
-  implementation, and far more reliable than trusting prose about it.
-- **Verify narrowly, then widely.** Take the smallest test tier that can fail
-  for your change, and widen only before pushing.
-- **Repair the owning mechanism.** Prefer a change to the thing that is wrong
-  over a parallel path, wrapper, or local exception beside it.
-- **Do not restate a derivable fact.** If a generator, validator, workflow, or
-  `--help` already asserts it, link to that source instead of copying it.
+  Advance state. Never commit a local `project.json`.
 
 ## Prohibitions
 
@@ -68,7 +33,6 @@ Context is the scarcest resource in a session. Spend it on decisions.
   are equally generated. Change the manifest or schema, then re-run the
   generator.
 - Do not hand-tag or hand-cut a release. Releases are fully automated.
-- Do not weaken, bypass, or special-case a validator to make a check pass.
 - Do not introduce new third-party Go dependencies, framework abstractions, or
   runtime behavior without accepted issue or decision scope. modernc.org/sqlite
   is already accepted.
@@ -82,35 +46,19 @@ Context is the scarcest resource in a session. Spend it on decisions.
 
 ## The store connection invariant
 
-The store pools one SQLite connection (`SetMaxOpenConns(1)`,
-[`internal/store/store.go`](internal/store/store.go)). While any `*sql.Tx` is
-open, that transaction holds the pool's only connection: a nested call through
-`s.db` — query, exec, or another `BeginTx` — parks on the pool forever. It never
-reaches SQLite, so WAL and `busy_timeout` cannot help, and a test exercises it
-only by hanging.
-
-Never call an `s.db`-backed `*Store` method from inside a transaction. Extract or
-use a tx-scoped core: an `xxxTx` function, or a small queryer interface taking
-the tx. Raising the pool size is not the fix — a second connection would read the
-pre-transaction snapshot and silently miss uncommitted writes.
-[`internal/store/txscope_test.go`](internal/store/txscope_test.go) enforces this structurally.
+The store pools one SQLite connection. Never call an `s.db`-backed `*Store`
+method from inside a transaction: it parks on the pool forever. Use a tx-scoped
+core instead. [`internal/store/doc.go`](internal/store/doc.go) states the
+invariant and [`internal/store/txscope_test.go`](internal/store/txscope_test.go)
+enforces it.
 
 ## Knowledge closure
 
-[Issue #295](https://github.com/Sharper-Flow/concord/issues/295) splits
-knowledge into four states: unprocessed, law, out of date, and out of spec. An
-unprocessed document has no manifest record and is **not law** for this Product,
-however much it reads like a spec: it is source material awaiting formalization.
-`scripts/check-knowledge-closure.py`, the inverse-coverage validator, lists each
-`*.md` under the manifest's `knowledge_roots` that the manifest does not
-acknowledge. It exits 0 in warn mode (one `unprocessed: <path>` line per file),
-or 1 under `--strict` for cutover checks. `scripts/check-doc-contract.py`
-applies the required outline, Gherkin AC grammar, and STE subset (sentence
-length, banned phrases, abbreviation discipline) to in-scope record kinds.
-`doc_contract.enforced` in the manifest gates hard-fail mode and owns its
-setting and activation evidence. A document not resolvable through
-`concord_knowledge` is not law: `resolve_note` returning `knowledge_missing` is
-the authoritative negative. Never text-grep for law state when a record exists.
+An unprocessed document has no manifest record and is **not law**, however much
+it reads like a spec.
+A document not resolvable through `concord_knowledge` is not law:
+`resolve_note` returning `knowledge_missing` is the authoritative negative.
+Never text-grep for law state when a record exists.
 
 ## Go style
 
@@ -131,10 +79,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
 | Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-lanes.py`](scripts/generate-agent-lanes.py) |
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
-| How to move a CD number that collided with another branch | [`scripts/renumber-cd.py`](scripts/renumber-cd.py) `--dry-run` |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
-| Distance from the first-usable floor | [`.concord/docs/floor-readiness.md`](.concord/docs/floor-readiness.md) |
 | What is proved versus merely present | [`.concord/docs/knowledge/coverage/`](.concord/docs/knowledge/coverage/); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
-| Predecessor operational coverage state | [`.concord/docs/predecessor-operational-coverage.md`](.concord/docs/predecessor-operational-coverage.md) |
 | Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
 | Package and seam ownership | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) §4 (entry points by responsibility) |

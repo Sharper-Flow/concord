@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -133,6 +135,248 @@ type workContextFixture struct {
 	workID   string
 	owner    WorkflowActor
 	operator WorkflowActor
+	sources  workContextReadingSources
+}
+
+// workContextReadingSources holds the real prerequisites the fixture's
+// declared readings resolve against at dispatch: two authorized Projects of
+// the work's Product, each with one canonical-path repository locator, and
+// the registered knowledge source's committed law record with its exact
+// canonical locator.
+type workContextReadingSources struct {
+	repoProject  string
+	repoPath     string
+	repoCommit   string
+	otherProject string
+	otherPath    string
+	otherCommit  string
+	// lawProject/lawLocator/lawRepo/lawCommit identify the registered
+	// knowledge source whose committed manifest and law blob the fixture's
+	// knowledge reading pins.
+	lawProject string
+	lawLocator string
+	lawID      string
+	lawHash    string
+	lawRepo    string
+	lawCommit  string
+}
+
+// seedWorkContextReadingSources gives the fixture's declared readings real
+// prerequisites: one synthetic Git repository per authorized Project, and
+// the knowledge home's committed manifest, law blob, projection locator, and
+// watermark for the exact record the fixture's knowledge reading pins.
+func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workContextReadingSources {
+	t.Helper()
+	ctx := context.Background()
+	out := workContextReadingSources{
+		repoProject: "project-repo", otherProject: "project-repo-2",
+		repoPath: "internal/store/work_context.go", otherPath: "pkg/other/source.go",
+		lawProject: "project-repo", lawID: "spec:one",
+	}
+	// The workflow law home keeps its own committed copy of the seeded law
+	// document, so the workflow law context opens a real file.
+	const homeProject, homeLocator = "project", "workflow-law-locator"
+	var lawRepo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=?`, homeProject, homeLocator).Scan(&lawRepo); err != nil {
+		t.Fatal(err)
+	}
+	runKnowledgeGit(t, lawRepo, "init", "--initial-branch=main")
+	runKnowledgeGit(t, lawRepo, "config", "user.email", "test@example.invalid")
+	runKnowledgeGit(t, lawRepo, "config", "user.name", "Concord Test")
+	manifestRoot := "product-root:product"
+	registry := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "product", RootDomainID: manifestRoot,
+		Domains: []KnowledgeDomain{
+			{DomainID: manifestRoot, Name: "Root", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: workContextTestChild, Name: "Child", Purpose: "Child law", ParentDomainID: manifestRoot, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		},
+	}
+	registryJSON, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "# Synthetic dispatch law\n\nThe fixture's committed law record for declared reading resolution.\n"
+	sum := sha256.Sum256([]byte(body))
+	out.lawHash = "sha256:" + hex.EncodeToString(sum[:])
+	writeKnowledgeFile(t, lawRepo, ".concord/docs/spec.md", body)
+	head := map[string]any{
+		"schema_version":  "1.2",
+		"supported_kinds": []string{"decision", "spec"},
+		"indexed_kinds":   []string{"decision", "spec"},
+	}
+	headJSON, err := json.Marshal(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, lawRepo, knowledgeHeadPath, string(headJSON)+"\n")
+	writeKnowledgeFile(t, lawRepo, knowledgeRegistryPath, string(registryJSON)+"\n")
+	record := KnowledgeRecord{
+		ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
+		Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
+		Summary: "the fixture committed law record for declared reading resolution",
+		Tags:    []string{},
+		Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+		SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
+	}
+	recordJSON, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
+	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
+	// The git-derived projection rows pin the exact committed identity the
+	// reading resolution discovers in the snapshot. The knowledge tables are
+	// fold-only, so the writes run under the fold guard and release it.
+	stmts := []struct {
+		tag  string
+		sql  string
+		args []any
+	}{
+		{"guard", `INSERT INTO fold_guard(active) VALUES(1) ON CONFLICT(active) DO NOTHING`, nil},
+		{"law update", `UPDATE law_subjects SET content_hash=?, scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, []any{out.lawHash, out.lawCommit, homeProject, homeLocator, out.lawID}},
+		{"archived", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+			VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, []any{out.lawID, homeProject, homeLocator, ".concord/docs/spec.md", out.lawCommit, out.lawHash}},
+		{"watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
+			VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, knowledgeProjectionVersion}},
+		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
+			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
+		{"guard release", `DELETE FROM fold_guard`, nil},
+	}
+	for _, stmt := range stmts {
+		if _, err := s.DatabaseForTesting().Exec(stmt.sql, stmt.args...); err != nil {
+			_, _ = s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+			t.Fatalf("law home projection statement %q failed: %v", stmt.tag, err)
+		}
+	}
+	var productVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
+		t.Fatal(err)
+	}
+	// Two member Projects of the work's Product, each with one canonical
+	// repository locator over a real synthetic repository.
+	for _, member := range []struct {
+		project, locator, path, file string
+		commit                       *string
+	}{
+		{out.repoProject, "repo-locator-" + workID, out.repoPath, "package synthetic\n\nconst declared = true\n", &out.repoCommit},
+		{out.otherProject, "other-locator-" + workID, out.otherPath, "package other\n\nconst other = true\n", &out.otherCommit},
+	} {
+		memberEvents := []Event{projectCreatedEvent(member.project, "create-"+member.project)}
+		expected := map[SubjectRef]int64{VersionRef(SubjectProject, member.project): 0}
+		var exists int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM projects WHERE id=?`, member.project).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if exists == 0 {
+			memberEvents = append(memberEvents, operationEvent("add-"+member.project+"-to-product", "product_project.added", SubjectProduct, "product", map[string]any{
+				"product_id": "product", "project_id": member.project, "role": "secondary", "reason": "test",
+				"expected_version": productVersion, "resulting_version": productVersion + 1,
+			}))
+			expected[VersionRef(SubjectProduct, "product")] = productVersion
+			productVersion++
+		}
+		if err := ApplyOperation(ctx, s, Operation{Events: memberEvents, ExpectedVersions: expected}); err != nil {
+			t.Fatal(err)
+		}
+		repo := initKnowledgeRepo(t)
+		writeKnowledgeFile(t, repo, member.path, member.file)
+		if member.project == out.repoProject {
+			out.lawRepo, out.lawLocator = repo, member.locator
+			writeKnowledgeFile(t, repo, ".concord/docs/spec.md", body)
+			head := map[string]any{
+				"schema_version":  "1.2",
+				"supported_kinds": []string{"decision", "spec"},
+				"indexed_kinds":   []string{"decision", "spec"},
+			}
+			headJSON, err := json.Marshal(head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeKnowledgeFile(t, repo, knowledgeHeadPath, string(headJSON)+"\n")
+			recordJSON, err := json.Marshal(KnowledgeRecord{
+				ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
+				Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
+				Summary: "the fixture committed law record for declared reading resolution",
+				Tags:    []string{},
+				Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+				SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeKnowledgeFile(t, repo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
+		}
+		*member.commit = commitKnowledgeRepo(t, repo, "synthetic reading repository")
+		if member.project == out.repoProject {
+			out.lawCommit = *member.commit
+		}
+		var projectVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, member.project).Scan(&projectVersion); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddProjectLocator(ctx, member.project, ProjectLocator{ID: member.locator, Kind: LocatorCanonicalPath, Value: repo}, projectVersion); err != nil {
+			t.Fatal(err)
+		}
+		if member.project == out.repoProject {
+			// The primary reading repository Project is also an explicitly
+			// registered Product knowledge source, and the fixture's law
+			// record lives in that registered source: the committed
+			// manifest, the law blob, and the git-derived projection rows
+			// under the registered source's own locator.
+			seedRegisteredSourceProjection(t, s, member.project, member.locator, out.lawID, out.lawHash, out.lawCommit)
+		}
+	}
+	return out
+}
+
+// seedRegisteredSourceProjection pins the registered knowledge source's
+// git-derived projection rows to the exact committed identity, one statement
+// per Exec: modernc binds ? parameters per statement, so a multi-statement
+// batch misbinds.
+func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID, lawID, lawHash, lawCommit string) {
+	t.Helper()
+	db := s.DatabaseForTesting()
+	exec := func(tag, query string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(query, args...); err != nil {
+			t.Fatalf("registered source projection statement %q failed: %v", tag, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	exec("registration", `INSERT OR REPLACE INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'2026-10-01T00:00:00Z')`, projectID, locatorID)
+	exec("law subject", `INSERT OR REPLACE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, projectID, locatorID, lawID, "spec", "accepted", ".concord/docs/spec.md", "Synthetic dispatch law", lawHash, lawCommit)
+	exec("archived record", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+		VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, lawID, projectID, locatorID, ".concord/docs/spec.md", lawCommit, lawHash)
+	exec("watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
+		VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, projectID, locatorID, lawCommit, knowledgeProjectionVersion)
+	exec("law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`, projectID, locatorID, lawID, "product", workContextTestChild, lawHash)
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// repoReading builds one resolvable repository_file reading against the
+// fixture's synthetic repositories. which selects the primary or the second
+// authorized Project.
+func (f workContextFixture) repoReading(domain, rationale, which string) map[string]any {
+	project, path, commit := f.sources.repoProject, f.sources.repoPath, f.sources.repoCommit
+	if which == "other" {
+		project, path, commit = f.sources.otherProject, f.sources.otherPath, f.sources.otherCommit
+	}
+	reading := map[string]any{"domain_id": domain, "reason": "the reading carries the bounded reason", "source": map[string]any{"kind": "repository_file", "project_id": project, "path": path, "commit_oid": commit}}
+	if rationale != "" {
+		reading["product_wide_rationale"] = rationale
+	}
+	return reading
+}
+
+// knowledgeReading builds one resolvable knowledge reading pinned to the
+// fixture's committed law record: the registered source Project, the record
+// ID, and the exact committed content hash.
+func (f workContextFixture) knowledgeReading() map[string]any {
+	return map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
 }
 
 // seedWorkContextFixture seeds one break-fix work item whose approved
@@ -140,11 +384,20 @@ type workContextFixture struct {
 // the registry fixture above installed.
 func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	t.Helper()
-	ctx := context.Background()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return seedWorkContextFixtureWithDefinition(t, workID, registered)
+}
+
+// seedWorkContextFixtureWithDefinition seeds the same fixture under an
+// explicit registered definition, so a suite can pin the latest head that
+// predates a later definition-gated requirement without changing the
+// fixture's own shape.
+func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition) workContextFixture {
+	t.Helper()
+	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
@@ -192,7 +445,8 @@ func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator}
+	sources := seedWorkContextReadingSources(t, s, workID)
+	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator, sources: sources}
 }
 
 func (f workContextFixture) recordWorkContext(t *testing.T, payload any) error {
@@ -735,7 +989,9 @@ func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
 	}
 	// Remove every registry row inside one transaction under the fold
 	// guard, so the deferred registry/domain foreign keys resolve to a
-	// consistent empty state.
+	// consistent empty state. The fixture's registered knowledge source
+	// carries a law-domain home referencing the registry's Domain; the
+	// rebuild projection rows leave with the registry they projected from.
 	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +1000,7 @@ func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -850,6 +1106,10 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-no-promotion")
 	defer fixture.store.Close()
+	var archivedBefore int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedBefore); err != nil {
+		t.Fatal(err)
+	}
 	const readingMarker = "CON887-READING-MARKER"
 	const findingMarker = "CON887-FINDING-MARKER"
 	const workerMarker = "CON887-WORKER-MARKER"
@@ -977,7 +1237,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND summary LIKE '%CON887-%'`,
 		`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND premise LIKE '%CON887-%'`,
 		`SELECT count(*) FROM law_subjects WHERE title LIKE '%CON887-%' OR path LIKE '%CON887-%'`,
-		`SELECT count(*) FROM archived_work`,
 	} {
 		var count int
 		if err := fixture.store.DatabaseForTesting().QueryRow(probe, fixture.workID).Scan(&count); err != nil {
@@ -986,6 +1245,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("probe %q found %d rows; context content was promoted", probe, count)
 		}
+	}
+	var archivedAfter int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedAfter); err != nil {
+		t.Fatal(err)
+	}
+	if archivedAfter != archivedBefore {
+		t.Fatalf("context completion changed archived-work rows from %d to %d", archivedBefore, archivedAfter)
 	}
 }
 
@@ -996,7 +1262,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 // retained report without today's registry.
 func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-terminal-domain")
+	// The terminal-report binding fixture predates the failure-attribution
+	// requirement: its refusal subtests want the finding-domain
+	// validation kinds, and its admitted failure lands as the plain
+	// released terminal the rule was authored against. Pin the latest
+	// pre-attribution head so the attribution gate never shadows the
+	// domain refusals this test proves.
+	fixture := seedWorkContextFixtureWithDefinition(t, "ctx-terminal-domain", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
@@ -1045,7 +1317,7 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -1058,5 +1330,120 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 	}
 	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
 		t.Fatalf("replay of retained terminal reports refused without the registry: %v", err)
+	}
+}
+
+// TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead is the
+// current-head counterpart of the pre-attribution witness above. The failed
+// terminal carries the recorded producer observation and lands through the
+// authorized dispatch window's live ingest, and the same two properties hold:
+// the finding-domain refusals keep their kinds past the attribution gate, and
+// replay folds the retained reports — and the derived failure record —
+// without today's registry. Completion finding-domain admission
+// carries no attribution member on any pin, so the released plain-terminal
+// completion path stays witnessed by the test above alone.
+func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
+	t.Parallel()
+	fixture := seedWorkContextFixture(t, "ctx-terminal-domain-current")
+	defer fixture.store.Close()
+	finding := func(domain, rationale string) []WorkerContextFinding {
+		return []WorkerContextFinding{{Kind: "observation", Statement: "a reported claim", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: domain, ProductWideRationale: rationale}}
+	}
+	// The authorized dispatch window is what the attribution identity derives
+	// from, so the attempt is dispatched through the real dispatch boundary.
+	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
+	job := seedReadyWorkerJob(t, fixture)
+	view, viewErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if viewErr != nil || view == nil {
+		t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
+	}
+	attempt := "attempt-domain-current-1"
+	if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, attempt, job, view)); err != nil {
+		t.Fatalf("authorized dispatch refused: %v", err)
+	}
+	// The authorization alone leaves the attempt in_flight, and a
+	// worker_error terminal is admissible only on a dispatched attempt
+	// (in_flight admits abandonment alone) — the lifecycle gate stays exact.
+	// Stage the attempt's actual authorized worker.dispatched evidence
+	// through the lane-actor seam, with the packet digest the window
+	// recorded and the binding it authorized.
+	var packetDigest string
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowActionCompleted, attempt).Scan(&packetDigest); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchLane LaneDefinition
+	for _, candidate := range BuiltinLaneDefinitions() {
+		if candidate.ID == "implement" {
+			dispatchLane = candidate
+			break
+		}
+	}
+	if dispatchLane.ID == "" {
+		t.Fatal("lane implement is not registered")
+	}
+	model := preferredModelForLane(dispatchLane)
+	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
+	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, dispatchEvidence, "principal/operator", "client/concord-1")
+		if prepErr != nil {
+			return prepErr
+		}
+		_, appendErr := AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return appendErr
+	}); err != nil {
+		t.Fatalf("the authorized lane dispatch evidence for %s: %v", attempt, err)
+	}
+	// The attributed failure event builder: recorded observation, no authored
+	// identity — the live ingest derives it from the window.
+	attributedFailure := func(eventID string, findings []WorkerContextFinding) Event {
+		payload := WorkerFailedPayload{AttemptID: attempt, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "the worker reported the failed check", ContextFindings: findings}
+		payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
+		return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+	}
+	refusals := []struct {
+		name     string
+		findings []WorkerContextFinding
+		want     FailureKind
+	}{
+		{"missing domain", finding("", ""), KindInvalidPayload},
+		{"unknown domain", finding("domain:absent", ""), KindUnknownScope},
+		{"root without rationale", finding(workContextTestRoot, ""), KindInvalidPayload},
+		{"child with rationale", finding(workContextTestChild, workContextRootRationale), KindInvalidPayload},
+	}
+	for index, refusal := range refusals {
+		if err := s2WorkerFailedLive(t, fixture.store, attributedFailure(fmt.Sprintf("ctx-domain-current-refused-%d", index), refusal.findings)); !hasFailureKind(err, refusal.want) {
+			t.Fatalf("attributed failure %s error = %v, want %s", refusal.name, err, refusal.want)
+		}
+	}
+	if err := s2WorkerFailedLive(t, fixture.store, attributedFailure("ctx-domain-current-ok", finding(workContextTestRoot, workContextRootRationale))); err != nil {
+		t.Fatalf("root-domain attributed failure with rationale refused: %v", err)
+	}
+	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
+		t.Fatalf("derived records for %s = %+v, want exactly one from the attributed terminal", attempt, records)
+	}
+	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
+		t.Fatalf("replay of the retained attributed reports refused without the registry: %v", err)
+	}
+	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
+		t.Fatalf("rebuilt derived records for %s = %+v, want the one attributed terminal's record", attempt, records)
 	}
 }

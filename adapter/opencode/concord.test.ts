@@ -1,10 +1,11 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
+import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary, workerFailureObservationDigest } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
@@ -14,6 +15,12 @@ import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+const testDirectories: string[] = []
+async function mkdtemp(prefix: string): Promise<string> {
+  const directory = await createDirectory(prefix)
+  testDirectories.push(directory)
+  return directory
+}
 
 syntheticHostVersionFixture()
 
@@ -43,6 +50,7 @@ const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
 const askingSource = await Bun.file(new URL("../../.concord/instructions/asking.md", import.meta.url)).text()
 const continuationSource = await Bun.file(new URL("../../.concord/instructions/continuation.md", import.meta.url)).text()
+const recordsSource = await Bun.file(new URL("../../.concord/instructions/records.md", import.meta.url)).text()
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord")
@@ -64,10 +72,11 @@ beforeEach(() => {
   resetMoveNotices()
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
 })
-afterEach(() => {
+afterEach(async () => {
   resetClaimedWorktrees()
   if (outerSelectedProductID === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
   else process.env.CONCORD_SELECTED_PRODUCT_ID = outerSelectedProductID
+  await Promise.all(testDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 
@@ -3612,14 +3621,14 @@ test("the host lease claim names the session directory and worktree", async () =
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: { async run(argv: string[], input: string) {
       claimed.push({ argv, input: JSON.parse(input) })
-      return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: "/home/operator/card-site", worktree: "/wt" }), stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: "/workspace/project", worktree: "/wt" }), stderr: "" }
     } },
   })
-  await claimHostLease(4242, { directory: "/home/operator/card-site", worktree: "/wt" })
+  await claimHostLease(4242, { directory: "/workspace/project", worktree: "/wt" })
   expect(claimed).toHaveLength(1)
   expect(claimed[0].argv[1]).toBe("host-lease")
   expect(claimed[0].input.pid).toBe(4242)
-  expect(claimed[0].input.directory).toBe("/home/operator/card-site")
+  expect(claimed[0].input.directory).toBe("/workspace/project")
   expect(claimed[0].input.worktree).toBe("/wt")
   configureHostLease({ reset: true })
 })
@@ -3683,6 +3692,50 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
   expect(calls.map(({ argv }) => argv[1])).toEqual(["worker-abandon", "project-resolve", "invoke"])
 })
 
+// The abandonment observation records the coordinator's request the host
+// observed: the abandonment tag, the declared operation as the event type,
+// no child session (the retained dispatch record holds none and the
+// coordinator session never poses as one), the exact detail as the observed
+// message, the full detail plus the authenticated call identity in the
+// digest, and no diagnosis.
+test("worker_abandon records the abandonment observation the host observed", async () => {
+  const calls: Array<{ argv: string[]; input: any }> = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      calls.push({ argv, input: JSON.parse(input) })
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const detail = "the coordinator closed the attempt with no worker report"
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail, idempotency_key: "worker-abandon-observation-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(result.outcome).toBe("ok")
+  const request = calls[0].input
+  const token = createHash("sha256").update("concord_work_transition.worker_abandon\0worker-abandon-observation-1").digest("hex")
+  const host = { tag: "abandonment", event_type: "worker_abandon" }
+  expect(request.failure_attribution).toEqual({
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause: "unknown",
+    basis: "unknown",
+    sources: [{
+      kind: "host_event",
+      digest: "sha256:" + createHash("sha256").update(JSON.stringify({ host, message: detail, identity: { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", event_id: `worker-abandon-${token}` } })).digest("hex"),
+      message: detail,
+      host,
+    }],
+  })
+  expect(request.failure_attribution.sources[0].host.session_id).toBeUndefined()
+  expect(JSON.stringify(request.failure_attribution)).not.toContain("session-1")
+  expect(request.failure_attribution.diagnosis).toBeUndefined()
+  // The signed assertion binds the observation digest (v2 assertion).
+  expect(request.assertion.version).toBe(2)
+  expect(typeof request.assertion.observation_digest).toBe("string")
+})
+
 // The spawn-failure wedge: a terminal Task error with no child session identity
 // retains the in-flight record, and no clearing path can consume it. The
 // abandoned-attempt receipt is the named reconciliation route, so an ok abandon
@@ -3712,6 +3765,127 @@ test("an uncertain durable abandonment reports a possible effect and heals on re
   abandonExit = 0
   const settled: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
   expect(settled.outcome).toBe("ok")
+})
+
+// A typed durable refusal binds its effect_state: none proves nothing was
+// written and possible proves an uncertain effect. Neither fact reaches the
+// receipt replay, and neither answer may claim the attempt was closed — the
+// close reporting follows the committed effect only.
+test.each(["none", "possible"] as const)("a typed worker_abandon refusal with a %s effect reports the refusal and claims no closure", async (effectState) => {
+  const refusalMessage = "store: worker_fail: liveness gate refused: the worker attempt cannot close while its host process is live"
+  const calls: Array<{ argv: string[]; input: any }> = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      calls.push({ argv, input: JSON.parse(input) })
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "operation_conflict", operation: "worker_evidence", retry_safe: false, effect_state: effectState, message: refusalMessage } }), stderr: refusalMessage }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "error", { error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: "reconcile_operation" }, effect_state: "none", message: "receipt replay refused" } })), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: `worker-abandon-typed-refusal-${effectState}` }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.adapter_reason).toBe("worker_abandon_refused")
+  expect(result.error.effect_state).toBe(effectState)
+  expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  expect(result.error.message).not.toContain("was closed")
+  if (effectState === "none") {
+    expect(result.error.message).toBe(refusalMessage)
+  } else {
+    expect(result.error.message).toContain(refusalMessage)
+    expect(result.error.message).toContain("reconcile the original worker_abandon attempt and its receipt")
+  }
+  // The receipt replay never runs behind a refusal: no closure claim can form.
+  expect(calls.filter(({ argv }) => argv[1] === "invoke")).toHaveLength(0)
+  expect(calls.filter(({ argv }) => argv[1] === "worker-abandon")).toHaveLength(1)
+  expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
+})
+
+// The own-row recovery's abandon retry owes the same committed-effect
+// reporting: a typed retry refusal with a none effect is a refusal that
+// leaves the attempt open, never a closed attempt whose receipt failed.
+test("an own-row recovery reports a refused retry without claiming closure", async () => {
+  const MAIN_CHECKOUT = "/data/repo-main"
+  const sessionID = "session-abandon-retry-refusal"
+  let sessionDirectory = WORKTREE
+  let metadata: Record<string, unknown> = {}
+  const moves: string[] = []
+  hostControlPlane().bind({
+    post: async ({ body }) => {
+      sessionDirectory = (body as { destination: { directory: string } }).destination.directory
+      moves.push(sessionDirectory)
+      return { response: new Response(null, { status: 204 }) }
+    },
+    get: async ({ path }) => ({ data: { id: path?.id, directory: sessionDirectory, metadata }, response: new Response(null, { status: 200 }) }),
+    patch: async ({ body }) => {
+      const patchBody = body as { metadata?: Record<string, unknown> }
+      if (patchBody.metadata) metadata = patchBody.metadata
+      return { response: new Response(null, { status: 200 }) }
+    },
+  })
+  const ownRowRefusal = `concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree; its host process 4242 is still live`
+  const retryRefusalMessage = "store: worker_fail: projection_not_found: the named attempt is not open in this store"
+  const calls: Array<{ argv: string[]; input: string }> = []
+  let abandonCalls = 0
+  const windows = dispatchWindows()
+  windows.open(sessionID, {
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
+    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
+  }, "sha256:" + "b".repeat(64), process.cwd())
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      const command = argv[1]
+      calls.push({ argv, input })
+      if (command === "worker-abandon") {
+        abandonCalls += 1
+        return abandonCalls === 1
+          ? { exitCode: 1, stdout: "", stderr: ownRowRefusal }
+          : { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "operation_conflict", operation: "worker_evidence", retry_safe: false, effect_state: "none", message: retryRefusalMessage } }), stderr: retryRefusalMessage }
+      }
+      if (command === "invoke") {
+        const operation = (JSON.parse(input) as { operation: string }).operation
+        if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: sessionDirectory, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+        if (operation === "worker_abandon") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "error", { error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: "reconcile_operation" }, effect_state: "none", message: "receipt replay refused" } })), stderr: "" }
+      }
+      if (command === "vacate-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") return { exitCode: 1, stdout: "", stderr: "work resume refused" }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    } },
+  })
+  const context = { ...landedContextFor(), sessionID }
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-retry-refusal-1" }
+  const toolResult = (await adapter.work_transition.execute(hostCall("worker_abandon", input), context)) as { output: string }
+  const result: any = envelopeLine(toolResult.output)
+  expect(result.outcome).toBe("error")
+  expect(result.error.adapter_reason).toBe("worker_abandon_refused")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toBe(retryRefusalMessage)
+  // No text anywhere in the composed answer claims the attempt was closed.
+  expect(toolResult.output).not.toContain("was closed")
+  expect(result.error.details.recovery_stopped_at).toBe("worker_abandon_retry")
+  expect(result.error.details.abandon_error_message).toBe(ownRowRefusal)
+  expect(result.error.details.recovery_error_message).toBe(retryRefusalMessage)
+  expect(result.error.details.recovery_steps).toEqual([
+    "session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows",
+    expect.stringContaining("work_start re-land refused: work resume refused; replay work_start once the session's tool context runs in the claimed worktree"),
+  ])
+  // The receipt replay never runs behind a refusal.
+  expect(calls.filter(({ argv, input }) => argv[1] === "invoke" && JSON.parse(input).operation === "worker_abandon")).toHaveLength(0)
+  // Nothing committed, so the retained in-flight record stays until its named
+  // release route runs; a refused retry releases nothing.
+  expect(windows.has(sessionID)).toBe(true)
+  expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
+  expect(moves).toEqual([MAIN_CHECKOUT])
+  // The retry carries the same derived event identity the refused first
+  // write never committed.
+  const abandonInputs = calls.filter(({ argv }) => argv[1] === "worker-abandon").map(({ input }) => JSON.parse(input))
+  expect(abandonInputs).toHaveLength(2)
+  expect(abandonInputs[0].event_id).toBe(abandonInputs[1].event_id)
 })
 
 test.each([false, true])("an ok worker_abandon releases its exact authorization (Task consumed=%s)", async (consumed) => {
@@ -3844,6 +4018,61 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
   expect(windows.releaseRetained(context.sessionID, "attempt-stranded", "implement")).toBe(true)
 })
 
+// A committed abandon's envelope carries the coordinator's own detail as its
+// diagnostic (the close route composes it from the abandon request), so a
+// detail that quotes a refusal shape must not reroute the close. The explicit
+// committed fact runs the receipt; only a refusal reaches the nothing-durable
+// release or the own-row recovery.
+test.each([
+  ["nothing-durable", "concord worker-abandon: store: worker_attempt_read: projection_not_found: worker dispatch row does not exist"],
+  ["own-row", "concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session session-abandon-committed-detail still holds the worker attempt worktree; its host process 4242 is still live"],
+])("a committed worker_abandon whose detail quotes a %s refusal shape records its receipt", async (_name, detail) => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const windows = dispatchWindows()
+  const sessionID = "session-abandon-committed-detail"
+  const context = { ...contextFor(), sessionID }
+  const retained = {
+    schema_version: "1.0" as const,
+    attempt_id: "attempt-1",
+    lane_id: "implement",
+    lane_version: 1,
+    lane_digest: "sha256:" + "a".repeat(64),
+    work_id: "work-1",
+    step_id: "repair",
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
+  }
+  windows.open(sessionID, retained, "sha256:" + "b".repeat(64), process.cwd())
+  await windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-committed-detail", async () => process.cwd(), process.cwd())
+  expect(windows.inFlight(sessionID, "call-committed-detail")).not.toBeNull()
+  const calls: Array<{ argv: string[]; operation?: string }> = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      const operation = argv[1] === "invoke" ? (JSON.parse(input) as { operation: string }).operation : undefined
+      calls.push({ argv, operation })
+      if (argv[1] === "worker-abandon") return { exitCode: 0, stdout: "", stderr: "" }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke" && operation === "worker_abandon") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      throw new Error(`a committed close may run only its receipt: ${argv.join(" ")}`)
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail, idempotency_key: "worker-abandon-committed-detail-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(result.outcome).toBe("ok")
+  // The receipt is the durable replay answer, never the composed
+  // nothing-durable release the detail's vocabulary could invite.
+  expect(result.result.nothing_durable_to_abandon).toBeUndefined()
+  // One close write, one receipt, and no recovery route: no session_vacate.
+  expect(calls.filter(({ argv }) => argv[1] === "worker-abandon")).toHaveLength(1)
+  expect(calls.filter(({ argv, operation }) => argv[1] === "invoke" && operation === "worker_abandon")).toHaveLength(1)
+  expect(calls.filter(({ operation }) => operation === "session_vacate")).toHaveLength(0)
+  // The committed close released the retained record, so the session
+  // dispatches again without a host restart.
+  expect(windows.has(sessionID)).toBe(false)
+  expect(windows.inFlight(sessionID, "call-committed-detail")).toBeNull()
+  expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
+})
+
 // The live-occupancy refusal names the calling session's own row as the
 // holder, and the release route it names was left to the operator. The
 // adapter now runs the named route itself: session_vacate releases the row
@@ -3972,6 +4201,7 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
   let abandonCalls = 0
+  const abandonInputs: any[] = []
   const receiptDirectories: string[] = []
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
@@ -3980,6 +4210,7 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
       switch (argv[1]) {
         case "worker-abandon":
           abandonCalls++
+          abandonInputs.push(request)
           return abandonCalls === 1
             ? { exitCode: 1, stdout: "", stderr: `store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree` }
             : { exitCode: 0, stdout: "", stderr: "" }
@@ -4014,6 +4245,27 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
     expect(result.error.details.receipt_error_kind).toBe("unauthorized")
     expect(result.error.details.receipt_error_message).toBe("x".repeat(1000))
   }
+  // The refused first write and the retry record the same abandonment
+  // observation: the host observed one request, so the retry re-records it
+  // unchanged — same event identity, same observation — and the v2
+  // assertion binds the same observation digest.
+  expect(abandonInputs).toHaveLength(2)
+  expect(abandonInputs[0].event_id).toBe(abandonInputs[1].event_id)
+  expect(abandonInputs[0].failure_attribution).toEqual(abandonInputs[1].failure_attribution)
+  const attribution = abandonInputs[0].failure_attribution
+  expect(attribution.observer).toBe("host_adapter")
+  expect(attribution.phase).toBe("host_execution")
+  expect(attribution.cause).toBe("unknown")
+  expect(attribution.basis).toBe("unknown")
+  expect(attribution.sources).toHaveLength(1)
+  expect(attribution.sources[0].kind).toBe("host_event")
+  expect(attribution.sources[0].host).toEqual({ tag: "abandonment", event_type: "worker_abandon" })
+  expect(attribution.sources[0].host.session_id).toBeUndefined()
+  expect(attribution.sources[0].message).toBe("the host never started the worker")
+  expect(attribution.diagnosis).toBeUndefined()
+  expect(abandonInputs[0].assertion.version).toBe(2)
+  expect(abandonInputs[0].assertion.observation_digest).toBe(abandonInputs[1].assertion.observation_digest)
+  expect(abandonInputs[0].assertion.observation_digest).toBe(workerFailureObservationDigest(attribution))
   expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
 })
 
@@ -4248,6 +4500,21 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(askingSource).toContain("Do not ask for permission to continue work already agreed")
   expect(continuationSource).not.toContain("Do not ask for general permission to continue")
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)
+  expect(continuationSource).toContain("Context size alone does not justify a stop, handoff, or restart.")
+  expect(continuationSource).toContain("through commits, checkpoints, reports, and logs")
+  expect(continuationSource).toContain("read the work's durable records, including any assignment")
+  expect(continuationSource).not.toContain("receipt")
+  expect(continuationSource).toContain("A summary does not replace durable records or carry authority")
+  expect(askingSource).toContain("When a standing rule or approved plan already settles a case, apply it.")
+  expect(askingSource).toContain("the decision and its evidence in the existing work record")
+  expect(askingSource).toContain("Escalate a change to law, design, or another agent's work.")
+  expect(askingSource).not.toContain("unsettled case")
+  expect(askingSource).toContain("does not waive an approval, safety rule, scope limit, or mandatory")
+  expect(recordsSource).toContain("Keep standing rules in the files that own")
+  expect(recordsSource).toContain("link those files instead of repeating their rules in an assignment")
+  expect(recordsSource).toContain("Put the task identity, scope, and stop conditions in the assignment.")
+  expect(recordsSource).toContain("prompt names the agent's role and points to that assignment instead of restating")
+  expect(recordsSource).not.toContain("carries only the agent's role")
 })
 
 // CD-0191: installed-versus-session release staleness. The installer

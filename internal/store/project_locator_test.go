@@ -159,6 +159,185 @@ func TestProjectLocatorResolutionRejectsUnknownAndAmbiguousRemote(t *testing.T) 
 	}
 }
 
+func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, remote string }{
+		{"https token", "https://TOKEN@github.com/o/r"},
+		{"https password", "https://user:pass@github.com/o/r"},
+		{"http token", "http://TOKEN@github.com/o/r"},
+		{"uppercase scheme", " HTTPS://TOKEN@github.com/o/r "},
+		{"ssh password", "ssh://git:pw@host/o/r"},
+		{"git password", "git://git:pw@host/o/r"},
+		{"other scheme password", "custom://git:pw@host/o/r"},
+		{"empty password", "ssh://git:@host/o/r"},
+	} {
+		for _, update := range []bool{false, true} {
+			name := "add/"
+			if update {
+				name = "update/"
+			}
+			t.Run(name+tc.name, func(t *testing.T) {
+				s := locatorReplayStore(t)
+				ctx := context.Background()
+				if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: "git@github.com:o/r.git"}, 1); err != nil {
+					t.Fatal(err)
+				}
+				var before int
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+					t.Fatal(err)
+				}
+				method := s.AddProjectLocator
+				id := "new-remote"
+				if update {
+					method, id = s.UpdateProjectLocator, "remote"
+				}
+				err := method(ctx, "project-a", ProjectLocator{ID: id, Kind: LocatorGitRemote, Value: tc.remote}, 2)
+				assertRemoteAdmissionFailure(t, err, tc.remote, "remove credentials from the remote URL; use a git credential helper")
+				assertTableCount(t, s, "domain_events", before)
+				locators, err := s.ProjectLocators(ctx, "project-a")
+				if err != nil || len(locators) != 1 || locators[0].Value != "git@github.com:o/r.git" {
+					t.Fatalf("locators changed after refusal: %+v, err=%v", locators, err)
+				}
+			})
+		}
+	}
+}
+
+func assertRemoteAdmissionFailure(t *testing.T, err error, remote, recovery string) {
+	t.Helper()
+	assertFailureKind(t, err, KindInvalidFilter)
+	var failure *Failure
+	errors.As(err, &failure)
+	if failure.RecoveryAction != recovery {
+		t.Errorf("recovery action=%q", failure.RecoveryAction)
+	}
+	if strings.Contains(err.Error(), strings.TrimSpace(remote)) {
+		t.Error("credential refusal exposes the remote")
+	}
+	for _, diagnostic := range []string{failure.Detail, failure.RecoveryAction} {
+		for _, credential := range []string{"TOKEN", "pw", "pass", "p#ss"} {
+			if strings.Contains(diagnostic, credential) {
+				t.Errorf("remote refusal diagnostic exposes %q", credential)
+			}
+		}
+	}
+}
+
+func TestResolveProjectHostRefusesRemoteCredentials(t *testing.T) {
+	t.Parallel()
+	for _, remote := range []string{"https://TOKEN@github.com/o/r", "https://user:pass@github.com/o/r", "ssh://git:pw@host/o/r"} {
+		t.Run(remote, func(t *testing.T) {
+			root := t.TempDir()
+			host, err := ResolveProjectHost(context.Background(), root, root, &locatorGitStub{root: root, remote: remote})
+			assertRemoteAdmissionFailure(t, err, remote, "remove credentials from the remote URL; use a git credential helper")
+			if host != (ResolvedProjectHost{}) {
+				t.Fatal("credential refusal returned host data")
+			}
+		})
+	}
+}
+
+func TestRemoteAdmissionRefusesURLParseErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, remote string }{
+		{"malformed userinfo", "https://user:p#ss@github.com/o/r"},
+		{"invalid port", "https://host:badport/o/r"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			ctx := context.Background()
+			var before int
+			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1)
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			assertTableCount(t, s, "domain_events", before)
+			assertTableCount(t, s, "project_locators", 0)
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			if host != (ResolvedProjectHost{}) {
+				t.Fatal("parse-error refusal returned host data")
+			}
+		})
+	}
+}
+
+func TestRemoteURLFormClassification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		remote string
+		url    bool
+	}{
+		{"https://github.com/o/r", true},
+		{"HTTPS://TOKEN@github.com/o/r", true},
+		{"git+ssh://host/o/r", true},
+		{"g1.t-x://host/o/r", true},
+		{"host:o/r@v2.git", false},
+		{"git:pw@host:a://b", false},
+		{"git:pw@host:o/r.git", false},
+		{"1http://host/o/r", false},
+	} {
+		if got := remoteURLFormPattern.MatchString(tc.remote); got != tc.url {
+			t.Errorf("URL form for %q = %v, want %v", tc.remote, got, tc.url)
+		}
+	}
+}
+
+func TestRemoteAdmissionPreservesNormalizedIdentity(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ remote, normalized string }{
+		{"git@github.com:o/r.git", "ssh://git@github.com/o/r"},
+		{"ssh://git@host/o/r", "ssh://git@host/o/r"},
+		{"git://git@host/o/r", "git://git@host/o/r"},
+		{"https://github.com/o/r", "https://github.com/o/r"},
+		{"http://github.com/o/r", "http://github.com/o/r"},
+		{"host:o/r@v2.git", "ssh://host/o/r@v2"},
+		{"git:pw@host:a://b", "ssh://git/pw@host:a://b"},
+		{"git:pw@host:o/r.git", "ssh://git/pw@host:o/r"},
+	} {
+		t.Run(tc.remote, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			ctx := context.Background()
+			if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.UpdateProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 2); err != nil {
+				t.Fatal(err)
+			}
+			locators, err := s.ProjectLocators(ctx, "project-a")
+			if err != nil || len(locators) != 1 || locators[0].NormalizedValue != tc.normalized {
+				t.Fatalf("locators=%+v err=%v; want normalized=%q", locators, err, tc.normalized)
+			}
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})
+			if err != nil || host.Remote != tc.normalized || host.Host.GitRemote != tc.normalized {
+				t.Fatalf("host=%+v err=%v; want normalized=%q", host, err, tc.normalized)
+			}
+			resolved, err := s.MatchResolvedProjectHost(ctx, host)
+			if err != nil || resolved.ProjectID != "project-a" {
+				t.Fatalf("resolution=%+v err=%v", resolved, err)
+			}
+		})
+	}
+}
+
+func TestRecordedRemoteReplayPreservesAdmissionBoundary(t *testing.T) {
+	t.Parallel()
+	s := locatorReplayStore(t)
+	ctx := context.Background()
+	event := recordedLocatorEvent("recorded-remote", string(LocatorGitRemote), "https://TOKEN@github.com/o/r", "ssh://https/token@github.com/o/r")
+	insertHistoricalEvent(t, s, event)
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	locators, err := s.ProjectLocators(ctx, "project-a")
+	if err != nil || len(locators) != 1 || locators[0].Value != "https://TOKEN@github.com/o/r" || locators[0].NormalizedValue != "ssh://https/token@github.com/o/r" {
+		t.Fatalf("recorded locator changed during replay: %+v err=%v", locators, err)
+	}
+}
+
 func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -420,7 +599,9 @@ func TestRecordedCanonicalPathNegativeControls(t *testing.T) {
 func TestRecordedRemoteNormalizationDeterministic(t *testing.T) {
 	t.Parallel()
 	s := locatorReplayStore(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+	event := recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")
+	event.PayloadVersion = 2
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 	if err == nil || !strings.Contains(err.Error(), "normalization is not deterministic") {
 		t.Fatalf("tampered remote normalization err=%v", err)
 	}

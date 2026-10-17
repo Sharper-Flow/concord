@@ -408,13 +408,22 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fie
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
-			WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
-			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-			ContractDigest: ManifestDigest, Now: fixedTime(),
-		})
+	request := store.WorkflowActionExecutionRequest{
+		WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: ManifestDigest, Now: fixedTime(),
+	}
+	ctx := context.Background()
+	if store.WorkflowActionRequiresSubjectFreshness(action) {
+		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
+		if prepErr != nil {
+			t.Fatalf("seed %s for %s: %v", action, suffix, prepErr)
+		}
+		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 		return err
 	}); err != nil {
 		t.Fatalf("seed %s for %s: %v", action, suffix, err)

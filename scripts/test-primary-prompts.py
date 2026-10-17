@@ -90,7 +90,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("concord-operator.md" in finding and "delegation anchor" in finding for finding in findings))
 
     def test_named_profile_body_routing_by_generated_id_reports(self) -> None:
-        self.rewrite("concord-operator.md", lambda text: text.replace("the exploration utility", "concord-explore", 1))
+        self.rewrite("concord-operator.md", lambda text: text.replace("the explore utility", "concord-explore", 1))
         findings = self.findings()
         self.assertTrue(any("concord-operator.md" in finding and "concord-explore" in finding for finding in findings))
 

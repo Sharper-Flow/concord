@@ -80,7 +80,7 @@ func storeFailureExit(err error) int {
 func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workBootstrapInput
 	if err := decodeObject(raw, &input); err != nil {
-		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+		writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
 		return workBootstrapRefusalExit
 	}
 	cwd, err := os.Getwd()
@@ -95,7 +95,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+		writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
 		return storeFailureExit(err)
 	}
 	if resolution.ProjectID != input.ProjectID {
@@ -108,13 +108,13 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	resolvedRef := ""
 	if !resolution.MainWorktree {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-			writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+			writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
 			return storeFailureExit(err)
 		}
 		if input.Ref == "" {
 			resolvedRef, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
 			if err != nil {
-				writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+				writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
 				return storeFailureExit(err)
 			}
 		}
@@ -128,7 +128,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		HostPID: input.HostPID, DefectIntake: input.DefectIntake,
 	}, nil)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+		writeOperatorDiagnostic(errOut, "work-bootstrap", diagnosticText(err))
 		return storeFailureExit(err)
 	}
 	return writeJSON(out, workBootstrapOutput{
@@ -193,7 +193,7 @@ func sessionPrepareFailureExit(err error, untypedExit int) int {
 func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneIdentity sessionAgentIdentityFunc, hostCommand sessionHostCommandFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareRefusalExit
 	}
 	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
@@ -201,7 +201,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		return sessionPrepareRefusalExit
 	}
 	if err := s.RequireActionableWork(context.Background(), input.WorkID, "session-prepare"); err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, sessionPrepareRefusalExit)
 	}
 	cwd, err := os.Getwd()
@@ -211,7 +211,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	entries, err := s.WorktreeEntries(context.Background(), input.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	// A multi-Project work item holds one active worktree per Project, so the
@@ -231,7 +231,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	resolution, err := s.ResolveProject(context.Background(), cwd, cwd)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	if resolution.ProjectID != entry.ProjectID || resolution.MainWorktree {
@@ -240,7 +240,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	workProjects, err := s.ProjectsForWork(context.Background(), input.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	projectMember := false
@@ -256,7 +256,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	_, products, err := s.ScopeVersion(context.Background(), entry.ProjectID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	if len(products) != 1 || products[0] != input.ProductID {
@@ -269,12 +269,12 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	// registry probe runs there too, before the registry check reads the
 	// document it carried back (CD-0189 D4).
 	if err := laneIdentity(cwd); err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareRefusalExit
 	}
 	host, err := hostCommand(context.Background(), cwd)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		// An interrupted registry probe is transient: the host was too slow
 		// or was ended by a signal, and nothing about its configuration
 		// refused. The ordinary failure status sends the adapter down the
@@ -287,17 +287,17 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, sessionPrepareRefusalExit)
 	}
 	database, err := databasePath()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return 1
 	}
 	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
@@ -313,7 +313,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	// paths; the read records nothing.
 	summary, err := s.ReadWorkItemSummary(context.Background(), input.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
 	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: prompt}, errOut)

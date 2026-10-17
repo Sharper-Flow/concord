@@ -77,6 +77,17 @@ digest, scope JSON, version JSON, and consequence byte-for-byte with the
 challenge. The summary uses those same values. Changing anything it describes
 therefore invalidates the challenge instead of silently changing the prompt.
 
+A fresh affirmative host assertion permits one pending-challenge re-arm policy.
+The core may re-arm an active, unused, expired single-use challenge when every
+decision and caller binding still matches. It must validate the answer's
+timestamp, request digest, scope, versions, consequence, and host binding first.
+The new deadline uses the original finite interval, bounded at challenge creation.
+The core re-arms, creates approval, consumes approval, and records the authorized
+intent in one transaction. Any failure rolls back the entire exchange.
+The original prompt summary stays unchanged. Its deadline describes the pending
+invitation. This explicit policy permits fresh consent after that deadline.
+No other summary fact may change, and an issued approval is never re-armed.
+
 The summary object itself need not enter the signed host assertion: the signed
 challenge reference already binds to the stored facts from which it is derived.
 This satisfies TS5 §5's consequence-summary binding: the approval binds the
@@ -142,5 +153,7 @@ structured values are the authority; rendering is derived.
   approval refusals do not.
 - Map iteration cannot change the scope or version order.
 - Adversarial caller prose cannot alter any summary field.
-- Changing digest, scope, version, consequence, or expiry invalidates approval.
+- Changing digest, scope, version, or consequence invalidates approval.
+- Expiry refuses approval except for the pending-challenge policy in D4.
+- That policy requires fresh exact host consent and consumes authority once.
 - The adapter transports the object unchanged and does not generate the summary.

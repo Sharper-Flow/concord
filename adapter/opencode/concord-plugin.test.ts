@@ -2,7 +2,7 @@
 // dispatch to the next native Task call. Without the registration the window is
 // unreachable and any Task call the model composes runs unbound.
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
-import fs from "node:fs"
+import nodeFs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { configureHostLease } from "./host-lease"
@@ -10,11 +10,18 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { directoryIdentity, dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice } from "./concord"
-import { contractOperations, hostToolSchemas } from "./generated-contracts"
-import { bindCiWatchClient, ciWatchSettled, configureCiWatch, type VerbSpawner } from "./ci-watch"
+import { contractOperations, hostToolSchemas, manifestDigest } from "./generated-contracts"
+import { bindCiWatchClient, ciWatchSettled, configureCiWatch, drainQueuedCiReports, type CiWatchPeerRead, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
+const testDirectories: string[] = []
+function mkdtempSync(prefix: string): string {
+  const directory = nodeFs.mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+const fs = { ...nodeFs, mkdtempSync }
 
 syntheticHostVersionFixture()
 
@@ -60,10 +67,21 @@ test("ci watch publishes only repo and selector as required through the host def
   const hook = Reflect.get(plugin, "tool.definition")
   if (typeof hook === "function") await hook({ toolID: "concord_ci_watch" }, output)
   const published = JSON.parse(JSON.stringify(output.jsonSchema))
+  expect(published).toEqual(hostToolSchemas.concord_ci_watch)
   expect(published.required).toEqual(["repo", "selector"])
   expect(published.additionalProperties).toBe(false)
   expect(Object.keys(published.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
   expect(output.description).toBe(plugin.tool.concord_ci_watch.description)
+})
+
+test("the plugin registration set equals the complete host tool catalog", async () => {
+  // Every registered tool must be a catalog member, so the generated lane
+  // and utility denials derived from the catalog can never miss a new
+  // registration.
+  const plugin = await ConcordAdapterPlugin()
+  const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
+  expect(catalog.length).toBe(11)
+  expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 
 // The text-part channel. The work-state reporter queues operator-facing
@@ -465,7 +483,7 @@ describe("plugin entry binds the control plane to the host client", () => {
         return { response: new Response(null, { status: 204 }) }
       },
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 
     await hostControlPlane().moveSession("session-1", "/w")
     expect(seen).toEqual([{ url: MOVE_SESSION_ROUTE, body: { sessionID: "session-1", destination: { directory: "/w" } } }])
@@ -473,7 +491,7 @@ describe("plugin entry binds the control plane to the host client", () => {
   })
 
   test("refuses the route when the host supplied no client", async () => {
-    await ConcordAdapterPlugin({ serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
@@ -502,7 +520,7 @@ describe("a refusal carries the host's own words", () => {
         response: consumed(409, { data: { message: "worktree /w is held by another session" } }),
       }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(
       /worktree \/w is held by another session/,
     )
@@ -516,7 +534,7 @@ describe("a refusal carries the host's own words", () => {
       }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(
       /session-1 is unknown to this host/,
     )
@@ -527,7 +545,7 @@ describe("a refusal carries the host's own words", () => {
       get: async () => ({ response: new Response(null, { status: 500 }) }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
   })
 })
@@ -540,7 +558,7 @@ describe("a refusal carries the host's own words", () => {
 describe("plugin entry isolates the ci-watch notice from chat.message", () => {
   const NOTICE_SESSION = "notice-session"
 
-  const watchFixture = () => {
+  const watchFixture = (options: { promptStatus?: number; confirmReply?: boolean } = {}) => {
     const posts: Array<{ url: string; body?: unknown }> = []
     const injected: Array<Record<string, unknown>> = []
     let promptCount = 0
@@ -567,7 +585,14 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
           const id = `msg_report_${promptCount}`
           const text = (request.body as { parts?: Array<{ text?: string }> })?.parts?.[0]?.text ?? ""
           injected.push({ info: { id, role: "user" }, parts: [{ type: "text", text }] })
-          return { response: new Response(null, { status: 204 }) }
+          // confirmReply proves the delivered path: an assistant reply the host
+          // parents to the injected report confirms on the first poll.
+          if (options.confirmReply === true) {
+            injected.push({ info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id }, parts: [{ type: "text", text: "report received" }] })
+          }
+          // A 400 fails delivery outright, so the report queues without
+          // waiting out the confirmation window.
+          return { response: new Response(null, { status: options.promptStatus ?? 204 }) }
         }
         return { response: new Response(null, { status: 200 }) }
       },
@@ -585,7 +610,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     expect(started.status).toBe("started")
@@ -614,6 +639,215 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     await plugin["chat.message"]({ sessionID: session, messageID: "msg_real_boundary" }, { parts: [] })
     expect(questionRequiresNormalChat(session)).toBe(false)
   })
+
+  // Discover the factory's port through the global symbol alone.
+  const PEER_SYMBOL = Symbol.for("concord.ci-watch.peer.v1")
+  type PeerPort = { version: number; read: (request: unknown) => Promise<CiWatchPeerRead> }
+  const peerGlobals = globalThis as typeof globalThis & { [PEER_SYMBOL]?: PeerPort }
+  const peerPort = (): PeerPort | undefined => peerGlobals[PEER_SYMBOL]
+  const requirePeerPort = (): PeerPort => {
+    const port = peerPort()
+    if (port === undefined) throw new Error("the plugin factory published no ci-watch peer port on its global symbol")
+    return port
+  }
+  const requireDispose = (plugin: object): () => Promise<void> => {
+    const dispose = Reflect.get(plugin, "dispose")
+    if (typeof dispose !== "function") throw new Error("the plugin factory returned no dispose hook for its peer binding")
+    return dispose as () => Promise<void>
+  }
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((done) => { resolve = done })
+    return { promise, resolve }
+  }
+  type VerbResult = { exitCode: number; stdout: string; stderr: string }
+  const TERMINAL_SHA = "0123456789abcdef0123456789abcdef01234567"
+  const SUCCESS_REPORT = { status: "success", sha: TERMINAL_SHA, head_sha: TERMINAL_SHA, checks: { total: 1, passing: 1, failing: 0, pending: 0, skipped: 0 } }
+  // The factory claims a host lease before any tool runs, so the tests bind a
+  // fake runner whose lease names the synthetic release and this adapter's own
+  // contract digest; the real core binary is never executed.
+  const configureSyntheticLease = () => {
+    configureHostLease({
+      release: { coreBinary: "/synthetic/concord", releaseRoot: "/synthetic/release" },
+      runner: {
+        async run() {
+          return { exitCode: 0, stdout: JSON.stringify({ release_root: "/synthetic/release", core_binary: "/synthetic/concord", manifest_digest: manifestDigest }), stderr: "" }
+        },
+      },
+    })
+  }
+  const peerPlugin = async (client: unknown, serverUrl: URL, directory: string) =>
+    ConcordAdapterPlugin({ client: { _client: client } as never, serverUrl, directory, worktree: directory })
+
+  test("the factory publishes the peer port and stamps its binding onto the watches it admits", async () => {
+    expect(peerPort()).toBeUndefined()
+    const fixture = watchFixture({ confirmReply: true })
+    configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-peer-read-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+    let spawns = 0
+    configureCiWatch({ spawner: async () => { spawns++; return { exitCode: 0, stdout: JSON.stringify({ status: "success" }), stderr: "" } } })
+    configureCoreBinary("/synthetic/concord")
+    configureSyntheticLease()
+    const serverUrl = new URL("http://peer-a.invalid:4097/")
+    const directory = "/synthetic/plugin-project"
+    const plugin = await peerPlugin(fixture.client, serverUrl, directory)
+    const port = requirePeerPort()
+    expect(port.version).toBe(1)
+    const baseline = await port.read({ session_id: NOTICE_SESSION })
+    expect(baseline.coverage).toBe("complete_current_epoch")
+    expect(baseline.client_bound).toBe(true)
+    expect(baseline.gaps).toContain("prior_epoch_unverified")
+    expect(baseline.snapshot!.active).toEqual([])
+    expect(baseline.bindings).toHaveLength(1)
+    expect(baseline.bindings[0]!.directory).toBe(directory)
+    expect(baseline.bindings[0]!.endpoint).toBe(serverUrl.href)
+    // The read consumed no delivery writes and spawned nothing.
+    expect(fixture.posts).toHaveLength(0)
+    expect(spawns).toBe(0)
+    const bindingID = baseline.bindings[0]!.id
+    const started = JSON.parse(
+      (await plugin.tool.concord_ci_watch.execute!(
+        { repo: "owner/name", selector: { kind: "pr", value: "12" } },
+        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+      )).output,
+    ) as Record<string, unknown>
+    try {
+      expect(started.status).toBe("started")
+      await ciWatchSettled(String(started.watch_id))
+      const settled = await port.read({ session_id: NOTICE_SESSION })
+      expect(settled.coverage).toBe("complete_current_epoch")
+      expect(settled.snapshot!.active).toEqual([])
+      const receipt = settled.snapshot!.receipts[0]!
+      expect(receipt.binding_id).toBe(bindingID)
+      expect(receipt.delivery_state).toBe("delivered")
+      expect(settled.bindings.map((entry) => entry.id)).toContain(bindingID)
+    } finally {
+      await ciWatchSettled(String(started.watch_id))
+      drainQueuedCiReports(NOTICE_SESSION, "plugin-peer-delivered-drain", { parts: [] })
+    }
+  })
+
+  test("the peer port observes a held watch and then carries the terminal receipt with exact-head evidence", async () => {
+    const fixture = watchFixture({ promptStatus: 400 })
+    configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-peer-observe-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+    configureCoreBinary("/synthetic/concord")
+    configureSyntheticLease()
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
+    const port = requirePeerPort()
+    const baseline = await port.read({ session_id: NOTICE_SESSION })
+    const bindingID = baseline.bindings[0]!.id
+    const held = deferred<VerbResult>()
+    configureCiWatch({ spawner: () => held.promise })
+    const started = JSON.parse(
+      (await plugin.tool.concord_ci_watch.execute!(
+        { repo: "owner/name", selector: { kind: "pr", value: "12" } },
+        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+      )).output,
+    ) as Record<string, unknown>
+    try {
+      expect(started.status).toBe("started")
+      const observing = await port.read({ session_id: NOTICE_SESSION })
+      expect(observing.snapshot!.active).toHaveLength(1)
+      expect(observing.snapshot!.active[0]!.phase).toBe("observing")
+      expect(observing.snapshot!.active[0]!.binding_id).toBe(bindingID)
+      expect(observing.snapshot!.active[0]!.last_observation).toBeNull()
+      held.resolve({ exitCode: 0, stdout: JSON.stringify(SUCCESS_REPORT), stderr: "" })
+      await ciWatchSettled(String(started.watch_id))
+      const settled = await port.read({ session_id: NOTICE_SESSION })
+      expect(settled.snapshot!.active).toHaveLength(1)
+      expect(settled.snapshot!.active[0]!.phase).toBe("queued")
+      expect(settled.snapshot!.active[0]!.binding_id).toBe(bindingID)
+      const receipt = settled.snapshot!.receipts[0]!
+      expect(receipt.binding_id).toBe(bindingID)
+      expect(receipt.delivery_state).toBe("queued")
+      expect(receipt.terminal_observation).toMatchObject({ sha: TERMINAL_SHA, evidence: "exact_head", stale: false })
+    } finally {
+      held.resolve({ exitCode: 0, stdout: JSON.stringify(SUCCESS_REPORT), stderr: "" })
+      await ciWatchSettled(String(started.watch_id))
+      drainQueuedCiReports(NOTICE_SESSION, "plugin-peer-observe-drain", { parts: [] })
+    }
+  })
+
+  test("plugin dispose invalidates the peer port for its binding without canceling the running watch", async () => {
+    const fixture = watchFixture({ promptStatus: 400 })
+    configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-peer-dispose-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+    configureCoreBinary("/synthetic/concord")
+    configureSyntheticLease()
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
+    const port = requirePeerPort()
+    const baseline = await port.read({ session_id: NOTICE_SESSION })
+    const generationBefore = baseline.binding_generation
+    const bindingID = baseline.bindings[0]!.id
+    const held = deferred<VerbResult>()
+    configureCiWatch({ spawner: () => held.promise })
+    const started = JSON.parse(
+      (await plugin.tool.concord_ci_watch.execute!(
+        { repo: "owner/name", selector: { kind: "pr", value: "12" } },
+        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+      )).output,
+    ) as Record<string, unknown>
+    try {
+      expect(started.status).toBe("started")
+      const dispose = requireDispose(plugin)
+      await dispose()
+      const invalidated = await port.read({ session_id: NOTICE_SESSION })
+      expect(invalidated.coverage).toBe("unknown")
+      expect(invalidated.gaps).toContain("disposed_watch")
+      expect(invalidated.gaps).toContain("no_live_binding")
+      expect(invalidated.binding_generation).toBeGreaterThan(generationBefore)
+      expect(invalidated.snapshot!.active[0]!.binding_id).toBe(bindingID)
+      // Dispose kills the binding, not the watch: the held slice still
+      // resolves and the loop runs to its queued terminal report.
+      held.resolve({ exitCode: 0, stdout: JSON.stringify(SUCCESS_REPORT), stderr: "" })
+      await ciWatchSettled(String(started.watch_id))
+      const queued = await port.read({ session_id: NOTICE_SESSION })
+      expect(queued.coverage).toBe("unknown")
+      expect(queued.snapshot!.active[0]!.phase).toBe("queued")
+      expect(queued.snapshot!.active[0]!.binding_id).toBe(bindingID)
+      expect(queued.snapshot!.receipts[0]!.delivery_state).toBe("queued")
+    } finally {
+      held.resolve({ exitCode: 0, stdout: JSON.stringify(SUCCESS_REPORT), stderr: "" })
+      await ciWatchSettled(String(started.watch_id))
+      drainQueuedCiReports(NOTICE_SESSION, "plugin-peer-dispose-drain", { parts: [] })
+    }
+  })
+
+  test("a second same-endpoint factory keeps an empty session provable after the first binding disposes", async () => {
+    const fixture = watchFixture()
+    configureCoreBinary("/synthetic/concord")
+    configureSyntheticLease()
+    const serverUrl = new URL("http://peer-a.invalid:4097/")
+    const directory = "/synthetic/plugin-project"
+    const first = await peerPlugin(fixture.client, serverUrl, directory)
+    const second = await peerPlugin(fixture.client, serverUrl, directory)
+    const port = requirePeerPort()
+    expect((await port.read({ session_id: NOTICE_SESSION })).coverage).toBe("complete_current_epoch")
+    await requireDispose(first)()
+    const after = await port.read({ session_id: NOTICE_SESSION })
+    expect(after.coverage).toBe("complete_current_epoch")
+    expect(after.snapshot!.active).toEqual([])
+    expect(after.bindings).toHaveLength(1)
+    // With no live binding left, the session absence is no longer provable.
+    await requireDispose(second)()
+    expect((await port.read({ session_id: NOTICE_SESSION })).coverage).toBe("unknown")
+  })
+
+  test("repeated dispose is idempotent and the binding generation stays stable", async () => {
+    const fixture = watchFixture()
+    configureCoreBinary("/synthetic/concord")
+    configureSyntheticLease()
+    const plugin = await peerPlugin(fixture.client, new URL("http://peer-a.invalid:4097/"), "/synthetic/plugin-project")
+    const port = requirePeerPort()
+    const before = await port.read({ session_id: NOTICE_SESSION })
+    const dispose = requireDispose(plugin)
+    await dispose()
+    const afterFirst = await port.read({ session_id: NOTICE_SESSION })
+    expect(afterFirst.coverage).toBe("unknown")
+    expect(afterFirst.binding_generation).toBeGreaterThan(before.binding_generation)
+    await dispose()
+    const afterSecond = await port.read({ session_id: NOTICE_SESSION })
+    expect(afterSecond.binding_generation).toBe(afterFirst.binding_generation)
+    expect(afterSecond.coverage).toBe("unknown")
+  })
 })
 
 // The control plane is module-shared state. A test that binds a fake client
@@ -625,6 +859,7 @@ afterEach(() => {
   bindCiWatchClient(undefined)
   configureCoreBinary(null)
   resetTurnMoveBoundaries()
+  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 
 // The factory claims a host lease at load, which fails against the unstamped

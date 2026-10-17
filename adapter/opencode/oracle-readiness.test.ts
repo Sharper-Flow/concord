@@ -2,11 +2,13 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
 import { configureCoreBinary, dispatchWorker, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import type { CredentialStore } from "./credentials"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
 const oid = "a".repeat(40)
 const lane = agentLanes.find((entry) => entry.id === "implement")!
 const signal = new AbortController().signal
+const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 const controlArgv = ["go", "test", "-count=1", "-run", "^(TestSubject)$", "."]
 
 function packet(subject: string | undefined = oid): AgentLanePacket {
@@ -41,6 +43,30 @@ function packet(subject: string | undefined = oid): AgentLanePacket {
   } as AgentLanePacket
 }
 
+const pytestWitness = "tests/test_billing.py::test_invoice_total"
+const pytestArgv = ["pytest", pytestWitness]
+const checkWitnesses = ["format", "types"]
+const checkArgv = ["check", ...checkWitnesses]
+
+function targetPacket(pair: { materializer: string; runner: string } = { materializer: "uv", runner: "pytest" }): AgentLanePacket {
+  const candidate = packet()
+  const witnesses = pair.runner === "pytest" ? [pytestWitness] : checkWitnesses
+  const argv = pair.runner === "pytest" ? pytestArgv : checkArgv
+  const control = candidate.inputs.worker_job!.acceptance_oracle!.controls
+  control[0].argv = argv
+  const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+  delete preparation.selected_test_names
+  delete preparation.case_to_test_map
+  preparation.logical_argv_digest = `sha256:${createHash("sha256").update(JSON.stringify(argv)).digest("hex")}`
+  preparation.recipe_kind = "target_runner_v1"
+  preparation.target_materializer = pair.materializer
+  preparation.target_runner = pair.runner
+  preparation.selected_witness_ids = witnesses
+  preparation.case_to_witness_map = { "case:subject": witnesses }
+  preparation.selected_distinct_count = witnesses.length
+  return candidate
+}
+
 function runner(head = oid, status = "", fail = false): DispatchRunner {
   return { async run(argv) {
     const args = argv.slice(3)
@@ -49,12 +75,9 @@ function runner(head = oid, status = "", fail = false): DispatchRunner {
   } }
 }
 
-test("core subject must match observed clean HEAD", async () => {
-  expect(await verifyPacketOracleReadiness(packet(), { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
-  for (const deps of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0"), runner(oid, "", true), runner("not-an-oid")]) {
-    const refusal = await verifyPacketOracleReadiness(packet(), { runner: deps, directory: "/synthetic/tree", signal })
-    expect(refusal).not.toBeNull()
-    expect(refusal!.message).toContain("worktree_verify")
+test("readiness leaves subject freshness to the core and runs no git", async () => {
+  for (const deps of [runner(), runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0"), runner(oid, "", true), runner("not-an-oid")]) {
+    expect(await verifyPacketOracleReadiness(packet(), { runner: deps, directory: "/synthetic/tree", signal })).toBeNull()
   }
 })
 
@@ -84,14 +107,14 @@ test("preparation from the primary Project cannot replace the control Project", 
   expect(probes).toBe(0)
 })
 
-test("subject drift and dirty tree refuse before authorization", async () => {
+test("subject drift and dirty tree authorize; the core owns their refusal", async () => {
   configureCoreBinary("concord-test")
   for (const probes of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0")]) {
     let authorizations = 0
-    const result = await dispatchWorker(packet(), { runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
-    expect(authorizations).toBe(0)
-    expect(result.outcome).toBe("error")
-    expect(result.error?.message).toContain("worktree_verify")
+    const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
+    // Readiness no longer refuses drift: authorization is reached, and the
+    // stubbed dispatch may stop later for reasons this check does not own.
+    expect(authorizations).toBe(1)
   }
   const missing = packet()
   delete missing.inputs.work_context!.subject_commit
@@ -124,11 +147,102 @@ test("qualified preparation refs and metadata are mandatory before any probe or 
   }
 })
 
-test("qualified preparation admission performs only clean HEAD reads and never auto-prepares", async () => {
+test("qualified preparation admission runs no git and never auto-prepares", async () => {
   const seen: string[][] = []
-  const git = runner()
   expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
-    runner: { async run(argv, input, cancellation) { seen.push(argv); return git.run(argv, input, cancellation) } } })).toBeNull()
-  expect(seen.map((argv) => argv[3])).toEqual(["rev-parse", "status"])
-  for (const argv of seen) expect(argv[0]).toBe("git")
+    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
+  expect(seen).toEqual([])
+})
+
+test("the adapter readiness runner receives no HEAD or status calls; the core owns subject freshness", async () => {
+  const seen: string[][] = []
+  expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
+    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
+  for (const argv of seen) {
+    expect(["rev-parse", "status"]).not.toContain(argv[3])
+  }
+})
+
+test("target preparations pass only the exact admitted materializer and runner pairs", async () => {
+  for (const pair of [{ materializer: "uv", runner: "pytest" }, { materializer: "none", runner: "check" }, { materializer: "uv", runner: "check" }]) {
+    expect(await verifyPacketOracleReadiness(targetPacket(pair), { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
+  }
+  for (const pair of [{ materializer: "none", runner: "pytest" }, { materializer: "future", runner: "pytest" }, { materializer: "uv", runner: "future" }, { materializer: "", runner: "check" }]) {
+    let probes = 0
+    const refusal = await verifyPacketOracleReadiness(targetPacket(pair), { directory: "/synthetic/tree", signal,
+      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    expect(refusal).not.toBeNull()
+    expect(refusal!.message).toContain("preparation")
+    expect(probes).toBe(0)
+  }
+})
+
+test("target witness metadata must be real, distinct, and case-complete before any probe", async () => {
+  const longWitness = "tests/" + "x".repeat(250) + "/test_too_long.py::test_case"
+  for (const mutation of [
+    (p: Record<string, unknown>) => { delete p.recipe_kind },
+    (p: Record<string, unknown>) => { p.recipe_kind = "target_runner_v2" },
+    (p: Record<string, unknown>) => { p.selected_test_names = ["TestSubject"] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = [] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = [pytestWitness, pytestWitness] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = [longWitness] },
+    (p: Record<string, unknown>) => { p.selected_witness_ids = ["tests/na\x00l.py::test_case"] },
+    (p: Record<string, unknown>) => { p.selected_distinct_count = 2 },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = {} },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:other": [pytestWitness] } },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:subject": [] } },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:subject": [pytestWitness, pytestWitness, pytestWitness, pytestWitness, pytestWitness, pytestWitness, pytestWitness, pytestWitness, pytestWitness] } },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:subject": ["checks/undeclared.py::test_case"] } },
+    (p: Record<string, unknown>) => { p.case_to_witness_map = { "case:subject": [pytestWitness], "case:extra": [pytestWitness] } },
+  ]) {
+    const candidate = targetPacket()
+    mutation(candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>)
+    let probes = 0
+    const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
+      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    expect(refusal).not.toBeNull()
+    expect(refusal!.message).toContain("preparation")
+    expect(probes).toBe(0)
+  }
+})
+
+test("target-selected witnesses must be exactly the union of the case map", async () => {
+  const candidate = targetPacket({ materializer: "none", runner: "check" })
+  const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+  preparation.selected_witness_ids = checkWitnesses.concat(["extra"])
+  preparation.selected_distinct_count = 3
+  let probes = 0
+  const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
+    runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+  expect(refusal).not.toBeNull()
+  expect(refusal!.message).toContain("preparation")
+  expect(probes).toBe(0)
+})
+
+test("target witness limits count UTF-8 bytes rather than characters", async () => {
+  for (const [witness, accepted] of [["字".repeat(85) + "a", true], ["字".repeat(86), false]] as const) {
+    const candidate = targetPacket({ materializer: "none", runner: "check" })
+    const control = candidate.inputs.worker_job!.acceptance_oracle!.controls[0]
+    control.argv = ["check", witness]
+    const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
+    preparation.logical_argv_digest = `sha256:${createHash("sha256").update(JSON.stringify(control.argv)).digest("hex")}`
+    preparation.selected_witness_ids = [witness]
+    preparation.selected_distinct_count = 1
+    preparation.case_to_witness_map = { "case:subject": [witness] }
+    let probes = 0
+    const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
+      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    expect(refusal === null).toBe(accepted)
+    expect(probes).toBe(0)
+  }
+})
+
+test("a mixed or unknown target shape refuses at the closed packet schema before readiness", async () => {
+  configureCoreBinary("concord-test")
+  const mixed = targetPacket()
+  ;(mixed.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>).selected_test_names = ["TestSubject"]
+  const authorizations = { count: 0 }
+  const result = await dispatchWorker(mixed, { runner: runner(), workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations.count++; return { outcome: "ok" } } })
+  expect(authorizations.count).toBe(0)
+  expect(result.outcome).toBe("error")
 })

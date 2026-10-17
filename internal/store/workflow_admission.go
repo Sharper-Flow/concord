@@ -125,6 +125,9 @@ type WorkflowAdmissionState struct {
 	// CorrectionEscalated reports a recorded worker correction that reached
 	// the attempt limit.
 	CorrectionEscalated bool
+	// UnconsumedUnboundRejection reports an unbound rejection at the
+	// current step no materialized dispatch has consumed yet.
+	UnconsumedUnboundRejection bool
 	// RetryConvergence is derived from recorded finding sets or a contract
 	// supersession. An escalated retry needs this basis, not an approval.
 	RetryConvergence WorkflowRetryConvergence
@@ -152,6 +155,9 @@ type WorkflowAdmissionState struct {
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
 	// requirement the recovery bind_evidence can settle.
 	EvidenceRecoveryRoute bool
+	// EvidenceRecovery retains the eligibility owner's snapshot facts for
+	// readers; admission still decides through EvidenceRecoveryRoute.
+	EvidenceRecovery *workflowEvidenceBindingRecoveryState
 	// PendingOperatorDecision reports an open operator question at the
 	// current step: the checkpoint declares an approval-required action and
 	// the investigation artifact stands behind it. workflowAdmit refuses
@@ -167,7 +173,8 @@ type WorkflowAdmissionState struct {
 	// evidence kind bound. Nil when the deliverables stand or no premise
 	// question is open. The field name is the common case; any typed refusal
 	// of that gate lands here. workflowAdmit refuses confirm_premise on it, so the
-	// preflight and the work pin answer what the confirmation enforces.
+	// preflight and the work pin answer what the confirmation enforces. At the
+	// complete step it also carries the shared acceptance-subject refusal.
 	AcceptanceDeliverablesMissing error
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
@@ -333,7 +340,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, workerFailureErr
 	}
 	state.WorkerFailureRecovery = workerFailureRoute
-	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject, 0)
+	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject)
 	if correctionRouteErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, correctionRouteErr
 	}
@@ -380,6 +387,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else if correctionErr == nil && correction != nil {
 		state.CorrectionEscalated = correction.Escalated
 	}
+	// A current-step advance condition from the history's consumption answer.
+	if workflowStepCarriesRejectionHold(definition, currentStep) {
+		rejectionHold, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, q, workID, currentStep, subject, 0)
+		if rejectionHoldErr != nil {
+			return WorkflowAdmissionState{}, nil, nil, rejectionHoldErr
+		}
+		state.UnconsumedUnboundRejection = rejectionHold
+	}
 	nonProgress, wallErr := workflowNonProgressAttemptCount(ctx, q, workID, subject)
 	if wallErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, wallErr
@@ -412,42 +427,20 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, holdErr
 	}
 	state.DispatchHold = dispatchHold
-	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryAvailable(ctx, q, definition, workID, currentStep); evidenceErr != nil {
+	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0); evidenceErr != nil {
 		if !duplicatedProjection || !workflowDuplicateContractProjection(evidenceErr) {
 			return WorkflowAdmissionState{}, nil, nil, evidenceErr
 		}
 		state.EvidenceRecoveryRoute = false
 	} else {
-		state.EvidenceRecoveryRoute = evidenceRecovery
+		state.EvidenceRecoveryRoute = evidenceRecovery.Refusal == nil && len(evidenceRecovery.Requirements) != 0
+		state.EvidenceRecovery = &evidenceRecovery
 	}
-	// The operator question reads the active contract's premise, so a
-	// contractless or ambiguous projection has no question to answer.
-	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, currentStep)
-	if state.PendingOperatorDecision {
-		if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
-			var failure *Failure
-			if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
-				state.PendingOperatorDecision = false
-			} else {
-				return WorkflowAdmissionState{}, nil, nil, artifactErr
-			}
-		}
-	}
-	if state.PendingOperatorDecision {
-		if action, _ := workflowOperatorQuestionAction(definition, currentStep); action == "confirm_premise" {
-			if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
-				// A typed refusal is the confirmation's answer; only an
-				// unreadable projection fails the fold.
-				var failure *Failure
-				if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
-					return WorkflowAdmissionState{}, nil, nil, deliverablesErr
-				}
-				state.AcceptanceDeliverablesMissing = deliverablesErr
-			}
-		}
+	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
 	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
-		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
+		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 		if completeErr != nil {
 			return WorkflowAdmissionState{}, nil, nil, completeErr
 		}
@@ -469,6 +462,48 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.Mandate = mandate
 	return state, proofRuns, integrationRuns, nil
+}
+
+func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
+	// The operator question reads the active contract's premise, so a
+	// contractless or ambiguous projection has no question to answer.
+	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, state.Step)
+	if state.ActiveContracts == 1 {
+		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
+		if subjectErr != nil {
+			var failure *Failure
+			if !failureAs(subjectErr, &failure) || failure.Kind != KindStaleRequiresReview {
+				return subjectErr
+			}
+			state.AcceptanceDeliverablesMissing = subjectErr
+		}
+	}
+	if !state.PendingOperatorDecision {
+		return nil
+	}
+	if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
+		var failure *Failure
+		if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
+			state.PendingOperatorDecision = false
+			return nil
+		}
+		return artifactErr
+	}
+	if action, _ := workflowOperatorQuestionAction(definition, state.Step); action != "confirm_premise" {
+		return nil
+	}
+	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
+		// A typed refusal is the confirmation's answer; only an
+		// unreadable projection fails the fold.
+		var failure *Failure
+		if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
+			return deliverablesErr
+		}
+		if state.AcceptanceDeliverablesMissing == nil {
+			state.AcceptanceDeliverablesMissing = deliverablesErr
+		}
+	}
+	return nil
 }
 
 // workflowCorrectionWindowContinued reports whether a converged retry already
@@ -606,6 +641,10 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
 		return decision
 	}
+	if (actionID == "confirm_premise" || actionID == "complete") && state.AcceptanceDeliverablesMissing != nil {
+		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
+		return decision
+	}
 	// The question-open answer is the admission's: confirm_premise is
 	// answered only through an open operator question, so the decision
 	// marks the question closed and refuses advertisement. The work pin
@@ -613,10 +652,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "confirm_premise" && !state.PendingOperatorDecision {
 		decision.OperatorQuestionClosed = true
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "no operator question is open at the current workflow step", false, "record the investigation artifact the question requires, or take a declared route")
-		return decision
-	}
-	if actionID == "confirm_premise" && state.AcceptanceDeliverablesMissing != nil {
-		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return decision
 	}
 	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
@@ -643,6 +678,18 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
 			decision.AdvanceHeld = true
 			decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
+			return decision
+		}
+	}
+	// The accept-side sibling of the dispatch hold; the payload-omitted held
+	// shapes defer to the guard and the fold.
+	if state.UnconsumedUnboundRejection && actionID == "accept_worker_result" {
+		mode, modeOK := workflowActionExecutionMode(definition, actionID)
+		advances := modeOK && mode == ActionAdvance &&
+			!workflowAcceptDeliveryAdmissionActive(definition, state.Step) &&
+			!workflowWorkerJobsActive(definition)
+		if failure := workflowRejectionAdvanceFailure(true, actionID, advances); failure != nil {
+			decision.Failure = failure
 			return decision
 		}
 	}
@@ -808,6 +855,50 @@ func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) Workflo
 // ride the review gate's acceptance route.
 func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision, actionID string) bool {
 	return decision.FreshReviewRequired && actionID == "accept_worker_result"
+}
+
+// workflowStepCarriesRejectionHold: a named non-checkpoint step carries the hold.
+func workflowStepCarriesRejectionHold(definition WorkflowDefinition, currentStep string) bool {
+	step := workflowStep(definition, currentStep)
+	return step != nil && step.Kind != WorkflowStepHumanCheckpoint
+}
+
+// workflowUnconsumedUnboundRejection reports whether an unbound
+// reject_worker_result record at the current step stands unconsumed in the
+// prefix beforeSeq names (exclusive; 0 reads the current prefix), reusing the
+// correction walk's consumption rule over a shallow copy of its records.
+func workflowUnconsumedUnboundRejection(ctx context.Context, q queryer, workID, currentStep, subject string, beforeSeq int64) (bool, error) {
+	if currentStep == "" {
+		return false, nil
+	}
+	prefix := beforeSeq - 1
+	if beforeSeq <= 0 {
+		prefix = int64(1) << 62
+	}
+	history, err := workflowCorrectionWalk(ctx, q, workID, prefix, subject)
+	if err != nil {
+		return false, err
+	}
+	filtered := *history
+	filtered.records = make([]workflowCorrectionRecordState, 0, len(history.records))
+	for _, record := range history.records {
+		if record.fields.ActionID != "reject_worker_result" || record.jobKey != "" || record.fields.StepID != currentStep {
+			continue
+		}
+		filtered.records = append(filtered.records, record)
+	}
+	return filtered.openRecord("") != nil, nil
+}
+
+// workflowRejectionAdvanceFailure is the shared unconsumed-rejection advance
+// refusal; non-advancing held shapes keep their routes.
+func workflowRejectionAdvanceFailure(held bool, actionID string, advances bool) *Failure {
+	if !held || actionID != "accept_worker_result" || !advances {
+		return nil
+	}
+	return newFailure(KindIllegalLifecycleTransition, "workflow_action",
+		"an unconsumed rejected worker result holds the step's advance", false,
+		"dispatch a fresh worker whose materialized completion consumes the correction, then advance")
 }
 
 // workflowReadyReviewAttemptTx names the latest completed review attempt

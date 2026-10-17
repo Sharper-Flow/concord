@@ -29,6 +29,12 @@ const MAX_CLI_INPUT_BYTES = 65_536
 // through boundedTextPrefix, so the bytes the store counts are the bytes the
 // adapter bounded, never a UTF-16 code-unit count.
 const MAX_FAILURE_DETAIL_BYTES = 4_096
+// A failure-attribution source message carries the exact observed diagnostic
+// the boundary saw, bounded like the store's observed-text bound
+// (WorkerFailureObservedTextMaxBytes in internal/store/
+// worker_failure_attribution.go): past the bound the observation is refused
+// whole, never truncated into a different claim.
+const MAX_FAILURE_OBSERVATION_MESSAGE_BYTES = 2_048
 // A refused readback retains diagnostics on the recorded failed attempt: a
 // prefix of the received export body, what ran, how the child ended, and a
 // prefix of the result the worker produced. The bounds keep the assembled
@@ -294,7 +300,13 @@ export interface NativeOracleStream {
 
 // The store selects these immutable records by the job's preparation refs.
 // This type carries metadata only, never the retained stdout/stderr bytes.
-export interface NativeOraclePreparation {
+// The recipe family closes the record: a Go preparation keeps the legacy
+// selected test names and case map and carries no host props, while a
+// target_runner_v1 preparation carries the closed materializer/runner axes
+// and real witness IDs and never fabricates Go test names. The undefined
+// mirrors make a mixed-family shape unrepresentable and keep both witness
+// grammars addressable across the union.
+interface NativeOraclePreparationCommon {
   protocol: "native_oracle_v2"
   phase: "prepare"
   qualification: "ready" | "unavailable"
@@ -312,8 +324,6 @@ export interface NativeOraclePreparation {
   files: { path: string; blob_oid: string; sha256: string }[]
   toolchain_identity: string
   build_environment_digest: string
-  selected_test_names: string[]
-  case_to_test_map: Record<string, string[]>
   selected_distinct_count: number
   native_plan_sha256: string
   stdout: NativeOracleStream
@@ -321,10 +331,108 @@ export interface NativeOraclePreparation {
   streams_complete: boolean
 }
 
+export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon {
+  selected_test_names: string[]
+  case_to_test_map: Record<string, string[]>
+  recipe_kind?: undefined
+  target_materializer?: undefined
+  target_runner?: undefined
+  selected_witness_ids?: undefined
+  case_to_witness_map?: undefined
+}
+
+export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
+  recipe_kind: "target_runner_v1"
+  target_materializer: "none" | "uv"
+  target_runner: "pytest" | "check"
+  selected_witness_ids: string[]
+  case_to_witness_map: Record<string, string[]>
+  selected_test_names?: undefined
+  case_to_test_map?: undefined
+}
+
+export type NativeOraclePreparation = NativeOracleGoPreparation | NativeOracleTargetPreparation
+
+// The selected research mirror mirrors $defs/lane_work_context_research_* of
+// contracts/agent-lane-packet.schema.json: the closed selection tuple, the
+// native finding with its always-serialized applicability scopes, the linked
+// source descriptor, and the resolved/unresolved entry branches. Exactly the
+// resolved state carries the native finding and its linked sources; every
+// other state carries the selection and provenance only. The closed packet
+// schema owns the bounds; the builder never re-derives or filters the
+// entries, because the core refuses a dispatch whose bytes differ from the
+// current view.
+export interface AgentLanePacketWorkContextResearchSelection {
+  pack_id: string
+  revision: number
+  finding_id: string
+  domain_id: string
+  product_wide_rationale?: string
+}
+
+export interface AgentLanePacketWorkContextResearchScopes {
+  mode: "home" | "explicit"
+  product_ids?: string[]
+  project_ids?: string[]
+  domain_ids?: string[]
+  tag_ids?: string[]
+}
+
+export interface AgentLanePacketWorkContextResearchFinding {
+  pack_id: string
+  revision: number
+  finding_id: string
+  kind: "observation" | "inference" | "hypothesis" | "conclusion" | "recommendation"
+  statement: string
+  confidence: "low" | "medium" | "high"
+  freshness: "current" | "stale" | "unknown"
+  status: "active" | "contradicted" | "superseded"
+  source_ids?: string[]
+  scopes: AgentLanePacketWorkContextResearchScopes
+}
+
+export interface AgentLanePacketWorkContextResearchSource {
+  pack_id: string
+  revision: number
+  source_id: string
+  kind: "official_doc" | "source_code" | "issue" | "paper" | "web" | "local_evidence"
+  locator: string
+  title: string
+  publisher_or_author: string
+  published_at?: string
+  accessed_at: string
+}
+
+interface AgentLanePacketWorkContextResearchEntry {
+  selection: AgentLanePacketWorkContextResearchSelection
+  view_id: string
+  selection_event_id: string
+  selection_event_seq: number
+  ordinal: number
+  required: boolean
+}
+
+export interface AgentLanePacketWorkContextResearchEntryResolved extends AgentLanePacketWorkContextResearchEntry {
+  state: "resolved"
+  finding: AgentLanePacketWorkContextResearchFinding
+  sources: AgentLanePacketWorkContextResearchSource[]
+}
+
+export interface AgentLanePacketWorkContextResearchEntryUnresolved extends AgentLanePacketWorkContextResearchEntry {
+  state: "missing" | "stale" | "rebound" | "inactive"
+}
+
+export type AgentLanePacketWorkContextResearchFindingView =
+  | AgentLanePacketWorkContextResearchEntryResolved
+  | AgentLanePacketWorkContextResearchEntryUnresolved
+
 export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
   findings: AgentLanePacketWorkContextFindingView[]
+  // The selected research entries the latest declaration anchor resolved, in
+  // authored order; omitted when the declaration selects nothing.
+  research_findings?: AgentLanePacketWorkContextResearchFindingView[]
   domain_groups: {
     domain_id: string
     required_reading_ordinals: number[]
@@ -1404,6 +1512,109 @@ function workerReportedFailureDetail(report: AgentLaneReport): string {
   return boundedTextPrefix(`worker reported failure: ${rendered}`, MAX_FAILURE_DETAIL_BYTES)
 }
 
+// The two detail shapes a report refusal opens with before the first schema or
+// admission message: an output that carried no parseable report, and a report
+// the selector refused as malformed. Every other refusal reached a parsed
+// report and refused it in validation.
+const REPORT_PARSE_DETAIL_PREFIXES = [
+  "worker output carried no agent-lane-report.v1 report",
+  "worker report selection refused:",
+]
+
+// reportRefusalFailureObservation records a refused report at the phase that
+// refused it: report_parse when no report was parsed at all, report_validation
+// when a parsed report failed the closed schema or its admission checks. The
+// validator source carries the refusal message byte-exact within the bound —
+// never truncated — and the digest of the exact output the validator saw, so
+// an over-bound refusal omits the copy while the digest keeps binding the full
+// observed output. Exported for the attribution tests. The cause stays a
+// report-contract hypothesis because no rule here judges the worker's
+// implementation.
+export function reportRefusalFailureObservation(detail: string, resultBody: string): WorkerFailureObservation {
+  const message = exactObservationMessage(detail)
+  return {
+    observer: "host_adapter",
+    phase: REPORT_PARSE_DETAIL_PREFIXES.some((prefix) => detail.startsWith(prefix)) ? "report_parse" : "report_validation",
+    cause: "report_contract",
+    basis: "hypothesis",
+    sources: [{ kind: "validator", digest: sha256Digest(resultBody), ...(message !== undefined ? { message } : {}) }],
+  }
+}
+
+// workerReportFailureObservation records an admitted failed report as the
+// worker's own observation. Its only source is the admitted report bound by
+// the content hash of its exact JSON beside the report's exact short status —
+// never derived prose about it; the locator stays empty because the parent
+// records the report digest, and the cause stays unknown because the adapter
+// never classifies the worker's prose, and a worker report can never claim a
+// supported basis.
+function workerReportFailureObservation(report: CanonicalLaneReport): WorkerFailureObservation {
+  return {
+    observer: "worker_report",
+    phase: "worker_execution",
+    cause: "unknown",
+    basis: "unknown",
+    sources: [{ kind: "admitted_report", digest: sha256Digest(JSON.stringify(report)), message: report.status }],
+  }
+}
+
+// evidenceWriteFailureObservation records the core's refusal of a terminal
+// payload at the evidence_write phase: the validator source carries the
+// refusal byte-exact within the bound — never truncated — and the digest of
+// the exact payload the core refused. Exported for the attribution tests.
+export function evidenceWriteFailureObservation(detail: string, refusedPayload: unknown): WorkerFailureObservation {
+  const message = exactObservationMessage(detail)
+  return {
+    observer: "host_adapter",
+    phase: "evidence_write",
+    cause: "report_contract",
+    basis: "hypothesis",
+    sources: [{ kind: "validator", digest: sha256Digest(JSON.stringify(refusedPayload)), ...(message !== undefined ? { message } : {}) }],
+  }
+}
+
+// The bare host cancellation string. The host ends a Task with it when nothing
+// supplied a typed diagnostic, and it stays verbatim in every diagnostic it
+// rides: an interrupt is not a provider fault.
+export const TASK_CANCELLED_ERROR = "Task cancelled"
+
+// hostFailureFallbackObservation covers a direct failWorkerAttempt caller that
+// retained no typed host sources: the terminal host arm is still recorded from
+// the detail the host supplied, with the cause the host record supports —
+// none. The same producer records the coordinator abandonment request the
+// host adapter observed: where the terminal arm binds the child session, the
+// abandonment arm binds the authenticated call identity (work, attempt, lane,
+// derived abandon event identity), and the digest binds the full detail in
+// both arms even when the copied message is omitted past the bound.
+function hostFailureFallbackObservation(
+  detail: string,
+  host: WorkerFailureHostObservation,
+  abandonIdentity?: { work_id: string; attempt_id: string; lane_id: string; event_id: string },
+): WorkerFailureObservation {
+  const message = exactObservationMessage(detail)
+  const digestSource = abandonIdentity === undefined ? { host, message: detail } : { host, message: detail, identity: abandonIdentity }
+  return {
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause: "unknown",
+    basis: "unknown",
+    sources: [{ kind: "host_event", digest: sha256Digest(JSON.stringify(digestSource)), ...(message !== undefined ? { message } : {}), host }],
+  }
+}
+
+// hostAbandonmentObservation records the coordinator abandonment request the
+// host observed: the tag names the request itself, the event type is the
+// declared operation, and the worker child session id rides only when the
+// host's retained dispatch record holds one — never the coordinator session.
+// The detail is what the host observed, never a host diagnosis.
+export function hostAbandonmentObservation(
+  detail: string,
+  identity: { work_id: string; attempt_id: string; lane_id: string; event_id: string },
+  workerSessionID?: string,
+): WorkerFailureObservation {
+  return hostFailureFallbackObservation(detail, { tag: "abandonment", event_type: "worker_abandon", ...(workerSessionID !== undefined ? { session_id: workerSessionID } : {}) }, identity)
+}
+
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
   return laneForIdentity(packet.lane_id, packet.lane_version, packet.lane_digest)
 }
@@ -1552,24 +1763,148 @@ export class CoreBinaryUnavailable extends Error {}
 // host_provenance_digest and issued_at: dispatch signs the core-recorded
 // digest there, complete and fail sign an empty packet_digest because their
 // window does not bind a packet (CD-0067 D6).
+//
+// Version 2 keeps the same framing under the worker-evidence-v2\0 prefix and
+// inserts observation_digest between packet_digest and issued_at, exactly as
+// the Go encoder does for Version 2; every other version encodes the released
+// v1 bytes, so an assertion this build does not know can never be mistaken
+// for a known format.
 export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uint8Array {
   const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "packet_digest", "issued_at", "nonce"]
+  const version = assertion["version"]
+  const prefix = version === 2 ? "worker-evidence-v2\0" : "worker-evidence-v1\0"
+  if (version === 2) names.splice(11, 0, "observation_digest")
   const body = names.map((key) => {
     const value = assertion[key]
     const text = value == null ? "" : typeof value === "number" ? String(value) : String(value)
     const bytes = new TextEncoder().encode(text)
     return `${key}=${bytes.length}:${text}|`
   }).join("")
-  return new TextEncoder().encode(`worker-evidence-v1\0${body}`)
+  return new TextEncoder().encode(`${prefix}${body}`)
+}
+
+// The typed failure-attribution observation the adapter records beside a
+// terminal write. The shapes mirror internal/store/worker_failure_attribution.go
+// exactly: closed vocabularies, fixed member order, and omitempty members that
+// vanish when empty. The adapter only ever produces the host_adapter and
+// worker_report observations its boundary owns.
+export interface WorkerFailureHostObservation {
+  tag: "terminal" | "retry" | "cancellation" | "abandonment"
+  event_type: string
+  session_id?: string
+  message_id?: string
+  error_name?: string
+  error_code?: string
+  status_code?: number
+}
+
+export interface WorkerFailureSource {
+  kind: "host_event" | "admitted_report" | "validator" | "result" | "native_run"
+  locator?: string
+  digest?: string
+  message?: string
+  host?: WorkerFailureHostObservation
+}
+
+export interface WorkerFailureObservation {
+  observer: "host_adapter" | "worker_report" | "coordinator"
+  phase: "dispatch" | "host_execution" | "worker_execution" | "readback" | "report_parse" | "report_validation" | "evidence_write" | "result_review" | "integration"
+  cause: "unknown" | "assignment_requirement" | "implementation" | "dependency" | "host_provider" | "report_contract" | "identity_provenance"
+  basis: "unknown" | "hypothesis" | "supported"
+  sources: WorkerFailureSource[]
+  diagnosis?: string
+}
+
+// goJSONString escapes one string exactly as Go encoding/json marshals it with
+// the default HTML escaping the store's digest relies on: short escapes for
+// the five named controls, \u00xx for the remaining control bytes, \u003c,
+// \u003e, and \u0026 for the HTML-escaped characters, and \u2028/\u2029 for
+// the line separators Go never emits raw.
+function goJSONString(value: string): string {
+  let out = "\""
+  for (const ch of value) {
+    const code = ch.codePointAt(0) as number
+    if (ch === "\\") out += "\\\\"
+    else if (ch === "\"") out += "\\\""
+    else if (ch === "\n") out += "\\n"
+    else if (ch === "\r") out += "\\r"
+    else if (ch === "\t") out += "\\t"
+    else if (ch === "<") out += "\\u003c"
+    else if (ch === ">") out += "\\u003e"
+    else if (ch === "&") out += "\\u0026"
+    else if (code < 0x20) out += "\\u" + code.toString(16).padStart(4, "0")
+    else if (code === 0x2028) out += "\\u2028"
+    else if (code === 0x2029) out += "\\u2029"
+    else out += ch
+  }
+  return out + "\""
+}
+
+// canonicalObservationJSON serializes the observation in the Go struct's
+// member order with Go's omitempty semantics, so the bytes equal what
+// json.Marshal produces for the same value. Sources serialize in slice
+// order; the order is the order the boundary observed, and reordering it
+// changes the digest. Exported for the vector tests that pin the exact
+// byte form the digest hashes.
+export function canonicalObservationJSON(observation: WorkerFailureObservation): string {
+  let out = `{"observer":${goJSONString(observation.observer)},"phase":${goJSONString(observation.phase)},"cause":${goJSONString(observation.cause)},"basis":${goJSONString(observation.basis)},"sources":[`
+  out += observation.sources.map((source) => {
+    let entry = `{"kind":${goJSONString(source.kind)}`
+    if (source.locator) entry += `,"locator":${goJSONString(source.locator)}`
+    if (source.digest) entry += `,"digest":${goJSONString(source.digest)}`
+    if (source.message) entry += `,"message":${goJSONString(source.message)}`
+    if (source.host) {
+      entry += `,"host":{"tag":${goJSONString(source.host.tag)},"event_type":${goJSONString(source.host.event_type)}`
+      if (source.host.session_id) entry += `,"session_id":${goJSONString(source.host.session_id)}`
+      if (source.host.message_id) entry += `,"message_id":${goJSONString(source.host.message_id)}`
+      if (source.host.error_name) entry += `,"error_name":${goJSONString(source.host.error_name)}`
+      if (source.host.error_code) entry += `,"error_code":${goJSONString(source.host.error_code)}`
+      if (source.host.status_code) entry += `,"status_code":${source.host.status_code}`
+      entry += "}"
+    }
+    return entry + "}"
+  }).join(",")
+  out += "]"
+  if (observation.diagnosis) out += `,"diagnosis":${goJSONString(observation.diagnosis)}`
+  return out + "}"
+}
+
+// workerFailureObservationDigest computes the canonical observation-content
+// digest the CLI recomputes and the v2 assertion authenticates. It must equal
+// store.WorkerFailureObservationDigest byte for byte: same compact JSON, same
+// HTML escaping, same sha256 prefix.
+export function workerFailureObservationDigest(observation: WorkerFailureObservation): string {
+  return "sha256:" + createHash("sha256").update(canonicalObservationJSON(observation), "utf8").digest("hex")
+}
+
+// exactObservationMessage returns an observed diagnostic only when it fits
+// the store's observed-text bound byte for byte. An over-bound observation is
+// never truncated into a smaller claim: the copy is omitted, and the source's
+// digest stays computed over the full content, so the bound text survives the
+// attribution even when its prose does not. The legacy terminal_detail
+// summaries keep boundedTextPrefix; this bound owns producer sources only.
+export function exactObservationMessage(value: string): string | undefined {
+  return Buffer.byteLength(value, "utf8") <= MAX_FAILURE_OBSERVATION_MESSAGE_BYTES ? value : undefined
 }
 
 // signWorkerEvidence proves the adapter is the registered client authorized to
 // record this exact attempt's evidence (CD-0044 / issue #185). The signature
 // never reaches the worker: it is produced here, after the run, and is not part
 // of the lane packet or any prompt surface.
+//
+// An `observation` field in the signed fields upgrades the assertion to the
+// v2 format: the assertion carries version 2 and the canonical observation
+// digest, and the observation object itself is stripped from the assertion
+// JSON — the CLI recomputes the digest from the request's failure_attribution,
+// so only the digest is bound, never an echoed observation.
 async function signWorkerEvidence(credentials: CredentialStore, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
   const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))
-  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: fields.nonce ?? randomNonce() }
+  const { observation, ...identity } = fields as { observation?: WorkerFailureObservation } & Record<string, unknown>
+  const assertion: Record<string, unknown> = { ...identity, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: identity.nonce ?? randomNonce() }
+  if (observation) {
+    assertion.version = 2
+    assertion.observation_digest = workerFailureObservationDigest(observation)
+  }
   return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
 }
 
@@ -1595,7 +1930,7 @@ class WorkerEvidenceFailure extends Error {
 function workerEvidenceEnvelope(lane: AgentLane, packet: AgentLanePacket | Pick<AgentLanePacket, "work_id" | "attempt_id">, failure: WorkerEvidenceFailure): AgentResultEnvelope {
   const envelope = errorEnvelope(lane, packet, "error", "error", failure.message, "reconcile_operation")
   envelope.error!.retry_safe = failure.retrySafe
-  envelope.error!.details = { effect_state: failure.effectState, operation: failure.operation, event_ids: failure.eventIDs }
+  envelope.error!.details = { effect_state: failure.effectState, operation: failure.operation, event_ids: failure.eventIDs, core_kind: failure.kind }
   return envelope
 }
 
@@ -1637,6 +1972,19 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
   const detail = boundedTextPrefix(readbackFailureDetail(refusal, workerResult), MAX_FAILURE_DETAIL_BYTES)
+  // The readback refusal is a typed observation at the readback phase. The
+  // validator source carries the refusal message byte-exact within the bound
+  // — never truncated — and the export digest, which binds the exact body the
+  // refusal refused, so an over-bound refusal omits the copy while the digest
+  // keeps binding the full observed content.
+  const readbackMessage = exactObservationMessage(refusal.message)
+  const observation: WorkerFailureObservation = {
+    observer: "host_adapter",
+    phase: "readback",
+    cause: "report_contract",
+    basis: "hypothesis",
+    sources: [{ kind: "validator", digest: refusal.export_digest, ...(readbackMessage !== undefined ? { message: readbackMessage } : {}) }],
+  }
   // The born-failed record carries the manifest the dispatch bound when one
   // exists; an unbindable fallback records nothing, so the readback refusal
   // envelope carries the cause instead.
@@ -1652,6 +2000,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
       verb: "worker-dispatch", work_id: packet.work_id, attempt_id: packet.attempt_id,
       lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
       readback_model: "", failure_kind: failureKind, host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
+      observation,
     })
   } catch (error) {
     return String(error).slice(0, MAX_ERROR_BYTES)
@@ -1662,7 +2011,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
     readback_model: "", packet_schema_version: packet.schema_version,
     report_schema_version: packet.schema_version, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
-    host_provenance: provenance, ...packetWorkerJobBinding(packet), assertion,
+    host_provenance: provenance, failure_attribution: observation, ...packetWorkerJobBinding(packet), assertion,
   }, signal)
   if (failure === null) onRecorded?.()
   return failure?.message ?? null
@@ -2376,7 +2725,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance; failureAttribution?: WorkerFailureObservation },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -2390,7 +2739,10 @@ export async function completeWorkerAttempt(
 type WorkerCompletionOptions = Parameters<typeof completeWorkerAttempt>[3]
 
 // A terminal host tool event supplies failure and child identity, not a worker
-// report. Model and lane evidence still come from the session export.
+// report. Model and lane evidence still come from the session export. An
+// options.failureAttribution observation rides the terminal write when the
+// caller (the lane-completion settle path) retained typed host sources for
+// the exact child.
 export async function failWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
@@ -2401,6 +2753,15 @@ export async function failWorkerAttempt(
   onRecorded: () => void,
 ): Promise<AgentResultEnvelope> {
   return completeWorkerSession(lane, packet, workerSessionID, "", options, signal, detail, onRecorded)
+}
+
+// WorkerAbandonOutcome is the abandon route's answer: the terminal envelope
+// plus the explicit committed fact taken from the core/CLI success result —
+// the store recorded the closure. Consumers read the fact; nothing infers
+// commitment from retry flags or a missing effect state.
+export interface WorkerAbandonOutcome {
+  envelope: AgentResultEnvelope
+  committed: boolean
 }
 
 // abandonWorkerAttempt closes a dispatched attempt when no worker report exists.
@@ -2414,13 +2775,13 @@ export async function abandonWorkerAttempt(
   options: Omit<WorkerCompletionOptions, "workerDirectory"> & { abandonEventID?: string; abandonNonce?: string },
   signal: AbortSignal,
   onRecorded?: () => void,
-): Promise<AgentResultEnvelope> {
+): Promise<WorkerAbandonOutcome> {
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   let binary: string
   try {
     binary = concordBinaryPath(options.concordBinary)
   } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because the Concord core binary is unavailable: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+    return { envelope: errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because the Concord core binary is unavailable: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator"), committed: false }
   }
   const credentials = options.credentials ?? defaultCredentials
   let assertion: Record<string, unknown>
@@ -2434,23 +2795,25 @@ export async function abandonWorkerAttempt(
       lane_digest: lane.digest,
       readback_model: "",
       failure_kind: "abandoned",
+      ...(options.failureAttribution ? { observation: options.failureAttribution } : {}),
       ...(options.abandonNonce ? { nonce: options.abandonNonce } : {}),
     })
   } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+    return { envelope: errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator"), committed: false }
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-abandon", {
     event_id: options.abandonEventID ?? crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     detail: boundedTextPrefix(detail, MAX_FAILURE_DETAIL_BYTES),
+    ...(options.failureAttribution ? { failure_attribution: options.failureAttribution } : {}),
     assertion,
   }, signal)
-  if (failure) return workerEvidenceEnvelope(lane, packet, failure)
+  if (failure) return { envelope: workerEvidenceEnvelope(lane, packet, failure), committed: false }
   onRecorded?.()
   const envelope = errorEnvelope(lane, packet, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   envelope.error!.retry_safe = false
-  return envelope
+  return { envelope, committed: true }
 }
 
 async function completeWorkerSession(
@@ -2606,13 +2969,16 @@ async function completeWorkerSession(
   // failed report retain worker-claimed content. The host-failure and
   // invalid-report arms below carry no findings by construction — an invalid
   // report is a diagnostic, and diagnostics never supply active findings.
-  const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[] } =
+  // every worker-fail arm also carries its typed failure attribution.
+  // The host arm rides the caller-retained observation for the exact child;
+  // the report arms build theirs from what this boundary observed.
+  const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[]; failureAttribution: WorkerFailureObservation } =
     hostFailure !== undefined
-      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES), failureAttribution: options.failureAttribution ?? hostFailureFallbackObservation(hostFailure, { tag: hostFailure === TASK_CANCELLED_ERROR ? "cancellation" as const : "terminal" as const, event_type: "message.part.updated", session_id: workerSessionID }) }
       : "detail" in resolution
-      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES), failureAttribution: reportRefusalFailureObservation(resolution.detail, resultBody) }
       : resolution.report.status === "failed"
-        ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report), context_findings: resolution.report.context_findings }
+        ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report), context_findings: resolution.report.context_findings, failureAttribution: workerReportFailureObservation(resolution.report) }
         : { verb: "worker-complete", report: resolution.report }
 
   // CD-0067 D6: the dispatch assertion's packet_digest quotes the value
@@ -2703,6 +3069,7 @@ async function completeWorkerSession(
         lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
+        observation: terminal.failureAttribution,
       })
   } catch (error) {
     // The dispatch event is already durable, so this failure reports the
@@ -2720,6 +3087,7 @@ async function completeWorkerSession(
       failure_kind: terminal.failure_kind,
       detail: terminal.detail,
       context_findings: terminal.context_findings,
+      failure_attribution: terminal.failureAttribution,
       assertion: terminalAssertion,
     }, signal)
     if (failureRecordFailure) return workerEvidenceEnvelope(lane, packet, failureRecordFailure)
@@ -2731,7 +3099,9 @@ async function completeWorkerSession(
     return withHostBoundedOutput(failed, resultBody) ?? failed
   }
 
-  const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {
+  // The completion request is built as one object so the evidence-write close
+  // below can bind its refusal to the exact payload the core refused.
+  const completionRequest = {
     event_id: options.recovery?.terminal_event_id ?? workerEventID("worker-complete", packet),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
@@ -2745,7 +3115,8 @@ async function completeWorkerSession(
     worker_job: terminal.report.worker_job,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
-  }, signal)
+  }
+  const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", completionRequest, signal)
   if (completionFailure) {
     if (completionFailure.effectState !== "none" || completionFailure.retrySafe || completionFailure.kind !== "invalid_payload") return workerEvidenceEnvelope(lane, packet, completionFailure)
     // A precommit report-payload refusal closes the attempt as invalid_report with the
@@ -2753,8 +3124,10 @@ async function completeWorkerSession(
     // returned no report, so its liveness gate (CD-0178 D3) cannot block this
     // close while the lane runs inside the live coordinator process. The
     // failed attempt lets the coordinator record_worker_failure and request
-    // an operator-approved retry.
+    // an operator-approved retry. the close carries the typed
+    // evidence_write observation bound to the refused payload.
     const detail = boundedTextPrefix(`worker-complete refused: ${completionFailure}`, MAX_FAILURE_DETAIL_BYTES)
+    const closeObservation = evidenceWriteFailureObservation(detail, completionRequest)
     let closeAssertion: Record<string, unknown>
     try {
       closeAssertion = await signWorkerEvidence(credentials, {
@@ -2766,6 +3139,7 @@ async function completeWorkerSession(
         lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: "invalid_report",
+        observation: closeObservation,
       })
     } catch (error) {
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because its failure could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
@@ -2777,6 +3151,7 @@ async function completeWorkerSession(
       readback_model: readback.readback_model,
       failure_kind: "invalid_report",
       detail,
+      failure_attribution: closeObservation,
       assertion: closeAssertion,
     }, signal)
     if (closeFailure) {

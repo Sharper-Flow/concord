@@ -366,13 +366,28 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	}
-	if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if request.ActionID == "accept_worker_evidence" || request.ActionID == "accept_worker_result" {
 		fields, fieldsErr := workflowActionObject(request.Payload)
 		if fieldsErr != nil {
 			return RegisteredDefinition{}, fieldsErr
 		}
-		if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
-			return RegisteredDefinition{}, err
+		if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+			if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
+				return RegisteredDefinition{}, err
+			}
+		}
+		attempt := workflowFieldStringDefault(fields, "attempt_id", "")
+		var capability string
+		if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, request.WorkID, attempt).Scan(&capability); err != nil {
+			if err == sql.ErrNoRows {
+				return RegisteredDefinition{}, newFailure(KindProjectionNotFound, "workflow_action_preflight", "worker attempt does not exist for this work item", false, "dispatch the worker attempt before recording its result")
+			}
+			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read the requested worker capability", true, "retry once the database is readable", err)
+		}
+		if capability == "review" {
+			if err := workflowAcceptanceSubjectCurrent(ctx, tx, request.WorkID, []string{attempt}, nil); err != nil {
+				return RegisteredDefinition{}, err
+			}
 		}
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
@@ -490,7 +505,7 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 		payload = json.RawMessage(`{}`)
 	}
 	var fields map[string]json.RawMessage
-	if err := decodePredicateStrict(payload, &fields); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
 	if err := validateEvidenceBindingReferencesWithReference(actionID, fields, validReference); err != nil {
@@ -510,12 +525,8 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
 			found = true
 		}
-		if actionID == "reject_worker_result" {
-			payloadDefinition = workflowCorrectionActionDefinition().Payload
-			found = true
-		}
-		if actionID == "request_correction" {
-			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
+		if actionID == "reject_worker_result" || actionID == "request_correction" {
+			payloadDefinition = workflowCorrectionActionDefinitionFor(definition, actionID).Payload
 			found = true
 		}
 	}
@@ -1064,10 +1075,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	// concord.pm6.compaction) is an auxiliary operation layered over the item:
 	// the item's pin already verified above, and the auxiliary claim is not a
 	// step of that workflow, so the identity and current-step equalities do
-	// not apply to it (#204 replaced the namespace guard with an
-	// item-has-workflow-instance guard and dragged auxiliary claims into this
-	// comparison, which refused compaction publish on every workflow-bearing
-	// work item by construction).
+	// not apply to it.
 	if !validWorkflowRef(req.WorkflowTypeRef) {
 		return nil
 	}
@@ -1140,11 +1148,4 @@ func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) erro
 		return workflowPinFailure("workflow resume identity does not match the stored definition pin")
 	}
 	return nil
-}
-
-// InspectWorkflowActionAdmission answers whether the named workflow action is
-// admissible against current authority, without advancing the instance. It
-// uses the builtin registry and the same read snapshot as registry preflight.
-func InspectWorkflowActionAdmission(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
-	return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
 }

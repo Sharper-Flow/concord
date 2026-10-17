@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto"
-import type { AgentLanePacket, DispatchRunner, NativeOraclePreparation } from "./dispatch"
+import type { AgentLanePacket, DispatchRunner, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
 
 // Readiness consumes the native owner's qualified, job-selected preparation
-// records. It observes clean HEAD before dispatch authorization, but runs no
-// worker control, compiler, or automatic native preparation. The core owns
-// the exact bundle, environment, receipt, and authority joins.
+// records. The core dispatch admission owns subject freshness — it observes
+// the claimed worktree's clean HEAD against the packet subject before the
+// action transaction — so this check runs no git at all. It still refuses a
+// packet whose oracle lacks a core-qualified subject or a matching
+// qualified preparation per control.
 export interface OracleReadinessDeps {
   runner: DispatchRunner
   directory: string
@@ -21,10 +23,52 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []
 }
 
+// The closed admitted materializer/runner pairs of target_runner_v1. Every
+// other pair — including unknown members — refuses before any probe.
+const admittedTargetPairs = new Set(["uv:pytest", "none:check", "uv:check"])
+
+// Witness IDs are runner-defined exact identities: 1 to 256 bytes, unique,
+// and free of control characters, mirroring the core's closed manifest rule.
+const visibleWitnessPattern = /^[^\x00-\x1f\x7f]*$/
+
+function targetWitnessesValid(preparation: NativeOracleTargetPreparation, cases: string[]): boolean {
+  if (preparation.selected_test_names !== undefined || preparation.case_to_test_map !== undefined) return false
+  if (!admittedTargetPairs.has(`${preparation.target_materializer}:${preparation.target_runner}`)) return false
+  const selected = preparation.selected_witness_ids
+  if (!Array.isArray(selected) || selected.length < 1 || selected.length > 40) return false
+  if (new Set(selected).size !== selected.length || preparation.selected_distinct_count !== selected.length) return false
+  if (!selected.every((witness) => witness.length >= 1 && Buffer.byteLength(witness, "utf8") <= 256 && visibleWitnessPattern.test(witness))) return false
+  const map = preparation.case_to_witness_map
+  if (!isRecord(map) || Object.keys(map).length !== cases.length) return false
+  const selectedSet = new Set(selected)
+  const covered = new Set<string>()
+  for (const id of cases) {
+    const witnesses = strings(map[id])
+    if (witnesses.length < 1 || witnesses.length > 8 || new Set(witnesses).size !== witnesses.length) return false
+    for (const witness of witnesses) {
+      if (!selectedSet.has(witness)) return false
+      covered.add(witness)
+    }
+  }
+  return covered.size === selected.length
+}
+
+function goWitnessesValid(preparation: NativeOracleGoPreparation, cases: string[]): boolean {
+  if (preparation.recipe_kind !== undefined || preparation.target_materializer !== undefined || preparation.target_runner !== undefined
+    || preparation.selected_witness_ids !== undefined || preparation.case_to_witness_map !== undefined) return false
+  const names = preparation.selected_test_names
+  return Array.isArray(names) && names.length > 0 && new Set(names).size === names.length
+    && preparation.selected_distinct_count === names.length
+    && cases.length > 0 && isRecord(preparation.case_to_test_map)
+    && cases.every((id) => {
+      const witnesses = strings(preparation.case_to_test_map[id])
+      return witnesses.length > 0 && witnesses.every((name) => names.includes(name))
+    })
+}
+
 function preparationMatches(preparation: NativeOraclePreparation, control: Record<string, unknown>, packet: AgentLanePacket): boolean {
   const source = control.recipe_source
   const actual = preparation.recipe_source
-  const names = preparation.selected_test_names
   const cases = strings(control.case_ids)
   const refs = strings(control.readiness_evidence_refs)
   const argv = strings(control.argv)
@@ -37,12 +81,10 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
     && source.project_id === actual.project_id && source.path === actual.path && source.commit_oid === actual.commit_oid
     && preparation.streams_complete && preparation.stdout.complete && preparation.stderr.complete
     && preparation.stdout.stream === "stdout" && preparation.stderr.stream === "stderr" && preparation.stdout.ref.length > 0 && preparation.stderr.ref.length > 0
-    && Array.isArray(names) && names.length > 0 && new Set(names).size === names.length && preparation.selected_distinct_count === names.length
-    && cases.length > 0 && isRecord(preparation.case_to_test_map)
-    && cases.every((id) => {
-      const witnesses = strings(preparation.case_to_test_map[id])
-      return witnesses.length > 0 && witnesses.every((name) => names.includes(name))
-    })
+    && cases.length > 0
+    && (preparation.recipe_kind === "target_runner_v1"
+      ? targetWitnessesValid(preparation, cases)
+      : goWitnessesValid(preparation, cases))
 }
 
 export async function verifyPacketOracleReadiness(packet: AgentLanePacket, deps: OracleReadinessDeps): Promise<OracleReadinessRefusal | null> {
@@ -61,21 +103,6 @@ export async function verifyPacketOracleReadiness(packet: AgentLanePacket, deps:
       const id = isRecord(control) ? control.control_id : "control:?"
       return { message: `acceptance oracle control ${id} has no matching qualified native preparation in its retained readiness evidence; explicitly request worktree_verify oracle phase prepare, then record its actual preparation run reference in the ready job and refresh the packet` }
     }
-  }
-  const probe = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
-    try {
-      return await deps.runner.run(argv, "", deps.signal)
-    } catch (error) {
-      return { exitCode: -1, stdout: error instanceof Error ? error.message : String(error) }
-    }
-  }
-  const head = await probe(["git", "-C", deps.directory, "rev-parse", "--verify", "HEAD^{commit}"])
-  if (head.exitCode !== 0 || head.stdout.trim() !== subject) {
-    return { message: `acceptance oracle subject_commit ${subject} does not match the observed HEAD (git rev-parse exited ${head.exitCode}); ${recovery}` }
-  }
-  const status = await probe(["git", "-C", deps.directory, "status", "--porcelain=v1", "-z", "--untracked-files=all"])
-  if (status.exitCode !== 0 || status.stdout.length !== 0) {
-    return { message: `acceptance oracle requires clean HEAD, including the index and untracked files (git status exited ${status.exitCode}); ${recovery}` }
   }
   return null
 }

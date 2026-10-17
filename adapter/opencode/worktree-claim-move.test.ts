@@ -3,9 +3,11 @@
 // successful claim, the landing is read back from the host, and every failure
 // mode is a typed refusal whose remedy is an idempotent replay.
 import { afterEach, afterAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { mkdir, rm, symlink } from "node:fs/promises"
+import { mkdtempSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { configureHostLease } from "./host-lease"
+import { configureCiWatch } from "./ci-watch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { configureConcordAdapter, moveSessionToClaimedWorktree } from "./concord"
@@ -14,6 +16,12 @@ import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } fro
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { ensureConductLink } from "./project-link"
 import { createHash } from "node:crypto"
+const testDirectories: string[] = []
+function mkdtemp(prefix: string): string {
+  const directory = mkdtempSync(prefix)
+  testDirectories.push(directory)
+  return directory
+}
 
 // The landing record resolves the core binary path before the runner seam
 // intercepts the verb, so the file binds a path once at module level, the way
@@ -60,15 +68,17 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
     },
   }
   configureConcordAdapter({ runner: landingRunner() as never })
-  await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+  await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 }
 
 afterEach(async () => {
+  await Promise.all(testDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
   landingCalls = []
   configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
+  configureCiWatch({ reset: true })
 })
 
 describe("worktree_claim moves the session into the claimed worktree", () => {

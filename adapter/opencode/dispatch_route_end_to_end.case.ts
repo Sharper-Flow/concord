@@ -4,7 +4,7 @@ import { createPrivateKey, createPublicKey } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
-import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
+import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest, work_transition } from "./concord"
 import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
 
 // The route test drives the real core through its own runner, so argv[0] is
@@ -14,7 +14,7 @@ configureCoreBinary("concord")
 requireOwnedFixtureRun()
 import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchLaneWorker } from "./lane_dispatch"
-import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { dispatchWindows, DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
@@ -88,6 +88,20 @@ function dbRows(dbPath: string, sql: string): any[] {
   const db = new Database(dbPath, { readonly: true })
   try {
     return db.query(sql).all()
+  } finally {
+    db.close()
+  }
+}
+
+// dbExec writes one statement on a dedicated connection, for the
+// distinguished direct corpus controls the route injects and restores. No
+// admission path runs through it: every final proof in the route drives the
+// public tools.
+function dbExec(dbPath: string, sql: string, args: unknown[] = []): void {
+  const db = new Database(dbPath)
+  try {
+    db.run("PRAGMA foreign_keys = ON")
+    db.run(sql, ...(args as any[]))
   } finally {
     db.close()
   }
@@ -416,6 +430,7 @@ async function driveWorkflowToContract(
   // under a recorded ready worker-job revision (CD-0205).
   response = await transition(10, "record_worker_job", "e2e-worker-job", {
     job_id: ROUTE_WORKER_JOB_ID,
+    predicate_ids: owner.predicate_ids,
     objective: "Apply the bounded route repair.",
     stopping_condition: "The route repair is applied and its checks pass.",
     path_scope: jobPathScope,
@@ -630,7 +645,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...control } = oracle!.controls[0]
         const prepared = await verify(a, `${key}-producer-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle!.owners[0], cases: oracle!.cases, control } } })
         oracle = { ...oracle!, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle! })
+        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle! })
       }
       const producer = await dispatch(a, "implement", `${key}-implement`)
       oracle = producer.packet.inputs.worker_job.acceptance_oracle
@@ -696,12 +711,12 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...preparationControl } = control
         const prepared = await verify(b, `${evaluationKey}-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle.owners[0], cases: oracle.cases, control: preparationControl } } })
         const freshOracle = { ...oracle, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
+        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, predicate_ids: oracle.owners[0].predicate_ids, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
         const evaluator = await dispatch(b, laneID, evaluationKey)
         expect(evaluator.workerSessionID).not.toBe(producer.workerSessionID)
         expect(evaluator.packet.inputs.outcome_predicates).toEqual([predicate])
         const boundControl = evaluator.packet.inputs.worker_job.acceptance_oracle.controls[0]
-        const execution = await verify(b, `${evaluationKey}-execute`, { oracle: { phase: "execute", attempt_id: evaluator.packet.attempt_id, attempt_epoch: epoch(evaluator), worker_packet_digest: evaluator.windows.inFlightAttempt(b.sessionID)!.packetDigest, worker_job_binding: reportWorkerJob(evaluator.packet), control_id: boundControl.control_id, preparation_run_ref: boundControl.readiness_evidence_refs[0] } })
+        const execution = await verify(b, `${evaluationKey}-execute`, { oracle: { phase: "execute", attempt_id: evaluator.packet.attempt_id, attempt_epoch: epoch(evaluator), worker_packet_digest: evaluator.dispatchResult.result.worker_packet_digest, worker_job_binding: reportWorkerJob(evaluator.packet), control_id: boundControl.control_id, preparation_run_ref: boundControl.readiness_evidence_refs[0] } })
         expect(execution.oracle.subject_commit).toBe(subject)
         expect(execution.oracle.qualification).toBe("pass")
         const open = evaluator.packet.inputs.work_context?.findings.filter((finding: JSONRecord) => finding.status === "open") ?? []
@@ -982,6 +997,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineDeliveryVersion, "record_worker_job", "e2e-no-ship-worker-job", {
       job_id: "job:route-e2e-no-ship-review",
+      predicate_ids: packet.inputs.worker_job.predicate_ids,
       objective: "Independently evaluate the pinned synthetic commit.",
       stopping_condition: "The report states whether the subject is safe to ship.",
       path_scope: ["internal/store"],
@@ -1041,6 +1057,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterNoShipAccept)
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_worker_job", "e2e-settling-worker-job", {
       job_id: "job:route-e2e-settling-review",
+      predicate_ids: packet.inputs.worker_job.predicate_ids,
       objective: "Independently re-review the pinned synthetic commit.",
       stopping_condition: "A fresh ship report settles review evidence for the subject.",
       path_scope: ["internal/store"],
@@ -1061,7 +1078,7 @@ routeDeclaration("composes implementation and independent review through one ord
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
       work_id: workID, idempotency_key: "e2e-settling-oracle-execute", requested_budget_seconds: 300,
       oracle: { phase: "execute", attempt_id: settlingReview.packet.attempt_id, attempt_epoch: settlingEpoch,
-        worker_packet_digest: settlingReview.windows.inFlightAttempt(SESSION_ID)?.packetDigest, worker_job_binding: reportWorkerJob(settlingReview.packet),
+        worker_packet_digest: settlingReview.dispatchResult.result.worker_packet_digest, worker_job_binding: reportWorkerJob(settlingReview.packet),
         control_id: settlingControl.control_id, preparation_run_ref: settlingControl.readiness_evidence_refs[0] },
     } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
@@ -1186,7 +1203,10 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     const host = bindRouteSessions(worktree, [a.sessionID, b.sessionID])
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const runner = realStoreRunner(binary, dbPath, calls, worktree)
-    configureConcordAdapter({ runner })
+    // The combined rejection's post-commit launch owner probes the worker
+    // evidence credential before it opens the window; bind the fixture seed
+    // so the probe stays hermetic instead of reading the host keyring.
+    configureConcordAdapter({ runner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
     const invoke = (tool: string, args: any, context: any) => invokeConcordOperation(tool, args, context) as Promise<JSONRecord>
     const ok = async (tool: string, operation: string, input: JSONRecord, context: any) => {
       const response = await invoke(tool, { operation, input }, context)
@@ -1207,16 +1227,21 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     const workVersion = (id = workID) => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${id}'`).version
     const source = { source_id: "source:g07", kind: "source_code", locator: "oraclekit/oracle.go", title: "Synthetic route source", publisher_or_author: "Synthetic Author", accessed_at: "2026-10-12T00:00:00Z" }
     const finding = { finding_id: "finding:g07", kind: "observation", statement: "The synthetic source returns true.", confidence: "high", freshness: "current" }
+    // Negative control: a second revision-one finding the declaration never
+    // selects, so the shared view must carry exactly the selection.
+    const unselected = { finding_id: "finding:g07-b", kind: "observation", statement: "The unselected sibling finding stays out of the shared view.", confidence: "medium", freshness: "current" }
     const writePack = (operation: string, key: string, input: JSONRecord) => ok("concord_work_define", operation, { pack_id: packID, expected_version: packVersion(), idempotency_key: key, ...input }, a)
     await writePack("research_source_record", "g07-source-1", { source })
     await writePack("research_finding_record", "g07-finding-1", { finding, source_ids: [source.source_id] })
+    await writePack("research_finding_record", "g07-finding-1-b", { finding: unselected })
     const readInput = { product_id: PRODUCT_ID, pack_id: packID, result_version: 2, revision: 1 }
     const read = () => ok("concord_work_trace", "research", readInput, b)
     const original = (await read()).pack.revisions as JSONRecord[]
     expect(original).toHaveLength(1)
     expect(original[0].revision).toBe(1)
-    expect(original[0].findings).toHaveLength(1)
+    expect(original[0].findings).toHaveLength(2)
     expect(original[0].findings[0]).toMatchObject({ ...finding, source_ids: [source.source_id] })
+    expect(original[0].findings[1]).toMatchObject(unselected)
     expect(original[0].sources).toHaveLength(1)
     expect(original[0].sources[0]).toMatchObject(source)
     await writePack("research_revision_append", "g07-revision-2", { revision: { question: "Which revised synthetic source owns the route?", method: "source inspection" } })
@@ -1226,26 +1251,51 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     expect(headRead.pack.revisions[0].findings[0].statement).not.toBe(finding.statement)
     expect(headRead.pack.revisions[0].sources[0].title).not.toBe(source.title)
     await driveWorkflowToContract(workID, invoke, b)
+    const rootDomain = `product-root:${PRODUCT_ID}`
     const binding = { pack_id: packID, revision: 1, use_role: "context", required: true }
-    const actionInput = (key: string, required: boolean) => ({ work_id: workID, expected_version: workVersion(), action_id: "bind_evidence", idempotency_key: key, fields: { evidence_kind: "verification" }, research_bindings: [{ ...binding, required }] })
-    await ok("concord_work_transition", "workflow_action", actionInput("g07-required-pin", true), b)
+    const bindAction = (key: string, required: boolean, revision: number) => ({ work_id: workID, expected_version: workVersion(), action_id: "bind_evidence", idempotency_key: key, fields: { evidence_kind: "verification" }, research_bindings: [{ pack_id: packID, revision, use_role: "context", required }] })
+    await ok("concord_work_transition", "workflow_action", bindAction("g07-required-pin", true, 1), b)
     const pins = () => dbRows(dbPath, `SELECT pack_id,revision,consumer_work_id,use_role,required FROM active_research_consumers WHERE pack_id='${packID}'`)
     expect(pins()).toEqual([{ ...binding, consumer_work_id: workID, required: 1 }])
     expect((await read()).pack.revisions).toEqual(original)
-    b.workerSessionID = "g07-implement-worker"
-    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, runner, (packet, agent) => host.opening(b, packet, agent))
-    expect(worker.taskArgs.subagent_type).toBe("concord-implement")
-    expect(worker.packet.work_id).toBe(workID)
-    // Research reliance is durable; this candidate does not project it into
-    // the managed worker packet. The coordinator performs the pinned read.
-    expect(worker.packet.inputs.research_bindings).toBeUndefined()
-    expect(pins()).toEqual([{ ...binding, consumer_work_id: workID, required: 1 }])
-    const subject = await runProcess(["git", "rev-parse", "HEAD"], "", worktree)
-    expect(subject.exitCode, subject.stderr).toBe(0)
-    const report = routeWorkerReport(lane, worker.packet, subject.stdout.trim())
-    const completion = await completeRouteTask(worker, report, runner, binary)
-    expect(completion.outcome, JSON.stringify(completion)).toBe("ok")
-    const retained = host.retain(worker, report)
+    // The coordinator authors the exact selection through the public
+    // record_work_context action. The pack pin above satisfies the authoring
+    // validation, and the root Domain carries its product-wide rationale
+    // exactly as a reading entry does.
+    const selectionEntry = { pack_id: packID, revision: 1, finding_id: finding.finding_id, domain_id: rootDomain, product_wide_rationale: "The synthetic route source owns the selected research." }
+    const contextAction = (key: string, selections: JSONRecord[]) => ({ work_id: workID, expected_version: workVersion(), action_id: "record_work_context", idempotency_key: key, fields: { finding_refs: [], context_findings: [], research_finding_refs: selections } })
+    await ok("concord_work_transition", "workflow_action", contextAction("g07-research-context", [selectionEntry]), b)
+    // Coordinator continuity carries the selected exact revision, finding,
+    // and source descriptors inside the shared view, with the unselected
+    // sibling and the newer revisions as negative controls.
+    const sourceView = { pack_id: packID, revision: 1, ...source }
+    const findingView = { pack_id: packID, revision: 1, finding_id: finding.finding_id, kind: "observation", statement: "The synthetic source returns true.", confidence: "high", freshness: "current", status: "active", source_ids: [source.source_id], scopes: { mode: "home" } }
+    const pinnedContextOf = async () => {
+      const continuity = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, b)).result as JSONRecord
+      return ((continuity.pinned as JSONRecord).work_pin as JSONRecord).work_context as JSONRecord
+    }
+    const pinnedContext = await pinnedContextOf()
+    const continuityResearch = pinnedContext.research_findings as JSONRecord[]
+    expect(continuityResearch).toHaveLength(1)
+    const continuityEntry = continuityResearch[0]
+    expect(continuityEntry.view_id).toMatch(/^research:\d+:0$/)
+    expect(continuityEntry.selection).toEqual(selectionEntry)
+    expect(continuityEntry.required).toBe(true)
+    expect(continuityEntry.state).toBe("resolved")
+    expect(typeof continuityEntry.selection_event_id).toBe("string")
+    expect(Number.isInteger(continuityEntry.selection_event_seq)).toBe(true)
+    expect(continuityEntry.ordinal).toBe(0)
+    expect(continuityEntry.finding).toEqual(findingView)
+    expect(continuityEntry.sources).toEqual([sourceView])
+    const continuityResearchText = JSON.stringify(continuityResearch)
+    expect(continuityResearchText).not.toContain("finding:g07-b")
+    expect(continuityResearchText).not.toContain("Revision two")
+    expect(continuityResearchText).not.toContain("Revised source title")
+    expect(pinnedContext.domain_groups).toEqual([{ domain_id: rootDomain, required_reading_ordinals: [], finding_ids: [continuityEntry.view_id] }])
+    // Zero Task calls, zero new attempts and authorization events, and
+    // unchanged operation effects for every required unresolved selection:
+    // the dispatch refuses through the same admission owner on the normal
+    // route, and no window arms.
     const snapshot = () => ({
       events: dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events ORDER BY seq"),
       work: dbRows(dbPath, "SELECT id,version,lifecycle FROM work_items ORDER BY id"),
@@ -1258,21 +1308,133 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
       attempts: dbRows(dbPath, "SELECT * FROM worker_attempts ORDER BY attempt_id"),
       receipts: dbRows(dbPath, "SELECT * FROM idempotency_records ORDER BY principal_ref,tool,operation_kind,idempotency_key"),
     })
-    const restartRead = async () => {
+    const refusedDispatch = async (key: string, state: string) => {
+      const before = snapshot()
+      const beforeCounts = host.counts()
+      const windows = new DispatchWindows()
+      const response = await dispatchLaneWorker({ work_id: workID, expected_version: workVersion(), idempotency_key: key, lane_id: lane.id } as any, {
+        context: b,
+        invoke: invoke as any,
+        credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
+        windows,
+      })
+      // The lane route carries the adapter-built packet to the core's
+      // dispatch admission, which refuses the required unresolved selection
+      // with no effect and no window.
+      expect(response.outcome, JSON.stringify(response)).toBe("error")
+      const refusalError = response.error
+      const refusalCore = (refusalError?.details?.core_error ?? null) as JSONRecord | null
+      expect(refusalCore?.kind).toBe("stale_requires_review")
+      expect(refusalCore?.effect_state).toBe("none")
+      expect(refusalError?.message ?? "").toContain(state)
+      expect(snapshot()).toEqual(before)
+      expect(host.counts()).toEqual(beforeCounts)
+      expect(windows.has(b.sessionID)).toBe(false)
+      expect(dispatchWindows().has(b.sessionID)).toBe(false)
+    }
+    // Rebound (public): rebinding the pin to another revision turns the
+    // selection rebound; the view reports the binding's state without its
+    // content, and the dispatch refuses until the pin returns.
+    await ok("concord_work_transition", "workflow_action", bindAction("g07-rebind-rev2", true, 2), b)
+    expect(pins()).toEqual([{ pack_id: packID, revision: 2, consumer_work_id: workID, use_role: "context", required: 1 }])
+    const reboundContext = await pinnedContextOf()
+    const reboundEntry = (reboundContext.research_findings as JSONRecord[])[0]
+    expect(reboundEntry.state).toBe("rebound")
+    expect(reboundEntry.finding).toBeUndefined()
+    expect(reboundEntry.sources).toBeUndefined()
+    await refusedDispatch("g07-dispatch-rebound", "rebound")
+    await ok("concord_work_transition", "workflow_action", bindAction("g07-rebind-restore", true, 1), b)
+    expect(pins()).toEqual([{ ...binding, consumer_work_id: workID, required: 1 }])
+    // Stale (public): a freshness review of the pinned revision turns the
+    // selection stale; restoring current resolves it again.
+    await writePack("research_freshness_set", "g07-stale-dispatch", { revision: 1, freshness: "stale" })
+    await refusedDispatch("g07-dispatch-stale", "stale")
+    await writePack("research_freshness_set", "g07-current-restore", { revision: 1, freshness: "current" })
+    // Missing (distinguished direct corpus control): the missing state is
+    // unreachable through public routes while a pin is held, because the
+    // retirement refuses with an active pin and a binding absence cannot be
+    // authored fail-closed. This control deletes the consumer row and
+    // restores its exact values, the same unreachable-corpus injection the
+    // store owner tests use; it is not a public lifecycle route.
+    const consumerRow = dbValue(dbPath, `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers WHERE pack_id='${packID}' AND consumer_work_id='${workID}'`)
+    dbExec(dbPath, "DELETE FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?", [packID, workID])
+    await refusedDispatch("g07-dispatch-missing", "missing")
+    dbExec(dbPath, "INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES(?,?,?,?,?,?)", [consumerRow.pack_id, consumerRow.revision, consumerRow.consumer_work_id, consumerRow.use_role, consumerRow.required, consumerRow.accepted_at])
+    // Inactive (distinguished direct corpus control): no public verb changes
+    // a stored finding's status, so this control contradicts the finding and
+    // restores it, exactly as the store owner's drift tests inject.
+    dbExec(dbPath, "UPDATE active_research_findings SET status='contradicted' WHERE pack_id=? AND revision=1 AND finding_id=?", [packID, finding.finding_id])
+    await refusedDispatch("g07-dispatch-inactive", "inactive")
+    dbExec(dbPath, "UPDATE active_research_findings SET status='active' WHERE pack_id=? AND revision=1 AND finding_id=?", [packID, finding.finding_id])
+    // Over-bound selection (public): a second synthetic pack carries ten
+    // maximal findings, and one declaration selecting them all refuses at the
+    // post-append view check with unchanged operation effects.
+    const createdOverPack = await ok("concord_work_define", "research_pack_create", {
+      owner_work_id: ownerID, revision: { question: "Which oversized synthetic finding overflows the shared view?", method: "source inspection" }, idempotency_key: "g07-over-pack",
+    }, a)
+    const overPackID = createdOverPack.changed_refs.find((ref: JSONRecord) => ref.entity_kind === "research_pack").id as string
+    const overPackVersion = () => dbValue(dbPath, `SELECT expected_version FROM active_research_packs WHERE pack_id='${overPackID}'`).expected_version
+    const overSelections: JSONRecord[] = []
+    for (let index = 0; index < 10; index++) {
+      const overFinding = { finding_id: `finding:g07-over-${index}`, kind: "inference", statement: "R".repeat(8192), confidence: "high", freshness: "current" }
+      await ok("concord_work_define", "research_finding_record", { pack_id: overPackID, expected_version: overPackVersion(), idempotency_key: `g07-over-${index}`, finding: overFinding }, a)
+      overSelections.push({ pack_id: overPackID, revision: 1, finding_id: overFinding.finding_id, domain_id: rootDomain, product_wide_rationale: "The oversized synthetic finding classifies to the fixture root." })
+    }
+    await ok("concord_work_transition", "workflow_action", { work_id: workID, expected_version: workVersion(), action_id: "bind_evidence", idempotency_key: "g07-over-pin", fields: { evidence_kind: "verification" }, research_bindings: [{ pack_id: overPackID, revision: 1, use_role: "context", required: true }] }, b)
+    const beforeOverBound = snapshot()
+    const overRefused = await invoke("concord_work_transition", { operation: "workflow_action", input: contextAction("g07-over-context", overSelections) }, b)
+    expect(overRefused.outcome, JSON.stringify(overRefused).slice(0, 2000)).toBe("error")
+    expect(overRefused.error.kind).toBe("limit_exceeded")
+    expect(overRefused.error.effect_state).toBe("none")
+    expect(snapshot()).toEqual(beforeOverBound)
+    b.workerSessionID = "g07-implement-worker"
+    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, runner, (packet, agent) => host.opening(b, packet, agent))
+    expect(worker.taskArgs.subagent_type).toBe("concord-implement")
+    expect(worker.packet.work_id).toBe(workID)
+    // The selected research rides the shared work context the packet copies
+    // verbatim from the work pin; no separate research input member exists.
+    // The packet's entries are the coordinator continuity view's exact copy,
+    // with the unselected sibling and the newer revisions as negative
+    // controls.
+    expect(worker.packet.inputs.research_bindings).toBeUndefined()
+    const packetWorkContext = worker.packet.inputs.work_context as JSONRecord
+    const packetResearch = packetWorkContext.research_findings as JSONRecord[]
+    expect(packetResearch).toEqual(continuityResearch)
+    expect(packetResearch).toHaveLength(1)
+    const packetEntry = packetResearch[0]
+    expect(packetEntry.view_id).toMatch(/^research:\d+:0$/)
+    expect(packetEntry.selection).toEqual(selectionEntry)
+    expect(packetEntry.required).toBe(true)
+    expect(packetEntry.state).toBe("resolved")
+    expect(packetEntry.finding).toEqual(findingView)
+    expect(packetEntry.sources).toEqual([sourceView])
+    const packetResearchText = JSON.stringify(packetResearch)
+    expect(packetResearchText).not.toContain("finding:g07-b")
+    expect(packetResearchText).not.toContain("Revision two")
+    expect(packetResearchText).not.toContain("Revised source title")
+    expect(packetWorkContext.domain_groups).toEqual([{ domain_id: rootDomain, required_reading_ordinals: [], finding_ids: [packetEntry.view_id] }])
+    expect(pins()).toEqual([{ ...binding, consumer_work_id: workID, required: 1 }])
+    const subject = await runProcess(["git", "rev-parse", "HEAD"], "", worktree)
+    expect(subject.exitCode, subject.stderr).toBe(0)
+    const report = routeWorkerReport(lane, worker.packet, subject.stdout.trim())
+    const completion = await completeRouteTask(worker, report, runner, binary)
+    expect(completion.outcome, JSON.stringify(completion)).toBe("ok")
+    const retained = host.retain(worker, report)
+    const restartRead = async (task: RouteTaskDispatch, attemptRetained: { parent: JSONRecord; child: JSONRecord }, attemptReport: JSONRecord, reconcileKey: string) => {
       const before = snapshot()
       const counts = host.counts()
-      const restarted = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify({ binary, dbPath, worktree, sessionID: b.sessionID, ...retained, researchRead: { operation: "research", input: readInput }, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: worker.packet.attempt_id, task_part_id: worker.callID, idempotency_key: "g07-retained-reconcile" } } }), join(import.meta.dir, "../.."))
+      const restarted = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify({ binary, dbPath, worktree, sessionID: b.sessionID, ...attemptRetained, researchRead: { operation: "research", input: readInput }, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: task.packet.attempt_id, task_part_id: task.callID, idempotency_key: reconcileKey } } }), join(import.meta.dir, "../.."))
       expect(restarted.exitCode, restarted.stderr).toBe(0)
       const result = JSON.parse(restarted.stdout) as JSONRecord
       expect(result.envelope.outcome, JSON.stringify(result)).toBe("ok")
       expect(result.envelope.result.worker_recovery.lifecycle_state).toBe("completed")
-      expect(result.envelope.result.worker_recovery.dispatch.attempt_id).toBe(worker.packet.attempt_id)
+      expect(result.envelope.result.worker_recovery.dispatch.attempt_id).toBe(task.packet.attempt_id)
       expect(result.envelope.result.worker_recovery.coordinator_session).toBe(b.sessionID)
       expect(result.research.outcome, JSON.stringify(result)).toBe("ok")
       expect(result.research.result.pack.revisions).toEqual(original)
-      expect(result.retained.parent.messages.at(-1).parts[0].state.input.prompt).toBe(worker.taskArgs.prompt)
-      expect(result.retained.parent.messages.at(-1).parts[0].state.output).toBe(worker.retainedOutput)
-      expect(result.retained.child.messages.at(-1).parts[0].text).toBe(reportText(report))
+      expect(result.retained.parent.messages.at(-1).parts[0].state.input.prompt).toBe(task.taskArgs.prompt)
+      expect(result.retained.parent.messages.at(-1).parts[0].state.output).toBe(task.retainedOutput)
+      expect(result.retained.child.messages.at(-1).parts[0].text).toBe(reportText(attemptReport))
       // Reconciliation replays signed evidence, not a new host Task.
       expect(result.core_commands.filter((command: string) => command === "worker-dispatch")).toHaveLength(1)
       expect(result.core_commands.filter((command: string) => command === "worker-complete")).toHaveLength(1)
@@ -1287,12 +1449,72 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
       }
       expect(host.counts()).toEqual(counts)
     }
-    await restartRead()
+    await restartRead(worker, retained, report, "g07-retained-reconcile")
+    // Retry route: the coordinator rejects the completed result through the
+    // real combined rejection surface. With the selection stale the
+    // core-derived retry dispatch refuses inside the same action, the
+    // rejection stays unwritten, and no window or attempt appears; with the
+    // selection resolved again the same route mints the second attempt whose
+    // packet carries the same exact selection until explicitly changed.
+    const executeTransition = async (input: JSONRecord) => {
+      const raw = await work_transition.execute({ request: { operation: "workflow_action", input } }, b)
+      const output = typeof raw === "string" ? raw : (raw as JSONRecord).output as string
+      return JSON.parse(output.slice(0, output.indexOf("\n") === -1 ? output.length : output.indexOf("\n"))) as JSONRecord
+    }
+    const workerEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='${worker.packet.attempt_id}' ORDER BY seq DESC LIMIT 1`).epoch
+    expect(Number.isInteger(workerEpoch)).toBe(true)
+    const rejectAction = (key: string) => ({ work_id: workID, expected_version: workVersion(), action_id: "reject_worker_result", idempotency_key: key, fields: { attempt_id: worker.packet.attempt_id, attempt_epoch: workerEpoch, diagnosis: "The synthetic result missed the selected research obligation.", strategy: "Reproduce the result against the selected research.", predicate_ids: [WORKFLOW_PREDICATE.predicate_id], evidence_refs: ["evidence:g07-retry"], retry: { lane_id: lane.id } } })
+    await writePack("research_freshness_set", "g07-stale-retry", { revision: 1, freshness: "stale" })
+    const beforeStaleRetry = snapshot()
+    const staleRetry = await executeTransition(rejectAction("g07-reject-stale"))
+    expect(staleRetry.outcome, JSON.stringify(staleRetry)).toBe("error")
+    expect(staleRetry.error.kind).toBe("stale_requires_review")
+    expect(staleRetry.error.message).toContain("stale")
+    // The refusal rolls the whole combined action back: no rejection event,
+    // no derived retry attempt, no armed window, no new host Task.
+    expect(snapshot()).toEqual(beforeStaleRetry)
+    expect(dispatchWindows().has(b.sessionID)).toBe(false)
+    expect(host.counts().taskLaunches).toBe(1)
+    await writePack("research_freshness_set", "g07-current-retry-restore", { revision: 1, freshness: "current" })
+    const rejection = await executeTransition(rejectAction("g07-reject-retry"))
+    expect(rejection.outcome, JSON.stringify(rejection)).toBe("ok")
+    expect(rejection.dispatch_state).toBe("awaiting_worker")
+    expect(typeof (rejection.result as JSONRecord).retry_attempt_id).toBe("string")
+    expect(dispatchWindows().has(b.sessionID)).toBe(true)
+    // The host Task spawn consumes the launch window the core's own packet
+    // bytes armed; no dispatch_worker authorization ran again.
+    const retryTaskArgs: JSONRecord = { subagent_type: "general", prompt: "model input", description: "model task" }
+    await dispatchWindows().bind(TASK_TOOL_ID, b.sessionID, retryTaskArgs, "g07-retry-task", async () => worktree, worktree)
+    const retryPacket = JSON.parse(retryTaskArgs.prompt as string) as JSONRecord
+    host.opening(b, retryPacket, "concord-implement")
+    expect(retryTaskArgs.subagent_type).toBe("concord-implement")
+    expect(retryPacket.attempt_id).toBe((rejection.result as JSONRecord).retry_attempt_id)
+    expect(retryPacket.attempt_id).not.toBe(worker.packet.attempt_id)
+    expect(dispatchWindows().has(b.sessionID)).toBe(false)
+    const retryResearch = ((retryPacket.inputs as JSONRecord).work_context as JSONRecord).research_findings as JSONRecord[]
+    // The later packet after the derived retry carries the same exact
+    // selection: same view identity, descriptors, and provenance.
+    expect(retryResearch).toEqual(packetResearch)
+    const retryTask: RouteTaskDispatch = { dispatchResult: rejection, windows: dispatchWindows(), windowWasOpen: true, taskArgs: retryTaskArgs, packet: retryPacket, callID: "g07-retry-task", sessionID: b.sessionID, workerSessionID: b.workerSessionID }
+    const retryReport = routeWorkerReport(lane, retryPacket, subject.stdout.trim())
+    const retryCompletion = await completeRouteTask(retryTask, retryReport, runner, binary)
+    expect(retryCompletion.outcome, JSON.stringify(retryCompletion)).toBe("ok")
+    const retryRetained = host.retain(retryTask, retryReport)
+    await restartRead(retryTask, retryRetained, retryReport, "g07-retained-reconcile-2")
     await writePack("research_revision_append", "g07-revision-3", { revision: { question: "Which later source owns the route?", method: "source inspection" } })
+    await writePack("research_source_record", "g07-source-3", { source: { ...source, title: "Third revision source" } })
     await writePack("research_finding_record", "g07-finding-3", { finding: { ...finding, statement: "Revision three has another finding." }, source_ids: [source.source_id] })
     expect((await read()).pack.current_revision).toBe(3)
     expect((await read()).pack.revisions).toEqual(original)
-    await restartRead()
+    await restartRead(retryTask, retryRetained, retryReport, "g07-retained-reconcile-2")
+    // Beside the newer head the view still resolves the exact selected
+    // revision-one entry: same view identity and descriptors, with no
+    // revision-three finding or source content.
+    const laterContext = await pinnedContextOf()
+    expect(laterContext.research_findings).toEqual(continuityResearch)
+    const laterResearchText = JSON.stringify(laterContext.research_findings)
+    expect(laterResearchText).not.toContain("Revision three")
+    expect(laterResearchText).not.toContain("Third revision source")
     await ok("concord_work_transition", "lifecycle", { work_id: ownerID, expected_version: workVersion(ownerID), target: "cancelled", reason: "The synthetic research author finished.", idempotency_key: "g07-owner-finished", evidence: [{ kind: "verification", authority: "synthetic-test", locator_kind: "research_pack", locator: packID }] }, a)
     const retire = async (key: string) => {
       const beforePins = pins()
@@ -1307,19 +1529,28 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     await retire("g07-retire-required")
     await writePack("research_freshness_set", "g07-stale-pin", { revision: 1, freshness: "stale" })
     const beforeRefusal = snapshot()
-    const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: actionInput("g07-stale-required", true) }, b)
+    const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: bindAction("g07-stale-required", true, 1) }, b)
     expect(refused.outcome, JSON.stringify(refused)).toBe("error")
     expect(refused.error.kind).toBe("stale_requires_review")
     expect(refused.error.effect_state).toBe("none")
     expect(snapshot()).toEqual(beforeRefusal)
-    await ok("concord_work_transition", "workflow_action", actionInput("g07-optional-stale", false), b)
+    await ok("concord_work_transition", "workflow_action", bindAction("g07-optional-stale", false, 1), b)
     expect(pins()).toEqual([{ ...binding, consumer_work_id: workID, required: 0 }])
+    // The optional unresolved selection stays visible as typed stale state
+    // carrying no finding or source body; this asserts its view visibility,
+    // not an optional dispatch result.
+    const optionalStaleContext = await pinnedContextOf()
+    const optionalStaleEntry = (optionalStaleContext.research_findings as JSONRecord[])[0]
+    expect(optionalStaleEntry.required).toBe(false)
+    expect(optionalStaleEntry.state).toBe("stale")
+    expect(optionalStaleEntry.finding).toBeUndefined()
+    expect(optionalStaleEntry.sources).toBeUndefined()
     const staleRead = await read()
     expect(staleRead.pack.revisions[0].freshness).toBe("stale")
     expect(staleRead.pack.revisions[0].findings).toEqual(original[0].findings)
     expect(staleRead.pack.revisions[0].sources).toEqual(original[0].sources)
     await retire("g07-retire-optional")
-    expect(host.counts()).toEqual({ coordinatorSessions: 2, taskLaunches: 1, sessionCreates: 0 })
+    expect(host.counts()).toEqual({ coordinatorSessions: 2, taskLaunches: 2, sessionCreates: 0 })
     const authored = calls.find((call) => call.argv[1] === "invoke" && call.input.operation === "research_finding_record")!
     expect(authored.input.call_envelope.session_ref).toBe(a.sessionID)
     const relied = calls.find((call) => call.argv[1] === "invoke" && call.input.input.idempotency_key === "g07-required-pin")!

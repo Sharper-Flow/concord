@@ -1,6 +1,10 @@
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
+import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const concord_ci_watch = ciWatchTool()
@@ -32,6 +36,7 @@ await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefi
 // generated capture/resume contract without losing requireds or exclusions.
 const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
 if (workStartRoot.type !== "object") fail("concord_work_start schema root is not an object")
+const registrationBytes: Record<string, number> = { concord_work_start: Buffer.byteLength(JSON.stringify(workStartRoot), "utf8") }
 for (const keyword of ["oneOf", "anyOf", "allOf"]) {
   if (Object.hasOwn(workStartRoot, keyword)) fail(`concord_work_start carries provider-unsafe root ${keyword}`)
 }
@@ -148,6 +153,7 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   const root = object(definition.jsonSchema, `${toolName} published root`)
   inspect(root)
   checkLocalRefs(root, toolName)
+  registrationBytes[toolName] = Buffer.byteLength(JSON.stringify(root), "utf8")
   if (root.type !== "object") fail(`${toolName} schema root is not an object`)
   for (const keyword of ["oneOf", "anyOf", "allOf"]) {
     if (Object.hasOwn(root, keyword)) fail(`${toolName} carries provider-unsafe root ${keyword}`)
@@ -266,6 +272,7 @@ const ciWatchDefinition = {
 }
 await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, ciWatchDefinition)
 const ciWatchRoot = object(ciWatchDefinition.jsonSchema, "published ci watch schema")
+registrationBytes.concord_ci_watch = Buffer.byteLength(JSON.stringify(ciWatchRoot), "utf8")
 inspect(ciWatchRoot)
 const ciWatchProperties = object(ciWatchRoot.properties, "ci watch properties")
 if (
@@ -277,6 +284,176 @@ if (
 if (JSON.stringify(ciWatchRoot.required) !== JSON.stringify(["repo", "selector"])) fail("concord_ci_watch does not require repo and selector")
 const ciWatchSelector = object(ciWatchProperties.selector, "ci watch selector")
 if (JSON.stringify(ciWatchSelector.required) !== JSON.stringify(["kind", "value"])) fail("concord_ci_watch selector does not require kind and value")
+
+// Opt-in real-host permission-merge evidence: `--host-merge <agents-dir>
+// <summary.json> [binary]` resolves every generated role's permissions
+// through the installed host's `debug agent <role>` route in an isolated
+// fixture (fresh HOME/XDG under the OS temp dir, whitelist environment,
+// --pure, cwd outside any repository, the exact generated agent files). The
+// evidence kind is resolved profile permissions, never a captured provider
+// request or a live session ruleset. Besides the no-overlay pass it
+// demonstrates, on real host merges, one deny overlay and one allow
+// override at the agent/global-config level; session-specific overlays are
+// not exercised, so the no-overlay projection stays the accepted acceptance
+// boundary, not an immutable ceiling. Every host command runs through one
+// isolated-invocation helper bounded by a 30-second native spawn timeout,
+// and a failed command reports the child's complete stderr; the summary
+// records the host version the same isolated environment and binary
+// resolved; the repository dependency pin remains independent. Without the
+// flag this file runs only the portable checks above and never requires the
+// installed host.
+const mergeArgIndex = process.argv.indexOf("--host-merge")
+if (mergeArgIndex !== -1) {
+  const [agentsDir, summaryPath, binaryArg] = process.argv.slice(mergeArgIndex + 1)
+  if (!agentsDir || !summaryPath) fail("--host-merge requires <agents-dir> <summary.json> [binary]")
+  const binary = binaryArg ?? process.env.OPENCODE_BIN ?? Bun.which("opencode")
+  if (!binary) fail("--host-merge resolved no host binary: pass one or set OPENCODE_BIN")
+  const catalog = [...new Set([...contractOperations.map((operation: any) => operation.tool), ...Object.keys(hostToolSchemas)])].sort()
+  // Role projections and the summary total sum measured roots only: the
+  // accounting must cover the catalog exactly, and every root must be a
+  // finite positive byte count, before any total is formed.
+  if (JSON.stringify(Object.keys(registrationBytes).sort()) !== JSON.stringify(catalog)) {
+    fail("registration byte accounting does not cover the registered catalog exactly")
+  }
+  for (const [tool, size] of Object.entries(registrationBytes)) {
+    if (!Number.isFinite(size) || size <= 0) fail(`${tool} registration size is not a finite positive byte count: ${size}`)
+  }
+  // mkdtemp owns name uniqueness, and every directory this mode creates -
+  // the agent fixture copy included - sits inside the try, so a failure
+  // during the fixture build still removes the whole isolation tree.
+  const isolation = fs.mkdtempSync(path.join(os.tmpdir(), "concord-host-merge-"))
+  try {
+    const fixture = path.join(isolation, "fixture")
+    fs.mkdirSync(path.join(fixture, ".opencode/agents"), { recursive: true })
+    const home = path.join(isolation, "home")
+    for (const dir of [".config", ".local/share", ".cache"]) fs.mkdirSync(path.join(home, dir), { recursive: true })
+    for (const role of Object.keys(roleDeniedConcordTools)) {
+      const origin = path.join(agentsDir, `${role}.md`)
+      if (!fs.existsSync(origin)) fail(`--host-merge: generated agent definition missing: ${role}.md`)
+      fs.copyFileSync(origin, path.join(fixture, ".opencode/agents", `${role}.md`))
+    }
+    // One isolated invocation helper for every host command in this mode:
+    // the same whitelist environment shape, the same fixture root as cwd,
+    // and a native spawn timeout so a hung host command ends after 30
+    // seconds instead of parking the probe.
+    const hostEnvironment = (agentHome: string): Record<string, string> => ({ PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: agentHome, XDG_CONFIG_HOME: `${agentHome}/.config`, XDG_DATA_HOME: `${agentHome}/.local/share`, XDG_CACHE_HOME: `${agentHome}/.cache`, TMPDIR: agentHome })
+    const runHost = async (args: string[], cwd: string, agentHome: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+      const child = Bun.spawn([binary, "--pure", ...args], { cwd, env: hostEnvironment(agentHome), stdout: "pipe", stderr: "pipe", timeout: 30_000 })
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+      return { stdout, stderr, exitCode }
+    }
+    const versionRun = await runHost(["--version"], fixture, home)
+    if (versionRun.exitCode !== 0) fail(`host --version exited ${versionRun.exitCode}:\n${versionRun.stderr}`)
+    const binaryVersion = versionRun.stdout.split("\n")[0]?.trim() ?? ""
+    if (!binaryVersion) fail("host --version produced no version output")
+    // The reducer of record for host-resolved permission rules. It reduces
+    // only the exact flat rule shapes the generated configuration can
+    // produce: a global '*' fallback carrying pattern '*', then exact
+    // registered Concord tool names carrying pattern '*', where the later
+    // rule wins. A patterned or wildcard scope, a later '*', or a Concord
+    // name outside the catalog refuses instead of being silently accepted;
+    // every other permission name carries host pattern semantics this
+    // reducer does not model, so it ignores those rules rather than
+    // misreading them as Concord decisions.
+    const runAgent = async (role: string, agentFixture: string, agentHome: string): Promise<Record<string, string>> => {
+      const { stdout, stderr, exitCode } = await runHost(["debug", "agent", role], agentFixture, agentHome)
+      if (exitCode !== 0) fail(`debug agent ${role} exited ${exitCode}:\n${stderr}`)
+      let output: any
+      try {
+        output = JSON.parse(stdout)
+      } catch (error) {
+        fail(`debug agent ${role} emitted unparseable output (${(error as Error).message}):\nstdout:\n${stdout}\nstderr:\n${stderr}`)
+      }
+      if (output === null || typeof output !== "object" || Array.isArray(output) || output.name !== role) {
+        fail(`debug agent ${role} did not resolve the requested role: ${JSON.stringify(output?.name)}`)
+      }
+      if (!Array.isArray(output.permission)) fail(`debug agent ${role} carries no permission rule list`)
+      const actions: Record<string, string> = {}
+      let fallbackAction = ""
+      let fallbackIndex = -1
+      let concordIndex = -1
+      for (const [index, rule] of output.permission.entries()) {
+        if (rule === null || typeof rule !== "object" || typeof rule.permission !== "string" || typeof rule.action !== "string" || typeof rule.pattern !== "string") {
+          fail(`debug agent ${role} carries a malformed permission rule: ${JSON.stringify(rule)}`)
+        }
+        if (rule.action !== "allow" && rule.action !== "deny" && rule.action !== "ask") {
+          fail(`debug agent ${role} carries rule action ${JSON.stringify(rule.action)} outside allow/deny/ask`)
+        }
+        if (rule.permission === "*") {
+          if (rule.pattern !== "*") fail(`debug agent ${role} carries a global fallback rule with pattern ${JSON.stringify(rule.pattern)}`)
+          if (concordIndex !== -1) fail(`debug agent ${role} carries a global '*' rule after its first Concord-specific rule; this reducer does not emulate that ordering`)
+          fallbackAction = rule.action
+          fallbackIndex = index
+          continue
+        }
+        if (!rule.permission.startsWith("concord_")) continue
+        if (!catalog.includes(rule.permission)) fail(`debug agent ${role} carries Concord permission ${rule.permission} outside the registered catalog`)
+        if (rule.pattern !== "*") fail(`debug agent ${role} carries patterned Concord scope ${JSON.stringify(rule.pattern)} for ${rule.permission}`)
+        if (concordIndex === -1) concordIndex = index
+        actions[rule.permission] = rule.action
+      }
+      if (fallbackIndex === -1) fail(`debug agent ${role} carries no builtin global default rule`)
+      const resolved: Record<string, string> = {}
+      for (const tool of catalog) resolved[tool] = actions[tool] ?? fallbackAction
+      return resolved
+    }
+    const assertResolved = (role: string, resolved: Record<string, string>): void => {
+      for (const tool of catalog) {
+        const denied = roleDeniedConcordTools[role].tools.includes(tool)
+        if (denied && resolved[tool] !== "deny") fail(`${role}: ${tool} must resolve deny, the host resolved ${resolved[tool]}`)
+        if (!denied && resolved[tool] !== "allow") fail(`${role}: ${tool} must resolve allow (no generated profile declares a Concord ask), the host resolved ${resolved[tool]}`)
+      }
+    }
+    const noOverlay: Record<string, { resolved: Record<string, string>; projected_bytes: number; allowed_tools: string[] }> = {}
+    for (const role of Object.keys(roleDeniedConcordTools).sort()) {
+      const resolved = await runAgent(role, fixture, home)
+      assertResolved(role, resolved)
+      const allowed = catalog.filter((tool) => !roleDeniedConcordTools[role].tools.includes(tool))
+      noOverlay[role] = { resolved, projected_bytes: allowed.reduce((sum, tool) => sum + registrationBytes[tool], 0), allowed_tools: allowed }
+    }
+    // Deny overlay, agent level: the operator's frontmatter gains a watcher
+    // deny, so the host merge must drop a tool its no-overlay profile allowed.
+    const denyFixture = path.join(isolation, "deny-fixture")
+    fs.cpSync(fixture, denyFixture, { recursive: true })
+    const operatorPath = path.join(denyFixture, ".opencode/agents/concord-operator.md")
+    const operatorText = fs.readFileSync(operatorPath, "utf8")
+    if (!operatorText.includes("\npermission:\n")) fail("generated operator frontmatter lost its permission block")
+    fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_ci_watch: deny\n"))
+    const denyResolved = await runAgent("concord-operator", denyFixture, home)
+    if (denyResolved.concord_ci_watch !== "deny") fail(`deny overlay: the host still resolves concord_ci_watch as ${denyResolved.concord_ci_watch}`)
+    // Allow override, agent level over a global-config deny: a lane whose
+    // frontmatter allows the watcher regains it from the later agent rule.
+    // This is the growth counterexample: the lane's projected bytes grow by
+    // the watcher root, so no-overlay zero is visibility, not a ceiling.
+    const allowFixture = path.join(isolation, "allow-fixture")
+    fs.cpSync(fixture, allowFixture, { recursive: true })
+    const allowHome = path.join(isolation, "allow-home")
+    fs.mkdirSync(path.join(allowHome, ".config/opencode"), { recursive: true })
+    fs.writeFileSync(path.join(allowHome, ".config/opencode/opencode.json"), JSON.stringify({ permission: { concord_ci_watch: "deny" } }))
+    const researchPath = path.join(allowFixture, ".opencode/agents/concord-research.md")
+    const researchText = fs.readFileSync(researchPath, "utf8")
+    if (!researchText.includes("  concord_ci_watch: false\n")) fail("generated research frontmatter lost its watcher tools entry")
+    fs.writeFileSync(researchPath, researchText.replaceAll("  concord_ci_watch: false\n", "  concord_ci_watch: true\n"))
+    const allowResolved = await runAgent("concord-research", allowFixture, allowHome)
+    if (allowResolved.concord_ci_watch !== "allow") fail(`allow override: the host still resolves concord_ci_watch as ${allowResolved.concord_ci_watch}`)
+    const summary = {
+      probe: "concord-role-publication-host-merge-v1",
+      binary: path.basename(binary),
+      binary_version: binaryVersion,
+      evidence_kind: "resolved profile permissions from the host debug agent route; not a captured provider request and not a live session ruleset",
+      registration: { tools: registrationBytes, total_bytes: Object.values(registrationBytes).reduce((sum, size) => sum + size, 0) },
+      roles: noOverlay,
+      deny_overlay_agent_level: { role: "concord-operator", change: "frontmatter permission gains concord_ci_watch: deny", resolved_watcher: denyResolved.concord_ci_watch },
+      allow_override_agent_level: { role: "concord-research", change: "frontmatter tools entry allows the watcher over a global-config deny", resolved_watcher: allowResolved.concord_ci_watch, publication_growth_bytes: registrationBytes.concord_ci_watch },
+      bounds: { session_overlays: "not exercised; the no-overlay projection is the accepted acceptance boundary, not an immutable ceiling" },
+    }
+    fs.mkdirSync(path.dirname(path.resolve(summaryPath)), { recursive: true })
+    fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`)
+    console.log(`host permission-merge probe passed (${Object.keys(noOverlay).length} roles, deny overlay and allow override resolved on ${path.basename(binary)} ${binaryVersion})`)
+  } finally {
+    fs.rmSync(isolation, { recursive: true, force: true })
+  }
+}
 
 function publishedArgsSchema(args: Record<string, unknown>, label: string, required = Object.keys(args)): Record<string, any> {
   const properties = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined))

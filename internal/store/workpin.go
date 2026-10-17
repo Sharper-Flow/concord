@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strconv"
 )
 
@@ -49,19 +48,22 @@ type WorkPin struct {
 	// same typed absence as the definition identity above, while a managed
 	// pin still emits the key even for a definition that declares no
 	// obligations.
-	Obligations      *[]string       `json:"obligations,omitempty"`
-	NextValidIntents []WorkPinIntent `json:"next_valid_intents"`
+	Obligations *[]string `json:"obligations,omitempty"`
+	// OutstandingEvidenceKinds is known kind-debt, not proof that reference
+	// obligations are satisfied. Nil omits an unknown or partial view; a
+	// non-nil empty slice records computed zero kind-debt.
+	OutstandingEvidenceKinds *[]string       `json:"outstanding_evidence_kinds,omitempty"`
+	NextValidIntents         []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
 	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
-	// WorkContext carries the tx-scoped reader's current work-context view
-	// (CON-887): the exact bytes a dispatch packet must consume. It stays
-	// nil when the work holds no declaration and no terminal-report
-	// findings, and a view past its bounds leaves it nil rather than
-	// failing the pin — the dispatch admission owns that refusal.
-	WorkContext *WorkContextView `json:"work_context,omitempty"`
+	// WorkContext carries the strict reader's exact view for dispatch.
+	// WorkContextUnavailable distinguishes an over-bound view from absence.
+	// The partial recovery pin does not evaluate either field.
+	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
+	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 	// VerifiedCriteria carries the approved contract predicates and their latest
 	// verdict kinds only after a workflow reaches completed.
 	VerifiedCriteria []WorkPinVerifiedCriterion `json:"verified_criteria,omitempty"`
@@ -93,6 +95,13 @@ type WorkPinAttempt struct {
 	Epoch int64  `json:"epoch"`
 	Lane  string `json:"lane"`
 	State string `json:"state"`
+	// FailureAttribution exposes the failed attempt's terminal failure
+	// attribution exactly as the event-based reader resolves it: the
+	// recorded block, the explicit legacy_unavailable marker beside the
+	// source version that owns it, or a nil block for a capable terminal
+	// that recorded none. It stays absent on every attempt whose state is
+	// not failed.
+	FailureAttribution *WorkerFailureAttributionRecord `json:"failure_attribution,omitempty"`
 }
 
 type WorkPinEvidence struct {
@@ -129,14 +138,59 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadWorkPinTransactionTx adapts the opaque store transaction used by agent
-// mutations to the SQL transaction-scoped pin reader.
-func ReadWorkPinTransactionTx(ctx context.Context, transaction *Transaction, workID string) (WorkPin, error) {
+// ReadMutationWorkPinTx distinguishes a pin from a known absent post-state.
+// An absent instance without an outside-repair hold, or an own committed
+// removal, has no pin. The returned identity still carries its version;
+// every other unreadable pin is an error.
+func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
-		return WorkPin{}, err
+		return WorkPin{}, false, err
 	}
-	return ReadWorkPinTx(ctx, tx, workID)
+	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
+}
+
+func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+	identity := WorkPin{WorkID: workID}
+	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&identity.Version)
+	var instance bool
+	switch err {
+	case sql.ErrNoRows:
+		removed := false
+		for _, eventID := range ownEventIDs {
+			var expected int64
+			err := tx.QueryRowContext(ctx, `SELECT expected_version FROM work_removal_operations WHERE work_id=? AND event_id=? AND state='committed'`, workID, eventID).Scan(&expected)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				return WorkPin{}, false, err
+			}
+			identity.Version = expected + 1
+			removed = true
+			break
+		}
+		if !removed {
+			return WorkPin{}, false, newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
+		}
+	case nil:
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, workID).Scan(&instance); err != nil {
+			return WorkPin{}, false, err
+		}
+	default:
+		return WorkPin{}, false, err
+	}
+	if !instance {
+		disposition, err := outsideRepairDispositionTx(ctx, tx, workID)
+		if err != nil {
+			return WorkPin{}, false, err
+		}
+		if disposition == nil || disposition.State == OutsideRepairStateResumed {
+			return identity, false, nil
+		}
+	}
+	pin, err := ReadWorkPinTx(ctx, tx, workID)
+	return pin, true, err
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.
@@ -226,26 +280,11 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	return pin, nil
 }
 
-// workPinReadWorkContextTx seats the current work-context view on the pin
-// through the same tx-scoped reader the continuity projection and the
-// dispatch packet admission share, so a packet built from the pin and the
-// admission check that compares it read identical bytes. The read inherits
-// the caller's transaction through the queryer interface: the pooled single
-// connection never sees a nested store call. A view past its bounds omits
-// the member instead of failing the pin; every other reader error
-// propagates.
+// workPinReadWorkContextTx uses the caller's transaction, never the pooled connection.
 func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	view, err := readWorkContextView(ctx, tx, workID)
-	if err != nil {
-		var failure *Failure
-		if errors.As(err, &failure) && failure.Kind == KindLimitExceeded {
-			pin.WorkContext = nil
-			return nil
-		}
-		return err
-	}
-	pin.WorkContext = view
-	return nil
+	view, unavailable, err := readWorkContextProjection(ctx, tx, workID)
+	pin.WorkContext, pin.WorkContextUnavailable = view, unavailable
+	return err
 }
 
 // workPinOutsideRepairDispositionTx populates the pin's outside-repair
@@ -386,6 +425,11 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
 			return jsonErr
 		}
+		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition, state.EvidenceRecovery)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		pin.OutstandingEvidenceKinds = kinds
 		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
 		if predicateErr != nil {
 			return predicateErr
@@ -438,6 +482,18 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "rebuild the worker and workflow projections from the event log")
 		}
 		attempt.Epoch = epoch.Int64
+		// A failed terminal exposes its attribution through the one
+		// event-based reader, inside this same transaction: the queryer is
+		// the caller's tx, so the pin and the dedicated attribution read
+		// answer identically for the same log state and no second table or
+		// read path exists.
+		if attempt.State == "failed" {
+			record, readErr := WorkerFailureAttributionForAttemptTx(ctx, tx, workID, attempt.ID)
+			if readErr != nil {
+				return readErr
+			}
+			attempt.FailureAttribution = record
+		}
 		pin.Attempt = &attempt
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "work_pin", "cannot read worker attempt", true, "retry once the database is readable", err)
@@ -476,7 +532,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		return err
 	}
 	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery && admits("reject_worker_result") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "reject_worker_result"), pin.Version, "worker_result_rejection"))
 	}
 	// A completed instance with nonterminal work retains only the admitted
 	// complete-step contract correction. Every other action remains immutable.
@@ -508,10 +564,10 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
 		if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "delivery_gate_correction"))
 		}
 	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
 	if correctionErr != nil {
@@ -750,11 +806,28 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-// Discovery and mutation share the recovery eligibility owner.
-func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
-	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
-	if err != nil {
-		return false, err
+func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, recovery *workflowEvidenceBindingRecoveryState) (*[]string, error) {
+	var requirements []workflowEvidenceRequirement
+	if recovery != nil {
+		if recovery.Refusal != nil {
+			return nil, nil
+		}
+		requirements = recovery.Requirements
 	}
-	return recovery.Refusal == nil && len(recovery.Requirements) != 0, nil
+	if requirements == nil {
+		required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+		if err != nil {
+			return nil, err
+		}
+		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var kinds []string
+	for _, requirement := range requirements {
+		kinds = append(kinds, requirement.Kind)
+	}
+	kinds = uniqueSorted(kinds)
+	return &kinds, nil
 }

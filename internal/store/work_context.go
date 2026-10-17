@@ -11,20 +11,22 @@ import (
 	"strings"
 )
 
-// CON-887 store work-context foundation. The record_work_context action
-// appends one typed declaration event onto the existing workflow-action
-// route, and one tx-scoped reader assembles the current view from that
-// event log for continuity and dispatch packets. There is no projection
-// table, no export command, and no cache: the event log is the only context
-// authority, and nothing in this file promotes context content into Git or
-// knowledge.
+// The store work-context surface. The record_work_context action appends
+// one typed declaration event onto the existing workflow-action route, and
+// one tx-scoped reader assembles the current view from that event log for
+// continuity and dispatch packets. The event log owns the declaration and
+// report-claim content, and the research authority owns the content behind
+// selected references; this surface adds no projection table, no export
+// command, and no cache, and nothing here promotes context content into
+// Git or knowledge.
 
 // Closed bounds of the work-context surface. The action declares the full
 // current reading list (at most 32), selects at most 32 exact earlier
 // finding references, and contributes at most 16 new findings; the current
-// view holds at most 32 findings whose combined serialization stays inside
-// 64 KiB. An over-bound action or view refuses explicitly; content is never
-// truncated to fit.
+// view holds at most 32 finding slots across its generic, ranked, and
+// research entries, and its complete serialization stays inside 64 KiB. An
+// over-bound action or view refuses explicitly; content is never truncated
+// to fit.
 const (
 	WorkContextRequiredReadingMax  = 32
 	WorkContextFindingRefsMax      = 32
@@ -138,6 +140,12 @@ type WorkContextView struct {
 	RequiredReading     []WorkContextReading      `json:"required_reading"`
 	Findings            []WorkContextFindingView  `json:"findings"`
 	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
+	// ResearchFindings carries the latest declaration anchor's selected
+	// research in authored order, resolved through the canonical
+	// selected-read helper. Research entries and event-owned findings share
+	// the 32-slot view bound and the whole-view byte bound; the member is
+	// omitted when the declaration selects none.
+	ResearchFindings []WorkContextResearchFindingView `json:"research_findings,omitempty"`
 	// OracleReceipts are the prior typed control-execution receipts this
 	// work retained, in log order: reported evidence a later
 	// lane receives as regression baselines with their exact identities,
@@ -151,19 +159,32 @@ type WorkContextView struct {
 // never carries its own sequence.
 type workflowWorkContextRecordedPayload struct {
 	WorkflowVersionFields
-	StepID                    string                 `json:"step_id"`
-	AttemptEpoch              int64                  `json:"attempt_epoch"`
-	RequiredReading           []WorkContextReading   `json:"required_reading"`
-	FindingRefs               []string               `json:"finding_refs"`
-	ContextFindings           []WorkerContextFinding `json:"context_findings"`
-	WorkflowRef               string                 `json:"workflow_ref"`
-	WorkflowDefinitionVersion int64                  `json:"workflow_definition_version"`
-	WorkflowDefinitionDigest  string                 `json:"workflow_definition_digest"`
-	ActorRef                  string                 `json:"actor_ref"`
-	RequestID                 string                 `json:"request_id"`
+	StepID          string                 `json:"step_id"`
+	AttemptEpoch    int64                  `json:"attempt_epoch"`
+	RequiredReading []WorkContextReading   `json:"required_reading"`
+	FindingRefs     []string               `json:"finding_refs"`
+	ContextFindings []WorkerContextFinding `json:"context_findings"`
+	// ResearchSelections stores references only: the optional member is
+	// absent and empty for the same meaning, and a new full declaration
+	// explicitly replaces its research selections.
+	ResearchSelections        []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
+	WorkflowRef               string                         `json:"workflow_ref"`
+	WorkflowDefinitionVersion int64                          `json:"workflow_definition_version"`
+	WorkflowDefinitionDigest  string                         `json:"workflow_definition_digest"`
+	ActorRef                  string                         `json:"actor_ref"`
+	RequestID                 string                         `json:"request_id"`
 }
 
 var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+)$`)
+
+// workContextOverflowRecovery is the one truthful recovery text for every
+// shared work-context bound: the declaration's optional context can reduce
+// through a later declaration, and a view whose mandatory context alone
+// exceeds the bound names the approved contract supersession or stop route
+// instead of promising that reduction always repairs.
+func workContextOverflowRecovery() string {
+	return "reduce the declaration's optional context (readings, findings, or research selections) through a later declaration; if mandatory context alone exceeds the bound, supersede the active contract through its approved recovery route or stop the work"
+}
 
 // workContextFailure bounds the refusal messages of this surface.
 func workContextFailure(kind FailureKind, operation, detail, remedy string) error {
@@ -304,6 +325,32 @@ func validateWorkContextDeclarationShape(payload workflowWorkContextRecordedPayl
 		if !workContextFindingRefPattern.MatchString(ref) {
 			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("finding ref %d must be finding:<event_seq>:<ordinal>, got %q", index, ref), "select earlier findings by their exact ids")
 		}
+	}
+	if len(payload.ResearchSelections) > WorkContextFindingRefsMax {
+		return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("declaration selects %d research findings; at most %d are selected", len(payload.ResearchSelections), WorkContextFindingRefsMax), "select at most 32 research findings")
+	}
+	seenResearch := make(map[string]bool, len(payload.ResearchSelections))
+	for index, selection := range payload.ResearchSelections {
+		if !ValidReference(selection.PackID) {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d carries an invalid pack reference", index), "name the research pack by its valid reference")
+		}
+		if selection.Revision < 1 {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d must pin a revision of at least 1", index), "pin the exact selected revision")
+		}
+		if !ValidReference(selection.FindingID) {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d carries an invalid finding reference", index), "name the selected finding by its valid reference")
+		}
+		if !validateWorkContextDomainID(selection.DomainID) {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d domain_id must be between 1 and 256 bytes", index), "name a current Domain of the Product registry")
+		}
+		if !validateWorkContextRationale(selection.ProductWideRationale) {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d product_wide_rationale exceeds 512 bytes", index), "bound the product-wide rationale")
+		}
+		identity := selection.PackID + "\x00" + strconv.FormatInt(selection.Revision, 10) + "\x00" + selection.FindingID
+		if seenResearch[identity] {
+			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d repeats the pack, revision, and finding of an earlier selection", index), "select each research finding once")
+		}
+		seenResearch[identity] = true
 	}
 	// The combined bound measures the declaration's new context content. An
 	// over-bound declaration refuses whole; content is never truncated.
@@ -500,6 +547,13 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	} else {
 		payload.ContextFindings = []WorkerContextFinding{}
 	}
+	if raw := fields["research_finding_refs"]; len(raw) != 0 {
+		decoder := json.NewDecoder(strings.NewReader(string(raw)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload.ResearchSelections); err != nil {
+			return nil, workContextFailure(KindInvalidPayload, "work_context", "research_finding_refs must be an array of closed selection entries", "supply exact pack, revision, finding, and Domain references")
+		}
+	}
 	if err := validateWorkContextDeclarationShape(payload); err != nil {
 		return nil, err
 	}
@@ -516,6 +570,11 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	if err := validateWorkContextFindingRefs(ctx, tx, request.WorkID, payload.FindingRefs); err != nil {
 		return nil, err
 	}
+	if len(payload.ResearchSelections) > 0 {
+		if err := validateWorkContextResearchSelectionsTx(ctx, tx, request.WorkID, payload.ResearchSelections); err != nil {
+			return nil, err
+		}
+	}
 	var workflowRef, workflowDigestValue string
 	var workflowDefinitionVersion, attemptEpoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDefinitionVersion, &workflowDigestValue); err != nil {
@@ -527,12 +586,18 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	if attemptEpoch <= 0 {
 		attemptEpoch = 1
 	}
-	return []Event{workflowTypedEvent(eventID, WorkflowWorkContextRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
+	values := map[string]any{
 		"step_id": stepID, "attempt_epoch": attemptEpoch,
 		"required_reading": payload.RequiredReading, "finding_refs": payload.FindingRefs, "context_findings": payload.ContextFindings,
 		"workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue,
 		"actor_ref": actor, "request_id": request.RequestID,
-	})}, nil
+	}
+	// The selection member stays absent for declarations without research,
+	// so those declaration events keep their exact published shape.
+	if len(payload.ResearchSelections) > 0 {
+		values["research_finding_refs"] = payload.ResearchSelections
+	}
+	return []Event{workflowTypedEvent(eventID, WorkflowWorkContextRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
 // foldWorkflowWorkContextRecorded is the declaration fold. It enforces the
@@ -611,9 +676,10 @@ func workContextOriginForKind(kind string) string {
 // anchor's readings, the anchor's findings, the exact earlier findings its
 // references select, and the terminal-report findings recorded after the
 // anchor. The queries are bounded: the report scan reads at most 33
-// findings-bearing events, and any work-wide current view past 32 findings
-// or 64 KiB of findings content refuses the read explicitly instead of
-// truncating. A work item without any required context reads as nil.
+// findings-bearing events, and any work-wide current view past 32 finding
+// slots or 64 KiB of complete view content refuses the read explicitly
+// instead of truncating. A work item without any required context reads as
+// nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
 	subject, subjectErr := readCurrentOracleSubject(ctx, q, workID)
@@ -631,6 +697,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	}
 	var anchorSeq int64 = 0
 	var anchor Event
+	var anchorResearch []WorkContextResearchSelection
 	anchorErr := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowWorkContextRecorded).Scan(&anchorSeq, &anchor.EventID, &anchor.Kind, &anchor.SubjectType, &anchor.SubjectID, &anchor.Actor, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the event log is readable", anchorErr)
@@ -657,6 +724,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the latest work context declaration payload is malformed", "rebuild the projection from the event log")
 		}
 		view.RequiredReading = append(view.RequiredReading, payload.RequiredReading...)
+		anchorResearch = payload.ResearchSelections
 		for ordinal, finding := range payload.ContextFindings {
 			addFinding(workContextFindingView(finding, WorkContextOriginDeclaration, anchor.EventID, anchorSeq, ordinal))
 		}
@@ -741,26 +809,81 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if len(lineage.retainedReceipts) > 0 {
 		view.OracleReceipts = lineage.retainedReceipts
 	}
-	if len(order) > WorkContextViewFindingsMax {
-		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d findings; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), "supersede or drop findings through a later declaration before reading the current context")
+	// The anchor's research selections resolve in authored order through
+	// the canonical selected-read helper. Unresolved entries stay visible
+	// without content and still consume their shared slot, so omissions
+	// cannot evade the bounds by omitting their body.
+	if anchorErr == nil && len(anchorResearch) > 0 {
+		research, researchErr := readWorkContextResearchSelections(ctx, q, workID, anchor.EventID, anchorSeq, anchorResearch)
+		if researchErr != nil {
+			return nil, researchErr
+		}
+		view.ResearchFindings = research
+	}
+	if len(order)+len(view.ResearchFindings) > WorkContextViewFindingsMax {
+		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d finding slots across its generic, ranked, and research entries; the view bound is %d and the read refuses instead of truncating", len(order)+len(view.ResearchFindings), WorkContextViewFindingsMax), workContextOverflowRecovery())
 	}
 	for _, id := range order {
 		view.Findings = append(view.Findings, byID[id])
 	}
-	findingsJSON, err := json.Marshal(view.Findings)
-	if err != nil {
-		return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the current findings cannot be measured", "rebuild the projection from the event log")
-	}
-	if len(findingsJSON) > WorkContextCombinedMaxBytes {
-		return nil, workContextFailure(KindLimitExceeded, "work_context_read", "the current work context findings exceed the 64 KiB view bound and the read refuses instead of truncating", "supersede or drop findings through a later declaration before reading the current context")
-	}
 	if err := assembleWorkContextDomainGroups(ctx, q, workID, &view); err != nil {
 		return nil, err
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
+	// The whole serialized view measures once, after grouping, with the
+	// same Go encoding the dispatch equality owner compares: readings,
+	// findings, research entries, groups, and oracle metadata share the
+	// 64 KiB budget, and no second budget exists.
+	viewJSON, err := json.Marshal(view)
+	if err != nil {
+		return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the current work context cannot be measured", "rebuild the projection from the event log")
+	}
+	if len(viewJSON) > WorkContextCombinedMaxBytes {
+		return nil, workContextFailure(KindLimitExceeded, "work_context_read",
+			fmt.Sprintf("the current work context measures %d bytes of canonical JSON, above the %d-byte view bound and the read refuses instead of truncating", len(viewJSON), WorkContextCombinedMaxBytes),
+			workContextOverflowRecovery())
+	}
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil
+}
+
+// WorkContextUnavailable is the typed marker a compound read serves instead
+// of a view when the strict reader refuses the work-wide context on a bound.
+type WorkContextUnavailable struct {
+	Reason string `json:"reason"`
+}
+
+// readWorkContextProjection reads the strict work-context view exactly once
+// through the caller's queryer and classifies its one closed refusal: a
+// compound read must not strand on a work-wide bound, while the dedicated
+// context read and dispatch admission keep the strict refusal.
+func readWorkContextProjection(ctx context.Context, q queryer, workID string) (*WorkContextView, *WorkContextUnavailable, error) {
+	view, err := readWorkContextView(ctx, q, workID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindLimitExceeded {
+			return nil, &WorkContextUnavailable{Reason: string(KindLimitExceeded)}, nil
+		}
+		return nil, nil, err
+	}
+	return view, nil, nil
+}
+
+// checkWorkContextDeclarationTx is the one live post-append declaration
+// check: it runs in the action transaction just after the action's events
+// append and fold, and reads the resulting shared view through the caller's
+// transaction. Any appended work-context declaration carries the read
+// obligation, and any reader refusal rolls the whole action back. Replay
+// folds and terminal reports never run it.
+func checkWorkContextDeclarationTx(ctx context.Context, tx *sql.Tx, workID string, events []Event) error {
+	for _, event := range events {
+		if event.Kind == WorkflowWorkContextRecorded {
+			_, err := readWorkContextView(ctx, tx, workID)
+			return err
+		}
+	}
+	return nil
 }
 
 // assembleWorkContextDomainGroups partitions the view's readings and
@@ -823,6 +946,12 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 	for _, finding := range view.Findings {
 		groupFor(finding.DomainID).FindingIDs = append(groupFor(finding.DomainID).FindingIDs, finding.FindingID)
 	}
+	// Research entries join the existing Domain group's finding_ids under
+	// their research view_id namespace; there is no second grouping
+	// structure.
+	for _, research := range view.ResearchFindings {
+		groupFor(research.Selection.DomainID).FindingIDs = append(groupFor(research.Selection.DomainID).FindingIDs, research.ViewID)
+	}
 	for _, domainID := range orderedDomains {
 		if group := grouped[domainID]; group != nil && (len(group.RequiredReadingOrdinals) > 0 || len(group.FindingIDs) > 0) {
 			view.DomainGroups = append(view.DomainGroups, *group)
@@ -865,5 +994,87 @@ func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID stri
 	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
 	}
+	// Byte equality stays necessary and becomes insufficient: an equal
+	// view carrying a required unresolved research selection refuses before
+	// a worker launches. The normal dispatch and the core-derived
+	// reject/retry dispatch share this one admission owner.
+	if err := requireResolvedResearchSelections(current); err != nil {
+		return nil, err
+	}
 	return current, nil
+}
+
+// DispatchContextAggregateMaxBytes is the whole-dispatch-context bound: the
+// canonical JSON object of exactly the packet's present work_context,
+// checkpoint, and correction members may not exceed 64 KiB of UTF-8 bytes,
+// member names and delimiters included. It is a dispatch capacity and owns
+// its own population: the declaration combined bound, the view findings
+// bound, the per-entry bounds, and the terminal findings bound protect
+// different populations and stay untouched. The whole-action decode budget
+// composes the packet's other declared maxima around this aggregate —
+// TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima derives that
+// composition from the generated contract, so no copied packet-parts
+// nominal exists.
+const DispatchContextAggregateMaxBytes = 64 * 1024
+
+// measureDispatchContextAggregateBytes measures one pure population: the
+// canonical JSON object formed from exactly the packet input members whose
+// keys are present — inputs.work_context, inputs.checkpoint, and
+// inputs.correction — with member names and JSON delimiters included. Each
+// present member is canonicalized through the shared encoder, so the count
+// is UTF-8 canonical bytes, never the raw packet's whitespace and never a
+// rune count. An absent key contributes no member bytes, so a packet with
+// none of the three members measures the two bytes of "{}". A present key
+// carrying JSON null is a present member and measures its canonical name
+// and value; the closed packet schema refuses such a member, so the shape
+// owner rejects it before this measurement ever runs in live admission.
+func measureDispatchContextAggregateBytes(packetRaw json.RawMessage) (int, error) {
+	var packet struct {
+		Inputs struct {
+			WorkContext json.RawMessage `json:"work_context"`
+			Checkpoint  json.RawMessage `json:"checkpoint"`
+			Correction  json.RawMessage `json:"correction"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(packetRaw, &packet); err != nil {
+		return 0, workContextFailure(KindInvalidPayload, "work_context", "the worker packet does not decode as one JSON object", "supply the lane packet bound to this work item and attempt")
+	}
+	members := map[string]json.RawMessage{}
+	for name, raw := range map[string]json.RawMessage{
+		"work_context": packet.Inputs.WorkContext,
+		"checkpoint":   packet.Inputs.Checkpoint,
+		"correction":   packet.Inputs.Correction,
+	} {
+		if len(raw) == 0 {
+			continue
+		}
+		canonical, err := canonicalJSON(raw)
+		if err != nil {
+			return 0, workContextFailure(KindInvalidPayload, "work_context", "the packet's "+name+" member cannot be canonicalized for measurement", "supply the closed typed member the packet schema declares")
+		}
+		members[name] = canonical
+	}
+	object, err := json.Marshal(members)
+	if err != nil {
+		return 0, wrapFailure(KindInvariantViolation, "work_context", "the dispatch context aggregate cannot be measured", false, "repair the packet members", err)
+	}
+	return len(object), nil
+}
+
+// refuseOverBoundDispatchContext refuses a dispatch whose present context
+// members measure above the aggregate bound. The refusal is whole and keeps
+// the whole request: no findings, preparations, checkpoint directions, or
+// correction state is omitted to fit, and the error names the measured bytes
+// and the bound.
+func refuseOverBoundDispatchContext(packetRaw json.RawMessage) error {
+	measured, err := measureDispatchContextAggregateBytes(packetRaw)
+	if err != nil {
+		return err
+	}
+	if measured <= DispatchContextAggregateMaxBytes {
+		return nil
+	}
+	return workContextFailure(KindLimitExceeded, "work_context",
+		fmt.Sprintf("the dispatch context members measure %d bytes of canonical JSON, above the %d-byte aggregate dispatch context bound; the request is refused whole and never trimmed", measured, DispatchContextAggregateMaxBytes),
+		"reduce the retained work context, checkpoint, or correction through their own owners, then rebuild and dispatch a fresh packet")
 }

@@ -2,6 +2,7 @@
 """Validate and deterministically generate work-kind projections."""
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -85,7 +86,12 @@ func WorkKindRefusalFor(kind string) (message, recovery string, ok bool) {{
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help="fail on work-kind projection drift instead of writing generated files")
+    args = parser.parse_args()
     try:
+        check = args.check
         vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         check_schema_keywords(schema)
@@ -103,7 +109,7 @@ def main() -> int:
             ).stdout,
             ROOT / "contracts/work-kinds.digest": vocabulary_digest + "\n",
         }
-        if "--check" in sys.argv[1:]:
+        if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:
                     fail(f"generated work kinds drift: {path.relative_to(ROOT)}")

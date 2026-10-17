@@ -87,10 +87,10 @@ func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t
 			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
 				t.Fatal(err)
 			}
-			if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "bind_evidence", Payload: json.RawMessage(`{}`), Actor: actor}); err != nil {
+			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "bind_evidence", Payload: json.RawMessage(`{}`), Actor: actor}); err != nil {
 				t.Fatalf("non-consequential action was blocked: %v", err)
 			}
-			err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor})
+			err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor})
 			if testCase.wantBlocked {
 				assertFailureKind(t, err, KindInvariantViolation)
 			} else if err != nil {
@@ -132,7 +132,7 @@ func TestWorkflowCompletionChoosesHardEdgeWhenDependentDeclaresMultipleEdges(t *
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, dependentID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	assertFailureKind(t, InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor}), KindInvariantViolation)
+	assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: dependentID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor}), KindInvariantViolation)
 }
 
 func seedImpactDependent(t *testing.T, s *Store, dependentID, sourceID, edgeClass string) WorkflowActor {

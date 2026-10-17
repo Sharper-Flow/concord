@@ -23,6 +23,15 @@ func ghStubDir(t *testing.T, script string) string {
 	return dir
 }
 
+// ciWaitQuietReads answers the merge-queue read with no queue event and the
+// required-context reads with no required context. A PR stub that is not
+// about those reads appends it before its esac and keeps its own verdict.
+const ciWaitQuietReads = `
+	*"api graphql"*) echo '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"","timelineItems":{"nodes":[]}}}}}';;
+	*"rules/branches/"*) echo '[[]]';;
+	*"api repos/"*"/branches/"*) echo '{"protection":{"required_status_checks":{"contexts":[],"checks":[]}}}';;
+`
+
 func ghStubPath(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -85,6 +94,50 @@ func TestCiWaitSHASelectorValueMustBeHex40(t *testing.T) {
 	}
 }
 
+func TestCiWaitRepoMustBeOwnerName(t *testing.T) {
+	// The repository names fixed GitHub API paths and GraphQL variables, so
+	// it must be exactly two plain path segments.
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	for _, repo := range []string{"", "o", "o/r/x", "o/", "/r", "o/..", "../r", "o/r?x", "o/r#x", "o/{repo}", "github.com/o/r"} {
+		code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: repo,
+		}))
+		if code != 1 || report.Status != "refused" {
+			t.Fatalf("repo %q: want refused, got code=%d report=%+v", repo, code, report)
+		}
+	}
+	for _, repo := range []string{"o/r", "Sharper-Flow/concord", "org_x/.github", "o/r.go"} {
+		_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			Selector: &ciWaitSelector{Kind: "run", Value: "1"}, Repo: repo, TimeSecondsMax: ciWaitBudget(0),
+		}))
+		if report.Status != "timeout" {
+			t.Fatalf("repo %q: want an admitted wait, got %+v", repo, report)
+		}
+	}
+}
+
+func TestCiWaitResumedStateMustNameAValidSubject(t *testing.T) {
+	// A resumed state file skips the request checks, so the poll repeats the
+	// repo and selector checks before any gh call.
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	for _, tc := range []struct{ repo, kind, value string }{
+		{"o/r/../x", "pr", "5"},
+		{"o/r", "pr", "@state.json"},
+		{"o/r", "run", "--web"},
+		{"o/r", "sha", "HEAD"},
+	} {
+		file := filepath.Join(t.TempDir(), "state.json")
+		ciWaitSaveState(&ciWaitState{
+			SchemaVersion: 1, Selector: ciWaitSelector{Kind: tc.kind, Value: tc.value}, Repo: tc.repo, Mode: "checks",
+			BudgetSeconds: 1800, StartedAt: time.Now().UTC(), DeadlineAt: time.Now().UTC().Add(time.Hour),
+		}, file)
+		code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{StateFile: file}))
+		if code != 1 || report.Status != "error" || strings.Contains(report.Reason, "gh ") {
+			t.Fatalf("state %+v: want an error before any gh call, got code=%d report=%+v", tc, code, report)
+		}
+	}
+}
+
 // --- deadline enforcement ---
 
 func TestCiWaitZeroBudgetTerminatesWithTimeout(t *testing.T) {
@@ -130,7 +183,7 @@ func TestCiWaitHungCommandCannotPreventDeadline(t *testing.T) {
 }
 
 func TestCiWaitDeadlineCarriedAcrossInvocations(t *testing.T) {
-	ghStubPath(t, ghStubDir(t, `case "$*" in *"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';; *"pr checks"*) echo '[{"name":"c","state":"PENDING","link":"l","bucket":"pending"}]';; esac`))
+	ghStubPath(t, ghStubDir(t, `case "$*" in *"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';; *"pr checks"*) echo '[{"name":"c","state":"PENDING","link":"l","bucket":"pending"}]';; `+ciWaitQuietReads+`esac`))
 	_, first := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -173,11 +226,11 @@ func TestCiWaitSelectorsQueryTheIntendedSubject(t *testing.T) {
 	capture := filepath.Join(t.TempDir(), "args")
 	stub := `echo "$*" >> "` + capture + `"
 case "$*" in
-	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
+	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
 	*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
 	*"run list"*) echo '[{"databaseId":1,"name":"n","status":"completed","conclusion":"success","url":"u"}]';;
 	*"run view"*) echo '{"status":"completed","conclusion":"success","url":"u","headSha":"s"}';;
-esac`
+` + ciWaitQuietReads + `esac`
 	ghStubPath(t, ghStubDir(t, stub))
 	cases := []struct {
 		kind  string
@@ -260,9 +313,9 @@ func TestCiWaitChecksModePollsOnceBelowThePageCap(t *testing.T) {
 	capture := filepath.Join(t.TempDir(), "args")
 	ghStubPath(t, ghStubDir(t, `echo "$*" >> "`+capture+`"
 case "$*" in
-	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
+	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
 	*"pr checks"*) exit 97;;
-esac`))
+`+ciWaitQuietReads+`esac`))
 	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -290,9 +343,9 @@ func TestCiWaitFullRollupPageStillReadsThePaginatedSource(t *testing.T) {
 	}
 	ghStubPath(t, ghStubDir(t, `echo "$*" >> "`+capture+`"
 case "$*" in
-	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
+	*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
 	*"pr checks"*) echo '[]';;
-esac`))
+`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -330,8 +383,8 @@ func TestCiWaitTimedOutCommandRetriesOnceThenReportsPending(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
 	*"pr view"*)
 		if [ ! -f "`+marker+`" ]; then touch "`+marker+`"; sleep 500; fi
-		echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
-	esac`))
+		echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
+	`+ciWaitQuietReads+`esac`))
 	saved := ciWaitCommandTimeout
 	ciWaitCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ciWaitCommandTimeout = saved })
@@ -362,7 +415,7 @@ func TestCiWaitTerminalOutcomes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
-				*"pr view"*) echo '{"headRefOid":"aabbccdd","url":"u","statusCheckRollup":`+prRollupFixture(tc.checks)+`}' ;;
+				*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabbccdd","url":"u","statusCheckRollup":`+prRollupFixture(tc.checks)+`}' ;;
 				*"pr checks"*) cat <<'EOC'
 `+tc.checks+`
 EOC
@@ -371,7 +424,7 @@ EOC
 `+tc.logs+`
 EOL
 ;;
-			esac`))
+			`+ciWaitQuietReads+`esac`))
 			budget := 1800
 			if tc.wantStatus == "pending" {
 				// A pending verdict ends the slice; keep the test short.
@@ -406,9 +459,9 @@ EOL
 
 func TestCiWaitEmptyCheckSetIsNeverSuccess(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[]}';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[]}';;
 		*"pr checks"*) echo '[]';;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -422,9 +475,9 @@ func TestCiWaitEmptyCheckSetIsNeverSuccess(t *testing.T) {
 
 func TestCiWaitPRMergeModeUsesGitHubMergeState(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN"}';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN"}';;
 		*"pr checks"*) exit 97;;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -436,7 +489,7 @@ func TestCiWaitPRMergeModeUsesGitHubMergeState(t *testing.T) {
 func TestCiWaitPRPartialPopulationNeverSucceeds(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
 		*"pr view"*) cat <<'EOC'
-{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[
+{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[
   {"__typename":"CheckRun","name":"verify-history","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"history"},
   {"__typename":"CheckRun","name":"title","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"title"},
   {"__typename":"CheckRun","name":"verify-go","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"go"},
@@ -447,7 +500,7 @@ func TestCiWaitPRPartialPopulationNeverSucceeds(t *testing.T) {
 EOC
 ;;
 		*"pr checks"*) echo '[{"name":"verify-history","state":"SUCCESS","link":"history","bucket":"pass"},{"name":"title","state":"SUCCESS","link":"title","bucket":"pass"},{"name":"verify-go","state":"SUCCESS","link":"go","bucket":"pass"},{"name":"verify-tests","state":"SUCCESS","link":"tests","bucket":"pass"}]';;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -473,9 +526,9 @@ EOC
 
 func TestCiWaitPRReportNamesRollupOnlyChecks(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"rollup-only","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"rollup"}]}' ;;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"rollup-only","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"rollup"}]}' ;;
 		*"pr checks"*) echo '[]';;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -508,9 +561,9 @@ func TestCiWaitPRChecksModeMergeStates(t *testing.T) {
 	for _, tc := range cases {
 		t.Run("merge_state_"+tc.mergeState, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
-				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}]}';;
+				*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}]}';;
 				*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
-			esac`))
+			`+ciWaitQuietReads+`esac`))
 			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 			}))
@@ -532,9 +585,9 @@ func TestCiWaitPRMergeModeStaysPendingOnUnknown(t *testing.T) {
 	// HAS_HOOKS). The lazy UNKNOWN means "not computed", so the wait keeps
 	// polling instead of reporting success or failure.
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"UNKNOWN"}';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"UNKNOWN"}';;
 		*"pr checks"*) exit 97;;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -555,7 +608,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
-				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"`+tc.state+`","mergedAt":"`+tc.mergedAt+`","mergeStateStatus":"`+tc.name+`"}';;
+				*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"`+tc.state+`","mergedAt":"`+tc.mergedAt+`","mergeStateStatus":"`+tc.name+`"}';;
 				*"pr checks"*) exit 97;;
 			esac`))
 			_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
@@ -580,9 +633,9 @@ func TestCiWaitMergeModeRequiresPRSelector(t *testing.T) {
 
 func TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":"","mergeStateStatus":"CLEAN"}';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":"","mergeStateStatus":"CLEAN"}';;
 		*"pr checks"*) exit 97;;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -594,9 +647,629 @@ func TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess(t *testing.T) {
 	}
 }
 
+// --- merge mode: observed check failures ---
+
+// ciWaitRollupPass returns a completed passing rollup entry.
+func ciWaitRollupPass(name string) ghPRRollup {
+	return ghPRRollup{TypeName: "CheckRun", Name: name, Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: "https://github.com/o/r/actions/runs/10/job/1"}
+}
+
+// ciWaitRollupFail returns a completed failing rollup entry whose job link
+// points into the named check's run.
+func ciWaitRollupFail(name, jobURL string) ghPRRollup {
+	return ghPRRollup{TypeName: "CheckRun", Name: name, Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: jobURL}
+}
+
+// ciWaitRollupPending returns a rollup entry that is still running.
+func ciWaitRollupPending(name string) ghPRRollup {
+	return ghPRRollup{TypeName: "CheckRun", Name: name, Status: "IN_PROGRESS", DetailsURL: "https://github.com/o/r/actions/runs/10/job/3"}
+}
+
+// ciWaitRollupCancelled returns a completed rollup entry whose run was
+// cancelled before it concluded.
+func ciWaitRollupCancelled(name string) ghPRRollup {
+	return ghPRRollup{TypeName: "CheckRun", Name: name, Status: "COMPLETED", Conclusion: "CANCELLED", DetailsURL: "https://github.com/o/r/actions/runs/10/job/4"}
+}
+
+// ciWaitRollupLegacyStatus returns a legacy commit status whose terminal
+// state is FAILURE. A StatusContext carries its check name in Context, not
+// Name, so the population must recover the name through that fallback.
+func ciWaitRollupLegacyStatus(name string) ghPRRollup {
+	return ghPRRollup{TypeName: "StatusContext", Context: name, State: "FAILURE", TargetURL: "https://github.com/o/r/status/1"}
+}
+
+// ciWaitMergeHeadFixture encodes the `gh pr view` body the stub serves from
+// typed rollup entries.
+func ciWaitMergeHeadFixture(t *testing.T, mergeState, prState, mergedAt, headRefOid string, rollup []ghPRRollup) string {
+	t.Helper()
+	encoded, err := json.Marshal(rollup)
+	if err != nil {
+		t.Fatalf("cannot encode the rollup fixture: %v", err)
+	}
+	return ciWaitMergeHeadBody(t, mergeState, prState, mergedAt, headRefOid, string(encoded))
+}
+
+// ciWaitMergeHeadBody wraps a statusCheckRollup JSON array in the `gh pr
+// view` head envelope the stub serves.
+func ciWaitMergeHeadBody(t *testing.T, mergeState, prState, mergedAt, headRefOid, rollup string) string {
+	t.Helper()
+	return fmt.Sprintf(`{"baseRefName":"main","headRefOid":%q,"url":%q,"state":%q,"mergedAt":%q,"mergeStateStatus":%q,"statusCheckRollup":%s}`,
+		headRefOid, "https://github.com/o/r/pull/5", prState, mergedAt, mergeState, rollup)
+}
+
+// Distinct attempt instants for the newest-attempt fixtures.
+const (
+	ciWaitAttemptOld   = "2026-10-15T10:00:00Z"
+	ciWaitAttemptNewer = "2026-10-15T11:00:00Z"
+)
+
+// ciWaitRawCheckRun renders one CheckRun rollup entry in the exact wire shape
+// the gh export emits: no event key, so check identity is (name,
+// workflowName), and an empty conclusion renders the null conclusion and
+// completedAt of a running attempt. The check name is fixed to verify-tests;
+// callers vary only workflow, state, and timing.
+func ciWaitRawCheckRun(workflow, status, conclusion, startedAt, detailsURL string) string {
+	entry := map[string]any{
+		"__typename":   "CheckRun",
+		"name":         "verify-tests",
+		"workflowName": workflow,
+		"status":       status,
+		"startedAt":    startedAt,
+		"detailsUrl":   detailsURL,
+	}
+	if conclusion == "" {
+		entry["conclusion"] = nil
+		entry["completedAt"] = nil
+	} else {
+		entry["conclusion"] = conclusion
+		entry["completedAt"] = startedAt
+	}
+	encoded, _ := json.Marshal(entry)
+	return string(encoded)
+}
+
+// ciWaitRawStatusContext renders one StatusContext rollup entry. The gh
+// export renames the StatusContext's createdAt to the same startedAt key a
+// CheckRun uses, and its identity is the context string alone.
+func ciWaitRawStatusContext(context, state, startedAt string) string {
+	encoded, _ := json.Marshal(map[string]any{
+		"__typename": "StatusContext",
+		"context":    context,
+		"state":      state,
+		"targetUrl":  "https://github.com/o/r/status/1",
+		"startedAt":  startedAt,
+	})
+	return string(encoded)
+}
+
+// ciWaitRawRollup joins raw rollup entries into the JSON array body the head
+// envelope expects.
+func ciWaitRawRollup(entries ...string) string {
+	return "[" + strings.Join(entries, ",") + "]"
+}
+
+// ciWaitPollPROnce runs one direct ciWaitPollPR poll against a stubbed gh and
+// returns the report, its terminal verdict, and every captured gh invocation.
+// The stub answers `pr view` with headJSON, refuses `pr checks` so a merge
+// poll that builds a second population query fails loudly, and serves one
+// fixed failed-log line for `run view --log-failed`.
+func ciWaitPollPROnce(t *testing.T, mode, headJSON, priorHeadSHA string) (ciWaitReport, bool, string) {
+	t.Helper()
+	capture := filepath.Join(t.TempDir(), "args")
+	stub := `echo "$*" >> "` + capture + `"
+case "$*" in
+	*"pr view"*) cat <<'EOC'
+` + headJSON + `
+EOC
+;;
+	*"pr checks"*) exit 97;;
+	*"run view"*) printf 'job\tstep\t--- FAIL: TestThing (0.1s)\n';;
+` + ciWaitQuietReads + `esac`
+	ghStubPath(t, ghStubDir(t, stub))
+	state := &ciWaitState{
+		SchemaVersion: 1,
+		Selector:      ciWaitSelector{Kind: "pr", Value: "5"},
+		Repo:          "o/r",
+		BudgetSeconds: ciWaitDefaultBudget,
+		StartedAt:     time.Now().UTC(),
+		DeadlineAt:    time.Now().UTC().Add(time.Hour),
+		Mode:          mode,
+		HeadSHA:       priorHeadSHA,
+	}
+	report, terminal, err := ciWaitPollPR(context.Background(), state)
+	if err != nil {
+		t.Fatalf("ciWaitPollPR errored: %v", err)
+	}
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report, terminal, string(raw)
+}
+
+func TestCiWaitPRMergeModeCheckFailures(t *testing.T) {
+	failureJob := "https://github.com/o/r/actions/runs/10/job/2"
+	passJob := "https://github.com/o/r/actions/runs/10/job/1"
+	pendingJob := "https://github.com/o/r/actions/runs/10/job/3"
+	cases := []struct {
+		name        string
+		mergeState  string
+		rollup      []ghPRRollup
+		rawRollup   string
+		wantStatus  string
+		wantFailing int
+		failName    string
+		wantReason  string
+	}{
+		{
+			name:        "BLOCKED failure ends the wait",
+			mergeState:  "BLOCKED",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name:       "UNSTABLE failure stays pending",
+			mergeState: "UNSTABLE",
+			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus: "pending",
+			wantReason: "can merge",
+		},
+		{
+			name:       "unstable matches case-insensitively",
+			mergeState: "unstable",
+			rollup:     []ghPRRollup{ciWaitRollupFail("verify-tests", failureJob)},
+			wantStatus: "pending",
+			wantReason: "can merge",
+		},
+		{
+			name:        "failure overrides pending peers",
+			mergeState:  "BLOCKED",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failureJob), ciWaitRollupPending("verify-race")},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name:       "a newer pending rerun suppresses an older failure",
+			mergeState: "BLOCKED",
+			rawRollup: ciWaitRawRollup(
+				ciWaitRawCheckRun("Verify", "COMPLETED", "FAILURE", ciWaitAttemptOld, failureJob),
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptNewer, pendingJob),
+			),
+			wantStatus: "pending",
+		},
+		{
+			name:       "a newer passing rerun suppresses an older failure",
+			mergeState: "BLOCKED",
+			rawRollup: ciWaitRawRollup(
+				ciWaitRawCheckRun("Verify", "COMPLETED", "FAILURE", ciWaitAttemptOld, failureJob),
+				ciWaitRawCheckRun("Verify", "COMPLETED", "SUCCESS", ciWaitAttemptNewer, passJob),
+			),
+			wantStatus: "pending",
+		},
+		{
+			name:       "a newer failure survives an older pending attempt",
+			mergeState: "BLOCKED",
+			rawRollup: ciWaitRawRollup(
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptOld, pendingJob),
+				ciWaitRawCheckRun("Verify", "COMPLETED", "FAILURE", ciWaitAttemptNewer, failureJob),
+			),
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name:       "a newer failure survives an older passing attempt",
+			mergeState: "BLOCKED",
+			rawRollup: ciWaitRawRollup(
+				ciWaitRawCheckRun("Verify", "COMPLETED", "SUCCESS", ciWaitAttemptOld, passJob),
+				ciWaitRawCheckRun("Verify", "COMPLETED", "FAILURE", ciWaitAttemptNewer, failureJob),
+			),
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name:        "cancelled check ends the wait",
+			mergeState:  "CLEAN",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupCancelled("verify-race")},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-race",
+		},
+		{
+			name:        "legacy failing status ends the wait",
+			mergeState:  "CLEAN",
+			rollup:      []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupLegacyStatus("legacy-status")},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "legacy-status",
+		},
+		{
+			name:       "BLOCKED without failure stays pending",
+			mergeState: "BLOCKED",
+			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go")},
+			wantStatus: "pending",
+		},
+		{
+			name:       "CLEAN without failure explains can merge",
+			mergeState: "CLEAN",
+			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go")},
+			wantStatus: "pending",
+			wantReason: "can merge",
+		},
+		{
+			name:       "HAS_HOOKS without failure explains can merge",
+			mergeState: "HAS_HOOKS",
+			rollup:     []ghPRRollup{ciWaitRollupPass("verify-go")},
+			wantStatus: "pending",
+			wantReason: "can merge",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			headJSON := ciWaitMergeHeadFixture(t, tc.mergeState, "OPEN", "", "aabbccdd", tc.rollup)
+			if tc.rawRollup != "" {
+				headJSON = ciWaitMergeHeadBody(t, tc.mergeState, "OPEN", "", "aabbccdd", tc.rawRollup)
+			}
+			report, terminal, captured := ciWaitPollPROnce(t, "merge", headJSON, "")
+			if report.Status != tc.wantStatus || terminal != (tc.wantStatus == "failure") {
+				t.Fatalf("merge_state=%s: status=%s terminal=%t want %s (report=%+v)", tc.mergeState, report.Status, terminal, tc.wantStatus, report)
+			}
+			// The merge population comes from the rollup the poll already
+			// fetched. The stub refuses `pr checks`, so the capture is the
+			// evidence that no population query ran.
+			if strings.Contains(captured, "pr checks") {
+				t.Fatalf("merge mode must not query pr checks, calls=%q", captured)
+			}
+			if !strings.Contains(captured, "pr view") {
+				t.Fatalf("merge mode must observe the pull request head, calls=%q", captured)
+			}
+			if tc.wantStatus != "failure" {
+				if report.MergeState != tc.mergeState {
+					t.Fatalf("pending must report the observed merge state %q, got %q", tc.mergeState, report.MergeState)
+				}
+				if tc.wantReason != "" && !strings.Contains(report.Reason, tc.wantReason) {
+					t.Fatalf("pending reason must name the can-merge state, got %q", report.Reason)
+				}
+				return
+			}
+			if report.Checks == nil || report.Checks.Failing != tc.wantFailing {
+				t.Fatalf("failure must count the observed failing checks, got %+v", report.Checks)
+			}
+			if len(report.Failures) == 0 || report.Failures[0].Name != tc.failName {
+				t.Fatalf("failure must name the observed check %q, got %+v", tc.failName, report.Failures)
+			}
+			if report.RunURL == "" {
+				t.Fatal("failure must carry the run URL of the observed failure")
+			}
+		})
+	}
+
+	t.Run("failure details carry the observed evidence", func(t *testing.T) {
+		headJSON := ciWaitMergeHeadFixture(t, "BLOCKED", "OPEN", "", "aabbccdd", []ghPRRollup{
+			ciWaitRollupPass("verify-go"),
+			ciWaitRollupFail("verify-tests", failureJob),
+		})
+		report, _, captured := ciWaitPollPROnce(t, "merge", headJSON, "")
+		if report.Status != "failure" || len(report.Failures) != 1 {
+			t.Fatalf("want one failure entry, got status=%s failures=%+v", report.Status, report.Failures)
+		}
+		detail := report.Failures[0]
+		if detail.Name != "verify-tests" || detail.URL != failureJob || detail.Classification != "test_failure" {
+			t.Fatalf("failure detail must name the observed check, its job URL, and its class, got %+v", detail)
+		}
+		if report.RunURL != "https://github.com/o/r/actions/runs/10" {
+			t.Fatalf("failure must carry the observed run URL, got %q", report.RunURL)
+		}
+		if detail.FirstError != "--- FAIL: TestThing (0.1s)" {
+			t.Fatalf("failure detail must quote the first observed log line, got %q", detail.FirstError)
+		}
+		if strings.Contains(captured, "pr checks") {
+			t.Fatalf("merge mode must not query pr checks, calls=%q", captured)
+		}
+	})
+}
+
+// TestCiWaitPRMergeModeNewestAttempts pins merge mode's newest-attempt
+// classification: the greatest startedAt per check identity decides the
+// verdict, so a newer passing or pending rerun suppresses an older failure of
+// the same identity, and an entry of a different identity never erases an
+// observed failure.
+func TestCiWaitPRMergeModeNewestAttempts(t *testing.T) {
+	passJob := "https://github.com/o/r/actions/runs/10/job/1"
+	failureJob := "https://github.com/o/r/actions/runs/10/job/2"
+	pendingJob := "https://github.com/o/r/actions/runs/10/job/3"
+	// Lexically before ciWaitAttemptOld but temporally after it (11:00Z):
+	// selecting the newest attempt must compare instants, not strings.
+	newerOffset := "2026-10-15T03:00:00-08:00"
+	// The exact string the gh export emits for a null startedAt; official gh
+	// sorts the zero time as the oldest attempt.
+	zero := "0001-01-01T00:00:00Z"
+	checkRun := func(workflow, conclusion, startedAt, url string) string {
+		return ciWaitRawCheckRun(workflow, "COMPLETED", conclusion, startedAt, url)
+	}
+	cases := []struct {
+		name        string
+		entries     []string
+		wantStatus  string
+		wantFailing int
+		failName    string
+	}{
+		{
+			name: "newest pass suppresses an older failure, failure first",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+				checkRun("Verify", "SUCCESS", newerOffset, passJob),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "newest pass suppresses an older failure, pass first",
+			entries: []string{
+				checkRun("Verify", "SUCCESS", ciWaitAttemptNewer, passJob),
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "newest pending rerun suppresses an older failure, failure first",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptNewer, pendingJob),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "newest pending rerun suppresses an older failure, pending first",
+			entries: []string{
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptNewer, pendingJob),
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "newest failure survives an older pass, pass first",
+			entries: []string{
+				checkRun("Verify", "SUCCESS", ciWaitAttemptOld, passJob),
+				checkRun("Verify", "FAILURE", ciWaitAttemptNewer, failureJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "newest failure survives an older pass, failure first",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptNewer, failureJob),
+				checkRun("Verify", "SUCCESS", ciWaitAttemptOld, passJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "newest failure survives an older pending attempt, pending first",
+			entries: []string{
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptOld, pendingJob),
+				checkRun("Verify", "FAILURE", ciWaitAttemptNewer, failureJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "newest failure survives an older pending attempt, failure first",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptNewer, failureJob),
+				ciWaitRawCheckRun("Verify", "IN_PROGRESS", "", ciWaitAttemptOld, pendingJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "a newer pass of a different workflow never suppresses the failure",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+				checkRun("Lint", "SUCCESS", ciWaitAttemptNewer, passJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "a newer pass of a different workflow never suppresses the failure, pass first",
+			entries: []string{
+				checkRun("Lint", "SUCCESS", ciWaitAttemptNewer, passJob),
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "a StatusContext pass never suppresses a CheckRun failure of the same name",
+			entries: []string{
+				checkRun("Verify", "FAILURE", ciWaitAttemptOld, failureJob),
+				ciWaitRawStatusContext("verify-tests", "SUCCESS", ciWaitAttemptNewer),
+			},
+			wantStatus:  "failure",
+			wantFailing: 1,
+			failName:    "verify-tests",
+		},
+		{
+			name: "newest StatusContext attempt is selected by its exported startedAt",
+			entries: []string{
+				ciWaitRawStatusContext("legacy-status", "FAILURE", ciWaitAttemptOld),
+				ciWaitRawStatusContext("legacy-status", "SUCCESS", newerOffset),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "newest StatusContext attempt wins in either array order",
+			entries: []string{
+				ciWaitRawStatusContext("legacy-status", "SUCCESS", ciWaitAttemptNewer),
+				ciWaitRawStatusContext("legacy-status", "FAILURE", ciWaitAttemptOld),
+			},
+			wantStatus: "pending",
+		},
+		{
+			name: "a zero startedAt sorts as the oldest attempt",
+			entries: []string{
+				checkRun("Verify", "SUCCESS", ciWaitAttemptOld, passJob),
+				checkRun("Verify", "FAILURE", zero, failureJob),
+			},
+			wantStatus: "pending",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			headJSON := ciWaitMergeHeadBody(t, "BLOCKED", "OPEN", "", "aabbccdd", ciWaitRawRollup(tc.entries...))
+			report, terminal, captured := ciWaitPollPROnce(t, "merge", headJSON, "")
+			if report.Status != tc.wantStatus || terminal != (tc.wantStatus == "failure") {
+				t.Fatalf("status=%s terminal=%t want %s (report=%+v)", report.Status, terminal, tc.wantStatus, report)
+			}
+			if strings.Contains(captured, "pr checks") {
+				t.Fatalf("merge mode must classify from the rollup without a pr checks query, calls=%q", captured)
+			}
+			if tc.wantStatus != "failure" {
+				if report.Checks == nil || report.Checks.Failing != 0 {
+					t.Fatalf("a suppressed older failure must not be counted, got %+v", report.Checks)
+				}
+				return
+			}
+			if report.Checks == nil || report.Checks.Failing != tc.wantFailing {
+				t.Fatalf("failure must count the surviving failing checks, got %+v", report.Checks)
+			}
+			if len(report.Failures) == 0 || report.Failures[0].Name != tc.failName {
+				t.Fatalf("failure must name the observed check %q, got %+v", tc.failName, report.Failures)
+			}
+		})
+	}
+}
+
+func TestCiWaitPRMergeModeFailurePrecedence(t *testing.T) {
+	failureRollup := []ghPRRollup{
+		ciWaitRollupPass("verify-go"),
+		ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/10/job/2"),
+	}
+	cases := []struct {
+		name       string
+		prState    string
+		mergedAt   string
+		priorHead  string
+		headRefOid string
+		wantStatus string
+	}{
+		{
+			name:       "merged wins over an observed failure",
+			prState:    "CLOSED",
+			mergedAt:   "2026-10-15T12:00:00Z",
+			headRefOid: "aabbccdd",
+			wantStatus: "merged",
+		},
+		{
+			name:       "closed wins over an observed failure",
+			prState:    "CLOSED",
+			headRefOid: "aabbccdd",
+			wantStatus: "closed",
+		},
+		{
+			name:       "a changed head supersedes the failing wait",
+			prState:    "OPEN",
+			priorHead:  "oldsha",
+			headRefOid: "newsha",
+			wantStatus: "superseded",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			headJSON := ciWaitMergeHeadFixture(t, "BLOCKED", tc.prState, tc.mergedAt, tc.headRefOid, failureRollup)
+			report, terminal, captured := ciWaitPollPROnce(t, "merge", headJSON, tc.priorHead)
+			if report.Status != tc.wantStatus || !terminal {
+				t.Fatalf("status=%s terminal=%t want %s (report=%+v)", report.Status, terminal, tc.wantStatus, report)
+			}
+			if strings.Contains(captured, "pr checks") {
+				t.Fatalf("merge mode must not query pr checks, calls=%q", captured)
+			}
+			if tc.wantStatus == "superseded" && (report.SHA != tc.priorHead || report.HeadSHA != tc.headRefOid) {
+				t.Fatalf("superseded must name both heads, got %+v", report)
+			}
+		})
+	}
+}
+
+func TestCiWaitPRMergeModeFullPageRollupNeedsNoChecksQuery(t *testing.T) {
+	rollup := make([]ghPRRollup, 0, ciWaitPRRollupPageSize)
+	for i := 0; i < ciWaitPRRollupPageSize-1; i++ {
+		rollup = append(rollup, ciWaitRollupPass(fmt.Sprintf("check-%d", i)))
+	}
+	rollup = append(rollup, ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/10/job/2"))
+	headJSON := ciWaitMergeHeadFixture(t, "BLOCKED", "OPEN", "", "aabbccdd", rollup)
+	report, terminal, captured := ciWaitPollPROnce(t, "merge", headJSON, "")
+	if !terminal || report.Status != "failure" {
+		t.Fatalf("a full page with an observed failure must end the merge wait, got status=%s terminal=%t", report.Status, terminal)
+	}
+	if report.Checks == nil || report.Checks.Total != ciWaitPRRollupPageSize || report.Checks.Failing != 1 {
+		t.Fatalf("report must count the full rollup population, got %+v", report.Checks)
+	}
+	if strings.Contains(captured, "pr checks") {
+		t.Fatalf("merge mode must classify from the rollup without a pr checks query, calls=%q", captured)
+	}
+	if !strings.Contains(captured, "pr view") {
+		t.Fatalf("merge mode must observe the pull request head, calls=%q", captured)
+	}
+}
+
+func TestCiWaitPRChecksModeMixedFailureAndPendingStaysPending(t *testing.T) {
+	// Checks mode keeps its completeness requirement: an observed failure next
+	// to a pending check stays pending until the population completes. Only
+	// merge mode lets a failure override pending peers.
+	rollup := []ghPRRollup{
+		ciWaitRollupPass("verify-go"),
+		ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/10/job/2"),
+		ciWaitRollupPending("verify-race"),
+	}
+	headJSON := ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", "aabbccdd", rollup)
+	report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
+	if terminal || report.Status != "pending" {
+		t.Fatalf("checks mode must keep a mixed failure and pending rollup pending, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
+	}
+	if report.Checks == nil || report.Checks.Failing != 1 || report.Checks.Pending != 1 {
+		t.Fatalf("report must count the observed mix, got %+v", report.Checks)
+	}
+
+	t.Run("same-name terminal failure collapses a pending rollup entry", func(t *testing.T) {
+		// The population join replaces a same-name pending entry with the
+		// later terminal failing rollup entry, so counts.Pending reaches
+		// zero while the raw rollup keeps the stale pending duplicate and
+		// ciWaitRollupTerminal stays false. Checks mode must answer from
+		// the completeness gate, not from the collapsed counts.
+		rollup := []ghPRRollup{
+			ciWaitRollupPass("verify-go"),
+			ciWaitRollupPending("verify-flaky"),
+			ciWaitRollupFail("verify-flaky", "https://github.com/o/r/actions/runs/10/job/2"),
+		}
+		headJSON := ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", "aabbccdd", rollup)
+		report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
+		if terminal || report.Status != "pending" {
+			t.Fatalf("checks mode must keep a collapsed pending duplicate pending, got status=%s terminal=%t (report=%+v)", report.Status, terminal, report)
+		}
+		if report.Checks == nil || report.Checks.Failing != 1 || report.Checks.Pending != 0 || report.Checks.Total != 2 {
+			t.Fatalf("the later same-name entry must collapse the pending one, got %+v", report.Checks)
+		}
+		if !strings.Contains(report.Reason, "rollup is not complete") {
+			t.Fatalf("pending must come from the rollup completeness gate, got %q", report.Reason)
+		}
+	})
+}
+
 func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"newsha","url":"u"}';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"newsha","url":"u"}';;
 		*"pr checks"*) echo '[]';;
 	esac`))
 	statePath := filepath.Join(t.TempDir(), "state.json")
@@ -674,6 +1347,63 @@ func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
 		t.Fatalf("cancelled must classify as cancelled, got %+v", report.Failures)
 	}
 	_ = runs
+}
+
+func TestCiWaitSHAFailureRunURL(t *testing.T) {
+	passURL := "https://github.com/o/r/actions/runs/10"
+	failURL := "https://github.com/o/r/actions/runs/20"
+	cases := []struct {
+		name string
+		runs []ghRunSummary
+	}{
+		{
+			name: "passing first then failing",
+			runs: []ghRunSummary{
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+			},
+		},
+		{
+			name: "failing first then passing",
+			runs: []ghRunSummary{
+				{Name: "Verify", Status: "completed", Conclusion: "failure", URL: failURL},
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+			},
+		},
+		{
+			name: "passing first then cancelled",
+			runs: []ghRunSummary{
+				{Name: "Build", Status: "completed", Conclusion: "success", URL: passURL},
+				{Name: "Verify", Status: "completed", Conclusion: "cancelled", URL: failURL},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := `case "$*" in
+	*"run list"*) echo '` + ciWaitJSON(t, tc.runs) + `';;
+esac`
+			ghStubPath(t, ghStubDir(t, stub))
+			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+				Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
+			}))
+			if report.Status != "failure" {
+				t.Fatalf("a completed failing run must end the wait with failure, got %s (report=%+v)", report.Status, report)
+			}
+			if code != 0 {
+				t.Fatalf("a failure verdict is a successful observation; want exit 0, got %d", code)
+			}
+			if report.RunURL != failURL {
+				t.Fatalf("failure must carry the failing run URL %q, got %q (report=%+v)", failURL, report.RunURL, report)
+			}
+			if report.Checks == nil || report.Checks.Total != 2 || report.Checks.Passing != 1 || report.Checks.Failing != 1 || report.Checks.Pending != 0 {
+				t.Fatalf("counts must reflect the observed population total=2 pass=1 fail=1 pending=0, got %+v", report.Checks)
+			}
+			if len(report.Failures) != 1 || report.Failures[0].Name != "Verify" || report.Failures[0].URL != failURL {
+				t.Fatalf("want one failure naming %q at %q, got %+v", "Verify", failURL, report.Failures)
+			}
+		})
+	}
 }
 
 // --- error paths ---
@@ -763,9 +1493,9 @@ func TestCiWaitClassifyName(t *testing.T) {
 
 func TestCiWaitIterationsCounted(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -785,9 +1515,9 @@ func TestCiWaitSliceBoundedByShutdownSlack(t *testing.T) {
 	// A caller whose remaining budget is under the slice must terminate
 	// within the shutdown tolerance, not overshoot by a whole slice.
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
+		*"pr view"*) echo '{"baseRefName":"main","headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
-	esac`))
+	`+ciWaitQuietReads+`esac`))
 	start := time.Now()
 	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(4),

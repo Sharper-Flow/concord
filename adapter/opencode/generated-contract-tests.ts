@@ -144,7 +144,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
-  // outcome_kind/outcome_payload pair validates no branch (CON-412).
+  // outcome_kind/outcome_payload pair validates no branch.
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
@@ -254,4 +254,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 107488;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 113576;

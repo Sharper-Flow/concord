@@ -112,23 +112,23 @@ func runPredecessorImport(raw []byte, s *store.Store, out, errOut io.Writer) int
 
 	var request importRequest
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 	if err := validateImportRequest(&request); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 
 	snapshot, err := predecessor.Load(request.SnapshotPath)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 
 	resolved, err := resolveImportSelection(snapshot, &request)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 
@@ -137,11 +137,11 @@ func runPredecessorImport(raw []byte, s *store.Store, out, errOut io.Writer) int
 	// harvest is a no-op when its import already exists, and a Concord-side
 	// change to an imported item refuses the run naming the owning source.
 	if err := reconcileDeferredSelection(ctx, s, resolved); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 	if err := probeSelectionConflicts(ctx, s, resolved); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 
@@ -160,7 +160,7 @@ func runPredecessorImport(raw []byte, s *store.Store, out, errOut io.Writer) int
 	}
 
 	if err := executePredecessorImport(ctx, s, &request, resolved, &report); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-import", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, report, errOut)

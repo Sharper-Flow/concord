@@ -607,17 +607,22 @@ def step_h_backup_restore(binary: Path, env: dict, work: Path, repo: Path, conte
     # Restore into a brand-new XDG home that contains the freshly restored
     # SQLite file at the exact path the binary will derive from
     # XDG_DATA_HOME: <XDG_DATA_HOME>/concord/concord.db. The restore step
-    # also rebuilds projections from the event log so an invariant mismatch
-    # would surface as integrity_check != "ok".
+    # also rebuilds projections from the event log; the shared restore
+    # verifier fails the restore on a projection invariant mismatch, while
+    # the report's integrity_check describes the verified source snapshot
+    # only.
     restored_home = work / 'restored-home'
     restored_db_dir = restored_home / 'concord'
     restored_db_dir.mkdir(parents=True, exist_ok=True)
     restore_dest = restored_db_dir / 'concord.db'
     restore_resp = _run(binary, ['restore'], {'source': str(backup_path), 'destination': str(restore_dest)}, env)
-    if restore_resp.get('integrity_check') != 'ok':
-        raise HarnessError(f"restore integrity_check={restore_resp.get('integrity_check')}")
-    if restore_resp.get('snapshot_id') != backup_resp.get('snapshot_id'):
-        raise HarnessError(f"restore snapshot_id={restore_resp.get('snapshot_id')} differs from backup")
+    source_snapshot = restore_resp.get('source_snapshot')
+    if not isinstance(source_snapshot, dict):
+        raise HarnessError(f"restore source_snapshot missing or not an object: {source_snapshot!r}")
+    if source_snapshot.get('integrity_check') != 'ok':
+        raise HarnessError(f"restore source_snapshot integrity_check={source_snapshot.get('integrity_check')}")
+    if source_snapshot.get('snapshot_id') != backup_resp.get('snapshot_id'):
+        raise HarnessError(f"restore source_snapshot snapshot_id={source_snapshot.get('snapshot_id')} differs from backup")
     if not restore_dest.is_file():
         raise HarnessError(f"restore destination file missing: {restore_dest}")
     # Fresh-process read in the restored home uses the same client policy and

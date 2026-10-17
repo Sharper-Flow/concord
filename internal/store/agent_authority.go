@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"time"
 )
 
 // TrustedClientRecord is the durable trusted-client projection used by the
@@ -208,6 +211,15 @@ func revokeTrustedClientTx(ctx context.Context, transaction *Transaction, client
 	return nil
 }
 
+// TrustedClient returns registered policy independently of key availability.
+func (s *Store) TrustedClient(ctx context.Context, clientRef string) (TrustedClientRecord, error) {
+	if s == nil || s.db == nil {
+		return TrustedClientRecord{}, newFailure(KindUnavailable, "agent_client_read", "database is not open", true, "open the authority database")
+	}
+	client, _, err := readTrustedClient(ctx, s.db, clientRef)
+	return client, err
+}
+
 func (s *Store) TrustedClientWithKey(ctx context.Context, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
 	if s == nil || s.db == nil {
 		return TrustedClientRecord{}, TrustedClientKeyRecord{}, newFailure(KindUnavailable, "agent_client_read", "database is not open", true, "open the authority database")
@@ -224,13 +236,30 @@ func TrustedClientWithKeyTx(ctx context.Context, transaction *Transaction, clien
 }
 
 func trustedClientWithKey(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
-	var client TrustedClientRecord
-	var key TrustedClientKeyRecord
-	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,c.agent_scope_json,c.policy_revision,k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &client.AgentScopeJSON, &client.PolicyRevision, &key.KeyID, &key.PublicKey, &key.Status); err != nil {
-		return client, key, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", err)
+	client, key, err := readTrustedClient(ctx, q, clientRef)
+	if err != nil {
+		return TrustedClientRecord{}, TrustedClientKeyRecord{}, err
 	}
-	key.ClientRef = clientRef
-	return client, key, nil
+	if client.Status != "active" || key == nil {
+		return TrustedClientRecord{}, TrustedClientKeyRecord{}, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", sql.ErrNoRows)
+	}
+	return client, *key, nil
+}
+
+func readTrustedClient(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, *TrustedClientKeyRecord, error) {
+	var client TrustedClientRecord
+	var keyID, keyStatus sql.NullString
+	var publicKey []byte
+	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,c.agent_scope_json,c.policy_revision,k.key_id,k.public_key,k.status FROM agent_clients c LEFT JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &client.AgentScopeJSON, &client.PolicyRevision, &keyID, &publicKey, &keyStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TrustedClientRecord{}, nil, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", err)
+		}
+		return TrustedClientRecord{}, nil, wrapFailure(KindUnavailable, "agent_client_read", "cannot read trusted client", true, "retry the trusted client read", err)
+	}
+	if !keyID.Valid {
+		return client, nil, nil
+	}
+	return client, &TrustedClientKeyRecord{ClientRef: clientRef, KeyID: keyID.String, PublicKey: publicKey, Status: keyStatus.String}, nil
 }
 
 func ReadApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref string, identity ChallengeIdentity) (ApprovalChallengeRecord, error) {
@@ -281,6 +310,55 @@ func ConsumeApprovalChallengeTx(ctx context.Context, transaction *Transaction, r
 		return newFailure(KindProjectionConflict, "agent_challenge_consume", "approval challenge consumption lost race", false, "reread the approval challenge")
 	}
 	return nil
+}
+
+// RearmApprovalChallengeTx moves one pending challenge's deadline inside the
+// caller's transaction. Temporal order is decided on parsed RFC3339Nano
+// values, never on stored TEXT order. Only an active, unused, single-use
+// challenge whose persisted deadline still equals oldExpiresAt moves, and
+// only when that deadline is expired (equality with now is expired) and
+// newExpiresAt is strictly after now. The write changes nothing else and
+// creates no consent; a guard mismatch or lost race leaves the row unchanged.
+func RearmApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref string, identity ChallengeIdentity, oldExpiresAt, newExpiresAt, now string) error {
+	const op = "agent_challenge_rearm"
+	oldDeadline, err := parseChallengeDeadline(op, oldExpiresAt)
+	if err != nil {
+		return err
+	}
+	newDeadline, err := parseChallengeDeadline(op, newExpiresAt)
+	if err != nil {
+		return err
+	}
+	atNow, err := parseChallengeDeadline(op, now)
+	if err != nil {
+		return err
+	}
+	if oldDeadline.After(atNow) {
+		return newFailure(KindProjectionConflict, op, "approval challenge deadline is still live", false, "reread the approval challenge")
+	}
+	if !newDeadline.After(atNow) {
+		return newFailure(KindProjectionConflict, op, "re-armed approval challenge deadline is not after now", false, "reread the approval challenge")
+	}
+	tx, err := transactionSQL(transaction, op)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_approval_challenges SET expires_at=? WHERE challenge_ref=? AND client_ref=? AND session_ref=? AND agent_ref=? AND worktree=? AND status='active' AND used_count=0 AND max_uses=1 AND expires_at=?`, newExpiresAt, ref, identity.ClientRef, identity.SessionRef, identity.AgentRef, identity.Worktree, oldExpiresAt)
+	if err != nil {
+		return wrapFailure(KindUnavailable, op, "cannot re-arm approval challenge", true, "retry the approval exchange", err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return newFailure(KindProjectionConflict, op, "approval challenge re-arm lost race", false, "reread the approval challenge")
+	}
+	return nil
+}
+
+func parseChallengeDeadline(op, value string) (time.Time, error) {
+	deadline, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, newFailure(KindInvalidOperation, op, "approval challenge deadline is not an RFC3339 timestamp", false, "supply canonical RFC3339 challenge deadlines")
+	}
+	return deadline, nil
 }
 
 func InsertApprovalTx(ctx context.Context, transaction *Transaction, a ApprovalInsert) error {

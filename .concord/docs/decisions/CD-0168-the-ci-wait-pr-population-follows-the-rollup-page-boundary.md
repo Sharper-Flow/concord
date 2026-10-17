@@ -5,7 +5,7 @@
 - **Scope:** The `ci-wait` CLI verb: its PR check population, its poll interval, and its classification of a stalled `gh` command
 - **Approval:** The operator approved dropping the second query, staging the interval, and reclassifying a stalled command as pending, on 2026-09-21.
 - **Related:** CD-0160, CD-0161
-- **Preserves:** The bounded slice, the state-carried deadline, the closed report status set, and the checks-mode and merge-mode terminal rules
+- **Preserves:** The bounded slice, the state-carried deadline, the closed report status set, and the checks-mode terminal rules
 
 ## Context
 
@@ -36,9 +36,22 @@ requests again.
 This record amends CD-0160 D4. Checks mode builds its check population from the
 `gh pr view` status-check rollup. It queries `gh pr checks` only when that
 rollup holds exactly the full 100-context page, where pagination still decides
-the set. Merge mode is unchanged, because it answers before the check query.
-An empty population stays pending, and the terminal rules for checks mode and
-merge mode are untouched.
+the set. Merge mode classifies the newest attempt per check identity from
+the rollup already read,
+without a second population query, under
+[CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md).
+The greatest exported `startedAt` selects each attempt. CheckRun identity is
+`(name, workflowName)` because the export omits event. StatusContext identity
+is its context, in a separate namespace. A newer passing or pending rerun
+replaces an older failure, but different identities stay distinct.
+A failed or cancelled selected attempt ends an open merge wait unless GitHub
+reports `UNSTABLE`. Failure takes precedence over pending peers, but not over
+head supersession, merged, or closed outcomes. A full rollup page suffices to
+establish an observed failure, without establishing population completeness.
+An empty population stays pending. Checks-mode terminal rules remain unchanged.
+Under [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md),
+checks mode then adds each required context the population lacks as a
+pending entry. That read is not a population query.
 
 ### D2. The poll interval stages on the wait's elapsed time
 
@@ -63,6 +76,8 @@ no verdict about the checks.
   the poll without the `gh pr checks` query.
 - `TestCiWaitFullRollupPageStillReadsThePaginatedSource` proves a full
   100-context page still queries the paginated source.
+- `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves merge mode selects
+  the newest attempt without a second population query.
 - `TestCiWaitPollIntervalStagesOnElapsedWaitTime` proves the interval stages at
   the one-minute and five-minute boundaries.
 - `TestCiWaitTimedOutCommandRetriesOnceThenReportsPending` proves a timed-out

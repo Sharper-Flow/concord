@@ -163,7 +163,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
         },
       },
     },
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   } as never)
 }
 
@@ -671,7 +671,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
     expect(prepareResult.oracle.qualification).toBe("ready")
     const preparationRef = prepareResult.oracle.run_ref
-    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
+    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")

@@ -5,48 +5,83 @@
       "name": "concord_work_start",
       "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume takes only work_id and claims in the calling session's Project; another Project here uses worktree_claim; another repository needs a host-started session.",
       "args": {
-        "type": "object",
         "oneOf": [
           {
             "additionalProperties": false,
-            "required": ["title", "value_statement", "kind", "task", "idempotency_key"],
             "properties": {
-              "title": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
-              "value_statement": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
-              "kind": {"type": "string", "enum": ["task", "bug", "decision", "research", "other"]},
-              "task": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
-              "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
-              "priority": {"type": "integer", "minimum": -100, "maximum": 100},
-              "urgency": {"type": "string", "enum": ["standard", "expedite"]},
-              "tags": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
-              "workflow_type_ref": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
-              "external_ref": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
-              "raised_from_work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
-              "governing_requirements": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
-              "ref": {"type": "string", "minLength": 1, "maxLength": 128},
               "defect_intake": {
-                "type": "object",
                 "additionalProperties": false,
-                "required": ["failure_shape", "reproduction", "searched", "related_defect_ids"],
                 "description": "Capture admission record for defects: required for kind bug, optional for kind research, refused for every other kind (the core enforces the kind rules and the admission decision). failure_shape is a canonical bounded slug identifier repeated on every capture of the defect class; reproduction and searched are bounded nonempty text; related_defect_ids declares distinct earlier work IDs of the same shape and may be empty; root_cause_work_id names the completed workflow.research cluster RCA a recurrent bug capture needs.",
                 "properties": {
-                  "failure_shape": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
-                  "reproduction": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
-                  "searched": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
-                  "related_defect_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
-                  "root_cause_work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
-                }
-              }
-            }
+                  "failure_shape": {"maxLength": 64, "minLength": 1, "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "type": "string"},
+                  "related_defect_ids": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 20, "type": "array", "uniqueItems": true},
+                  "reproduction": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
+                  "root_cause_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+                  "searched": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192}
+                },
+                "required": ["failure_shape", "reproduction", "searched", "related_defect_ids"],
+                "type": "object"
+              },
+              "external_ref": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
+              "governing_requirements": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
+              "idempotency_key": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+              "kind": {"enum": ["task", "bug", "decision", "research", "other"], "type": "string"},
+              "priority": {"maximum": 100, "minimum": -100, "type": "integer"},
+              "raised_from_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+              "ref": {"maxLength": 128, "minLength": 1, "type": "string"},
+              "tags": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
+              "task": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
+              "title": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
+              "urgency": {"enum": ["standard", "expedite"], "type": "string"},
+              "value_statement": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
+              "workflow_type_ref": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
+            },
+            "required": ["title", "value_statement", "kind", "task", "idempotency_key"]
           },
           {
             "additionalProperties": false,
-            "required": ["work_id"],
             "properties": {
-              "work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
-            }
+              "work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
+            },
+            "required": ["work_id"]
           }
-        ]
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "concord_ci_watch",
+      "description": "Start watching GitHub CI and return at once: the concord ci-wait verb runs as a plugin-owned child with zero model turns, and this session receives the terminal JSON report as a message when the wait ends. Pass repo (owner/name), one selector (kind pr, sha, or run with its value), and optionally mode (checks or merge) and time_seconds_max.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "GitHub repository as owner/name.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "selector": {
+            "type": "object",
+            "description": "One CI selector: kind pr, sha, or run, with its value.",
+            "additionalProperties": false,
+            "required": ["kind", "value"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["pr", "sha", "run"]},
+              "value": {"type": "string", "minLength": 1, "maxLength": 64}
+            }
+          },
+          "mode": {"type": "string", "description": "Wait mode: checks (default) or merge.", "enum": ["checks", "merge"]},
+          "time_seconds_max": {
+            "type": "integer",
+            "description": "Maximum wait budget in seconds; the default is 1800.",
+            "minimum": 0,
+            "maximum": 1800
+          }
+        },
+        "required": ["repo", "selector"],
+        "additionalProperties": false
       }
     }
   ]

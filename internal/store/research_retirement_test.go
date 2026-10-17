@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // foreign keys, while retaining the canonical projection write guards.
 func synthExecPath(t *testing.T, path string, queries ...string) {
 	t.Helper()
-	db, err := sql.Open(driverName, "file:"+path+"?_pragma=foreign_keys(0)")
+	db, err := sql.Open(driverName, SQLiteFileURI(path)+"?_pragma=foreign_keys(0)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +28,39 @@ func synthExecPath(t *testing.T, path string, queries ...string) {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			t.Fatalf("path synthetic query: %v\n%s", err, q)
 		}
+	}
+}
+
+func TestFixtureDSNsKeepSubtestStoresSeparate(t *testing.T) {
+	root := t.TempDir()
+	neighbor, err := Open(t.Context(), filepath.Join(root, "fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = neighbor.Close() })
+	for _, name := range []string{"#first", "#second"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := Open(t.Context(), filepath.Join(root, "fixture"+name+".db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			synthExecPath(t, s.Path(), `CREATE TABLE fixture_path_probe (id INTEGER PRIMARY KEY)`)
+			var count int
+			if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='fixture_path_probe'`).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Errorf("fixture wrote the truncated neighbor instead of %q", s.Path())
+			}
+		})
+	}
+	var count int
+	if err := neighbor.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='fixture_path_probe'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("fixture wrote the fragment-truncated neighbor")
 	}
 }
 
@@ -80,13 +114,10 @@ func TestResearchRetirementCascadesContent(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	pack := createSimplePack(t, s, "retirement-content", "owner")
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retirement-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retirement-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retirement-source"), PackID: pack.PackID, ExpectedVersion: 2, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("retirement-citation"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, FindingID: "finding", SourceID: "source"}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retirement-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"source"}, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	tables := []string{"active_research_packs", "active_research_revisions", "active_research_findings", "active_research_sources", "active_research_finding_sources", "active_research_finding_scopes"}
@@ -96,7 +127,7 @@ func TestResearchRetirementCascadesContent(t *testing.T) {
 		}
 	}
 	terminalizeResearchOwner(t, s, "owner")
-	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 4}}})
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 3}}})
 	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementRetired {
 		t.Fatalf("retirement=%+v err=%v", out, err)
 	}
@@ -117,9 +148,7 @@ func TestResearchRetirementActivePinsProtectAndTerminalReleaseFences(t *testing.
 			s := openTemp(t)
 			seedResearchWork(t, s, "owner", "consumer")
 			pack := createSimplePack(t, s, "retirement-pin", "owner")
-			if _, err := BindResearchConsumer(context.Background(), s, BindResearchConsumerRequest{Identity: researchIdentity("retirement-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: required}}); err != nil {
-				t.Fatal(err)
-			}
+			pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: required})
 			terminalizeResearchOwner(t, s, "owner")
 			req := RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 2}}}
 			out, err := retireResearchForTest(t, s, req)

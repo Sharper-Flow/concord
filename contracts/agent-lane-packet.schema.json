@@ -1458,7 +1458,7 @@
     },
     "lane_native_oracle_preparation": {
       "type": "object", "additionalProperties": false,
-      "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_test_names", "case_to_test_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+      "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
       "properties": {
         "protocol": {"type": "string", "const": "native_oracle_v2"},
         "phase": {"type": "string", "const": "prepare"},
@@ -1477,6 +1477,11 @@
         "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
         "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
         "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "recipe_kind": {"type": "string", "const": "target_runner_v1", "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."},
+        "target_materializer": {"type": "string", "enum": ["none", "uv"], "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."},
+        "target_runner": {"type": "string", "enum": ["pytest", "check"], "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."},
+        "selected_witness_ids": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}, "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."},
+        "case_to_witness_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}}}, "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."},
         "selected_test_names": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}, "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."},
         "case_to_test_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}}}},
         "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
@@ -1485,13 +1490,93 @@
         "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
         "streams_complete": {"type": "boolean"}
       },
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
-      "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
-      "then": {"properties": {
-        "streams_complete": {"const": true},
-        "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
-        "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
-      }}
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
+          "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_test_names", "case_to_test_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+          "properties": {
+            "protocol": {"type": "string", "const": "native_oracle_v2"},
+            "phase": {"type": "string", "const": "prepare"},
+            "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
+            "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+            "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+            "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+            "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
+            "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
+            "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+            "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
+            "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
+            "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "selected_test_names": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}},
+            "case_to_test_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}}}},
+            "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
+            "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
+            "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
+            "streams_complete": {"type": "boolean"}
+          },
+          "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
+          "then": {"properties": {
+            "streams_complete": {"const": true},
+            "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
+            "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
+          }},
+          "not": {"anyOf": [{"required": ["recipe_kind"]}, {"required": ["target_materializer"]}, {"required": ["target_runner"]}, {"required": ["selected_witness_ids"]}, {"required": ["case_to_witness_map"]}]}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+          "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "recipe_kind", "target_materializer", "target_runner", "selected_witness_ids", "case_to_witness_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+          "properties": {
+            "protocol": {"type": "string", "const": "native_oracle_v2"},
+            "phase": {"type": "string", "const": "prepare"},
+            "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
+            "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+            "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+            "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+            "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
+            "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
+            "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+            "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
+            "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
+            "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "recipe_kind": {"type": "string", "const": "target_runner_v1"},
+            "target_materializer": {"type": "string", "enum": ["none", "uv"]},
+            "target_runner": {"type": "string", "enum": ["pytest", "check"]},
+            "selected_witness_ids": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
+            "case_to_witness_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1f\\x7f]*$"}}}},
+            "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
+            "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+            "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
+            "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
+            "streams_complete": {"type": "boolean"}
+          },
+          "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
+          "then": {"properties": {
+            "streams_complete": {"const": true},
+            "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
+            "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
+          }},
+          "not": {"anyOf": [{"required": ["selected_test_names"]}, {"required": ["case_to_test_map"]}]},
+          "oneOf": [
+            {"description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.", "properties": {"target_materializer": {"const": "uv"}, "target_runner": {"const": "pytest"}}},
+            {"description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.", "properties": {"target_materializer": {"const": "none"}, "target_runner": {"const": "check"}}},
+            {"description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.", "properties": {"target_materializer": {"const": "uv"}, "target_runner": {"const": "check"}}}
+          ]
+        }
+      ],
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
     },
     "lane_work_context_view": {
       "type": "object",
@@ -1532,6 +1617,15 @@
           "items": {
             "$ref": "#/$defs/lane_work_context_domain_group"
           }
+        },
+        "research_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/lane_work_context_research_finding_view"
+          },
+          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing."
         },
         "oracle_receipts": {
           "type": "array",
@@ -1769,6 +1863,383 @@
         }
       }
     },
+    "lane_work_context_research_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "domain_id"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "description": "Present exactly when the declared Domain is the registry's root Domain; the core validates that pairing at authoring."
+        }
+      },
+      "description": "One closed selected research reference: the exact pack, revision, and finding beside the declared Domain. References only, never research content."
+    },
+    "lane_work_context_research_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "finding_id",
+        "kind",
+        "statement",
+        "confidence",
+        "freshness",
+        "status",
+        "scopes"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "conclusion",
+            "recommendation"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "contradicted",
+            "superseded"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "scopes": {
+          "$ref": "#/$defs/lane_research_scopes",
+          "description": "The finding's own applicability scopes, carried unchanged from the research authority. The Go reader always serializes this member, so the context projection requires it."
+        }
+      },
+      "description": "The native research finding a resolved context entry carries: the research authority's own vocabulary, never mapped to generic worker observations or invented evidence refs."
+    },
+    "lane_research_scopes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "home",
+            "explicit"
+          ]
+        },
+        "product_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "project_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "domain_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "tag_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        }
+      },
+      "description": "The native research scope vocabulary: applicability, never authority. Mode home applies to the owner's home broadly; explicit applies to exactly the declared lists."
+    },
+    "lane_research_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "revision",
+        "source_id",
+        "kind",
+        "locator",
+        "title",
+        "publisher_or_author",
+        "accessed_at"
+      ],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "official_doc",
+            "source_code",
+            "issue",
+            "paper",
+            "web",
+            "local_evidence"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "publisher_or_author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "published_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "accessed_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "description": "The native research source descriptor, carried exactly as the research authority publishes it."
+    },
+    "lane_work_context_research_finding_view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state",
+            "finding",
+            "sources"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/lane_work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "const": "resolved"
+            },
+            "finding": {
+              "$ref": "#/$defs/lane_work_context_research_finding"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/lane_research_source"
+              },
+              "description": "Every linked source descriptor once, sorted by source id, and no unrelated source. An unsourced finding stays an empty array."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection",
+            "view_id",
+            "selection_event_id",
+            "selection_event_seq",
+            "ordinal",
+            "required",
+            "state"
+          ],
+          "properties": {
+            "selection": {
+              "$ref": "#/$defs/lane_work_context_research_selection"
+            },
+            "view_id": {
+              "type": "string",
+              "minLength": 11,
+              "maxLength": 64,
+              "pattern": "^research:[0-9]+:[0-9]+$",
+              "description": "Core-derived from the selection event sequence and ordinal; a separate namespace from the generic finding ids, never authored."
+            },
+            "selection_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The event that authored the reference, never a claim that the research body came from that event."
+            },
+            "selection_event_seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Derived from the consuming work's present binding; an absent binding is fail-closed required because absence cannot establish optional reliance."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "missing",
+                "stale",
+                "rebound",
+                "inactive"
+              ],
+              "description": "The typed drift states: an unresolved entry carries references and provenance only, no finding and no sources."
+            }
+          }
+        }
+      ],
+      "description": "One selected research entry of the shared work-context view. Exactly the resolved state carries the native finding and its linked source descriptors; every other state carries the closed selection tuple and provenance only."
+    },
     "lane_work_context_domain_group": {
       "type": "object",
       "additionalProperties": false,
@@ -1800,7 +2271,8 @@
             "type": "string",
             "minLength": 11,
             "maxLength": 64,
-            "pattern": "^finding:[0-9]+:[0-9]+$"
+            "pattern": "^(finding|research):[0-9]+:[0-9]+$",
+            "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list. Generic finding_refs never resolve research."
           }
         },
         "domain_cards": {

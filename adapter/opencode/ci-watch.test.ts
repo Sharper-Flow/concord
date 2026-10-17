@@ -1,15 +1,20 @@
-import { afterEach, expect, spyOn, test } from "bun:test"
+import { afterAll, afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { bindCiWatchClient, ciWatchSettled, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, type VerbSpawner } from "./ci-watch"
+import { bindCiWatchClient, ciWatchRedelivery, ciWatchSettled, ciWatchSnapshot, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, validateCiWatchArgs, type CiWatchArgs, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import ConcordAdapterPlugin from "./concord-plugin"
+import { hostToolSchemas } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { hostControlPlane } from "./move-session"
 
 const SESSION = "watch-session"
 const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ci-watch-test-"))
+afterAll(() => {
+  configureCiWatch({ reset: true })
+  fs.rmSync(STATE_DIR, { recursive: true, force: true })
+})
 
 // The suite exercises the watcher through the factory the plugin registers
 // from, so both surfaces see the same tool shape.
@@ -153,7 +158,7 @@ function result(result: { title: string; output: string }): Record<string, unkno
   return JSON.parse(result.output) as Record<string, unknown>
 }
 
-const context = { sessionID: SESSION, abort: new AbortController().signal }
+const context = { sessionID: SESSION, agent: "concord-operator", abort: new AbortController().signal }
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
@@ -271,8 +276,102 @@ test("malformed arguments are refused before a verb child spawns", async () => {
   }
 })
 
-test("the watch returns at once, carries one state file across slices, and prompts only after the terminal slice", async () => {
+// The CI watch contract lives in the host tool catalog, so the runtime
+// validator and the published contract must share one set of bounds. The
+// validator reads its limits and keys from that owning schema; this test
+// pins the agreement so neither side can drift.
+test("watcher contract preserves shared runtime bounds", () => {
+  const contract = hostToolSchemas.concord_ci_watch as Record<string, any>
+  expect(contract).toBeObject()
+  expect(contract.type).toBe("object")
+  expect(contract.additionalProperties).toBe(false)
+  expect(contract.required).toEqual(["repo", "selector"])
+  expect(Object.keys(contract.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(contract.properties.repo).toMatchObject({
+    type: "string",
+    minLength: 3,
+    maxLength: 256,
+    pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
+  })
+  expect(contract.properties.selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
+  expect(contract.properties.selector.properties.kind).toMatchObject({ type: "string", enum: ["pr", "sha", "run"] })
+  expect(contract.properties.selector.properties.value).toMatchObject({ type: "string", minLength: 1, maxLength: 64 })
+  expect(contract.properties.mode).toMatchObject({ type: "string", enum: ["checks", "merge"] })
+  expect(contract.properties.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 1800 })
+  // The execution validator enforces the published enums at runtime, not
+  // only in the schema document.
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "branch", value: "main" } })).toBeString()
+  expect(validateCiWatchArgs({ ...watchArgs, mode: "poll" })).toBeString()
+  // The execution validator enforces the published integer time-budget
+  // boundaries: exactly 0..1800 after the numeric normalization.
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: 0 })).toBeObject()
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: 1800 })).toBeObject()
+  expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: "900" })).toBeObject()
+  for (const budget of [-1, 1801, 1.5, "abc", "18.5"]) {
+    expect(validateCiWatchArgs({ ...watchArgs, time_seconds_max: budget }), String(budget)).toBeString()
+  }
+  // Only repo and selector are required, on the schema and at execution.
+  expect(validateCiWatchArgs({ repo: "owner/name" })).toBeString()
+  expect(validateCiWatchArgs({ selector: { kind: "pr", value: "12" } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr" } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { value: "12" } })).toBeString()
+})
+
+test("the published repo bound of 256 characters is enforced at execution", () => {
+  const repo256 = `${"a".repeat(127)}/${"b".repeat(128)}`
+  const repo257 = `${"a".repeat(128)}/${"b".repeat(128)}`
+  expect(repo256.length).toBe(256)
+  expect(repo257.length).toBe(257)
+  expect(validateCiWatchArgs({ repo: repo256, selector: { kind: "pr", value: "12" } })).toBeObject()
+  expect(validateCiWatchArgs({ repo: repo257, selector: { kind: "pr", value: "12" } })).toBeString()
+})
+
+test("the published selector value bound of 64 characters is enforced at execution", () => {
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "run", value: "1".repeat(64) } })).toBeObject()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "run", value: "1".repeat(65) } })).toBeString()
+})
+
+test("arguments carrying unexpected top-level keys are refused", () => {
+  const refused = validateCiWatchArgs({ ...watchArgs, unexpected: true })
+  expect(refused).toBeString()
+  expect(String(refused)).toContain("unexpected")
+})
+
+test("selectors carrying unexpected keys are refused", () => {
+  const refused = validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr", value: "12", extra: "x" } })
+  expect(refused).toBeString()
+  expect(String(refused)).toContain("selector")
+})
+
+test("supported argument normalizations hold under the published contract", async () => {
+  // The Code Mode request wrapper unwraps before validation.
   const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const wrapped = result(await concord_ci_watch.execute({ request: { ...watchArgs } }, context))
+  expect(wrapped.status).toBe("started")
+  await ciWatchSettled(String(wrapped.watch_id))
+  // The numeric budget normalization accepts a digit string.
+  const normalized = validateCiWatchArgs({ ...watchArgs, time_seconds_max: "600" })
+  expect(normalized).toBeObject()
+  expect((normalized as CiWatchArgs).time_seconds_max).toBe(600)
+  // The closed-key check runs after the normalizations, so a key that
+  // survives them is still refused.
+  const unknownAfterNormalize = validateCiWatchArgs({ ...watchArgs, time_seconds_max: "600", unexpected: true })
+  expect(unknownAfterNormalize).toBeString()
+  expect(String(unknownAfterNormalize)).toContain("unexpected")
+  // The per-kind semantic checks are runtime-only: the contract bounds a
+  // selector value's length, never its shape.
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "sha", value: "z".repeat(40) } })).toBeString()
+  expect(validateCiWatchArgs({ repo: "owner/name", selector: { kind: "pr", value: "1x" } })).toBeString()
+})
+
+test("the watch returns at once, carries one state file across slices, and prompts only after the terminal slice", async () => {
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -317,6 +416,41 @@ test("the watch returns at once, carries one state file across slices, and promp
   expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
 })
 
+// The pinned host prompt payload carries the variant as a top-level field
+// beside its { providerID, modelID } model reference, and the host persists
+// the prompt's variant as the session's next choice, treating "default" as
+// none. A wake or notice that omits a selected variant resets the session.
+const GLM = { providerID: "zai", modelID: "glm-test" }
+for (const { label, model, postedModel, posted } of [
+  { label: "a selected variant", model: { id: "glm-test", providerID: "zai", variant: "high" }, postedModel: GLM, posted: "high" },
+  { label: "no variant", model: { id: "glm-test", providerID: "zai" }, postedModel: GLM, posted: undefined },
+  { label: "the default variant", model: { id: "glm-test", providerID: "zai", variant: "default" }, postedModel: GLM, posted: undefined },
+  { label: "a variant without a usable model", model: { providerID: "zai", variant: "high" }, postedModel: undefined, posted: undefined },
+]) {
+  test(`the wake prompt and the start notice carry the session's model variant for ${label}`, async () => {
+    const fixture = hostFixture({ reply: "parented", session: { id: SESSION, agent: "concord-1", model } })
+    hostControlPlane().bind(fixture.client)
+    bindCiWatchClient(fixture.client)
+    configureCoreBinary("/synthetic/concord")
+    configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+    const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+    configureCiWatch({ spawner })
+    const started = await startWatch(fixture)
+    await ciWatchSettled(String(started.watch_id))
+    const bodies = ["/session/{id}/prompt_async", "/session/{id}/message"].map((url) => {
+      const posts = fixture.posts.filter((post) => post.url === url)
+      expect(posts).toHaveLength(1)
+      return posts[0].body as Record<string, unknown>
+    })
+    for (const body of bodies) {
+      expect(body.agent).toBe("concord-1")
+      expect(body.model).toEqual(postedModel)
+      if (posted === undefined) expect(Object.hasOwn(body, "variant")).toBe(false)
+      else expect(body.variant).toBe(posted)
+    }
+  })
+}
+
 test("an unconfirmed wake queues the report and the next chat.message injects it", async () => {
   const fixture = hostFixture({ messages: [] })
   hostControlPlane().bind(fixture.client)
@@ -328,10 +462,12 @@ test("an unconfirmed wake queues the report and the next chat.message injects it
   const started = await startWatch(fixture)
   await ciWatchSettled(String(started.watch_id))
   // The prompt was accepted (204) but no assistant reply followed.
-  expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(true)
+  // The idle session gave the report its one try at once, and no reply followed that either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
 
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_1", output)
@@ -413,7 +549,7 @@ test("a failed /log write surfaces on stderr, so a delivery failure keeps a diag
 })
 
 test("consecutive verb slice failures deliver an explicit error report and are logged", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -433,7 +569,7 @@ test("consecutive verb slice failures deliver an explicit error report and are l
 })
 
 test("a verb error report is terminal and cannot reset the deadline through a retry", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -511,7 +647,7 @@ test("a duplicate watch for the same session and selector returns the active ide
 })
 
 test("a different selector starts its own watch and each session wakes with its own report", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -611,7 +747,7 @@ test("a serialized selector string and a flattened kind/value pair both start th
 })
 
 test("an entry absent from the session status map is idle, so delivery proceeds", async () => {
-  const fixture = hostFixture({ absentStatus: true, messages: [] })
+  const fixture = hostFixture({ absentStatus: true, messages: [], reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2, idleTimeoutMs: 60 })
@@ -676,9 +812,13 @@ test("a pre-model placeholder parented to the injected report does not confirm t
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_placeholder", output)
   expect(output.parts).toHaveLength(1)
@@ -699,9 +839,13 @@ test("an errored assistant record parented to the injected report does not confi
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_errored", output)
   expect(output.parts).toHaveLength(1)
@@ -719,9 +863,13 @@ test("a concurrent assistant reply not parented to the injected report does not 
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_unrelated", output)
   expect(output.parts).toHaveLength(1)
@@ -847,6 +995,249 @@ test("a queued report that cannot drain yet still holds the session's admission 
   const third = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
   expect(third.status).toBe("started")
   await ciWatchSettled(String(third.watch_id))
+})
+
+test("a report queued while the session stayed busy reaches the model when the session goes idle, with no chat message, and admission frees", async () => {
+  const host: { status: string; reply: "parented" } = { status: "busy", reply: "parented" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  // The host reports every prompted user message through chat.message.
+  const hooked: unknown[][] = []
+  const post = fixture.client.post
+  fixture.client.post = async (request: { url: string; body?: unknown }) => {
+    const answer = await post(request)
+    if (request.url === "/session/{id}/prompt_async") {
+      const output = { parts: [...(request.body as { parts: unknown[] }).parts] }
+      await plugin["chat.message"]({ sessionID: SESSION, messageID: `msg_prompted_${hooked.length}` }, output)
+      hooked.push(output.parts)
+    }
+    return answer
+  }
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  expect(first.status).toBe("started")
+  await ciWatchSettled(String(first.watch_id))
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  // The session stayed busy past idleTimeoutMs, so the report queued without a wake.
+  expect(prompts()).toHaveLength(0)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("queued")
+  const blocked = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(blocked.status).toBe("refused")
+
+  host.status = "idle"
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await ciWatchRedelivery(SESSION)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("delivered")
+  expect(prompts()).toHaveLength(1)
+  const body = prompts()[0].body as { agent: string; model: unknown; parts: Array<{ text: string; synthetic: boolean }> }
+  expect(body.parts).toHaveLength(1)
+  expect(body.parts[0].synthetic).toBe(true)
+  expect(body.parts[0].text).toContain(`[concord ci-watch ${String(first.watch_id)}] CI wait success for owner/name pr:12.`)
+  expect(body.agent).toBe("concord-1")
+  expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
+  // The redelivery's own message does not drain the report it already carries.
+  expect(hooked).toHaveLength(1)
+  expect(hooked[0]).toHaveLength(1)
+  // The confirmed redelivery emptied the queue, so the next watch is admitted.
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(second.status).toBe("started")
+  await ciWatchSettled(String(second.watch_id))
+})
+
+test("a queued report gets one idle redelivery try, so an unanswered try leaves it queued for the next message and a later idle event sends nothing", async () => {
+  const host: { status: string; reply: "none" } = { status: "busy", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(0)
+
+  host.status = "idle"
+  const idle = { event: { type: "session.idle", properties: { sessionID: SESSION } } }
+  await plugin.event(idle)
+  // A second idle event while the try is in flight starts no second try.
+  await plugin.event(idle)
+  await ciWatchRedelivery(SESSION)
+  expect(prompts()).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  const warned = fixture.posts.filter((post) => post.url === "/log" && String((post.body as { message: string }).message).includes("idle redelivery"))
+  expect(warned).toHaveLength(1)
+  expect((warned[0].body as { level: string }).level).toBe("warn")
+
+  // The spent try is not repeated: the idle event that ends any later turn sends nothing.
+  await plugin.event(idle)
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(prompts()).toHaveLength(1)
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_after_spent_try" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect((output.parts[0] as { text: string }).text).toContain(`[concord ci-watch ${String(started.watch_id)}] CI wait success`)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("an operator message that arrives before the idle try posts carries the queued report, and the try then posts nothing", async () => {
+  const host: { status: string; reply: "parented" } = { status: "busy", reply: "parented" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  configureCiWatch({ idleTimeoutMs: 2_000 })
+
+  // The idle event starts the try, but the operator's message makes the session busy before the try posts.
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_operator" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect((output.parts[0] as { text: string }).text).toContain(`[concord ci-watch ${String(started.watch_id)}] CI wait success`)
+  host.status = "idle"
+  await ciWatchRedelivery(SESSION)
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("a report queued while an idle redelivery is in flight gets its own try on the next idle event", async () => {
+  const host: { status: string; reply: "none" } = { status: "busy", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 500 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "failure", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const idle = { event: { type: "session.idle", properties: { sessionID: SESSION } } }
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(first.watch_id))
+
+  host.status = "idle"
+  await plugin.event(idle)
+  await until(() => prompts().length === 1, "the first idle redelivery to send")
+  host.status = "busy"
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  await ciWatchSettled(String(second.watch_id))
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(second.watch_id))!.delivery_state).toBe("queued")
+  // The first try is still inside its confirm window.
+  expect(ciWatchRedelivery(SESSION)).not.toBeNull()
+  expect(prompts()).toHaveLength(1)
+
+  host.status = "idle"
+  await plugin.event(idle)
+  await until(() => prompts().length === 2, "the second report's own idle redelivery to send")
+  const text = (prompts()[1].body as { parts: Array<{ text: string }> }).parts[0].text
+  expect(text).toContain(`[concord ci-watch ${String(second.watch_id)}]`)
+  expect(text).not.toContain(`[concord ci-watch ${String(first.watch_id)}]`)
+  await ciWatchRedelivery(SESSION)
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+})
+
+test("a report queued after its session already went idle gets its one try at once, with no idle event, and admission frees", async () => {
+  const host: { status: string; reply: "none" | "parented" } = { status: "idle", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  // The first wake is lost: the host persists it and no turn answers. The session is idle throughout.
+  const post = fixture.client.post
+  fixture.client.post = async (request: { url: string; body?: unknown }) => {
+    const answer = await post(request)
+    if (request.url === "/session/{id}/prompt_async") host.reply = "parented"
+    return answer
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  expect(first.status).toBe("started")
+  await ciWatchSettled(String(first.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(2)
+  const retried = prompts()[1].body as { parts: Array<{ text: string }> }
+  expect(retried.parts[0].text).toContain(`[concord ci-watch ${String(first.watch_id)}] CI wait success for owner/name pr:12.`)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("delivered")
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(second.status).toBe("started")
+  await ciWatchSettled(String(second.watch_id))
+})
+
+test("the at-once try is the report's one idle try: unanswered, the report stays queued, a later idle event sends nothing, and the next message carries it", async () => {
+  const fixture = hostFixture({ status: "idle", reply: "none" })
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(2)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(prompts()).toHaveLength(2)
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_after_at_once_try" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("a status read that fails when the report is queued is logged, and the session's next idle event still gives the report its try", async () => {
+  const fixture = hostFixture({ status: "idle", reply: "parented" })
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  // The status route fails until the session's idle event, so settle cannot deliver and the queue-time read fails.
+  let statusFails = true
+  const get = fixture.client.get
+  fixture.client.get = async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
+    if (request.url === "/session/status" && statusFails) return { response: new Response(null, { status: 503 }) }
+    return get(request)
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const failed = fixture.posts.filter((post) => post.url === "/log" && String((post.body as { message: string }).message).includes("could not read whether session"))
+  expect(failed).toHaveLength(1)
+  expect((failed[0].body as { level: string }).level).toBe("warn")
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+
+  statusFails = false
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await ciWatchRedelivery(SESSION)
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("delivered")
+})
+
+test("an idle event for a session with no queued report, or an event of another type, starts no redelivery", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await plugin.event({ event: { type: "session.status", properties: { sessionID: SESSION, status: { type: "idle" } } } })
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
 })
 
 test("a new watch posts one noReply notice naming repo, selector, mode, and budget, and a reused watch posts none", async () => {
@@ -1135,4 +1526,458 @@ test("a heartbeat waiting on a host read is discarded when the watch settles", a
   }
   expect(fixture.notices()).toHaveLength(1)
   expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+})
+
+// The ci-watch lifecycle snapshot: `ciWatchSnapshot(sessionID, sinceSequence?)`
+// is the read API over the watcher lifecycle on ci-watch.ts.
+
+type CiWatchSnapshot = ReturnType<typeof ciWatchSnapshot>
+type SliceResult = { exitCode: number; stdout: string; stderr: string }
+type SliceDeferred = { promise: Promise<SliceResult>; resolve: (value: SliceResult) => void }
+
+// A 40-hex sha already pinned by the selector-value test above, plus a second
+// distinct 40-hex sha for the superseded head.
+const SHA_BASE = "d6dcfb372fbac68788410ce2a03e20ed88c2fa84"
+const SHA_NEXT = "0123456789abcdef0123456789abcdef01234567"
+// A realistic success carries complete counts and a sha; a PR success also
+// carries head_sha equal to that sha.
+const COMPLETE_CHECKS = { total: 1, passing: 1, failing: 0, skipped: 0, pending: 0 }
+
+function activeRecord(snapshot: CiWatchSnapshot, watchId: string) {
+  return (snapshot.active as Array<Record<string, any>>).find((record) => record.watch_id === watchId)
+}
+
+function receiptFor(snapshot: CiWatchSnapshot, watchId: string) {
+  return (snapshot.receipts as Array<Record<string, any>>).find((record) => record.watch_id === watchId)
+}
+
+test("the snapshot shows simultaneous watches, keeps the epoch stable on dedup, filters by session, and detaches reads", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const client = fixture.client
+  const get = client.get
+  // Serve each requested session its own identity record so a second
+  // coordinator session passes the managed-scope lookup like the first.
+  client.get = async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
+    if (request.url === "/session/{id}") {
+      return {
+        data: { id: String(request.path?.id), agent: "concord-1", model: { id: "glm-test", providerID: "zai" } },
+        response: new Response(null, { status: 200 }),
+      }
+    }
+    return get(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const held = new Map<string, SliceDeferred>()
+  const calls: string[] = []
+  const spawner: VerbSpawner = async (_argv, stdin) => {
+    calls.push(stdin)
+    const slice: SliceDeferred = deferred<SliceResult>()
+    held.set(String(JSON.parse(stdin).selector.value), slice)
+    return slice.promise
+  }
+  configureCiWatch({ spawner })
+
+  const pr = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "12" }, mode: "checks" })
+  const run = await startWatch(fixture, { repo: "owner/name", selector: { kind: "run", value: "77" }, mode: "merge" })
+  expect(pr.status).toBe("started")
+  expect(run.status).toBe("started")
+  const prId = String(pr.watch_id)
+  const runId = String(run.watch_id)
+
+  const first = ciWatchSnapshot(SESSION)
+  expect(first.version).toBe(1)
+  expect(first.pid).toBe(process.pid)
+  expect(typeof first.owner_started_at).toBe("number")
+  expect(typeof first.read_at).toBe("number")
+  expect(typeof first.sequence).toBe("number")
+  expect(first.session_id).toBe(SESSION)
+  expect(first.active as Array<unknown>).toHaveLength(2)
+  const prRecord = activeRecord(first, prId)!
+  const runRecord = activeRecord(first, runId)!
+  expect(prRecord.session_id).toBe(SESSION)
+  expect(prRecord.repo).toBe("owner/name")
+  expect(prRecord.selector).toEqual({ kind: "pr", value: "12" })
+  expect(prRecord.mode).toBe("checks")
+  expect(prRecord.phase).toBe("observing")
+  expect(prRecord.binding_id).toBeNull()
+  expect(prRecord.consecutive_slice_failures).toBe(0)
+  expect(prRecord.last_observation).toBeNull()
+  expect(runRecord.session_id).toBe(SESSION)
+  expect(runRecord.mode).toBe("merge")
+  expect(runRecord.phase).toBe("observing")
+  expect(runRecord.last_observation).toBeNull()
+
+  // A duplicate start reuses the active identity: no new slice, no new epoch,
+  // and the owner epoch stays stable.
+  const duplicate = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "12" }, mode: "checks" })
+  expect(duplicate.status).toBe("already_watching")
+  expect(String(duplicate.watch_id)).toBe(prId)
+  expect(calls).toHaveLength(2)
+  const afterDedup = ciWatchSnapshot(SESSION)
+  expect(afterDedup.runtime_epoch).toBe(first.runtime_epoch)
+  expect(afterDedup.active as Array<unknown>).toHaveLength(2)
+  expect(activeRecord(afterDedup, prId)!.watch_epoch).toBe(prRecord.watch_epoch)
+
+  // Another session's watches do not leak across session-filtered snapshots.
+  const otherContext = { sessionID: "watch-session-b", agent: "concord-operator", abort: new AbortController().signal }
+  const other = result(await concord_ci_watch.execute({ repo: "owner/name", selector: { kind: "sha", value: SHA_BASE } }, otherContext))
+  expect(other.status).toBe("started")
+  const otherId = String(other.watch_id)
+  const otherSnapshot = ciWatchSnapshot("watch-session-b")
+  expect(otherSnapshot.session_id).toBe("watch-session-b")
+  const otherActive = otherSnapshot.active as Array<Record<string, any>>
+  expect(otherActive).toHaveLength(1)
+  expect(otherActive[0].watch_id).toBe(otherId)
+  expect(otherActive.every((record) => record.session_id === "watch-session-b")).toBe(true)
+  expect((first.active as Array<Record<string, any>>).some((record) => record.watch_id === otherId)).toBe(false)
+
+  // Reads detach: mutating a returned snapshot never reaches the owner state,
+  // and later state changes never move a previously returned snapshot.
+  const detachedActive: Array<Record<string, unknown>> = first.active
+  detachedActive.push({ watch_id: "injected" })
+  prRecord.phase = "corrupted"
+  const fresh = ciWatchSnapshot(SESSION)
+  expect(fresh.active as Array<unknown>).toHaveLength(2)
+  expect(activeRecord(fresh, prId)!.phase).toBe("observing")
+  // An unmutated snapshot captured before settlement carries the second
+  // direction: the owner's later state changes must not reach it either.
+  const beforeSettle = ciWatchSnapshot(SESSION)
+
+  held.get("12")!.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, head_sha: SHA_BASE, iterations: 1 }), stderr: "" })
+  await ciWatchSettled(prId)
+  expect(receiptFor(ciWatchSnapshot(SESSION), prId)!.delivery_state).toBe("delivered")
+  // The mutated detached record stays corrupted: settlement never rewrote it.
+  expect(prRecord.phase).toBe("corrupted")
+  expect(activeRecord(beforeSettle, prId)!.phase).toBe("observing")
+  expect(activeRecord(beforeSettle, prId)!.last_observation).toBeNull()
+
+  // The remaining held watches must settle so the reset leaks no loops.
+  held.get("77")!.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, iterations: 1 }), stderr: "" })
+  held.get(SHA_BASE)!.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, iterations: 1 }), stderr: "" })
+  await ciWatchSettled(runId)
+  await ciWatchSettled(otherId)
+})
+
+test("a pending observation with an exact sha is superseded by a terminal receipt that stays retained after delivery", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const first = deferred<SliceResult>()
+  const second = deferred<SliceResult>()
+  const slices = [first.promise, second.promise]
+  let stateFile = ""
+  const spawner: VerbSpawner = async (_argv, stdin) => {
+    stateFile = String(JSON.parse(stdin).state_file)
+    return slices.shift()!
+  }
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  const watchId = String(started.watch_id)
+  const snap = () => ciWatchSnapshot(SESSION)
+  expect(activeRecord(snap(), watchId)!.last_observation).toBeNull()
+
+  // Realistic pending report: a full 40-hex sha and the resume state file.
+  first.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "pending", sha: SHA_BASE, state_file: stateFile }), stderr: "" })
+  await until(() => activeRecord(snap(), watchId)!.last_observation !== null, "the pending observation")
+  const observing = activeRecord(snap(), watchId)!
+  expect(observing.phase).toBe("observing")
+  const observation = observing.last_observation as Record<string, any>
+  expect(observation.status).toBe("pending")
+  expect(observation.sha).toBe(SHA_BASE)
+  expect(observation.head_sha).toBeNull()
+  expect(observation.run_url).toBeNull()
+  expect(observation.checks).toBeNull()
+  expect(observation.evidence).toBe("exact_head")
+  expect(typeof observation.slice_started_at).toBe("number")
+  expect(typeof observation.report_received_at).toBe("number")
+
+  // Terminal superseded: the watched sha is the old one, head_sha differs.
+  second.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "superseded", sha: SHA_BASE, head_sha: SHA_NEXT, iterations: 2 }), stderr: "" })
+  await ciWatchSettled(watchId)
+  const settledSnap = snap()
+  expect(Array.isArray(settledSnap.receipts)).toBe(true)
+  const receipt = receiptFor(settledSnap, watchId)!
+  expect(typeof receipt.terminal_sequence).toBe("number")
+  expect(receipt.delivery_state).toBe("delivered")
+  const terminal = receipt.terminal_observation as Record<string, any>
+  expect(terminal.status).toBe("superseded")
+  expect(terminal.sha).toBe(SHA_BASE)
+  expect(terminal.head_sha).toBe(SHA_NEXT)
+  expect(terminal.evidence).toBe("exact_head")
+  // The delivered receipt is retained, not dropped.
+  expect(receiptFor(snap(), watchId)).toBeDefined()
+  const clock = spyOn(Date, "now")
+  try {
+    clock.mockReturnValue(Number(terminal.slice_started_at) + 180_001)
+    const stale = receiptFor(snap(), watchId)!
+    for (const key of ["last_observation", "terminal_observation"]) {
+      expect(stale[key]).toMatchObject({
+        stale: true, evidence: "unavailable",
+        slice_started_at: terminal.slice_started_at,
+        report_received_at: terminal.report_received_at,
+      })
+    }
+    expect(terminal.evidence).toBe("exact_head")
+    clock.mockReturnValue(Number(terminal.report_received_at) - 1)
+    const backwards = receiptFor(snap(), watchId)!
+    expect(backwards.last_observation.gaps).toContain("clock_gap")
+    expect(backwards.terminal_observation.gaps).toContain("clock_gap")
+  } finally {
+    clock.mockRestore()
+  }
+})
+
+test("a terminal report recorded while delivery is blocked moves delivering to queued and drains with the receipt preserved", async () => {
+  const fixture = hostFixture()
+  const client = fixture.client
+  const post = client.post
+  const gate = deferred<{ response: Response }>()
+  let promptHeld = false
+  client.post = async (request: { url: string; body?: unknown }) => {
+    if (request.url === "/session/{id}/prompt_async") {
+      promptHeld = true
+      return gate.promise
+    }
+    return post(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, head_sha: SHA_BASE, iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  const watchId = String(started.watch_id)
+  const snap = () => ciWatchSnapshot(SESSION)
+
+  // The prompt post is held in flight, so the terminal report is delivering.
+  await until(() => promptHeld, "the held prompt post")
+  expect(activeRecord(snap(), watchId)!.phase).toBe("delivering")
+  expect(receiptFor(snap(), watchId)!.delivery_state).toBe("delivering")
+  gate.resolve({ response: new Response(null, { status: 400 }) })
+  await ciWatchSettled(watchId)
+
+  const queuedSnap = snap()
+  expect(activeRecord(queuedSnap, watchId)!.phase).toBe("queued")
+  const receipt = receiptFor(queuedSnap, watchId)!
+  expect(receipt.delivery_state).toBe("queued")
+  expect((receipt.terminal_observation as Record<string, any>).status).toBe("success")
+  expect((receipt.terminal_observation as Record<string, any>).evidence).toBe("exact_head")
+
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_snapshot_drain", output)
+  expect(output.parts).toHaveLength(1)
+  const drained = receiptFor(snap(), watchId)!
+  expect(drained.delivery_state).toBe("drained")
+  expect((drained.terminal_observation as Record<string, any>).status).toBe("success")
+})
+
+test("success reports without a usable sha project unavailable evidence, never exact_head", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: "not-a-sha", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const missing = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "12" } })
+  const malformed = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "13" } })
+  await ciWatchSettled(String(missing.watch_id))
+  await ciWatchSettled(String(malformed.watch_id))
+  const snapshot = ciWatchSnapshot(SESSION)
+
+  const missingObservation = receiptFor(snapshot, String(missing.watch_id))!.terminal_observation as Record<string, any>
+  expect(missingObservation.status).toBe("success")
+  expect(missingObservation.checks).toEqual(COMPLETE_CHECKS)
+  expect(missingObservation.evidence).toBe("unavailable")
+  expect(missingObservation.sha).toBeNull()
+  expect(missingObservation.head_sha).toBeNull()
+  const malformedObservation = receiptFor(snapshot, String(malformed.watch_id))!.terminal_observation as Record<string, any>
+  expect(malformedObservation.evidence).toBe("unavailable")
+  expect(malformedObservation.evidence).not.toBe("exact_head")
+})
+
+test("an adapter-generated error keeps unavailable terminal evidence separate from the earlier observation", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxSliceFailures: 2, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const gate = deferred<void>()
+  const calls: string[] = []
+  let stateFile = ""
+  const spawner: VerbSpawner = async (_argv, stdin) => {
+    calls.push(stdin)
+    stateFile = String(JSON.parse(stdin).state_file)
+    if (calls.length === 1) return { exitCode: 0, stdout: JSON.stringify({ status: "pending", sha: SHA_BASE, state_file: stateFile }), stderr: "" }
+    if (calls.length === 2) throw new Error("synthetic slice failure")
+    await gate.promise
+    throw new Error("second synthetic slice failure")
+  }
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  const watchId = String(started.watch_id)
+  const snap = () => ciWatchSnapshot(SESSION)
+
+  // One failure is counted on the active record while the pending observation
+  // with its exact sha stays intact beside it.
+  await until(() => activeRecord(snap(), watchId)!.consecutive_slice_failures === 1, "the counted slice failure")
+  const failing = activeRecord(snap(), watchId)!
+  expect((failing.last_observation as Record<string, any>).sha).toBe(SHA_BASE)
+  expect((failing.last_observation as Record<string, any>).evidence).toBe("exact_head")
+
+  gate.resolve()
+  await ciWatchSettled(watchId)
+  const terminal = receiptFor(snap(), watchId)!.terminal_observation as Record<string, any>
+  expect(terminal.status).toBe("error")
+  expect(terminal.evidence).toBe("unavailable")
+  expect(terminal.sha).toBeNull()
+})
+
+test("repeating a completed selector starts a new watch epoch and retains both receipts", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, head_sha: SHA_BASE, iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, head_sha: SHA_BASE, iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const firstWatch = await startWatch(fixture)
+  const watchId = String(firstWatch.watch_id)
+  await ciWatchSettled(watchId)
+
+  // A completed selector is no longer active, so the repeat mints a fresh
+  // identity: a new watch_id carrying its own watch_epoch, never ID reuse.
+  const repeat = await startWatch(fixture)
+  expect(repeat.status).toBe("started")
+  const repeatId = String(repeat.watch_id)
+  expect(repeatId).not.toBe(watchId)
+  await ciWatchSettled(repeatId)
+
+  const settledSnapshot = ciWatchSnapshot(SESSION)
+  const receipts = settledSnapshot.receipts as Array<Record<string, any>>
+  const firstReceipt = receiptFor(settledSnapshot, watchId)
+  const repeatReceipt = receiptFor(settledSnapshot, repeatId)
+  // Each identity is selected by its own ID, exactly once.
+  expect(firstReceipt).toBeDefined()
+  expect(repeatReceipt).toBeDefined()
+  expect(receipts.filter((record) => record.watch_id === watchId)).toHaveLength(1)
+  expect(receipts.filter((record) => record.watch_id === repeatId)).toHaveLength(1)
+  expect(firstReceipt!.watch_epoch).not.toBe(repeatReceipt!.watch_epoch)
+})
+
+test("the receipts ring holds 64 delivered watches, reports the eviction floor, and keeps a queued report visible", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  let busy = false
+  const client = fixture.client
+  const get = client.get
+  client.get = async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
+    if (busy && request.url === "/session/status") {
+      return { data: { [SESSION]: { type: "busy" } }, response: new Response(null, { status: 200 }) }
+    }
+    return get(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 40 })
+  const spawner: VerbSpawner = async () => ({
+    exitCode: 0,
+    stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, iterations: 1 }),
+    stderr: "",
+  })
+  configureCiWatch({ spawner })
+
+  const watchIds: string[] = []
+  for (let value = 1; value <= 65; value++) {
+    const started = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: String(value) } })
+    expect(started.status).toBe("started")
+    const watchId = String(started.watch_id)
+    watchIds.push(watchId)
+    await ciWatchSettled(watchId)
+  }
+
+  const full = ciWatchSnapshot(SESSION)
+  expect(full.history_gap).toBe(false)
+  const receipts = full.receipts as Array<Record<string, any>>
+  expect(receipts).toHaveLength(64)
+  const floor = full.retention_floor as number
+  expect(typeof floor).toBe("number")
+  for (const receipt of receipts) {
+    expect(receipt.terminal_sequence).toBeGreaterThanOrEqual(floor)
+  }
+  // A sinceSequence below the eviction floor reports the history gap; the
+  // floor itself does not.
+  expect(ciWatchSnapshot(SESSION, floor - 1).history_gap).toBe(true)
+  expect(ciWatchSnapshot(SESSION, floor).history_gap).toBe(false)
+  // Exactly the oldest watch was evicted; the other 64 are retained.
+  expect(receipts.some((receipt) => receipt.watch_id === watchIds[0])).toBe(false)
+  expect(receipts.every((receipt) => watchIds.includes(receipt.watch_id))).toBe(true)
+
+  // A report that only queues stays visible in the active union after the
+  // ring has started evicting.
+  busy = true
+  const queued = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "66" } })
+  expect(queued.status).toBe("started")
+  await ciWatchSettled(String(queued.watch_id))
+  expect(activeRecord(ciWatchSnapshot(SESSION), String(queued.watch_id))!.phase).toBe("queued")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_ring_drain", output)
+  expect(output.parts).toHaveLength(1)
+})
+
+test("a queued adapter error retains its terminal observation after receipt eviction", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const post = fixture.client.post
+  // The wake and the report's at-once idle try are both refused, so the report stays queued.
+  let rejectPrompts = 2
+  fixture.client.post = async (request: { url: string; body?: unknown }) => {
+    if (request.url === "/session/{id}/prompt_async" && rejectPrompts > 0) {
+      rejectPrompts--
+      return { response: new Response(null, { status: 400 }) }
+    }
+    return post(request)
+  }
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxSliceFailures: 2, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  let slices = 0
+  const spawner: VerbSpawner = async () => {
+    slices++
+    if (slices === 1) return { exitCode: 0, stdout: JSON.stringify({ status: "pending", sha: SHA_BASE }), stderr: "" }
+    if (slices <= 3) throw new Error("synthetic slice failure")
+    return { exitCode: 0, stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: SHA_BASE, head_sha: SHA_BASE }), stderr: "" }
+  }
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  const watchId = String(started.watch_id)
+  await ciWatchSettled(watchId)
+  expect(receiptFor(ciWatchSnapshot(SESSION), watchId)!.terminal_observation.status).toBe("error")
+  for (let value = 13; value < 77; value++) {
+    const next = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: String(value) } })
+    expect(next.status).toBe("started")
+    await ciWatchSettled(String(next.watch_id))
+  }
+  const snapshot = ciWatchSnapshot(SESSION)
+  expect(receiptFor(snapshot, watchId)).toBeUndefined()
+  const queued = activeRecord(snapshot, watchId)!
+  expect(queued.phase).toBe("queued")
+  expect(queued.last_observation).toMatchObject({ status: "pending", sha: SHA_BASE })
+  expect(queued.terminal_observation).toMatchObject({ status: "error", sha: null, evidence: "unavailable" })
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_evicted_error", output)
+  expect(output.parts).toHaveLength(1)
+  expect(activeRecord(ciWatchSnapshot(SESSION), watchId)).toBeUndefined()
 })

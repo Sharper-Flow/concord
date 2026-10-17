@@ -222,6 +222,10 @@ func setWorkflowInstanceState(t *testing.T, s *Store, workID, state string) {
 
 func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, actionID, operationID string, version int64, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
+	ctx, err := prepareTerminalTestContext(ctx, s, workID, actionID)
+	if err != nil {
+		return err
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err

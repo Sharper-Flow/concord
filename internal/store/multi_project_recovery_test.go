@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -267,8 +268,17 @@ func TestMultiProjectRecoveryAbandonmentReplaysWithoutHostObservations(t *testin
 			} else {
 				f.occupy(t, "project", false)
 			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("recorded abandonment consulted present-day %s: %v", observation, err)
+			projections, events := histProjectionRows(t, s.db), histEventRows(t, s)
+			// The abandonment must fold without host observations. Recovery
+			// then refuses the injected occupancy at the post-fold comparison,
+			// because no retained event can reproduce those rows.
+			err = RebuildFromLog(context.Background(), s)
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || failure.Op != "rebuild_from_log" || !strings.Contains(failure.Detail, "cannot be reproduced from retained events") {
+				t.Fatalf("recorded abandonment did not reach occupancy comparison after %s: %v", observation, err)
+			}
+			if !reflect.DeepEqual(projections, histProjectionRows(t, s.db)) || !reflect.DeepEqual(events, histEventRows(t, s)) {
+				t.Fatal("refused recovery changed projections or retained bytes")
 			}
 			if after := terminal(); after != before {
 				t.Fatalf("replay terminal row = %v, want %v", after, before)

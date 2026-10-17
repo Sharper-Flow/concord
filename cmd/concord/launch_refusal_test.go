@@ -33,11 +33,19 @@ func TestRemovedLaunchEntriesRefuseWithoutExecuting(t *testing.T) {
 		args []string
 	}{
 		{"bare zl", []string{"zl"}},
+		{"zl help", []string{"zl", "--help"}},
+		{"zl short help", []string{"zl", "-h"}},
 		{"zl with work and prompt", []string{"zl", "work-1", "--", "prompt words"}},
 		{"zl resume-last", []string{"zl", "--resume-last"}},
 		{"resume-last alone", []string{"--resume-last"}},
 		{"session boot", []string{"session"}},
+		{"session help", []string{"session", "--help"}},
+		{"session short help", []string{"session", "-h"}},
+		{"launcher help", []string{"launcher", "--help"}},
+		{"launcher short help", []string{"launcher", "-h"}},
 		{"operator outside repair", []string{"outside-repair"}},
+		{"outside repair help", []string{"outside-repair", "--help"}},
+		{"outside repair short help", []string{"outside-repair", "-h"}},
 		{"project canonical path", []string{"project-canonical-path"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

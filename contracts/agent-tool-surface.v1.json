@@ -480,7 +480,7 @@
       "kind": "read",
       "query_id": "C19.Continuity",
       "input_schema": "#/schemas/work_trace_continuity_input",
-      "result_schema": "#/schemas/continuity_snapshot",
+      "result_schema": "#/schemas/continuity_read_result",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1438,6 +1438,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/canonical_note_result",
       "closed": true
     },
+    "continuity_read_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_read_result",
+      "closed": true
+    },
     "continuity_snapshot": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
@@ -1862,6 +1866,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:2ffb20e50242c4393b0825d95253920c31e075c5932d452346e5408f402a6408",
-  "digest": "sha256:8b1d78b0bd9548407b6856f61cc3fd077c46444cf6800d122ba064e25661ab69"
+  "payload_digest": "sha256:d28fdc49bd2ebb9419ffd351fb6d87f7a7cb5b5d3660fb38c97da50d1ba96121",
+  "digest": "sha256:09cf88642a997a6aeca8c18713f31b7976ed8da3f6fff76614bcae36b80de6d3"
 }

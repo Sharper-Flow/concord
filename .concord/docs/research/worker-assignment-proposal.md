@@ -86,6 +86,10 @@ identity, continuation, attribution, and replay requirements.
 ## Assignment shape
 
 The field names below are proposed contract vocabulary, not callable tools.
+Assignment identity, revision, and digest map onto the existing recorded
+worker job and keep one lifecycle. Interface and executable-check requirements
+map onto the existing acceptance-oracle graph and its pinned recipe and
+control contract. The proposal adds no second check DSL.
 An assignment record has a stable opaque `assignment_id`. Its ordinal controls
 display order only. Neither step, lane, worker session, nor ordinal is its
 identity. Append an immutable revision for a change to assignment content.
@@ -107,7 +111,9 @@ identity. Append an immutable revision for a change to assignment content.
 
 List and text bounds protect transport size. They do not decide decomposition,
 limit an assignment to a fixed file count, or cap the number of assignments in
-one work item. Assignment browsing uses bounded pages.
+one work item. Assignment browsing uses the existing job, event, attempt, and
+history reads. Dedicated assignment pagination is deferred outside this
+residual.
 
 The coordinator records and revises assignments through the owning work-definition
 surface. It does not alter the whole work task to simulate an assignment.
@@ -356,25 +362,25 @@ of this proposal:
 | A1 | A ready assignment dispatches. | One authorization binds work authority, exact assignment revision/digest, fresh attempt/epoch, core packet digest, and host provenance. |
 | A2 | An effect assignment lacks an objective, checks, stopping condition, reserved scope, or valid predicate/scope references. | Typed pre-effect refusal; zero dispatch events and no window. |
 | A3 | A dependency is unaccepted or an interface decision remains unresolved. | Effect dispatch refuses without side effects. A correctly scoped read-only investigation remains admissible at an admitting step. |
-| A4 | The worker edits and tests twice before its final valid report. | One attempt identity and epoch; no extra dispatch, correction request, or operator approval. |
+| A4 | The worker edits and tests twice before its final valid report. | A deterministic local-cycle witness proves one attempt identity and epoch; no extra dispatch, correction request, or operator approval; no live host or provider round trip. |
 | A5 | Two settled assignments complete and receive coordinator acceptance. | Both results remain bound to their own revisions; the next ready assignment opens without new approval and the effect step stays open. |
-| A6 | A completed report claims another assignment, stale revision/digest, or predicates outside its assignment. | No completion or result credit for either assignment. The observing boundary records its typed report/identity failure through the existing terminal route. |
+| A6 | A completed report claims another assignment, stale revision/digest, or predicates outside its assignment. | Worker echoes cannot transfer result credit. A mismatched canonical job binding or a predicate outside the dispatched job refuses with no completion or result credit. |
 | A7 | A completed result does not satisfy its assignment. | One rejection records diagnosis, strategy, predicates, and evidence. It is not relabeled terminal worker failure or accepted to reset a counter. |
 | A8 | A terminal failed attempt is renamed as a new assignment or placed under a superseding contract. | Unresolved correction and count remain; fresh dispatch still needs the exact unused approval and fresh identity/epoch. |
-| A9 | Three infrastructure attempts fail within one correction window. | Every dispatch counts; the visible next intent is `escalated_retry_requires_approval`; unapproved dispatch has no effect. |
+| A9 | Three infrastructure attempts fail within one correction window. | Every dispatch counts; the visible next intent is the convergence-gated retry reason `escalated_retry_requires_convergence`; unapproved dispatch has no effect. |
 | A10 | Host failure and worker failure share `worker_error`. | Their observed phases and sources differ in durable attribution. Retry authority remains identical to the existing law. |
 | A11 | The only host evidence says `Task cancelled`. | Cause is unknown; no provider-rate-limit claim. A cited provider event can establish provider cause in a separate source-backed case. |
 | A12 | A report is malformed or fails the closed schema. | No completed result; report-phase observation and validator error survive in the failure record without an invented implementation cause. |
 | A13 | Evidence recording fails after authorization or file effects. | Readback states the persisted boundary and possible effects. No invented terminal event or replacement window. |
 | A14 | Migration and runtime slices pass, but the combined subject fails compatibility. | No whole-contract acceptance. Coordinator integration attribution names the combined subject, failed check, and relevant input revisions. |
 | A15 | All slices pass without current integration evidence. | Delivery refuses. Integration plus full work-level verification is required, not a worker-count threshold. |
-| A16 | Replay includes pre-feature events and a historical definition pin. | Released digest verifies; old events retain explicit missing assignment/attribution; historical workflow behavior remains reachable. |
-| A17 | Replay includes new assignment-bearing events. | Live and replay projections agree on revisions, bindings, dispositions, readiness, and attribution; mismatched required binding is rejected. |
+| A16 | Replay includes pre-feature events and the frozen historical readers of the three retained live families. | Released digests verify; old events retain explicit missing assignment/attribution; historical workflow behavior remains reachable with no live pin migration or revived capture family. |
+| A17 | Replay includes new attribution-bearing events in the three retained live families. | Live and replay projections agree on revisions, bindings, dispositions, readiness, and attribution through the exact frozen historical readers; mismatched required binding is rejected. |
 | A18 | Authority changes, or packet context exceeds its bound. | Stale authority or overflow refuses before dispatch; no truncation, old-result reassignment, or silent fallback. |
 | A19 | An ordinary accepted local assignment has later required assignments or integration work. | Acceptance records only its result, holds the effect step, and permits only the next ready assignment. No delivery event is inferred. |
 | A20 | Final combined acceptance/delivery carries missing, stale, failed, dirty, or undeclared proof, a missing start, or unresolved review debt. | The same complete admission as standalone delivery refuses atomically. Valid current proof permits acceptance, delivery, and advance; the CD-0166 delivery gate remains `record_delivery`-only. |
 | A21 | Optional rejection/dispatch carries an unready assignment, stale packet, or unmet approval requirement. | Neither rejection nor dispatch records. A valid request records both atomically through the sole dispatch admission; escalation still permits rejection-only and advertises approval-gated retry. |
-| A22 | One terminal attempt event applies live and then replays. | Exactly one derived failure/correction fact carries its assignment and attribution, with the same diagnosis, strategy, count, and escalation projection on both paths. |
+| A22 | One terminal attempt event applies live and then replays. | Exactly one derived failure/correction fact references the terminal attribution instead of copying an independently inferred attribution record, with the same diagnosis, strategy, count, and escalation projection on both paths. |
 
 Delivery evidence must include the applicable store and adapter tests,
 generated-contract checks, definition-pin and completion witnesses, replay and

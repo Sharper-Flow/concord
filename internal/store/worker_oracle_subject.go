@@ -85,9 +85,12 @@ func readOracleVerifySubjectReceipt(ctx context.Context, q queryer, workID, runR
 }
 
 // readCurrentOracleSubject selects the newest qualified verify receipt for an
-// active worktree. It does not claim that Git is still there: the
-// adapter must compare this pinned subject with its fresh clean HEAD before
-// authorization. A later dirty/failed run contributes no qualified subject.
+// active worktree. It does not claim that Git is still there: the core
+// dispatch admission owns subject freshness and compares this pinned subject
+// with its own clean HEAD observation before any dispatch effect; the review
+// lane's HEAD/tree check against the packet subject is the backstop for
+// drift after authorization. A later dirty/failed run contributes no
+// qualified subject.
 const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		AND EXISTS (SELECT 1 FROM worktree_entries e
 			WHERE e.set_id=? AND e.project_id=l.project_id AND e.path=l.path
@@ -96,17 +99,21 @@ const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		ORDER BY d.rowid DESC LIMIT 1`
 
 func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {
-	var raw string
-	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "oracle_subject_read", "cannot read the current verify subject", true, "retry once the database is readable", err)
-	}
-	result, err := decodeOracleVerifyReceipt(raw, workID)
-	if err != nil {
+	result, err := readCurrentOracleSubjectReceipt(ctx, q, workID)
+	if err != nil || result == nil {
 		return "", err
 	}
 	return strings.TrimPrefix(result.SubjectRef, "commit:"), nil
+}
+
+func readCurrentOracleSubjectReceipt(ctx context.Context, q queryer, workID string) (*WorktreeVerifyResult, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "oracle_subject_read", "cannot read the current verify subject", true, "retry once the database is readable", err)
+	}
+	return decodeOracleVerifyReceipt(raw, workID)
 }

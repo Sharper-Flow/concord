@@ -133,8 +133,8 @@ test("the published workflow_action variants state each action's exact required 
       }
     }
   }
-  // The registry declares approve_contract's fields required: the variant
-  // states it, where the merged union left fields optional.
+  // The registry declares approve_contract's fields required: the published
+  // variant input schema states that requirement.
   const approve = actionVariantInput(schema, "approve_contract")
   expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key", "fields"])
   // The retired result-size budget object is named nowhere on the published
@@ -145,7 +145,7 @@ test("the published workflow_action variants state each action's exact required 
   expect(JSON.stringify(schema)).not.toContain("max_millis")
 })
 
-// CON-412 multibyte parity, both directions, at the published boundary. The
+// Multibyte parity, both directions, at the published boundary. The
 // store counts string bounds in UTF-8 bytes; the published code-point
 // minLength/maxLength are derived from the byte bounds (maxLength = byte
 // maximum, minLength = ceil(byte minimum / 4)) so they never refuse a
@@ -183,8 +183,7 @@ test("published string bounds admit and refuse with the core in both directions 
     },
   })
   // One code point of two bytes: the core byte floor admits it, so the
-  // published bounds must admit it too (the old byte-copied minLength 2
-  // refused it).
+  // published bounds must admit it too.
   const failures: string[] = []
   expect(validateAgainstSchema(schema, approveCall("é"), failures), failures.join("; ")).toBe(true)
   // One byte under the two-byte floor: the core refuses it and

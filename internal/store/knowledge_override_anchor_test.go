@@ -46,7 +46,7 @@ func anchorRecord(document string) KnowledgeRecord {
 	return KnowledgeRecord{
 		ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-override.md", Status: "accepted",
 		Date: "2026-09-29T00:00:00Z", Title: "Override anchor", Summary: "Carries the operator instruction", Tags: []string{},
-		Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "operator", ContractVersion: 1},
+		Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 		Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 		HomeDomainID: "product-root:concord", ProductWideRationale: "The override route is Product-wide law.",
 		SHA256: sha256Hex(document),

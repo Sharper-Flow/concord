@@ -14,6 +14,12 @@ import (
 // commit in one transaction, so a caller cannot land the terminal fact and
 // lose the workflow record it owes. Replay never reaches this seam: rebuilt
 // journals fold their stored events unchanged.
+//
+// The seam is also the one frontier-attribution and delivery-
+// observation owner. It derives consumed_context_frontier from the attempt's
+// own dispatch authorization, attaches the sealed preparation's delivery
+// observation after revalidating every sampled identity with SQL only, and
+// refuses a completed implementation attempt that arrived without one.
 func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transaction, event Event) (ApplyOperationResult, error) {
 	tx, err := transactionSQL(transaction, "worker_evidence")
 	if err != nil {
@@ -23,8 +29,25 @@ func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transactio
 	if scope == nil {
 		scope = newFoldScope(tx)
 	}
-	events := []Event{event}
-	derived, err := deriveWorkflowWorkerFailureEventsTx(ctx, tx, event)
+	enriched := event
+	if event.Kind == WorkerCompleted || event.Kind == WorkerFailed {
+		enriched, err = enrichWorkerTerminalEventTx(ctx, tx, event)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+	}
+	if event.Kind == WorkerFailed {
+		// the terminal failure's attribution observation derives
+		// its core identity here, inside the same authenticated transaction
+		// that consumes the signed assertion. A caller-authored origin or
+		// identity refuses with zero effects.
+		enriched, err = enrichWorkerFailedAttributionTx(ctx, tx, enriched)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+	}
+	events := []Event{enriched}
+	derived, err := deriveWorkflowWorkerFailureEventsTx(ctx, tx, enriched)
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
@@ -121,6 +144,9 @@ func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed
 		"step_id": window.StepID, "action_id": "record_worker_failure", "attempt_epoch": window.AttemptEpoch,
 		"worker_attempt_id": payload.AttemptID, "result_evidence_refs": []string{"evidence:" + eventID},
 		"changed_refs": []string{failed.SubjectID}, "actor_ref": dispatchActor,
+		// the terminal owns the observation; the derived record
+		// refers to the terminal attribution by the failed event's id.
+		"failure_attribution_ref": failed.EventID,
 	}
 	raw, err := json.Marshal(values)
 	if err != nil {
@@ -148,16 +174,7 @@ const workflowDerivedWorkerFailureEventIDSuffix = ":workflow-failure"
 // (CD-0198 D5). Earlier versions keep the callable record and the behavior
 // and digest they shipped with.
 func workflowDerivedWorkerFailureActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 29
-	case "workflow.break_fix":
-		return definition.Version >= 26
-	case "workflow.research":
-		return definition.Version >= 17
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityDerivedWorkerFailure)
 }
 
 // workflowDerivedWorkerFailurePairAdmitsFold reports whether one

@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test"
-import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
+import fs from "node:fs"
+import path from "node:path"
+import { contractOperations, hostToolDescriptions, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 
@@ -132,8 +134,39 @@ test("all registered parameter schemas stay below the serving budget", async () 
   await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, registration)
   expect(registration.jsonSchema).toBeObject()
   registered.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(registration.jsonSchema), "utf8"))
-  expect([...registered.keys()].sort()).toEqual([...tools, "concord_ci_watch", "concord_work_start"].sort())
+  // The registered set is exactly the catalog the two tool-surface
+  // contracts declare, so a new registration cannot escape the generated
+  // denial derivation.
+  expect([...registered.keys()].sort()).toEqual([...tools, ...Object.keys(hostToolSchemas)].sort())
   const total = [...registered.values()].reduce((sum, size) => sum + size, 0)
   expect(total).toBeGreaterThan(0)
   expect(total).toBeLessThan(153_000)
+})
+
+// The authored watcher contract is the published document: registration and
+// definition each keep the pinned 779 B.
+test("the watcher publishes the authored contract byte for byte", async () => {
+  expect(hostToolSchemas.concord_ci_watch).toBeObject()
+  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, output)
+  expect(output.jsonSchema).toEqual(hostToolSchemas.concord_ci_watch)
+  expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8")).toBe(779)
+  expect(Buffer.byteLength(JSON.stringify(hostToolSchemas.concord_ci_watch), "utf8")).toBe(779)
+  const watcher = ciWatchTool()
+  expect(watcher.description).toEqual(hostToolDescriptions.concord_ci_watch)
+  expect(watcher.args).toEqual(hostToolSchemas.concord_ci_watch.properties)
+})
+
+// The generated host schemas are the authored contract documents: the
+// projection preserves the authored key order, so JSON stringification is
+// byte-identical to the contract file's own args. Publication order drift
+// is a test failure here, not a silent reordering.
+test("generated host schemas serialize byte for byte as the authored contract", () => {
+  const authored = JSON.parse(
+    fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/host-tool-surface.v1.json"), "utf8"),
+  ) as { tools: Array<{ name: string; args: unknown }> }
+  expect(authored.tools.length).toBe(Object.keys(hostToolSchemas).length)
+  for (const tool of authored.tools) {
+    expect(JSON.stringify((hostToolSchemas as Record<string, unknown>)[tool.name]), tool.name).toBe(JSON.stringify(tool.args))
+  }
 })

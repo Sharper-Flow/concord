@@ -5,13 +5,26 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/version"
 )
+
+// useDevelopmentBuild pins the build as an unstamped development build for one
+// test, the inverse of useStampedBuild, so the staging migration rule can be
+// observed under both build stamps.
+func useDevelopmentBuild(t *testing.T) {
+	t.Helper()
+	previous := version.Value
+	version.Value = version.Development
+	t.Cleanup(func() { version.Value = previous })
+}
 
 func TestBackupUsesOnlineSnapshotAndPM10Manifest(t *testing.T) {
 	t.Parallel()
@@ -70,12 +83,24 @@ func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testi
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "restored.db")
-	got, err := RestoreBackup(ctx, snapshot, destination)
+	report, err := RestoreBackup(ctx, snapshot, destination)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != want.SchemaVersion || got.EventWatermark != want.EventWatermark || got.DBChecksum != want.DBChecksum {
-		t.Fatalf("restored manifest = %+v, want %+v", got, want)
+	if report.SourceSnapshot.SnapshotID != want.SnapshotID || report.SourceSnapshot.SchemaVersion != want.SchemaVersion || report.SourceSnapshot.EventWatermark != want.EventWatermark || report.SourceSnapshot.DBChecksum != want.DBChecksum {
+		t.Fatalf("source snapshot inventory = %+v, want %+v", report.SourceSnapshot, want)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() || report.RestoredDatabase.EventWatermark != want.EventWatermark {
+		t.Fatalf("restored database inventory = %+v, want schema %d watermark %d", report.RestoredDatabase, CurrentSchemaVersion(), want.EventWatermark)
+	}
+	if restoredChecksum, err := fileSHA256(destination); err != nil || restoredChecksum != report.RestoredDatabase.DBChecksum {
+		t.Fatalf("restored checksum = %q err = %v, want the promoted inventory checksum %q", restoredChecksum, err, report.RestoredDatabase.DBChecksum)
+	}
+	if snapshotChecksum, err := fileSHA256(snapshot); err != nil || snapshotChecksum != want.DBChecksum {
+		t.Fatalf("snapshot checksum after restore = %q err = %v, want the verified %q", snapshotChecksum, err, want.DBChecksum)
+	}
+	if _, err := os.Stat(manifestPath(destination)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore destination manifest stat error = %v", err)
 	}
 	restored, err := Open(ctx, destination)
 	if err != nil {
@@ -168,7 +193,7 @@ func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	if err := os.WriteFile(manifestPath(corrupt), manifestData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(driverName, "file:"+corrupt+"?_pragma=foreign_keys(0)")
+	db, err := sql.Open(driverName, SQLiteFileURI(corrupt)+"?_pragma=foreign_keys(0)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,14 +276,22 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 // their bytes and actors, a workflow definition pin with its contract and law
 // pins, a recorded Linear issue identity, a research pack with its source and
 // finding plus one required and one optional consumer, a worktree claim with a
-// live session landing, and one completed retained worker report. A verified
-// backup restores into an independent store, the restored store rebuilds from
-// its own log, and an as-of reconstruction reads history back — every
-// population must keep its full identity through all three routes.
+// live session landing, and one completed retained worker report. A separate
+// context consumer on the current research-enabled workflow.break_fix head
+// authors one work-context declaration through the admitted action route,
+// selecting one exact finding of the pack's selected revision beside a newer
+// revision it must never read. A verified backup restores into an independent
+// store, the restored store rebuilds from its own log, and an as-of
+// reconstruction reads history back — every population must keep its full
+// identity through all three routes. After the three routes, terminating every
+// consumer and retiring the pack legally must turn the retained selection
+// typed missing while a further rebuild replays the references without
+// resurrecting the retired corpus.
 func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const workID = "evidence-living-work"
+	const contextWork = "evidence-context-consumer"
 	s := openTemp(t)
 	defer s.Close()
 
@@ -267,6 +300,10 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	// joins.
 	seedResearchWork(t, s, "evidence-research-owner", "evidence-required-consumer", "evidence-optional-consumer")
 	seedWork(t, s, workID)
+	// The context consumer carries the work-context selection on its own
+	// current research-enabled workflow head, so the retained selection is
+	// one the admitted record_work_context route really authored.
+	seedWork(t, s, contextWork)
 
 	// Workflow definition pin: the recorded actor and the selected definition
 	// are event-folded, so the rebuild must reproduce both pins from the log.
@@ -323,16 +360,37 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("evidence-finding"), PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("evidence-pin-required"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "evidence-required-consumer", UseRole: UseDecisionBasis, Required: true}}); err != nil {
+	pinResearch(t, s, "evidence-required-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
+	pinResearch(t, s, "evidence-optional-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
+	seededPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(seededPack.Revisions) != 1 || len(seededPack.Revisions[0].Sources) != 1 || len(seededPack.Revisions[0].Findings) != 1 || len(seededPack.Consumers) != 2 {
+		t.Fatalf("source pack=%+v err=%v, want one revision with one source, one finding and two consumers", seededPack, err)
+	}
+
+	// Domain registry for the consuming work's Product: the selection below
+	// validates its declared Domain against it, and the registry itself is
+	// direct-table authority the restore and rebuild must carry unchanged.
+	// The registry home pair references the workflow-law locator, so the law
+	// fixture seeds that locator first, exactly as the work-context fixture
+	// pairs them.
+	seedWorkflowLaw(t, s)
+	seedWorkContextDomainRegistry(t, s)
+
+	// A second research revision: revision 1 stays the exact selection target
+	// while a newer revision 2 carries its own linked descriptor, so the
+	// preserved store must keep the selection reading its exact revision.
+	if _, err := s.AppendResearchRevision(ctx, AppendResearchRevisionRequest{Identity: researchIdentity("evidence-append"), PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("evidence-pin-optional"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 4, Consumer: ResearchConsumer{ConsumerWorkID: "evidence-optional-consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
+	execResearchFixture := func(tag, query string, args ...any) {
+		t.Helper()
+		if _, err := s.DatabaseForTesting().Exec(query, args...); err != nil {
+			t.Fatalf("research fixture statement %q failed: %v", tag, err)
+		}
 	}
-	wantPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(wantPack.Revisions) != 1 || len(wantPack.Revisions[0].Sources) != 1 || len(wantPack.Revisions[0].Findings) != 1 || len(wantPack.Consumers) != 2 {
-		t.Fatalf("source pack=%+v err=%v, want one revision with one source, one finding and two consumers", wantPack, err)
-	}
+	execResearchFixture("evidence-s2", `INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at) VALUES(?,2,'s2','issue','https://example.com/evidence-newer','Newer evidence','Example','2026-10-02T00:00:00Z')`, pack.PackID)
+	execResearchFixture("evidence-f2", `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,2,'f2','conclusion','newer revision conclusion','high','current','active','home')`, pack.PackID)
+	execResearchFixture("evidence-f2-link", `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,2,'f2','s2')`, pack.PackID)
 
 	// One completed retained worker report: the dispatch and its completion
 	// report are retained events, folded into the worker attempt row.
@@ -384,6 +442,152 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		t.Fatalf("landing=%+v, want the evidence session freshly recorded in project", landing)
 	}
 
+	// The work-context selection: the context consumer runs the current
+	// research-enabled workflow.break_fix head, and the selection is authored
+	// through the admitted workflow action route — the same-action research
+	// binding, the declared record_work_context payload with the selection
+	// field, the step admission at the repair step, and the production
+	// post-append view check all run inside the action transaction.
+	contextOwner := WorkflowActor{PrincipalRef: "principal:evidence", ClientRef: "client:evidence", AgentRef: "agent:evidence", SessionRef: "session:evidence-context", ActorClass: ActorAgent}
+	contextOwnerRef, err := WorkflowActorRef(contextOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextDefinition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, contextTx, WorkflowInitializationRequest{WorkID: contextWork, Definition: contextDefinition, Actor: contextOwner, Now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)}); err != nil {
+		contextTx.Rollback()
+		t.Fatal(err)
+	}
+	if err := contextTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	contextContract := workflowEventWithActor("evidence-context-contract", WorkflowContractApproved, contextWork, contextOwnerRef, map[string]any{
+		"work_id": contextWork, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:evidence-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:evidence-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
+		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"architecture_binding": WorkflowArchitectureBinding{
+			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
+			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+		},
+	})
+	contextContract.PayloadVersion = 3
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contextContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): 4}}); err != nil {
+		t.Fatalf("context consumer contract refused: %v", err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, contextWork, "repair", contextOwnerRef); err != nil {
+		t.Fatalf("advance the context consumer to the repair step: %v", err)
+	}
+	contextActionVersion := readWorkVersion(t, s, contextWork)
+	actionTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newFoldScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
+		Payload: json.RawMessage(mustJSONValue(map[string]any{
+			"required_reading":      []map[string]any{},
+			"finding_refs":          []string{},
+			"context_findings":      []map[string]any{},
+			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
+		})),
+		ResearchBindings:     []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}},
+		Actor:                contextOwner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64),
+		IdempotencyIdentity:  "record_work_context-evidence-context", OperationID: "record_work_context-evidence-context",
+		PrincipalRef: contextOwner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "record_work_context-evidence-context",
+		RequestID: "request:evidence-context", ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
+	}); err != nil {
+		_ = actionTx.Rollback()
+		t.Fatalf("admitted record_work_context with the research selection refused: %v", err)
+	}
+	if err := actionTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var declarationEventID string
+	var declarationPayload []byte
+	var declarationSeq int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload,seq FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowWorkContextRecorded, contextWork).Scan(&declarationEventID, &declarationPayload, &declarationSeq); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(declarationPayload), `"research_finding_refs"`) {
+		t.Fatalf("declaration event lost the selection references: %s", declarationPayload)
+	}
+
+	// The exact selection and view before backup: the entry resolves with the
+	// native finding and its full linked descriptor at their exact selected
+	// revision values, and the serialized view bytes are the shape every
+	// later stage must reproduce byte for byte.
+	readViewBytes := func(stage string, db *sql.DB) []byte {
+		t.Helper()
+		view, err := readWorkContextView(ctx, db, contextWork)
+		if err != nil {
+			t.Fatalf("%s view read refused: %v", stage, err)
+		}
+		raw, err := json.Marshal(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	wantViewRaw := readViewBytes("pre-backup", s.DatabaseForTesting())
+	var beforeDocument map[string]any
+	if err := json.Unmarshal(wantViewRaw, &beforeDocument); err != nil {
+		t.Fatal(err)
+	}
+	if beforeEntries := researchEntries(t, beforeDocument, wantViewRaw); len(beforeEntries) != 1 {
+		t.Fatalf("pre-backup view carries %d research entries, want the one selection: %s", len(beforeEntries), wantViewRaw)
+	}
+	var beforeView WorkContextView
+	if err := json.Unmarshal(wantViewRaw, &beforeView); err != nil {
+		t.Fatal(err)
+	}
+	if len(beforeView.ResearchFindings) != 1 {
+		t.Fatalf("typed pre-backup view carries %d research entries, want the one selection: %s", len(beforeView.ResearchFindings), wantViewRaw)
+	}
+	resolved := beforeView.ResearchFindings[0]
+	if resolved.State != WorkContextResearchStateResolved || !resolved.Required {
+		t.Fatalf("pre-backup entry state=%q required=%v, want resolved and required", resolved.State, resolved.Required)
+	}
+	if resolved.Selection.PackID != pack.PackID || resolved.Selection.Revision != 1 || resolved.Selection.FindingID != "f1" || resolved.Selection.DomainID != workContextTestChild {
+		t.Fatalf("pre-backup selection = %+v, want the exact authored tuple", resolved.Selection)
+	}
+	if resolved.SelectionEventID != declarationEventID || resolved.SelectionEventSeq != declarationSeq || resolved.Ordinal != 0 {
+		t.Fatalf("pre-backup provenance = %s/%d/%d, want the declaration event %s/%d ordinal 0", resolved.SelectionEventID, resolved.SelectionEventSeq, resolved.Ordinal, declarationEventID, declarationSeq)
+	}
+	if resolved.ViewID != fmt.Sprintf("research:%d:0", declarationSeq) {
+		t.Fatalf("pre-backup view_id = %q, want research:%d:0", resolved.ViewID, declarationSeq)
+	}
+	if resolved.Finding == nil {
+		t.Fatalf("resolved pre-backup entry carries no finding: %s", wantViewRaw)
+	}
+	wantFinding := ResearchFinding{PackID: pack.PackID, Revision: 1, FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}, Scopes: ResearchScopes{Mode: "home"}}
+	if !reflect.DeepEqual(*resolved.Finding, wantFinding) {
+		t.Fatalf("pre-backup finding =\n%+v\nwant the exact selected revision 1 finding\n%+v", *resolved.Finding, wantFinding)
+	}
+	if resolved.Sources == nil || len(*resolved.Sources) != 1 {
+		t.Fatalf("pre-backup sources = %v, want the one linked descriptor", resolved.Sources)
+	}
+	wantSource := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/evidence-spec", Title: "Evidence specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-10-01T00:00:00Z"}
+	if (*resolved.Sources)[0] != wantSource {
+		t.Fatalf("pre-backup source = %+v, want the exact linked revision 1 descriptor %+v", (*resolved.Sources)[0], wantSource)
+	}
+	resolvedViewID := resolved.ViewID
+
+	// The original pack rows the restore and rebuild must reproduce, read
+	// only after every research mutation is final.
+	wantPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(wantPack.Revisions) != 2 || len(wantPack.Consumers) != 3 {
+		t.Fatalf("final pack=%+v err=%v, want two revisions and three consumers", wantPack, err)
+	}
+
 	// Fingerprint every living-evidence population on the source store.
 	fingerprints := []struct {
 		name  string
@@ -397,6 +601,15 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,state FROM worktree_entries ORDER BY set_id,project_id,claim_op_id`},
 		{"worktree_occupancy", `SELECT worktree_id,session_ref,recorded_at,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
+		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
+		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
+		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
+		{"research_sources", `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources ORDER BY pack_id,revision,source_id`},
+		{"research_finding_sources", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
+		{"research_finding_scopes", `SELECT pack_id,revision,finding_id,scope_kind,scope_id FROM active_research_finding_scopes ORDER BY pack_id,revision,finding_id,scope_kind,scope_id`},
+		{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
+		{"domain_registry", `SELECT product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid FROM domain_registries ORDER BY product_id`},
+		{"domains", `SELECT product_id,domain_id,parent_domain_id,status,registry_content_hash FROM domains ORDER BY product_id,domain_id`},
 	}
 	want := map[string][]string{}
 	for i := range fingerprints {
@@ -405,8 +618,19 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if len(want["domain_events"]) < 12 {
 		t.Fatalf("domain event population = %d, want the seeded living-evidence log", len(want["domain_events"]))
 	}
-	if len(want["workflow_instances"]) != 1 || len(want["workflow_contracts"]) != 1 || len(want["law_pins"]) != 1 {
-		t.Fatalf("definition/law population = %d instances, %d contracts, %d law pins, want one of each", len(want["workflow_instances"]), len(want["workflow_contracts"]), len(want["law_pins"]))
+	if len(want["research_packs"]) != 1 || len(want["research_revisions"]) != 2 || len(want["research_sources"]) != 3 || len(want["research_findings"]) != 3 || len(want["research_consumers"]) != 3 {
+		t.Fatalf("research population = %d packs, %d revisions, %d sources, %d findings, %d consumers, want one pack with two revisions, three linked descriptors (revision 2 copies revision 1's), three findings and three pins", len(want["research_packs"]), len(want["research_revisions"]), len(want["research_sources"]), len(want["research_findings"]), len(want["research_consumers"]))
+	}
+	// The registry fixture seeds one current registry for the work's Product
+	// beside the foreign product-2 registry, with five Domains across both.
+	if len(want["domain_registry"]) != 2 || len(want["domains"]) != 5 {
+		t.Fatalf("domain registry population = %d registries, %d domains, want the seeded fixture pair", len(want["domain_registry"]), len(want["domains"]))
+	}
+	if !strings.Contains(strings.Join(want["domain_events"], "\x1e"), `"research_finding_refs"`) {
+		t.Fatalf("domain event fingerprint lost the selection declaration bytes")
+	}
+	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 || len(want["law_pins"]) != 1 {
+		t.Fatalf("definition/law population = %d instances, %d contracts, %d law pins, want the evidence and context-consumer instances with their contracts and the one law pin", len(want["workflow_instances"]), len(want["workflow_contracts"]), len(want["law_pins"]))
 	}
 	if wantLawPin := want["law_pins"][0]; wantLawPin != workID+"\x1f1\x1fspec:one\x1fsha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("law pin = %q, want the pinned spec:one revision", wantLawPin)
@@ -469,6 +693,9 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if !reflect.DeepEqual(gotPack, wantPack) {
 		t.Fatalf("restored research pack =\n%+v\nwant\n%+v", gotPack, wantPack)
 	}
+	if gotView := readViewBytes("restored", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
+		t.Fatalf("restored view =\n%s\nwant\n%s", gotView, wantViewRaw)
+	}
 
 	// The restored store rebuilds from its own log and keeps every identity.
 	if err := RebuildFromLog(ctx, restored); err != nil {
@@ -481,6 +708,9 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rebuiltPack, wantPack) {
 		t.Fatalf("rebuilt research pack =\n%+v\nwant\n%+v", rebuiltPack, wantPack)
+	}
+	if gotView := readViewBytes("rebuilt", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
+		t.Fatalf("rebuilt view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 
 	// As-of reads return the same history on the source and the rebuilt
@@ -519,4 +749,309 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		t.Fatalf("mid-log as-of work = %+v, want the source as-of work %+v", early.Work, sourceEarly.Work)
 	}
 	compareFingerprints("after as-of reads", restored.DatabaseForTesting())
+
+	// The preservation boundary: terminate every consumer legally, retire the
+	// pack through the explicit retirement route, and prove the retained
+	// selection reads typed missing while a further rebuild replays the
+	// declaration references without resurrecting the retired corpus.
+	terminalizeResearchOwner(t, restored, "evidence-research-owner")
+	terminalizeResearchOwner(t, restored, "evidence-required-consumer")
+	terminalizeResearchOwner(t, restored, "evidence-optional-consumer")
+	contextVersion := readWorkVersion(t, restored, contextWork)
+	if err := ApplyOperation(ctx, restored, Operation{Events: []Event{{
+		EventID: "evidence-context-consumer-terminal", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: contextWork,
+		Actor: "operator", OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(map[string]any{"from": "in_progress", "to": "cancelled", "reason": "consumer terminal", "expected_version": contextVersion, "resulting_version": contextVersion + 1}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	var pinned int
+	if err := restored.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE pack_id=?`, pack.PackID).Scan(&pinned); err != nil {
+		t.Fatal(err)
+	}
+	if pinned != 0 {
+		t.Fatalf("terminal consumers left %d pins, want the legal release of all three", pinned)
+	}
+	var retireVersion int64
+	if err := restored.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&retireVersion); err != nil {
+		t.Fatal(err)
+	}
+	retired, err := retireResearchForTest(t, restored, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: retireVersion}}})
+	if err != nil || len(retired.Candidates) != 1 || retired.Candidates[0].Classification != ResearchRetirementRetired {
+		t.Fatalf("legal retirement = %+v err=%v, want the retired classification", retired, err)
+	}
+	missingViewRaw := readViewBytes("after retirement", restored.DatabaseForTesting())
+	var missingDocument map[string]any
+	if err := json.Unmarshal(missingViewRaw, &missingDocument); err != nil {
+		t.Fatal(err)
+	}
+	missingEntries := researchEntries(t, missingDocument, missingViewRaw)
+	if len(missingEntries) != 1 {
+		t.Fatalf("post-retirement view carries %d research entries, want the retained selection", len(missingEntries))
+	}
+	missingEntry, _ := missingEntries[0].(map[string]any)
+	if missingEntry["state"] != "missing" || missingEntry["required"] != true {
+		t.Fatalf("post-retirement entry = %v, want fail-closed missing", missingEntry)
+	}
+	assertUnresolvedEntryCarriesNoContent(t, missingEntry, missingViewRaw)
+	missingSelection, _ := missingEntry["selection"].(map[string]any)
+	if missingSelection["pack_id"] != pack.PackID || missingSelection["revision"].(float64) != 1 || missingSelection["finding_id"] != "f1" {
+		t.Fatalf("post-retirement selection = %+v, want the retained exact tuple", missingSelection)
+	}
+	if missingEntry["view_id"] != resolvedViewID {
+		t.Fatalf("post-retirement view_id = %v, want the retained %q", missingEntry["view_id"], resolvedViewID)
+	}
+	retiredPrints := []struct {
+		name  string
+		query string
+	}{
+		{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
+		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
+		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
+		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
+		{"research_sources", `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources ORDER BY pack_id,revision,source_id`},
+		{"research_finding_sources", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
+		{"research_finding_scopes", `SELECT pack_id,revision,finding_id,scope_kind,scope_id FROM active_research_finding_scopes ORDER BY pack_id,revision,finding_id,scope_kind,scope_id`},
+		{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
+	}
+	afterRetire := map[string][]string{}
+	for i := range retiredPrints {
+		afterRetire[retiredPrints[i].name] = captureEvidenceRows(t, restored.DatabaseForTesting(), retiredPrints[i].query)
+	}
+	for _, name := range []string{"research_packs", "research_revisions", "research_findings", "research_sources", "research_finding_sources", "research_finding_scopes", "research_consumers"} {
+		if len(afterRetire[name]) != 0 {
+			t.Fatalf("retired corpus %s = %v, want the legal retirement to empty it", name, afterRetire[name])
+		}
+	}
+	if !strings.Contains(strings.Join(afterRetire["domain_events"], "\x1e"), `"research_finding_refs"`) {
+		t.Fatalf("post-retirement log lost the retained selection declaration")
+	}
+	if err := RebuildFromLog(ctx, restored); err != nil {
+		t.Fatalf("post-retirement RebuildFromLog() error = %v", err)
+	}
+	for i := range retiredPrints {
+		got := captureEvidenceRows(t, restored.DatabaseForTesting(), retiredPrints[i].query)
+		if strings.Join(got, "\x1e") != strings.Join(afterRetire[retiredPrints[i].name], "\x1e") {
+			t.Fatalf("post-retirement rebuild changed %s:\n%s\nwant\n%s", retiredPrints[i].name, strings.Join(got, "\n"), strings.Join(afterRetire[retiredPrints[i].name], "\n"))
+		}
+	}
+	if gotView := readViewBytes("after post-retirement rebuild", restored.DatabaseForTesting()); string(gotView) != string(missingViewRaw) {
+		t.Fatalf("post-retirement rebuilt view =\n%s\nwant\n%s", gotView, missingViewRaw)
+	}
+}
+
+// TestBackupRefusesUnreplayableLogAndDiscardsSnapshot is the promotion gate
+// witness: a snapshot of a log that no replay can fold never gains a manifest,
+// and a refused backup leaves neither a partial snapshot nor staging residue
+// while the source log keeps its recorded bytes.
+func TestBackupRefusesUnreplayableLogAndDiscardsSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	// The inserted event carries a field no released schema of its kind ever
+	// accepted, so every preparation route must refuse it on replay.
+	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, invalid.EventID, invalid.Kind, string(invalid.SubjectType), invalid.SubjectID, invalid.Actor, invalid.OccurredAt.Format(time.RFC3339Nano), invalid.PayloadVersion, string(invalid.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	_, err := Backup(ctx, s, destination)
+	if err == nil {
+		t.Fatal("Backup() promoted a snapshot of an unreplayable log")
+	}
+	assertFailureKind(t, err, KindInvalidPayload)
+	for _, candidate := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("refused backup left %s: %v", candidate, err)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("refused backup left verification staging files = %v (err=%v)", matches, err)
+	}
+	var stored string
+	var storedVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+		t.Fatal(err)
+	}
+	if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
+		t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+	}
+}
+
+// TestRestoreReportSeparatesSourceSnapshotFromRestoredDatabase pins the
+// restore report contract: the source snapshot inventory equals the verified
+// manifest, the restored database inventory describes the promoted bytes, and
+// no destination manifest exists.
+func TestRestoreReportSeparatesSourceSnapshotFromRestoredDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("report-product", "report-product-created"), locatorProjectEvent("report-project"), locatorMembershipEvent("report-product", "report-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	snapshot := filepath.Join(dir, "snapshot.db")
+	manifest, err := BackupWithOptions(ctx, s, snapshot, BackupOptions{SnapshotID: "snapshot-report-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(dir, "restored.db")
+	report, err := RestoreBackup(ctx, snapshot, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SourceSnapshot.SnapshotID != "snapshot-report-1" || report.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || report.SourceSnapshot.EventWatermark != manifest.EventWatermark || report.SourceSnapshot.DBChecksum != manifest.DBChecksum {
+		t.Fatalf("source snapshot inventory = %+v, want the verified manifest %+v", report.SourceSnapshot, manifest)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() || report.RestoredDatabase.SchemaVersion != manifest.SchemaVersion {
+		t.Fatalf("restored schema = %d, want the current %d from source %d", report.RestoredDatabase.SchemaVersion, CurrentSchemaVersion(), manifest.SchemaVersion)
+	}
+	if report.RestoredDatabase.EventWatermark != manifest.EventWatermark {
+		t.Fatalf("restored watermark = %d, want %d", report.RestoredDatabase.EventWatermark, manifest.EventWatermark)
+	}
+	restoredChecksum, err := fileSHA256(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredDatabase.DBChecksum != restoredChecksum {
+		t.Fatalf("restored inventory checksum = %q, want the promoted file %q", report.RestoredDatabase.DBChecksum, restoredChecksum)
+	}
+	snapshotChecksum, err := fileSHA256(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotChecksum != manifest.DBChecksum {
+		t.Fatalf("snapshot checksum after restore = %q, want the verified %q", snapshotChecksum, manifest.DBChecksum)
+	}
+	if _, err := os.Stat(manifestPath(destination)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore destination manifest stat error = %v", err)
+	}
+}
+
+// TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild runs without
+// t.Parallel so the build stamp cannot flip underneath it. A development build
+// owns no migration for an existing store, so promotion refuses instead of
+// bypassing that rule; a stamped release migrates the staging copy forward, so
+// the same snapshot promotes, restores at the current schema, and opens
+// without another upgrade while its source keeps the old schema.
+func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
+	ctx := context.Background()
+	_, applied := breakingWindow(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "older.db")
+	if err := openMigratedTo(t, sourcePath, applied).Close(); err != nil {
+		t.Fatal(err)
+	}
+	wantSourceSchema := manifestMax(t, sourcePath)
+	if wantSourceSchema >= CurrentSchemaVersion() {
+		t.Fatalf("older-schema fixture holds schema %d, want below %d", wantSourceSchema, CurrentSchemaVersion())
+	}
+
+	useDevelopmentBuild(t)
+	devSnapshot := filepath.Join(root, "dev-snapshot.db")
+	_, err := BackupDatabase(ctx, sourcePath, devSnapshot)
+	if err == nil {
+		t.Fatal("a development build migrated an older-schema snapshot to promote it")
+	}
+	assertFailureKind(t, err, KindInvalidOperation)
+	if !strings.Contains(err.Error(), "unstamped development build refuses schema migration") {
+		t.Fatalf("development refusal = %v, want the unstamped migration rule", err)
+	}
+	// The staging copy refuses inside its migration transaction; the carrier
+	// is read from that transaction's manifest.
+	assertUnstampedRefusal(t, err, applied)
+	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("refused development backup left %s: %v", candidate, err)
+		}
+	}
+	if got := manifestMax(t, sourcePath); got != wantSourceSchema {
+		t.Fatalf("source schema = %d after refusal, want %d", got, wantSourceSchema)
+	}
+
+	useStampedBuild(t)
+	snapshot := filepath.Join(root, "stamped-snapshot.db")
+	manifest, err := BackupDatabase(ctx, sourcePath, snapshot)
+	if err != nil {
+		t.Fatalf("stamped backup of an older-schema store: %v", err)
+	}
+	if manifest.SchemaVersion != wantSourceSchema {
+		t.Fatalf("snapshot manifest schema = %d, want the unmigrated %d", manifest.SchemaVersion, wantSourceSchema)
+	}
+	destination := filepath.Join(root, "restored.db")
+	report, err := RestoreBackup(ctx, snapshot, destination)
+	if err != nil {
+		t.Fatalf("restore of an older-schema snapshot: %v", err)
+	}
+	if report.SourceSnapshot.SchemaVersion != wantSourceSchema {
+		t.Fatalf("source snapshot schema = %d, want %d", report.SourceSnapshot.SchemaVersion, wantSourceSchema)
+	}
+	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("restored schema = %d, want the migrated %d", report.RestoredDatabase.SchemaVersion, CurrentSchemaVersion())
+	}
+	restoredChecksum, err := fileSHA256(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredDatabase.DBChecksum != restoredChecksum {
+		t.Fatalf("restored inventory checksum = %q, want the promoted file %q", report.RestoredDatabase.DBChecksum, restoredChecksum)
+	}
+	restored, err := Open(ctx, destination)
+	if err != nil {
+		t.Fatalf("promoted older-schema restore does not open: %v", err)
+	}
+	if err := restored.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshotChecksum, err := fileSHA256(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotChecksum != manifest.DBChecksum {
+		t.Fatalf("snapshot checksum after verification = %q, want the verified %q", snapshotChecksum, manifest.DBChecksum)
+	}
+	if got := manifestMax(t, sourcePath); got != wantSourceSchema {
+		t.Fatalf("source schema = %d after backup verification, want %d", got, wantSourceSchema)
+	}
+}
+
+// TestInterruptedBackupVerificationDiscardsSnapshotAndStaging cancels the
+// backup once its verification staging clone holds the snapshot bytes, so the
+// interrupted phase is the replay verification itself. The refusal leaves no
+// partial snapshot, no manifest, and no staging residue.
+func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("interrupt-product", "interrupt-product-created"), locatorProjectEvent("interrupt-project"), locatorMembershipEvent("interrupt-product", "interrupt-project")}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	backupCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	backupCtx = context.WithValue(backupCtx, restoreStageReadyContextKey{}, func(string) { cancel() })
+	_, err := Backup(backupCtx, s, destination)
+	if err == nil {
+		t.Fatal("interrupted backup verification succeeded")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted verification error = %v, want the cancelled context", err)
+	}
+	for _, candidate := range []string{destination, manifestPath(destination)} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("interrupted backup left %s: %v", candidate, err)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
+	}
+	assertTableCount(t, s, "domain_events", 3)
 }

@@ -19,6 +19,7 @@ tools:
   question: false
   opencode_mcp_connect: false
   opencode_mcp_disconnect: false
+  concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false
@@ -65,20 +66,3 @@ question from the working directory or from prior context.
 For each finding, state the publisher or author, title, URL, version or date
 when available, and access date. Separate observed facts from inferences. State
 the missing evidence when the question cannot be answered from public sources.
-
-## Source lookup routing
-
-Route each technical lookup to the source class that owns the fact.
-Query Context7 for a library, API, platform, or tool fact. Search Exa for
-current external facts that change over time.
-Ground each technical claim in a source you actually
-consulted this attempt and cite it: recall is not a lookup. Discover the
-exact callable signatures first: enumerate the tool catalog inside
-`execute`, or search it for the service by name, then call the returned
-path exactly. Never reconstruct a tool path from memory.
-Context7 and Exa are host-connected options, and the host, not this
-instruction, controls whether they are connected. When a route the answer
-needs is not connected, or a source cannot answer the question, state that
-plainly, name the missing source, and continue with the evidence your role
-already allows. Never invent a lookup result, and never present recall as a
-research call.

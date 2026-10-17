@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/reachability-exceptions.schema.json",
   "title": "Concord product-reachability exception manifest",
-  "description": "Closed contract for functions that no cmd/concord invocation can reach and that the repository has nonetheless decided to keep. Reachability is computed rather than declared (CD-0047 D4): scripts/check-reachability.py runs the pinned analysis, subtracts these exceptions, and fails on any remainder, so there is no per-symbol manifest to maintain and no way for the manifest to disagree with the code. A declared function that has become reachable is equally a finding, because stale exceptions widen the surface without anyone choosing to widen it. States reuse the vocabulary accepted in contracts/floor-readiness.schema.json, less 'satisfied': a reachable function is not an exception.",
+  "description": "Closed contract for unreachable functions and internal packages the repository deliberately keeps. The checker derives both the callgraph findings and packages outside the entrypoints' dependency set; undeclared or stale subjects fail. Declared packages must also have a test importer rooted in that dependency set, directly or through another declared package. States reuse contracts/floor-readiness.schema.json, less 'satisfied'.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -69,8 +69,11 @@
         "additionalProperties": false,
         "required": [
           "id",
-          "state",
-          "functions"
+          "state"
+        ],
+        "oneOf": [
+          {"required": ["functions"]},
+          {"required": ["packages"]}
         ],
         "properties": {
           "id": {
@@ -80,7 +83,7 @@
             "maxLength": 128
           },
           "state": {
-            "description": "out_of_scope: an accepted decision keeps this unreachable, and it is declared rather than excused. outstanding: it should be reachable and is not, tracked by an issue. unmeasured: its status has not been assessed. One exception may cover several functions where a single decision governs them, because that is how the reasons cluster.",
+            "description": "out_of_scope: an accepted decision keeps this unreachable, and it is declared rather than excused. outstanding: it should be reachable and is not, tracked by an issue. unmeasured: its status has not been assessed. One exception may cover several subjects where a single decision governs them.",
             "type": "string",
             "enum": [
               "outstanding",
@@ -97,6 +100,18 @@
               "type": "string",
               "pattern": "^[a-z0-9/_]+\\.[A-Za-z_][A-Za-z0-9_.]*$",
               "minLength": 3,
+              "maxLength": 256
+            }
+          },
+          "packages": {
+            "description": "Repository-relative internal package identities, each with a test importer rooted in the entrypoints' dependency set. Package exceptions never suppress function findings.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "string",
+              "pattern": "^internal(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$",
+              "minLength": 10,
               "maxLength": 256
             }
           },

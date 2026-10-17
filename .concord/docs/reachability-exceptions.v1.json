@@ -12,6 +12,20 @@
   },
   "exceptions": [
     {
+      "id": "test-support-packages",
+      "state": "out_of_scope",
+      "packages": [
+        "internal/gittest",
+        "internal/pm1fixture",
+        "internal/store/storetest",
+        "internal/store/storetest/neighbor",
+        "internal/testenv",
+        "internal/testutil/schemawire",
+        "internal/workflowcorpus"
+      ],
+      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
+    },
+    {
       "id": "workflow-action-surface-reserved",
       "state": "out_of_scope",
       "functions": [

@@ -1279,10 +1279,11 @@ func admissionOperatorStopResolves(definition WorkflowDefinition, state admissio
 
 // admissionHasExit reports whether some admitted action has a successor that
 // leaves the state, stopping at the first exit. A hold action whose every
-// successor equals the state is no exit (CD-0201 D2). The agent's own observation record counts: it is a
-// route the agent always holds, and it changes the folded state. The
-// operator's declared stop at the convergence wall counts the same way: it
-// is the external transition the wall's own remedy names.
+// successor equals the state is no exit (CD-0201 D2). The agent's own
+// observation record counts: it is a route the agent always holds, and it
+// changes the folded state. The operator's declared stop at the convergence
+// wall counts the same way: it is the external transition the wall's own
+// remedy names.
 func admissionHasExit(definition WorkflowDefinition, state admissionModelState) bool {
 	if len(admissionAgentMoves(definition, state)) != 0 {
 		return true
@@ -1509,11 +1510,10 @@ func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
 // string dimension maps to its index in a closed vocabulary, every count to a
 // byte, and every flag to a bit, so two states share a key exactly when they
 // are equal. A value outside its vocabulary panics rather than collide. The
-// reachable search keys its maps on it because hashing the state's thirteen
-// strings field by field, and collecting maps that hold them, dominated the
-// search's own cost; the key changes no decision.
-// TestAdmissionModelKeyEncodesEveryField fails when the state gains a field
-// the key does not encode.
+// reachable search keys its maps on it: fixed bytes hash far faster than the
+// state's thirteen strings, and the collector does not scan a pointer-free
+// map. TestAdmissionModelKeyEncodesEveryField fails when the state gains a
+// field the key does not encode.
 type admissionModelKey struct {
 	step, findingsSeen, unboundRejectionStep          uint8
 	debt, ready, attempt, convergence, stale, verdict uint8
@@ -1595,10 +1595,9 @@ func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 // reachable state, the successors of its admitted moves and the agent's
 // observation record, held as integer indices into the discovery order.
 // Environment edges stay out: the live propagation reads this graph, and
-// environment staleness never makes a state live. The edges are flat
-// (edgeFrom[k], edgeTo[k]) pairs, not one slice per state. parent and via
-// record the first edge into each state by index, so a witness path renders
-// without a second state-keyed map.
+// environment staleness never makes a state live. Edge k runs from
+// edgeFrom[k] to edgeTo[k]; parent and via record the first edge into each
+// state by index.
 type admissionModelGraph struct {
 	reachable        []admissionModelState
 	parent           []int32

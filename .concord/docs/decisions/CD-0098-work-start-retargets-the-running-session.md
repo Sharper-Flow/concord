@@ -131,10 +131,10 @@ records why the outcome holds without a wait the route does not offer.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check proves D6: no `opencode run` invocation remains in the
   adapter.
-- `.concord/docs/floor-readiness.v1.json` states `fc1-session-handoff` as a retarget
-  requirement, and its evidence names the retarget tests. The launch anchor
-  `cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts` is
-  removed with the route it proved, so no satisfied item cites deleted evidence.
+- `.concord/docs/floor-readiness.v1.json` carries `fc1-session-handoff` as
+  `unmeasured` pending the live host-started managed-entry witness; no
+  satisfied item cites the removed launch anchor, and the launch gate does
+  not transfer to the retained surface by assertion.
 - `python3 scripts/check-floor-readiness.py` passes, which it cannot do while an
   evidence anchor names a test this record deletes.
 - The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by

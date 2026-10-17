@@ -176,12 +176,12 @@ every session of the receiving Project, and the recovery is source-side: the
 source session records a fresh addressed handoff under the active contract,
 and a placed session of the receiving Project consumes it. When the edits
 there are real, record the second Project membership with
-`concord_work_relate.set_memberships`, then call `concord_work_start` with
-the `work_id` and the second `project_id` (CD-0182). The adapter starts
-the second coordinator session through the host-registered session opener, or
-returns the exact launch command for the operator when none is registered.
-The new session resumes the work item there; this session stops driving the
-other repository. Two Projects in one repository keep the within-repository
+`concord_work_relate.set_memberships`. A second repository is reached by a
+session the operator starts there (CD-0078 D1): the new session calls
+`concord_work_start` with the `work_id` alone — the resume names no
+`project_id` — and its verified landing lets it consume the recorded
+addressed handoff; this session stops driving the other repository. Two
+Projects in one repository keep the within-repository
 move: select the second Project with `concord_work_transition.worktree_claim`
 with that Project's `project_id` from an admitted linked worktree, which moves
 this session automatically and verifies placement. Do not use

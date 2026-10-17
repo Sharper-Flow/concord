@@ -77,9 +77,10 @@ re-litigate them silently.
 - **Clarified by C14/CD-0006:** Product-row fields were accepted for the row
   surfaces, which retired; substantive decisions happen inside the selected
   Product/workflow.
-- **Decision:** CD-0108, as amended by CD-0219, keeps the non-interactive
-  session entry route as the ZLauncher replacement. The entry route stays
-  store-write-free and runs launch actions through Concord's session bootstrap.
+- **Decision (amended 2026-10-13):** CD-0219 retired the interactive
+  launcher TUI, and the session entry route it left is removed with it
+  (CD-0108). The host owns operator session start and resume; Concord owns
+  managed worktree claims, verified landing, and work-start context.
 
 ### R2. Cross-workflow impact propagation / freshness
 - **Problem:** one workflow may change shared law, a Domain relation, dependency, or
@@ -277,13 +278,13 @@ re-litigate them silently.
 ### C18. What is the terminal launcher itself?
 - **Decision:** CD-0219 retires the interactive terminal launcher, its screen
   and rendering obligations, and its launcher contracts.
-- **Surviving owners:** CD-0108 D4 keeps the store-write-free entry boundary;
-  CD-0031 and CD-0163 keep identity-only handoff. The store query contracts
-  retain their bounded reads. CD-0214 keeps repository navigation and exact
-  Domain-detail reads without a launcher display consumer.
+- **Surviving owners:** CD-0108 D4 keeps the store-write-free managed-entry
+  boundary; CD-0031's core-derived packet reaches sessions through work-start
+  preparation and the per-turn hook. The store query contracts retain their
+  bounded reads. CD-0214 keeps repository navigation and exact Domain-detail
+  reads without a launcher display consumer.
 - **Coverage:** The launcher-rendered floor items are `out_of_scope` in
-  [`floor-readiness.v1.json`](./floor-readiness.v1.json). Kept session-entry
-  proofs remain with the command package and store.
+  [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 ### C19. Agent context continuity
 - **Question:** What law governs an agent's working context across the point where it

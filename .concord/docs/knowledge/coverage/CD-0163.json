@@ -2,19 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestZLForwardingReadsLeaveAuthorityUnchanged"
-    },
-    {
-      "kind": "go_test",
       "value": "cmd/concord.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
     },
     {
-      "kind": "go_test",
-      "value": "cmd/concord.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestZLForwardingStartsASessionThroughTheRealSessionChild"
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a successful work start forks no terminal command"
     }
   ],
   "id": "CD-0163",

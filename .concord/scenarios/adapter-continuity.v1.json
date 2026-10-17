@@ -11,7 +11,7 @@
   "scenarios": [
     {
       "id": "adapter-continuity-byte-stable-across-turns",
-      "given": "a launcher-started session whose work snapshot is unchanged between two turns",
+      "given": "a host-started session whose work snapshot is unchanged between two turns",
       "when": "experimental.chat.system.transform runs on consecutive turns with the cached verb output",
       "then": [
         {"assertion": "system_prompt_byte_identical"},
@@ -46,7 +46,7 @@
     },
     {
       "id": "adapter-continuity-work-start-retarget",
-      "given": "a coordinator session that work_start moved from the launch worktree to another work item's claimed worktree",
+      "given": "a coordinator session that work_start moved from its previously claimed worktree to another work item's claimed worktree",
       "when": "the next turn's transform runs for the moved session",
       "then": [
         {"assertion": "work_start_retarget_renders_landed_item_block"},

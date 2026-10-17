@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "concord_work_start",
-      "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume project_id names a member Project in another repository and opens the second session or returns the launch command. A same-repository Project uses worktree_claim.",
+      "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume takes only work_id and claims in the calling session's Project; another Project here uses worktree_claim; another repository needs a host-started session.",
       "args": {
         "oneOf": [
           {
@@ -41,7 +41,6 @@
           {
             "additionalProperties": false,
             "properties": {
-              "project_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
               "work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
             },
             "required": ["work_id"]

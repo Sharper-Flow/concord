@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
+- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). A new worker completion must prove its directory.
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
@@ -66,6 +68,8 @@ A lane worker runs through the host `task` tool, as CD-0102 states. Its
 directory is the directory of the coordinator session that dispatches it.
 Concord creates no worker session through the host session API, and Concord
 registers no plugin tool named `task`.
+
+Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the work item's active claimed worktree before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Rebuilding recorded events never requires a live filesystem check. An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
 
 ### D2. One coordinator session per repository
 

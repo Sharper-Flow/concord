@@ -52,7 +52,7 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC()),
+		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

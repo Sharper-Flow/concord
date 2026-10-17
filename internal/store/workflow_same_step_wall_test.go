@@ -116,7 +116,7 @@ func TestConvergenceBasisAdmitsTheSameStepDispatch(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "worker-completed-" + converged, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(11, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: converged, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: converged, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 		t.Fatalf("accepted delivery dispatch: %v", err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "worker-completed-"+accepted, accepted, lane, time.Unix(11, 0).UTC()),
+		workerCompleteEventForLane(workID, "worker-completed-"+accepted, accepted, lane, time.Unix(11, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

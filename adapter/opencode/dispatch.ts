@@ -15,12 +15,10 @@ import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-mov
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
 export const MAX_OUTPUT_BYTES = 65_536
-// MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
-// evidence. The session readback parses messages through the host session
-// API, and readback keeps three fields from them. The message-page bound
-// below guards a runaway transcript, not a working lane.
+// Worker output and host readback have separate bounds: completion retains
+// readback evidence while walking fixed-size pages under one deadline.
 export const READBACK_MESSAGE_PAGE = 128
-export const MAX_READBACK_MESSAGE_PAGES = 16
+const READBACK_TIMEOUT_MS = 30_000
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
@@ -623,7 +621,6 @@ export type ReadbackRefusal =
   | "export_message_model"
   | "export_model_ambiguous"
   | "export_assistant_message"
-  | "readback_message_bound"
   | "dispatched_agent_identity"
   | "dispatched_packet_identity"
 
@@ -812,14 +809,6 @@ export const defaultRunner: DispatchRunner = {
   },
 }
 
-// The host `opencode export` CLI truncated its output and exited before the
-// pipe drained, which is why the readback spawned a subprocess at all. The
-// readback now reads the worker session in process through the host session
-// API: one session record, then a bounded walk of the message pages from the
-// newest page back toward the oldest. No child process exists to truncate or
-// strand, and the byte ceiling on the exported body is gone — the bound is
-// the message-page count.
-//
 // WorkerSessionRead is one readback attempt. A host_failure is a transport or
 // route fault (the stderr analog rides the message); a readback_refusal is a
 // typed predicate refusal over the body the host actually returned.
@@ -844,11 +833,41 @@ export function nextBeforeCursor(response: Response): string | undefined {
   }
 }
 
-export async function readWorkerSessionBody(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal): Promise<WorkerSessionRead> {
+const readbackControllers = new WeakMap<AbortSignal, AbortController>()
+
+export async function withWorkerReadbackScope<T>(signal: AbortSignal, operation: (signal: AbortSignal, controller: AbortController) => Promise<T>): Promise<T> {
+  const existing = readbackControllers.get(signal)
+  if (existing) return operation(signal, existing)
+  const controller = new AbortController()
+  const abort = () => controller.abort(signal.reason)
+  if (signal.aborted) abort()
+  else signal.addEventListener("abort", abort, { once: true })
+  readbackControllers.set(controller.signal, controller)
+  try { return await operation(controller.signal, controller) }
+  finally {
+    readbackControllers.delete(controller.signal)
+    signal.removeEventListener("abort", abort)
+  }
+}
+
+export async function readWorkerSessionBody(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal, taskPartID?: string): Promise<WorkerSessionRead> {
+  return withWorkerReadbackScope(signal, async (signal, controller) => {
+    const deadline = AbortSignal.timeout(READBACK_TIMEOUT_MS)
+    const abort = () => controller.abort(deadline.reason)
+    if (deadline.aborted) abort()
+    else deadline.addEventListener("abort", abort, { once: true })
+    try { return await readWorkerSessionBodyWithSignal(sessionReader, workerSessionID, signal, taskPartID) }
+    finally { deadline.removeEventListener("abort", abort) }
+  })
+}
+
+async function readWorkerSessionBodyWithSignal(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal, taskPartID?: string): Promise<WorkerSessionRead> {
   const request = ["session.get", workerSessionID]
   let session: RouteResult
   try {
+    signal.throwIfAborted()
     session = await sessionReader.get(workerSessionID, signal)
+    signal.throwIfAborted()
   } catch (error) {
     return { ok: false, kind: "host_failure", leg: "session.get", message: `the host session read failed: ${error instanceof Error ? error.message : String(error)}`, status: 0, request }
   }
@@ -859,12 +878,16 @@ export async function readWorkerSessionBody(sessionReader: SessionReader, worker
   }
   const messagesRequest = ["session.messages", workerSessionID, `limit=${READBACK_MESSAGE_PAGE}`]
   const pages: unknown[][] = []
+  const cursors = new Set<string>()
+  const selectedParts = (parts: unknown[]): unknown[] => taskPartID === undefined ? [] : parts.filter(part => isRecord(part) && part.id === taskPartID)
+  let opening: { parts: unknown[] } | undefined
   let before: string | undefined
   let status = session.response.status
-  for (let page = 0; page < MAX_READBACK_MESSAGE_PAGES; page++) {
+  for (;;) {
     let result: RouteResult
     try {
       result = await sessionReader.messages(workerSessionID, READBACK_MESSAGE_PAGE, before, signal)
+      signal.throwIfAborted()
     } catch (error) {
       return { ok: false, kind: "host_failure", leg: "session.messages", message: `the host session read failed: ${error instanceof Error ? error.message : String(error)}`, status, request: messagesRequest }
     }
@@ -875,19 +898,25 @@ export async function readWorkerSessionBody(sessionReader: SessionReader, worker
       return { ok: false, kind: "readback_refusal", predicate: "export_json", message: "the host session read answered a message page that is not a JSON array", status: result.response.status, request: messagesRequest, body: JSON.stringify(result.data) }
     }
     status = result.response.status
-    pages.push(result.data as unknown[])
+    // Preserve every message identity for the full readback checks, but only
+    // the oldest opening and selected retained Task need their original parts.
+    pages.push(result.data.map((message, index) => {
+      if (index === 0 && opening) opening.parts = selectedParts(opening.parts)
+      if (!isRecord(message) || !Array.isArray(message.parts)) return message
+      const evidence = { ...message, parts: index === 0 ? message.parts : selectedParts(message.parts) }
+      if (index === 0) opening = evidence
+      return evidence
+    }))
     before = nextBeforeCursor(result.response)
     if (!before) {
       // Pages arrive newest first; assembling oldest first restores the
       // order the transcript carries, with the opening packet at the head.
       return { ok: true, body: JSON.stringify({ info: session.data, messages: pages.reverse().flat() }), status, request: messagesRequest }
     }
-  }
-  return {
-    ok: false, kind: "readback_refusal", predicate: "readback_message_bound",
-    message: `worker session exceeded ${MAX_READBACK_MESSAGE_PAGES} readback pages of ${READBACK_MESSAGE_PAGE} messages`,
-    status, request: messagesRequest,
-    body: JSON.stringify({ info: session.data, messages: pages.reverse().flat() }),
+    if (cursors.has(before)) {
+      return { ok: false, kind: "readback_refusal", predicate: "session_read", message: "the host session pagination repeated a cursor", status, request: messagesRequest, body: JSON.stringify({ info: session.data, messages: pages.reverse().flat() }) }
+    }
+    cursors.add(before)
   }
 }
 

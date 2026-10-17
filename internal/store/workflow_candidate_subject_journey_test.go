@@ -739,7 +739,7 @@ func (j *candidateJourney) laneDispatch(t *testing.T, attemptID, capability stri
 func (j *candidateJourney) completeLane(t *testing.T, attemptID, capability string, job *WorkerJobBinding, receipt *WorkerOracleReceipt) {
 	t.Helper()
 	lane := reviewGateLane(t, capability)
-	event := jobBoundCompletionEvent(j.workID, "candidate-completed-"+attemptID, attemptID, lane, time.Now().UTC(), job)
+	event := jobBoundCompletionEvent(j.workID, "candidate-completed-"+attemptID, attemptID, lane, time.Now().UTC(), job, workerFixtureDirectory(t, j.s, j.workID))
 	if receipt != nil {
 		var payload WorkerCompletedPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {

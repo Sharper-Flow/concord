@@ -290,11 +290,16 @@ func installedRelease(dataRoot string) string {
 	if err == nil && info.Mode()&os.ModeSymlink == 0 {
 		err = errors.New("not a symlink")
 	}
+	// The installer links an absolute target, so a relative data root is made
+	// absolute before the two resolved paths are compared.
 	if err == nil {
-		target, err = filepath.EvalSymlinks(link)
+		root, err = filepath.Abs(dataRoot)
 	}
 	if err == nil {
-		root, err = filepath.EvalSymlinks(dataRoot)
+		root, err = filepath.EvalSymlinks(root)
+	}
+	if err == nil {
+		target, err = filepath.EvalSymlinks(filepath.Join(root, "current"))
 	}
 	if err == nil && filepath.Dir(target) != root {
 		err = fmt.Errorf("points outside the installer layout: %s", target)

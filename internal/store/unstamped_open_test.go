@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/version"
 )
@@ -156,14 +157,10 @@ func TestUnstampedUpgradeDoesNotMigrateAnExistingStore(t *testing.T) {
 	}
 }
 
-// A manifest that predates the breaking column is refused unrepaired, and the
-// refusal still reports the applied head and the pending tail it read.
-func TestUnstampedOpenReportsAManifestItRefusesToRepair(t *testing.T) {
-	if version.Value != version.Development {
-		t.Skip("binary is release-stamped; the unstamped refusal does not apply")
-	}
-	_, applied := breakingWindow(t)
-	path := filepath.Join(t.TempDir(), "pre-column.db")
+// preColumnStore writes a store migrated through applied whose manifest
+// predates the breaking column.
+func preColumnStore(t *testing.T, path string, applied int) {
+	t.Helper()
 	db := openMigratedTo(t, path, applied)
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
 		t.Fatalf("stage a pre-column manifest: %v", err)
@@ -171,8 +168,10 @@ func TestUnstampedOpenReportsAManifestItRefusesToRepair(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	_, err := Open(context.Background(), path)
+func assertPreColumnRefusal(t *testing.T, err error, path string, applied int) {
+	t.Helper()
 	failure := assertUnstampedCarrier(t, err, applied)
 	if !strings.Contains(failure.Detail, "refuses to repair an existing store's schema manifest") {
 		t.Fatalf("refusal detail = %q, want the manifest repair refusal", failure.Detail)
@@ -181,4 +180,36 @@ func TestUnstampedOpenReportsAManifestItRefusesToRepair(t *testing.T) {
 	if err != nil || present {
 		t.Fatalf("breaking column present = %v, %v after the refusal; an unstamped build must repair nothing", present, err)
 	}
+}
+
+// A manifest that predates the breaking column is refused unrepaired, and the
+// refusal still reports the applied head and the pending tail it read.
+func TestUnstampedOpenReportsAManifestItRefusesToRepair(t *testing.T) {
+	if version.Value != version.Development {
+		t.Skip("binary is release-stamped; the unstamped refusal does not apply")
+	}
+	_, applied := breakingWindow(t)
+	path := filepath.Join(t.TempDir(), "pre-column.db")
+	preColumnStore(t, path, applied)
+
+	_, err := Open(context.Background(), path)
+	assertPreColumnRefusal(t, err, path, applied)
+}
+
+// The backup staging copy reaches the same refusal inside its migration
+// transaction, on a one-connection pool. The refusal must read the manifest
+// through that transaction: a read through the pool would wait for the
+// connection the transaction holds, so the deadline turns that regression
+// into a failed assertion instead of a hung test.
+func TestUnstampedStagingReadsAPreColumnManifestThroughItsTransaction(t *testing.T) {
+	useDevelopmentBuild(t)
+	_, applied := breakingWindow(t)
+	root := t.TempDir()
+	source := filepath.Join(root, "pre-column.db")
+	preColumnStore(t, source, applied)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := BackupDatabase(ctx, source, filepath.Join(root, "snapshot.db"))
+	assertPreColumnRefusal(t, err, source, applied)
 }

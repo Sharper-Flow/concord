@@ -266,6 +266,26 @@ func TestUnstampedRefusalNamesTheOwnerOnEveryRoute(t *testing.T) {
 	}
 }
 
+// A relative store path names the same owner as its absolute form: the
+// installer's link target is absolute, so the data root is resolved before
+// the two are compared.
+func TestUnstampedRefusalNamesTheOwnerForARelativeStorePath(t *testing.T) {
+	useUnstampedBuild(t)
+	root := t.TempDir()
+	unstampedTailStore(t, root, "concord.db")
+	installRelease(t, root, "v9.9.7")
+	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "elsewhere.db"))
+	t.Chdir(filepath.Dir(root))
+	relativeRoot := filepath.Base(root)
+
+	var out, errOut bytes.Buffer
+	input := fmt.Sprintf(`{"path":%q}`, filepath.Join(relativeRoot, "concord.db"))
+	if code := runWithInput([]string{"recover-fold-guard"}, strings.NewReader(input), &out, &errOut); code != 1 {
+		t.Fatalf("unstamped recover-fold-guard of a relative path = %d %s, want a refusal", code, &errOut)
+	}
+	assertOwnedRefusal(t, errOut.String(), unstampedRefusalLead, relativeRoot, "v9.9.7")
+}
+
 // restore refuses a backup file, not the data root's store, so it names the
 // recovery and no owner, even when the backup sits beside an installed link.
 func TestUnstampedRestoreRefusalNamesRecoveryOnly(t *testing.T) {

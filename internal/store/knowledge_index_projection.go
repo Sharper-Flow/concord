@@ -49,29 +49,39 @@ type CompactionLinkRequest struct {
 	WithinTx func(*Transaction) error
 }
 
+// compactionLinkPayload is the current (v3) link payload. expected_version
+// records the work version the publish was pinned to. A link changes no
+// work-item version, so the payload claims no resulting version.
 type compactionLinkPayload struct {
-	ID               string   `json:"id"`
-	Type             string   `json:"type"`
-	Title            string   `json:"title"`
-	CompletedAt      string   `json:"completed_at"`
-	OutcomeTag       string   `json:"outcome_tag"`
-	LessonTags       []string `json:"lesson_tags"`
-	TerminalState    string   `json:"terminal_state"`
-	Priority         int64    `json:"priority"`
-	Summary          string   `json:"summary"`
-	SuccessorID      string   `json:"successor_work_id,omitempty"`
-	ProductIDs       []string `json:"product_ids"`
-	ProjectIDs       []string `json:"project_ids"`
-	DomainIDs        []string `json:"domain_ids"`
-	TagIDs           []string `json:"tag_ids"`
-	HomeProjectID    string   `json:"home_project_id"`
-	HomeLocatorID    string   `json:"home_locator_id"`
-	NotePath         string   `json:"note_path"`
-	CommitOID        string   `json:"commit_oid"`
-	ContentHash      string   `json:"content_hash"`
-	Reason           string   `json:"reason"`
-	ExpectedVersion  int64    `json:"expected_version"`
-	ResultingVersion int64    `json:"resulting_version"`
+	ID              string   `json:"id"`
+	Type            string   `json:"type"`
+	Title           string   `json:"title"`
+	CompletedAt     string   `json:"completed_at"`
+	OutcomeTag      string   `json:"outcome_tag"`
+	LessonTags      []string `json:"lesson_tags"`
+	TerminalState   string   `json:"terminal_state"`
+	Priority        int64    `json:"priority"`
+	Summary         string   `json:"summary"`
+	SuccessorID     string   `json:"successor_work_id,omitempty"`
+	ProductIDs      []string `json:"product_ids"`
+	ProjectIDs      []string `json:"project_ids"`
+	DomainIDs       []string `json:"domain_ids"`
+	TagIDs          []string `json:"tag_ids"`
+	HomeProjectID   string   `json:"home_project_id"`
+	HomeLocatorID   string   `json:"home_locator_id"`
+	NotePath        string   `json:"note_path"`
+	CommitOID       string   `json:"commit_oid"`
+	ContentHash     string   `json:"content_hash"`
+	Reason          string   `json:"reason"`
+	ExpectedVersion int64    `json:"expected_version"`
+}
+
+// compactionLinkPayloadV2 is the recorded v2 shape: the current payload plus
+// a resulting_version that must equal expected_version+1. The fold never
+// advanced the work version, so the upcaster checks the pair and drops it.
+type compactionLinkPayloadV2 struct {
+	compactionLinkPayload
+	ResultingVersion int64 `json:"resulting_version"`
 }
 
 // compactionLinkPayloadV1 is kept separate from the current payload so that
@@ -166,14 +176,14 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: scopeDomainIDs,
 		TagIDs: note.TagIDs, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID,
 		NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash,
-		Reason: req.Reason, ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1,
+		Reason: req.Reason, ExpectedVersion: req.ExpectedVersion,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "publish_compaction_link", "cannot encode the bounded compaction payload", false, "repair the note metadata", err)
 	}
 	operation := Operation{
-		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 2, Payload: payloadBytes}},
+		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 3, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -216,7 +226,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.ID == "" || payload.ID != event.SubjectID || payload.Type != "work_note" || payload.Title == "" || payload.CompletedAt == "" || payload.OutcomeTag == "" || payload.Summary == "" || payload.HomeProjectID == "" || payload.HomeLocatorID == "" || payload.NotePath == "" || payload.CommitOID == "" || payload.ContentHash == "" || payload.Reason == "" || payload.ExpectedVersion < 1 || payload.ResultingVersion != payload.ExpectedVersion+1 {
+	if payload.ID == "" || payload.ID != event.SubjectID || payload.Type != "work_note" || payload.Title == "" || payload.CompletedAt == "" || payload.OutcomeTag == "" || payload.Summary == "" || payload.HomeProjectID == "" || payload.HomeLocatorID == "" || payload.NotePath == "" || payload.CommitOID == "" || payload.ContentHash == "" || payload.Reason == "" || payload.ExpectedVersion < 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction_link.published payload is incomplete", false, "supply the complete verified PM6 linkage payload")
 	}
 	if err := validateCompactionScopeArrays(payload); err != nil {
@@ -325,20 +335,41 @@ func upcastCompactionLinkPublishedV1(event Event) (Event, error) {
 	if err := strict.Decode(&legacy); err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains unknown or malformed fields", false, "repair the stored event payload", err)
 	}
-	current := compactionLinkPayload{
-		ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
-		OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
-		Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
-		ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
-		TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
-		NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
-		Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion, ResultingVersion: legacy.ResultingVersion,
+	v2 := compactionLinkPayloadV2{
+		compactionLinkPayload: compactionLinkPayload{
+			ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
+			OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
+			Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
+			ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
+			TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
+			NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
+			Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion,
+		},
+		ResultingVersion: legacy.ResultingVersion,
 	}
-	payload, err := json.Marshal(current)
+	payload, err := json.Marshal(v2)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode v2 compaction payload", false, "repair the stored event payload", err)
+	}
+	event.Payload, event.PayloadVersion = payload, 2
+	return event, nil
+}
+
+// upcastCompactionLinkPublishedV2 refuses a v2 link whose version pair is not
+// consecutive, the check the v2 fold made, and drops resulting_version.
+func upcastCompactionLinkPublishedV2(event Event) (Event, error) {
+	var v2 compactionLinkPayloadV2
+	if err := decodeRegisteredPayload(event, &v2); err != nil {
+		return Event{}, err
+	}
+	if v2.ResultingVersion != v2.ExpectedVersion+1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction_link.published resulting_version is not expected_version+1", false, "repair the stored event payload")
+	}
+	payload, err := json.Marshal(v2.compactionLinkPayload)
 	if err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode current compaction payload", false, "repair the stored event payload", err)
 	}
-	event.Payload, event.PayloadVersion = payload, 2
+	event.Payload, event.PayloadVersion = payload, 3
 	return event, nil
 }
 

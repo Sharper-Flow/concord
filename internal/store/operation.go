@@ -233,7 +233,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRoleChanged, nil),
-	"compaction_link.published":               registerEventKind[compactionLinkPayload](2, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
+	"compaction_link.published":               registerEventKind[compactionLinkPayload](3, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1, 2: upcastCompactionLinkPublishedV2}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
 	"managed_resource.created":                registerEventKind[managedResourceCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceCreated, nil),
 	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
 	"managed_resource.updated":                registerEventKind[managedResourceUpdatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceUpdated, nil),

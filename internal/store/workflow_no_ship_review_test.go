@@ -18,10 +18,11 @@ import (
 // reviewLaneVerdictCompleteEvent builds one worker.completed fixture event
 // whose typed review block carries the named verdict, the shape a review lane
 // bound to the CD-0197 report contract completes with.
-func reviewLaneVerdictCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, verdict string, occurredAt time.Time) Event {
+func reviewLaneVerdictCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, verdict string, occurredAt time.Time, directory string) Event {
 	payload := WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-		EvidenceOrigin: WorkerEvidenceLegacyUnavailable,
+		EvidenceOrigin:  WorkerEvidenceLegacyUnavailable,
+		WorkerDirectory: directory,
 		Review: &WorkerReviewBlock{Verdict: verdict, Findings: []WorkerReviewFinding{{
 			Severity: "P1", Confidence: "high",
 			Detail: "the delivered result does not satisfy the contract's outcome predicates",
@@ -55,7 +56,7 @@ func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID s
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		reviewLaneVerdictCompleteEvent(workID, "review-verdict-completed-"+attemptID, attemptID, lane, verdict, time.Unix(at+1, 0).UTC()),
+		reviewLaneVerdictCompleteEvent(workID, "review-verdict-completed-"+attemptID, attemptID, lane, verdict, time.Unix(at+1, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

@@ -78,7 +78,7 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "worker-completed-" + completed, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(11, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: completed, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: completed, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}

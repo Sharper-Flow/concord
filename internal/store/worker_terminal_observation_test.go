@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -45,12 +46,41 @@ func workerTerminalEventThroughSeam(t *testing.T, s *Store, event Event) {
 
 func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Store, event Event) {
 	t.Helper()
+	if event.Kind == WorkerCompleted {
+		event = workerCompletionAtClaim(t, s, event)
+	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, event)
 		return err
 	}); err != nil {
 		t.Fatalf("terminal ingest refused %s: %v", event.EventID, err)
 	}
+}
+
+func workerCompletionAtClaim(t *testing.T, s *Store, event Event) Event {
+	t.Helper()
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.WorkerDirectory == "" {
+		payload.WorkerDirectory = workerFixtureDirectory(t, s, event.SubjectID)
+	}
+	event.Payload = mustJSONValue(payload)
+	return event
+}
+
+func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var directory string
+	err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory)
+	if errors.Is(err, sql.ErrNoRows) {
+		directory = t.TempDir()
+		insertWorkerWorktreeEntry(t, s, workID, directory)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 // stubbedDeliveryRunner answers the delivery probe without touching the
@@ -231,7 +261,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-zero")
 		if !consumedPresent {
@@ -289,12 +319,13 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		defer fixture.store.Close()
 		s := fixture.store
 		attemptID := "attempt-frontier-historical"
+		insertWorkerWorktreeEntry(t, s, fixture.workID, t.TempDir())
 		seedHistoricalDispatchWindowRaw(t, s, fixture, attemptID)
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
 		workerTerminalEventThroughSeam(t, s, completion)
 		if _, present := dispatchCompletionFrontier(t, s, fixture.workID, attemptID); present {
 			t.Fatal("a historical authorization carries a recorded frontier; raw history must stay absent")
@@ -326,7 +357,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 	prepareCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID)
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-1'`, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)

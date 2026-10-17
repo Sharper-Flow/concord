@@ -96,7 +96,7 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}

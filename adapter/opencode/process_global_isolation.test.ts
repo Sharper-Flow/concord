@@ -22,14 +22,17 @@ for (const [module, source] of sources) {
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 const code = (source: string) => source.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g, "\"\"")
 const calls = (body: string, name: string) => new RegExp(`\\b${escape(name)}\\s*\\(`).test(code(body))
+const resetCall = (body: string, name: string) => name.startsWith("configure")
+  ? new RegExp(`\\b${escape(name)}\\s*\\(\\s*\\{[^}]*\\breset\\s*:\\s*true`).test(code(body))
+  : calls(body, name)
 
-function callers(initial: string[]): FunctionSource[] {
+function callers(initial: string[], invokes = calls): FunctionSource[] {
   const names = new Set(initial)
   let changed = true
   while (changed) {
     changed = false
     for (const fn of functions) {
-      if (!names.has(fn.name) && [...names].some((name) => calls(fn.body, name))) {
+      if (!names.has(fn.name) && [...names].some((name) => invokes(fn.body, name))) {
         names.add(fn.name)
         changed = true
       }
@@ -65,15 +68,15 @@ for (const [module, source] of sources) {
     const owned = functions.filter((fn) => fn.module === module)
     const direct = owned.filter((fn) => slot.test(fn.body)).map((fn) => fn.name)
     const resets = owned.filter((fn) => deletion.test(fn.body)).map((fn) => fn.name)
-    if (direct.length === 0 || resets.length === 0) throw new Error(`${module}: ${key} needs identifiable publication and deletion owners`)
-    publications.push({ key, module, publishers: callers(direct), resets: callers(resets) })
+    if (direct.length === 0) throw new Error(`${module}: ${key} needs an identifiable publication owner`)
+    publications.push({ key, module, publishers: callers(direct), resets: callers(resets, resetCall) })
   }
 }
 
 function cleanupSource(source: string): string {
   // Bun normalizes block closures to their hook's indentation. Single-line
   // callbacks cover the expression form used by the host-lease model.
-  return [...source.matchAll(/^([ \t]*)after(?:All|Each)\([^\n]*\{\n[^]*?^\1\}\);|^[ \t]*after(?:All|Each)\([^\n]+/gm)]
+  return [...source.matchAll(/^([ \t]*)after(?:All|Each)\([^\n]*\{\n[^]*?^\1\}|^[ \t]*after(?:All|Each)\([^\n]+/gm)]
     .map((match) => match[0]).join("\n")
 }
 
@@ -86,9 +89,7 @@ function publishes(source: string, publication: Publication): boolean {
 
 function resets(source: string, publication: Publication): boolean {
   const cleanup = cleanupSource(source)
-  return publication.resets.some((fn) => fn.name.startsWith("configure")
-    ? new RegExp(`\\b${escape(fn.name)}\\s*\\(\\s*\\{[^}]*\\breset\\s*:\\s*true`).test(code(cleanup))
-    : calls(cleanup, fn.name)) ||
+  return publication.resets.some((fn) => resetCall(cleanup, fn.name)) ||
     globalSlots(source, cleanup, true).some((slot) => slot.key === publication.key)
 }
 
@@ -112,6 +113,8 @@ describe("adapter process-global publication has test-file cleanup", () => {
         expect(resets(parse(`beforeEach(() => ${reset.name}({ reset: true })); ${invoke};`), publication)).toBe(false)
         expect(resets(parse(`afterAll(() => ${reset.name}({ reset: true })); ${invoke};`), publication)).toBe(true)
         expect(resets(parse(`afterAll(() => ${reset.name}()); ${invoke};`), publication)).toBe(false)
+        expect(resets(parse(`afterAll(() => { ${reset.name}({ reset: true }) }, 1000); ${invoke};`), publication)).toBe(true)
+        expect(resets(parse(`afterAll(() => { console.log("done") }, 1000); test("later", () => { ${reset.name}({ reset: true }) }); ${invoke};`), publication)).toBe(false)
       }
       const direct = `const KEY = Symbol.for(${JSON.stringify(publication.key)}); const shared = globalThis; shared[KEY] = {};`
       expect(publishes(parse(direct), publication)).toBe(true)

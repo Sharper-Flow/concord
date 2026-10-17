@@ -1052,18 +1052,18 @@ func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.T
 	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
 	challenge, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity)
 	if err != nil {
-		return "", errors.New("approval challenge not found")
+		return "", approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge not found")
 	}
 	challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
-		return "", errors.New("approval challenge invalid")
+		return "", approvalInvalid("approval challenge invalid")
 	}
 	var scope map[string]any
 	if json.Unmarshal([]byte(challenge.ScopeJSON), &scope) != nil || !validChallengeScope(scope) || !scopeWithinAuthority(scope, authority) {
 		return "", authorityRefusal("approval challenge exceeds current authorized scope")
 	}
 	if err := store.ConsumeApprovalChallengeTx(ctx, tx, challengeRef, identity, s.now().Format(time.RFC3339Nano)); err != nil {
-		return "", errors.New("approval challenge consumption lost race")
+		return "", approvalRefusalFor(err, store.KindProjectionConflict, "approval challenge consumption lost race")
 	}
 	raw := make([]byte, 32)
 	if _, err = rand.Read(raw); err != nil {
@@ -1279,11 +1279,7 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	}
 	approval, err := store.ReadApprovalTx(ctx, tx, ref)
 	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-			return approvalInvalid("approval not found")
-		}
-		return err
+		return approvalRefusalFor(err, store.KindProjectionNotFound, "approval not found")
 	}
 	approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
 	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
@@ -1295,17 +1291,24 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 		return approvalInvalid("approval scope or version invalid")
 	}
 	if err := store.ConsumeApprovalTx(ctx, tx, ref, s.now().Format(time.RFC3339Nano)); err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindProjectionConflict {
-			return approvalInvalid("approval was already consumed")
-		}
-		return err
+		return approvalRefusalFor(err, store.KindProjectionConflict, "approval was already consumed")
 	}
 	return nil
 }
 
 func approvalInvalid(message string) error {
 	return newRuntimeFailure("approval_invalid", message, "request_approval", false)
+}
+
+// approvalRefusalFor renders the one store outcome that means the approval
+// itself is unusable as the approval_invalid refusal message names. Every
+// other error is a store fault and keeps its own classification.
+func approvalRefusalFor(err error, refusal store.FailureKind, message string) error {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.Kind == refusal {
+		return approvalInvalid(message)
+	}
+	return err
 }
 
 // ApprovalAuthorityActorTx derives the operator actor from durable core-owned
@@ -1322,18 +1325,18 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 	}
 	authority, err := store.ReadApprovalAuthorityTx(ctx, tx, approvalRef)
 	if err != nil {
-		return actor, errors.New("consumed approval authority is unavailable")
+		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "consumed approval authority is unavailable")
 	}
 	if authority.ClientRef != in.ClientRef || authority.UsedCount < authority.MaxUses || authority.MaxUses != 1 || !strings.HasPrefix(authority.ProtectedEvidenceRef, "approval-challenge:") {
-		return actor, errors.New("approval authority was not exactly consumed")
+		return actor, approvalInvalid("approval authority was not exactly consumed")
 	}
 	challengeRef := strings.TrimPrefix(authority.ProtectedEvidenceRef, "approval-challenge:")
 	if authority.ChallengeStatus != "consumed" {
-		return actor, errors.New("approval challenge was not exactly consumed")
+		return actor, approvalInvalid("approval challenge was not exactly consumed")
 	}
 	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
 	if _, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity); err != nil {
-		return actor, errors.New("approval challenge is not bound to the invoking session")
+		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge is not bound to the invoking session")
 	}
 	policyDigest := sha256Hex([]byte("approval-policy-v1\x00" + authority.ClientRef + "|" + authority.PrincipalRef + "|" + authority.CapabilitiesJSON + "|" + authority.ProductScopeJSON + "|" + authority.ProjectScopeJSON))
 	actor = store.WorkflowActor{
@@ -1358,7 +1361,7 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 	executing := store.WorkflowActor{PrincipalRef: authority.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
 	executingRef, err := store.WorkflowActorRef(executing)
 	if err != nil || actorRef == executingRef {
-		return store.WorkflowActor{}, errors.New("approval authority actor relabels the invoking agent")
+		return store.WorkflowActor{}, approvalInvalid("approval authority actor relabels the invoking agent")
 	}
 	return actor, nil
 }

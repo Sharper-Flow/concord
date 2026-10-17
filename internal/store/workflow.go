@@ -1722,7 +1722,7 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 }
 
 // Execution history and the current lease both prohibit self-evaluation.
-func workflowStepExecutorRefusal(ctx context.Context, tx *sql.Tx, workID, verdictActor, operation string) error {
+func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
 	if verdictActor == "" {
 		return nil
 	}

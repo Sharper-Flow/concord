@@ -68,7 +68,7 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
     },
   }
   configureConcordAdapter({ runner: landingRunner() as never })
-  await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+  await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 }
 
 afterEach(async () => {

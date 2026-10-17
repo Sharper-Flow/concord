@@ -3876,14 +3876,14 @@ test("the host lease claim names the session directory and worktree", async () =
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: { async run(argv: string[], input: string) {
       claimed.push({ argv, input: JSON.parse(input) })
-      return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: "/home/operator/card-site", worktree: "/wt" }), stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: "/workspace/project", worktree: "/wt" }), stderr: "" }
     } },
   })
-  await claimHostLease(4242, { directory: "/home/operator/card-site", worktree: "/wt" })
+  await claimHostLease(4242, { directory: "/workspace/project", worktree: "/wt" })
   expect(claimed).toHaveLength(1)
   expect(claimed[0].argv[1]).toBe("host-lease")
   expect(claimed[0].input.pid).toBe(4242)
-  expect(claimed[0].input.directory).toBe("/home/operator/card-site")
+  expect(claimed[0].input.directory).toBe("/workspace/project")
   expect(claimed[0].input.worktree).toBe("/wt")
   configureHostLease({ reset: true })
 })

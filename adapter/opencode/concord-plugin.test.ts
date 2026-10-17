@@ -483,7 +483,7 @@ describe("plugin entry binds the control plane to the host client", () => {
         return { response: new Response(null, { status: 204 }) }
       },
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 
     await hostControlPlane().moveSession("session-1", "/w")
     expect(seen).toEqual([{ url: MOVE_SESSION_ROUTE, body: { sessionID: "session-1", destination: { directory: "/w" } } }])
@@ -491,7 +491,7 @@ describe("plugin entry binds the control plane to the host client", () => {
   })
 
   test("refuses the route when the host supplied no client", async () => {
-    await ConcordAdapterPlugin({ serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
@@ -520,7 +520,7 @@ describe("a refusal carries the host's own words", () => {
         response: consumed(409, { data: { message: "worktree /w is held by another session" } }),
       }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(
       /worktree \/w is held by another session/,
     )
@@ -534,7 +534,7 @@ describe("a refusal carries the host's own words", () => {
       }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(
       /session-1 is unknown to this host/,
     )
@@ -545,7 +545,7 @@ describe("a refusal carries the host's own words", () => {
       get: async () => ({ response: new Response(null, { status: 500 }) }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
     await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
   })
 })

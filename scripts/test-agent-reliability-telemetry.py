@@ -6,6 +6,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import closing
@@ -165,6 +167,37 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         bucket = document["measures"]["invalid_input"]["concord_work_define"]
         self.assertEqual(bucket["calls"], 1)
         self.assertEqual(bucket["invalid_input"], 1)
+
+    def test_cli_missing_baseline_refuses_without_creating_it(self) -> None:
+        baseline_path = self.shard / "missing-baseline.json"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--shard", str(self.shard), "--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(baseline_path), result.stderr)
+        self.assertIn("--write-baseline", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(baseline_path.exists())
+
+    def test_cli_baseline_bootstrap_is_explicit(self) -> None:
+        baseline_path = self.shard / "new-baseline.json"
+        command = [sys.executable, str(SCRIPT), "--shard", str(self.shard)]
+        measured = subprocess.run(command, capture_output=True, text=True, check=False, timeout=10)
+        self.assertEqual(measured.returncode, 0, measured.stderr)
+        self.assertIn("measures", json.loads(measured.stdout))
+        self.assertFalse(baseline_path.exists())
+        written = subprocess.run(
+            command + ["--baseline", str(baseline_path), "--write-baseline"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertIn("measures", json.loads(baseline_path.read_text()))
+        compared = subprocess.run(
+            command + ["--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertEqual(compared.returncode, 0, compared.stderr)
 
     def test_baseline_round_trip_and_regression(self) -> None:
         for _ in range(2):

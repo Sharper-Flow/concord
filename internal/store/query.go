@@ -230,6 +230,7 @@ type TimelineEvent struct {
 	Seq          int      `json:"seq"`
 	GlobalSeq    int64    `json:"global_seq,omitempty"`
 	Kind         string   `json:"kind"`
+	AttemptID    string   `json:"attempt_id,omitempty"`
 	Actor        string   `json:"actor"`
 	OccurredAt   string   `json:"occurred_at"`
 	From         *string  `json:"from"`
@@ -1471,7 +1472,12 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	for _, kind := range eventKinds {
 		if _, ok := eventKindRegistry[kind]; !ok {
-			return out, newFailure(KindInvalidFilter, "PM1.Q7", "event kind is not recognized", false, "choose an accepted work event kind")
+			failure := newFailure(KindInvalidFilter, "PM1.Q7", "event kind "+strconv.Quote(kind)+" is not recognized", false, "choose an accepted work event kind")
+			for admitted := range eventKindRegistry {
+				failure.AdmittedEventKinds = append(failure.AdmittedEventKinds, admitted)
+			}
+			sort.Strings(failure.AdmittedEventKinds)
+			return out, failure
 		}
 	}
 	kindPlaceholders := make([]string, len(eventKinds))
@@ -1538,6 +1544,14 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
 	}
 	e := TimelineEvent{EventID: eventID, GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
+	switch kind {
+	case WorkerDispatched, WorkerCompleted, WorkerFailed:
+		if raw, ok := fields["attempt_id"]; ok {
+			if err := json.Unmarshal(raw, &e.AttemptID); err != nil || e.AttemptID == "" {
+				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event worker attempt identity is malformed", false, "repair the event log before reading history")
+			}
+		}
+	}
 	for name, dst := range map[string]**string{"from": &e.From, "to": &e.To} {
 		if raw, ok := fields[name]; ok && string(raw) != "null" {
 			var v string

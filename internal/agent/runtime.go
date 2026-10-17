@@ -885,6 +885,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if sf.ExternalRefConflict != nil {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 		}
+		if len(sf.AdmittedEventKinds) > 0 {
+			out.Error.Details = map[string]any{"admitted_event_kinds": sf.AdmittedEventKinds}
+		}
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
@@ -1642,6 +1645,9 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		// optional field fails the generated schema and refuses the whole
 		// page (issue #383).
 		event := map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "evidence": evidence}
+		if e.AttemptID != "" {
+			event["attempt_id"] = e.AttemptID
+		}
 		if e.Actor != "" {
 			event["actor"] = e.Actor
 		}

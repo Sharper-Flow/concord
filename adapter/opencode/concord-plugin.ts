@@ -35,7 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, registerCiWatchPeer } from "./ci-watch"
+import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, redeliverQueuedCiReports, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -147,6 +147,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishCiWatchDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
+      redeliverQueuedCiReports(event)
       const result = await failDispatchedWorker(event)
       if (result?.error) {
         await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })

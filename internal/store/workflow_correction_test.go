@@ -1182,6 +1182,11 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 			t.Fatalf("outstanding requirement = %#v, want a required evidence kind", requirement)
 		}
 	}
+	debtPin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireWorkPinOutstandingKinds(t, &debtPin, []string{"artifact", "review", "verification"})
 	var failure *Failure
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err == nil {
 		t.Fatal("confirm_premise passed with only predecessor evidence")
@@ -1221,6 +1226,11 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if len(outstanding) != 0 {
 		t.Fatalf("outstanding requirements after the successor verdict = %v, want none", outstanding)
 	}
+	debtPin, err = ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireWorkPinOutstandingKinds(t, &debtPin, []string{})
 	satisfied, err = latestWorkflowVerdicts(ctx, s.db, workID, 2)
 	if err != nil {
 		t.Fatal(err)

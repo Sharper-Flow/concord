@@ -233,22 +233,6 @@ concord --help
 You start each session with your host tooling. Inside a session, agents enter
 managed work through the adapter's `concord_work_start` tool.
 
-## Build and verify from source
-
-Source development uses the Go toolchain pinned in [`go.mod`](go.mod). Run
-plain `go test` on changed packages during the edit loop. The [CI
-workflow](.github/workflows/ci.yml) shows the repository checks, and
-[`bin/oc-test`](bin/oc-test) documents the local conformance workload.
-
-```sh
-go run ./cmd/concord --version
-go test ./cmd/concord
-bin/oc-test conformance
-bun test adapter/opencode/
-```
-
-The adapter test command needs Bun.
-
 ## Learn more
 
 - [Installation guide](.concord/docs/installation.md)

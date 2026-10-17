@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2397df421617baa828794c431c53884fdd0ee8d2ecb9513c21caeabdb95bc828",
+  "sha256": "sha256:1a51dd30c01a068775e8e1b669f945f3de76a9127b0b8f8af97d6eafb5f1143e",
   "status": "accepted",
-  "summary": "Defines the root Product, full-successor intent, and replacement-readiness boundary. CD-0082 amends its migration clauses without changing the remaining root-policy rules.",
+  "summary": "Defines root Product policy under goals.md, without a predecessor full-successor requirement. CD-0082 governs demand-driven migration and correction. Workflow, governance, single-operator, and release-evidence duties remain.",
   "tags": [
     "product",
     "governance"

@@ -52,8 +52,9 @@ func TestWithheldOperatorQuestionStatesItsReason(t *testing.T) {
 	if !strings.Contains(withheld.Reason, "investigation artifact") {
 		t.Errorf("reason %q does not state what is missing", withheld.Reason)
 	}
-	if withheld.Remedy == "" {
-		t.Error("withheld question states no remedy, so the caller learns what is wrong but not what to do")
+	wantRemedy := "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain and the id of another work item"
+	if withheld.Remedy != wantRemedy {
+		t.Errorf("withheld remedy = %q, want %q", withheld.Remedy, wantRemedy)
 	}
 
 	// The pin carries the same reason, so a caller that reads before it acts
@@ -122,6 +123,10 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	}
 	if !strings.Contains(failure.Detail, "investigation artifact") {
 		t.Errorf("detail %q does not name the missing artifact", failure.Detail)
+	}
+	wantRemedy := "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain"
+	if failure.RecoveryAction != wantRemedy {
+		t.Errorf("refusal remedy = %q, want %q", failure.RecoveryAction, wantRemedy)
 	}
 }
 

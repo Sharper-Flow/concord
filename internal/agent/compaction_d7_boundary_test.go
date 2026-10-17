@@ -65,7 +65,7 @@ func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 			response.Error.StaleLawRevision.OldLawID, response.Error.StaleLawRevision.AcceptedSuccessorLawID)
 	}
 
-	if archivedWorkCount(t, s, "work-cancelled") != 0 {
+	if archivedCancelledWorkCount(t, s) != 0 {
 		t.Fatal("refused compaction claim recorded a canonical locator")
 	}
 	var operationsAfter, eventsAfter int

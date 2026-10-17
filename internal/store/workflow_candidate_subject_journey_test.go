@@ -148,7 +148,7 @@ func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparatio
 	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 		t.Fatalf("record ready job %s: %v", jobID, err)
 	}
-	views, err := j.s.WorkerJobRevisions(context.Background(), j.workID)
+	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}

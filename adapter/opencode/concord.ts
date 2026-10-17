@@ -430,6 +430,7 @@ export const adapterErrorTuples = {
   worker_abandon_refused_none: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "none", recovery: "reconcile_operation" },
   worker_abandon_refused_possible: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "possible", recovery: "reconcile_operation" },
   worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
+  worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
   lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "restart_query" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "restart_query" },
@@ -2188,10 +2189,11 @@ async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext):
   const recovery = (prepared.result as any)?.worker_recovery
   if (!validateGeneratedPayload("worker_recovery_context", recovery)) return adapterError("concord_work_transition", operation, requestID, "malformed_core_response_operator", "the core supplied no closed original-attempt recovery context")
   let result: AgentResultEnvelope
+  let recorded = false
   try {
     const mismatch = dispatchDirectoryMismatch(recovery.worker_worktree, await resolveSessionDirectory(context))
     if (mismatch) throw new Error(mismatch)
-    result = await reconcileRetainedWorker(recovery as WorkerRecoveryContext, input.work_id, input.attempt_id, input.task_part_id, { credentials: credentialsOverride ?? undefined, evidenceRunner: runner, sessionReader: hostSessionReader() ?? undefined, workerDirectory: recovery.worker_worktree }, context.abort)
+    result = await reconcileRetainedWorker(recovery as WorkerRecoveryContext, input.work_id, input.attempt_id, input.task_part_id, { credentials: credentialsOverride ?? undefined, evidenceRunner: runner, sessionReader: hostSessionReader() ?? undefined, workerDirectory: recovery.worker_worktree, onRecorded: () => { recorded = true } }, context.abort)
   } catch (error) {
     // The composite catch spans the retained-report proof read and the
     // routine that submits evidence, so it cannot prove the composite
@@ -2200,9 +2202,10 @@ async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext):
     return adapterError("concord_work_transition", operation, requestID, "unknown_effect", `retained-report recovery stopped: ${String(error)}`)
   }
   if (result.outcome !== "ok") {
-    // The submitted evidence routine owns a composite, not only its last
-    // write, so every stopped lane outcome maps to the reconcile tuple while
-    // the lane diagnostic names the cause.
+    if (recorded) {
+      dispatchWindows().releaseRetained(recovery.coordinator_session, input.attempt_id, recovery.dispatch.lane_id)
+      return adapterError("concord_work_transition", operation, requestID, "worker_reconcile_failed_recorded", result.error?.message ?? "the original worker attempt failed", { work_id: input.work_id, attempt_id: input.attempt_id, lifecycle_state: "failed" })
+    }
     return adapterError("concord_work_transition", operation, requestID, "unknown_effect", result.error?.message ?? "worker reconciliation returned no completion")
   }
   const receipt = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("receipt") } }, context)
@@ -2213,15 +2216,6 @@ async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext):
 
 function workerAbandonToken(idempotencyKey: string): string {
   return createHash("sha256").update(`concord_work_transition.${WORKER_ABANDON_OPERATION}\0${idempotencyKey}`).digest("hex")
-}
-
-// The worker evidence transport answers with the CLI's operator diagnostic, so
-// the store's typed refusal arrives as text. A worker attempt row that does
-// not exist is kind projection_not_found with the detail that names the
-// missing worker dispatch row, and no other store refusal carries both
-// markers, so a refusal with any other cause keeps the existing behaviour.
-function workerAbandonFoundNothingDurable(message: string): boolean {
-  return message.includes("projection_not_found") && message.includes("worker dispatch row does not exist")
 }
 
 // ownRowAbandonRefusal reports whether an abandonment refusal is the
@@ -2236,44 +2230,6 @@ export function ownRowAbandonRefusal(message: string, sessionID: string): boolea
   if (!message.includes("worktree_ownership_conflict")) return false
   if (!sessionID) return false
   return message.includes(`session ${sessionID} still holds the worker attempt worktree`) || message.includes(`session ${sessionID} holds a legacy occupancy row`)
-}
-
-// nothing-durable-release composes the ok receipt for a worker_abandon whose
-// durable refusal says the named attempt never dispatched. The core writes no
-// event and produces no receipt of its own here — planWorkerAbandon refuses on
-// the same missing row — so the adapter composes the receipt the core's typed
-// refusal implies. The core is the origin because the generated contract
-// permits an ok outcome only on a core envelope, and the authority for the
-// statement is the core's own refusal.
-function nothingDurableReleaseEnvelope(requestID: string, abandonInput: { work_id: string; attempt_id: string }, releasedRetainedRecord: boolean): HostConcordEnvelope {
-  const queryID = (contractOperations.find((candidate: any) => candidate.tool === "concord_work_transition" && candidate.id.endsWith(`.${WORKER_ABANDON_OPERATION}`)) as any)?.query_id
-  return {
-    schema_version: "1.0",
-    manifest_digest: activeManifestDigest(),
-    request_id: requestID,
-    origin: "core",
-    tool: "concord_work_transition",
-    operation: WORKER_ABANDON_OPERATION,
-    ...(queryID ? { query_id: queryID } : {}),
-    outcome: "ok",
-    resolved_scope: null,
-    authority: "authoritative",
-    freshness: null,
-    source_version_watermark: [],
-    ordering_keys: [],
-    next_cursor: null,
-    omissions: [],
-    warnings: [],
-    evidence_refs: [],
-    replayed: false,
-    result: {
-      changed_refs: [],
-      next_valid_intents: [],
-      nothing_durable_to_abandon: `the core holds no worker attempt row for attempt ${abandonInput.attempt_id} on ${abandonInput.work_id}, so nothing durable existed to abandon and no worker.failed event was written${releasedRetainedRecord ? "; the retained in-flight dispatch record is released and the session can dispatch again" : ""}`,
-    },
-    changed_refs: [],
-    next_valid_intents: [],
-  }
 }
 
 async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
@@ -2299,9 +2255,9 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   // returned: the CLI success result. A committed close runs the receipt
   // before any refusal vocabulary is matched: its envelope carries the
   // coordinator's own detail as the diagnostic, so a detail quoting a
-  // refusal shape must never reroute the close through the release or
-  // recovery routes below. A refusal never reaches the receipt and never
-  // claims the attempt was closed: a none effect reports the core
+  // refusal shape must never reroute the close through recovery below.
+  // A refusal never reaches the receipt or claims the attempt was closed:
+  // a none effect reports the core
   // message, a possible effect keeps the reconcile instruction, and an
   // untyped failure reports the uncertain effect.
   if (result.committed) {
@@ -2312,15 +2268,6 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     return workerAbandonReceiptFailure(requestID, receipt)
   }
   const message = result.envelope.error?.message ?? "worker abandonment returned no diagnostic"
-  if (workerAbandonFoundNothingDurable(message)) {
-    // nothing-durable-release: the durable state refused because the attempt
-    // never dispatched, so the retained record this session still holds has no
-    // durable counterpart to wait for. The release demands the exact attempt
-    // and lane identity the record holds, so a record naming a different
-    // attempt stays retained.
-    const releasedRetainedRecord = dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
-    return nothingDurableReleaseEnvelope(requestID, abandonInput, releasedRetainedRecord)
-  }
   // Own-row recovery: the gate refused because the calling session itself
   // still occupies the worker attempt worktree. The named release route
   // (vacate, abandon retry, re-land) runs here instead of falling to the

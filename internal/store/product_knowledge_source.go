@@ -367,11 +367,7 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 // undeclared target law refuses the rebuild admission. Reconstruction
 // succeeds in either order, and read degradation never admits an
 // unresolvable edge.
-func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home KnowledgeHome, manifest KnowledgeManifest) error {
-	productID, designated, err := resolveKnowledgeSourceRole(ctx, db, home)
-	if err != nil {
-		return err
-	}
+func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home KnowledgeHome, manifest KnowledgeManifest, productID string, designated bool) error {
 	sourceRole := !designated
 	if sourceRole && productID == "" {
 		return newFailure(KindInvariantViolation, "rebuild_knowledge_index", "a registered source manifest validated outside a registered source role", false, "rebuild the source through the Product's registered source set")

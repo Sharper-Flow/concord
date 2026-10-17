@@ -484,7 +484,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 		t.Fatalf("record the tie job: %v", err)
 	}
 	job := &WorkerJobBinding{JobID: "job:ties", Revision: 1}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

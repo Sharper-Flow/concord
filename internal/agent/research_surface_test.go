@@ -139,9 +139,9 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	if action.Outcome != OutcomeOK {
 		t.Fatalf("action with fresh required binding failed: %+v", action.Error)
 	}
-	freshness, err := s.RequiredResearchFreshness(ctx, packID, "work-1")
-	if err != nil || freshness != store.ResearchCurrent {
-		t.Fatalf("binding freshness=%v err=%v", freshness, err)
+	bound, err := s.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: packID, Limit: 100})
+	if err != nil || len(bound.Consumers) != 1 || bound.Consumers[0].ConsumerWorkID != "work-1" || bound.Consumers[0].Revision != 1 || !bound.Consumers[0].Required {
+		t.Fatalf("binding consumers=%+v err=%v", bound.Consumers, err)
 	}
 
 	// 5. Stale the pack; a second required reliance on the stale revision is

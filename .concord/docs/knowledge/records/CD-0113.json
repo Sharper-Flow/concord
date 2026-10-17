@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4d79f2890164098c36fcce31b9ae54a3d198057538ec770f4792cfd4bbd359c8",
+  "sha256": "sha256:9b722754f4f33f9838fc9d1875008198bdb9d9d92bfac0e4e36eeca003c9b8c8",
   "status": "accepted",
-  "summary": "Every mutation result that touches a work item carries a WorkPin computed in its own transaction: version, lifecycle, workflow type, step, live attempt, pending operator decision, and watermark. next_valid_intents is derived from the pin and the step definition instead of hand-written literals, and continuity and the full list detail embed the same pin, so a session never reads the store around the typed surface.",
+  "summary": "Every mutation result carries a WorkPin, computed in its own transaction, for each work item it lists that has one: version, lifecycle, workflow type, step, live attempt, pending operator decision, and watermark. A work item without a workflow instance or a held outside-repair disposition, or one the mutation removed, has no pin, one work_pin_unavailable omission notice counts such items, and an unreadable pin otherwise refuses the mutation. next_valid_intents is derived from the pin and the workflow admission instead of hand-written literals, and continuity and the full list detail embed the same pin, so a session never reads the store around the typed surface.",
   "tags": [
     "agent-surface",
     "workflow",

@@ -46,7 +46,7 @@ func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 	if err := foldDomainEvent(t, domain, domainEvent); err != nil {
 		t.Fatalf("Domain observation without refs or tags: %v", err)
 	}
-	domainRows, err := domain.ObservationsForDomain(ctx, "obs-product", "obs-domain", 10)
+	domainRows, err := observationsForDomain(ctx, domain.db, "obs-product", "obs-domain", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

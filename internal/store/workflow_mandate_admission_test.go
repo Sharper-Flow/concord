@@ -85,7 +85,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
 		payload := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`)
-		preflightErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+		preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: fixture.operator, Payload: payload,
 		})
 		advertised := workPinContainsAction(pin.NextValidIntents, "record_verdict")
@@ -136,7 +136,7 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 				definition, state := loadedAdmissionForTest(t, s, workID, pin)
 				decision := workflowAdmit(definition, state, "accept_worker_result")
 				advertised := workPinContainsAction(pin.NextValidIntents, "accept_worker_result")
-				preflightErr := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+				preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "accept_worker_result", Actor: reviewGateAcceptor(workID), Payload: payload,
 				})
 				executionErr := runVerdictActionAs(t, s, workID, "accept_worker_result", payload, 0, reviewGateAcceptor(workID))

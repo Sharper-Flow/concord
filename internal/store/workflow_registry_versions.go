@@ -1191,14 +1191,7 @@ func breakFixWorkerJobsV21() WorkflowDefinition {
 // CD-0205 worker-job lifecycle. Earlier versions keep the behavior and digest
 // they shipped with: no job binding, and an accept that advances as before.
 func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 24
-	case "workflow.break_fix":
-		return definition.Version >= 21
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityWorkerJobs)
 }
 
 func researchVerdictBatchV12() WorkflowDefinition {

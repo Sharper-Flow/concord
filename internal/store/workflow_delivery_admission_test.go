@@ -44,7 +44,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				started: stage != "before-start", proof: stage == "green-proof",
 			}, stage)
 			decision := workflowAdmit(definition, state, "record_delivery")
-			preflightErr := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+			preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
 				Payload: json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`),
 			})

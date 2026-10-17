@@ -41,8 +41,10 @@ The binary holds no Linear credential and makes no Linear API call. See
 ## 1. Language ownership
 
 **Current binding direction (finalized 2026-08-06):** Concord's core is written in
-**Go**. Accepted TS6 permits one global TypeScript custom-tool adapter module; it is
-not a plugin and owns no domain logic.
+**Go**. The TypeScript adapter exposes custom tools through the
+`concord-plugin.ts` entry module, which also registers accepted host runtime hooks. The
+`concord.ts` transport module owns no domain logic; [CD-0090 D1](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
+keeps authority hooks in the core.
 
 This is a **clean rewrite**, not a port of Advance's TypeScript plugin or its tool
 catalog. Go-core is greenfield Concord code.
@@ -95,10 +97,8 @@ performance need that Go cannot meet.
 
 ### Why not TypeScript for the core
 
-Accepted TS6 selects one TypeScript custom-tool module because it matches OpenCode's
-host API; it is not a plugin and owns no domain logic. The core domain—accepted
-Product-memory rules, typed recovery, authorization, and transactional state—remains
-Go.
+The core domain—accepted Product-memory rules, typed recovery, authorization,
+and transactional state—remains Go.
 
 ---
 
@@ -183,7 +183,7 @@ details; this table does not duplicate them.
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
-| [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects custom-tool adapter and rejects plugin/MCP v1. |
+| [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
 | [`workflows.md`](./workflows.md) | Workflow types | Plurality of purpose-built types; storage assumptions per CD-0002. |
 | [`feature-inventory.md`](./feature-inventory.md) | Capability inventory | Compilation decision updated to reference this document. |
 

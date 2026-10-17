@@ -150,9 +150,11 @@ work for the Product is a new demand-driven operation under CD-0082.
   route's text otherwise in place.
 - The expansion command lands with this record. It unblocks joining a migrated
   Product to a trusted client without reducing existing authority.
-- The runtime surfaces are outstanding: mode declaration, the preflight
-  inventory, terminal-history import, typed conflict refusal, and the cutover
-  record. Issue #667 tracks them, and the coverage shard records that state.
+- `predecessor inventory` reports the preflight inventory, and
+  `predecessor import` refuses a conflict with a typed failure that names the
+  owning source. Mode declaration, terminal-history import, and the cutover
+  record are outstanding. The coverage shard records that state and its
+  tracking issue.
 - CD-0082 stays whole. The mode adds no global migration state, no shadow
   requirement, and no rollback prohibition beyond the runbook's fix-forward
   rule.
@@ -192,12 +194,10 @@ the expansion is its own command.
 - `client-policy-update` keeps full-statement semantics, including principal
   restatement.
 - The preflight inventory reports included and excluded surfaces with counts
-  and capture gaps (outstanding, issue #667).
+  and capture gaps.
 - Repeated migration runs apply deterministic new effects or idempotent
-  no-ops, and a conflict refuses typed naming the owning source (outstanding,
-  issue #667).
-- No mode command writes, freezes, disables, or deletes predecessor state
-  (outstanding, issue #667).
+  no-ops, and a conflict refuses typed naming the owning source.
+- No mode command writes, freezes, disables, or deletes predecessor state.
 - The knowledge record, coverage shard, and generated manifests for this
   decision are rebuilt by their owning scripts, and `scripts/check-json.py`,
   `scripts/check-doc-links.py`, `scripts/check-knowledge-closure.py`,

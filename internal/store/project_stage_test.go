@@ -74,7 +74,10 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 	}
 	assertProjectStage(t, s, "stage-project", "beta", "public", 2)
 
-	if _, err := s.ChangeProjectStage(ctx, ProjectStageChange{ProjectID: "stage-project", ExpectedVersion: 2}); err != nil {
+	cleared := operationEvent("stage-cleared", "project.stage_changed", SubjectProject, "stage-project", map[string]any{
+		"stage_maturity_override": nil, "stage_audience_commitment_override": nil,
+	})
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{cleared}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "stage-project"): 2}}); err != nil {
 		t.Fatal(err)
 	}
 	assertProjectStage(t, s, "stage-project", "", "", 3)
@@ -83,13 +86,6 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 	}
 	assertProjectStage(t, s, "stage-project", "", "", 3)
 
-	beforeEvents := countProjectStageEvents(t, s)
-	if _, err := s.ChangeProjectStage(ctx, ProjectStageChange{ProjectID: "stage-project", ExpectedVersion: 3, StageMaturityOverride: "alpha"}); err == nil {
-		t.Fatal("partial operator stage pair was accepted")
-	}
-	if got := countProjectStageEvents(t, s); got != beforeEvents {
-		t.Fatalf("invalid stage write appended event: before=%d after=%d", beforeEvents, got)
-	}
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE projects SET stage_maturity_override='alpha' WHERE id='stage-project'`); err == nil {
 		t.Fatal("direct Project stage mirror write bypassed fold guard")
 	}

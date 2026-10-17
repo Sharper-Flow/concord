@@ -1722,7 +1722,7 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 }
 
 // Execution history and the current lease both prohibit self-evaluation.
-func workflowStepExecutorRefusal(ctx context.Context, tx *sql.Tx, workID, verdictActor, operation string) error {
+func workflowStepExecutorRefusal(ctx context.Context, tx queryer, workID, verdictActor, operation string) error {
 	if verdictActor == "" {
 		return nil
 	}
@@ -3014,14 +3014,7 @@ var workflowDerivedStartCheckpoints = map[string]string{
 // action (CD-0198 D3). Earlier versions keep the callable starts and the
 // behavior and digest they shipped with.
 func workflowDerivedStepStartActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 28
-	case "workflow.break_fix":
-		return definition.Version >= 25
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityDerivedStepStart)
 }
 
 // workflowDerivedCheckpointStartTx derives the step start a qualifying

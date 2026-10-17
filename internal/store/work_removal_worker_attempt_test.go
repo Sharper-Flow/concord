@@ -79,7 +79,7 @@ func TestWorkRemovalAllowsCompletedAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkerAttemptState(t, s, req.WorkID, attemptID, "completed")
-	liveness, err := s.ReadWorkLiveness(context.Background(), req.WorkID)
+	liveness, err := deriveWorkLivenessQ(context.Background(), s.db, req.WorkID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestWorkRemovalAllowsCompletedAttempt(t *testing.T) {
 func TestWorkLivenessIncludesInFlightAttempt(t *testing.T) {
 	t.Parallel()
 	s, req, _ := seedRemovalInFlightAttempt(t)
-	liveness, err := s.ReadWorkLiveness(context.Background(), req.WorkID)
+	liveness, err := deriveWorkLivenessQ(context.Background(), s.db, req.WorkID)
 	if err != nil {
 		t.Fatal(err)
 	}

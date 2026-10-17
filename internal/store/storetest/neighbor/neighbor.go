@@ -88,13 +88,14 @@ func Start(t *testing.T, path string, mode Mode) {
 // Child holds a real WAL snapshot or write lock in a separate OS process.
 // The reader releases only on pipe EOF. The writer releases on EOF or its
 // bounded hold, shorter than the production busy timeout. No sleep gates ready.
-func Child(t *testing.T) {
+// The caller supplies the store URI encoder to keep this fixture cycle-free.
+func Child(t *testing.T, fileURI func(string) string) {
 	t.Helper()
 	mode := Mode(os.Getenv(childEnv))
 	if mode == "" {
 		return
 	}
-	db, err := sql.Open("sqlite", "file:"+os.Getenv(childDBEnv))
+	db, err := sql.Open("sqlite", fileURI(os.Getenv(childDBEnv)))
 	if err != nil {
 		t.Fatal(err)
 	}

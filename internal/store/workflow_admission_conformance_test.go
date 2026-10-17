@@ -225,7 +225,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	oracleVerifyControl(t, oracleRepairFixture{store: s, git: git, entry: entry}, workID, "candidate", "1", []string{"true"}, 0)
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	model = admissionSuccessor(def, model, "record_worker_job")
 	// The conformance lift compares the folded delivery state verbatim, so
 	// the model carries the recorded revision's real deterministic keys.
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	reRecorded := &WorkerJobBinding{JobID: job.JobID, Revision: 2}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, reRecorded)
 	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err = s.WorkerJobRevisions(context.Background(), workID)
+	views, err = readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

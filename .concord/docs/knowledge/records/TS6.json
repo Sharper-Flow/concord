@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8d228722ce8daa15cc74258401efaf68cea5b7165901d3ebb971f0b146128264",
+  "sha256": "sha256:a845098b73378627899b3f723b3b2b9f95a6c6d59dd63ffd45b2af24685997e3",
   "status": "accepted",
-  "summary": "Binds the OpenCode adapter to one module that registers generated tools and spawns the short-lived Go binary.",
+  "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core.",
   "tags": [
     "ts6",
     "adapter",

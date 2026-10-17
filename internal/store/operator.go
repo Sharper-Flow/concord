@@ -35,14 +35,6 @@ type ProjectCreation struct {
 	ExpectedProductVersion          int64
 }
 
-type ProjectStageChange struct {
-	ProjectID                       string
-	StageMaturityOverride           string
-	StageAudienceCommitmentOverride string
-	ExpectedVersion                 int64
-	Reason                          string
-}
-
 type ProductMembershipAddition struct {
 	ProductID       string
 	ProjectID       string
@@ -160,34 +152,6 @@ func projectCreatedEventPayload(displayName, maturity, audience string) map[stri
 	payload["stage_maturity_override"] = maturity
 	payload["stage_audience_commitment_override"] = audience
 	return payload
-}
-
-// ChangeProjectStage is the only operator write for Project stage. Clearing
-// both values restores inheritance from the Product default; a partial pair
-// is rejected before an event can be appended.
-func (s *Store) ChangeProjectStage(ctx context.Context, request ProjectStageChange) (ApplyOperationResult, error) {
-	if request.ProjectID == "" || request.ExpectedVersion < 1 || !validateProjectStageOverride(request.StageMaturityOverride, request.StageAudienceCommitmentOverride) {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_stage_change", "Project stage override must be a complete accepted pair or both empty", false, "supply both accepted override values or clear both")
-	}
-	if request.Reason == "" {
-		request.Reason = "operator stage change"
-	}
-	payload := map[string]any{
-		"stage_maturity_override":            nil,
-		"stage_audience_commitment_override": nil,
-		"reason":                             request.Reason,
-		"expected_version":                   request.ExpectedVersion,
-		"resulting_version":                  request.ExpectedVersion + 1,
-	}
-	if request.StageMaturityOverride != "" {
-		payload["stage_maturity_override"] = request.StageMaturityOverride
-		payload["stage_audience_commitment_override"] = request.StageAudienceCommitmentOverride
-	}
-	encoded, _ := json.Marshal(payload)
-	return ApplyOperationWithResult(ctx, s, Operation{
-		Events:           []Event{{EventID: operatorEventID("project.stage_changed", request.ProjectID), Kind: "project.stage_changed", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded}},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, request.ProjectID): request.ExpectedVersion},
-	})
 }
 
 func (s *Store) AddProductProjectMembership(ctx context.Context, request ProductMembershipAddition) (ApplyOperationResult, error) {

@@ -274,12 +274,12 @@ func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, princi
 	digest := "sha256:" + strings.Repeat("a", 64)
 	workflowTypeRef, workflowTypeVersion, stepID := "workflow.test", 1, "evidence"
 	_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
-	claimed, err := ClaimStep(ctx, s, ClaimRequest{
+	claimed, err := ClaimStepAuthorized(ctx, s, ClaimRequest{
 		OpID: opID, WorkID: workID, WorkflowTypeRef: workflowTypeRef, WorkflowTypeVersion: workflowTypeVersion,
 		StepID: stepID, StepKind: StepInternalSQLite, AcceptedInputsDigest: digest,
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
 		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ContractDigest: testManifestDigest,
-	})
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -293,3 +293,59 @@ func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, princi
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
+
+// CompleteWorkflow drives the ordered completion gate directly, outside the
+// workflow action boundary that shipped completion runs through. It owns one
+// durable transaction from the first gate clause through all impact notices
+// and the reserved completion append.
+func CompleteWorkflow(ctx context.Context, s *Store, event Event) error {
+	return CompleteWorkflowWithRegistry(ctx, s, BuiltinWorkflowRegistry(), event)
+}
+
+// CompleteWorkflowWithRegistry is CompleteWorkflow for a pinned definition
+// registry. The registry is read-only during completion.
+func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, event Event) (retErr error) {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "complete_workflow", "store is not open", false, "open a store before completing a workflow")
+	}
+	// A replay of the exact completion identity is an idempotent no-op.  This
+	// check happens before opening the mutation transaction and never treats a
+	// different event identity as a replay.
+	var existingKind string
+	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
+	if err == nil && existingKind == WorkflowCompleted {
+		replay, err := s.beginDurableTx(ctx)
+		if err != nil {
+			return err
+		}
+		defer replay.finish(&retErr)
+		return replay.Commit()
+	}
+	// CD-0200: the completion's law boundary verifies the Product's complete
+	// registered source set before this transaction opens. The verification
+	// probes git and rebuilds through the pool, and the transaction-scoped
+	// boundary clause proves it from the returned context.
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.beginDurableTx(ctx)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
+	}
+	defer tx.finish(&retErr)
+	scope, err := beginFold(ctx, tx.Tx)
+	if err != nil {
+		return err
+	}
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
+		return err
+	}
+	if err := scope.close(ctx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
+	}
+	return nil
+}

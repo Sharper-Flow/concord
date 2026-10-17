@@ -12,42 +12,66 @@
   },
   "exceptions": [
     {
-      "id": "workflow-action-surface-reserved",
+      "id": "test-support-packages",
+      "state": "out_of_scope",
+      "packages": [
+        "internal/gittest",
+        "internal/pm1fixture",
+        "internal/store/storetest",
+        "internal/store/storetest/neighbor",
+        "internal/testenv",
+        "internal/testutil/schemawire",
+        "internal/workflowcorpus"
+      ],
+      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
+    },
+    {
+      "id": "workflow-read-projection-law-only",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.CancelWorkflowCondition",
-        "internal/store.ClaimStep",
-        "internal/store.CompareOutcomeStrength",
-        "internal/store.CompareWorkflowPredicates",
-        "internal/store.CompleteWorkflow",
-        "internal/store.CompleteWorkflowTx",
-        "internal/store.CompleteWorkflowWithRegistry",
         "internal/store.DeriveWorkflowReady",
         "internal/store.DeriveWorkflowReadyWithReader",
+        "internal/store.ReadWorkflowProjection",
+        "internal/store.parkedDeliveryRead",
+        "internal/store.workflowRecordedStalenessWarnings"
+      ],
+      "reason": "CD-0166 D4 requires parked_delivery in the workflow read, and the published workflow_read schema requires impact_notices and completion_warnings. ReadWorkflowProjection is the only reader that fills them: PM1.Q7 reads through readWorkflowSummaryTx, which omits parked_delivery and stale_law_revision and always emits those arrays empty. The readiness derivation and its reader seam serve only this projection, so deleting them would delete the only implementation of current law. A tracked follow-up folds this projection into the transaction-scoped Q7 reader."
+    },
+    {
+      "id": "workflow-outcome-strength-evaluator-unwired",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.CompareWorkflowPredicates",
         "internal/store.EvaluateWorkflowOutcome",
         "internal/store.EvaluateWorkflowOutcomePredicateSet",
-        "internal/store.OperatorTakeover",
-        "internal/store.ReadWorkflow",
-        "internal/store.ReadWorkflowProjection",
-        "internal/store.ReplaceWorkflowCheckTx",
-        "internal/store.ReplaceWorkflowOutcome",
-        "internal/store.ResolveWorkflowCondition",
-        "internal/store.ResolveWorkflowConditionsAtBoundary",
-        "internal/store.ResumeWorkflow",
-        "internal/store.WorkflowProjectionHash",
         "internal/store.compareSubjectSets",
         "internal/store.compareTokenSets",
         "internal/store.evaluateWorkflowOutcomePredicateCore",
-        "internal/store.parkedDeliveryRead",
         "internal/store.predicateStringSet",
-        "internal/store.projectionColumns",
-        "internal/store.quoteSQLiteIdentifier",
         "internal/store.setContains",
-        "internal/store.workflowOutcomeDefinition",
-        "internal/store.workflowRecordedStalenessWarnings",
-        "internal/store.writeHashValue"
+        "internal/store.workflowOutcomeDefinition"
       ],
-      "reason": "The shipped command entrypoints do not reach these retained workflow support, projection, outcome-evaluation, completion, and contract-revision mechanisms. Focused tests cover their behavior, and their separate removal needs explicit adjudication of the whole mechanisms."
+      "reason": "CD-0012 D3 and CD-0013 D4 require a mechanical comparison of delivered and approved outcome strength, and these functions are that evaluator. Shipped completion, clause 6 of CompleteWorkflowTxWithRegistry, admits the verdict_kind the verdict actor recorded and never calls the evaluator, so the shipped command entrypoints do not reach it. A tracked follow-up either wires the evaluator into the verdict or completion route or amends that law."
+    },
+    {
+      "id": "workflow-acceptance-criteria-without-route",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.OperatorTakeover",
+        "internal/store.ReplaceWorkflowOutcome",
+        "internal/store.ResumeWorkflow"
+      ],
+      "reason": "CD-0013 acceptance criteria 9 (an execution-time outcome replacement is refused), 22 (a committed checkpoint is the resume boundary), and 25 (operator takeover requires an approval reference) are exercised only through these functions, in the WF09, WF22, and WF25 corpus scenarios. No shipped route reaches them, and the shipped checkpoint producer writes an empty resume cursor that ResumeWorkflow refuses. A tracked follow-up gives each criterion a shipped route or amends it."
+    },
+    {
+      "id": "workflow-condition-resolver-unwired",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.CancelWorkflowCondition",
+        "internal/store.ResolveWorkflowCondition",
+        "internal/store.ResolveWorkflowConditionsAtBoundary"
+      ],
+      "reason": "CD-0013 acceptance criterion 26 requires condition evaluation through a resolver, CD-0008 D5 requires it on explicit request and at consequential boundaries, and the CD-0013 completion gate requires every declared condition to be resolved or canceled. The shipped workflow action boundary passes a nil resolver, and the cancel_condition and resolve_condition actions exist only on the archived workflow.ops_runbook family, which refuses every public action. These pooled resolution and cancellation entry points are therefore the only live routes, exercised by WF26, WF28, and the CD-0222 D7 boundary tests. A tracked follow-up wires a resolver and a cancellation route or amends that law."
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",
@@ -110,10 +134,9 @@
       "id": "workflow-admission-inspection-seam",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.InspectWorkflowActionAdmission",
         "internal/store.InspectWorkflowDomainOverlap"
       ],
-      "reason": "These exported inspection seams let tests in other packages read workflow admission and Domain overlap without opening raw database transactions, which internal/store/boundary_test.go forbids. InspectWorkflowActionAdmission uses the builtin registry preflight's deferred read snapshot. InspectWorkflowDomainOverlap uses readSnapshot with a queryer-only callback. Both reuse the admission derivations that mutation boundaries apply inside their write transactions, so inspection does not acquire the write lock or duplicate the rules."
+      "reason": "Agent tests (overlap_guard_scope_test.go, observation_law_revision_boundary_test.go) assert the Domain-overlap admission refusal outside a mutation, and the check that produces it, checkWorkflowDomainOverlapTxAdmitting, is unexported. The exported production read QueryDomainOverlaps returns overlap pairs, not that refusal. The seam runs the same check under readSnapshot with a queryer-only callback, so inspection takes no write lock and restates no rule."
     },
     {
       "id": "knowledge-manifest-current-tier-bindings",
@@ -132,36 +155,23 @@
       "state": "out_of_scope",
       "functions": [
         "internal/store.AppendResearchRevision",
-        "internal/store.BindResearchConsumer",
-        "internal/store.BindResearchFindingSource",
         "internal/store.CreateResearchPack",
-        "internal/store.PruneResearchRevisions",
-        "internal/store.ResearchFreshnessForPack",
         "internal/store.SetResearchFreshness",
         "internal/store.Store.AddResearchFinding",
         "internal/store.Store.AddResearchSource",
         "internal/store.Store.AppendResearchRevision",
-        "internal/store.Store.BindResearchConsumer",
-        "internal/store.Store.BindResearchFindingSource",
         "internal/store.Store.CreateResearchPack",
-        "internal/store.Store.PruneResearchRevisions",
-        "internal/store.Store.RequiredResearchFreshness",
-        "internal/store.Store.ResearchFreshness",
         "internal/store.Store.SetResearchFreshness",
-        "internal/store.Store.UnbindResearchConsumer",
         "internal/store.Store.UpdateResearchFinding",
         "internal/store.Store.UpdateResearchSource",
-        "internal/store.UnbindResearchConsumer",
         "internal/store.addResearchFinding",
         "internal/store.addResearchSource",
         "internal/store.beginResearchMutation",
         "internal/store.canonicalRequestDigest",
         "internal/store.finishResearchMutation",
-        "internal/store.readConsumerTx",
-        "internal/store.requiredResearchFreshness",
         "internal/store.validateResearchIdentity"
       ],
-      "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. The tested plain forms remain until their disposition is decided; runtime unreachability does not authorize deletion of the protected research mechanism."
+      "reason": "CD-0216 Consequences names this direct-caller form: direct callers use the sole pack-operation idempotency boundary (beginResearchMutation and finishResearchMutation over idempotency_records), and agent envelopes compose its transaction-scoped cores with envelope-owned idempotency. Production reaches only those WithinTx cores through internal/agent research mutations; research_test.go and the agent research fixtures call these forms. Deleting them needs an amendment to that CD-0216 sentence."
     },
     {
       "id": "law-boundary-pooled-test-seams",
@@ -182,28 +192,6 @@
         "internal/store.Store.DurableCommits"
       ],
       "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. Neither is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
-    },
-    {
-      "id": "work-coordination-test-surface-disposition",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.DeriveWorkLiveness",
-        "internal/store.Store.ActiveWorkInProduct",
-        "internal/store.Store.AwaitHealthForWork",
-        "internal/store.Store.ChangeProjectStage",
-        "internal/store.Store.ObservationsForDomain",
-        "internal/store.Store.OverdueAwaitsInProduct",
-        "internal/store.Store.ReadWorkLiveness",
-        "internal/store.Store.ReadWorkRemovalAudit",
-        "internal/store.Store.ReadyWorkerJobRevisions",
-        "internal/store.Store.UnreadMessageCount",
-        "internal/store.Store.WorkerJobRevisions",
-        "internal/store.activeWorkInProduct",
-        "internal/store.awaitHealthForWork",
-        "internal/store.overdueAwaitsInProduct",
-        "internal/store.unreadMessageCount"
-      ],
-      "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. The tested coordination surface remains until its disposition is decided; this exception grants no runtime authority."
     }
   ]
 }

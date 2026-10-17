@@ -76,11 +76,18 @@ reset the epoch. Refused actions leave no derived start. Correction re-entry
 uses the existing declared epoch owner. Pre-start verification remains stale.
 
 A terminal failed attempt supplies its workflow failure/correction fact once,
-from the original cause, actor, and evidence. A completed result's rejection is
+from the original cause and evidence. A completed result's rejection is
 not a terminal worker failure. Neither fact grants new dispatch authority.
 This successor explicitly extends derivation to retained research. CD-0198's
 implementation/break-fix approval alone does not authorize that extension.
 Research requires a new definition and its own failure/retry/rebuild witnesses.
+
+The actor of a derived `record_worker_failure` is the `actor_ref` of the latest
+matching `dispatch_worker` completion for that attempt. The terminal producer's
+identity does not select the disposer. This actor holds the fenced
+checkpoint-writing authority after disposition until the next dispatch re-pins
+a lane. Other actors, including the disposed lane, cannot write that fenced
+checkpoint.
 
 Result rejection may carry a bounded retry lane. One transaction records the
 rejection and an admitted fresh dispatch intent through the existing dispatch
@@ -236,6 +243,13 @@ than publish competing overrides.
   Then the ordinary re-pin commits without requiring disproved-premise correction
 ```
 
+```gherkin
+  Given a terminal failed attempt whose dispatch actor differs from its terminal producer
+  When the store derives its workflow failure record
+  Then the record actor is the matching dispatch completion's actor
+  And only that disposer may write the fenced checkpoint until the next dispatch
+```
+
 ## Alternatives considered
 
 - Delete historical definitions and recover them manually from Git. The installed
@@ -288,19 +302,19 @@ immutability, retention, and digest-proof obligations under D6.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current
   decision outline, its criteria grammar, and the writing rules.
 - `python3 scripts/check-knowledge-index.py` proves the record shard, the
-  refreshed CD-0115 hash, and the composed aggregate agree.
+  content hashes, and the composed aggregate agree.
 - `python3 scripts/check-knowledge-closure.py` proves no unprocessed document
   remains under the knowledge roots.
-- `python3 scripts/check-law-coverage.py` proves this record's coverage stays
-  unmeasured with its stated reason.
+- `python3 scripts/check-law-coverage.py` validates this record's executable
+  evidence anchors.
 - `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`
   prove document links and knowledge placement hold.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0218
   identifier allocates once across the fetched peer refs.
-- Criterion 1 stays open: the retired-family refusal journeys land with the
-  live-authoring slice, and this publication runs no refusal witness. The
-  capture baseline they extend is
-  `internal/agent.TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction`.
+- Criterion 1 is covered by
+  `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
+  Authenticated capture of each retired family refuses with unchanged work,
+  contract, workflow-instance and event counts, and unchanged database write counts.
 - Criterion 2 keeps its diagnosis anchors:
   `go test ./internal/store/ -run TestRecordDiagnosisRefusalsLeaveZeroWrites`
   and `go test ./internal/store/ -run TestRecordDiagnosisRecordsAllSectionsAtomically`.
@@ -310,12 +324,25 @@ immutability, retention, and digest-proof obligations under D6.
 - Criterion 4 keeps its frozen-history anchors:
   `go test ./internal/store/ -run TestHistoricalJournalFixturesReplayWithOriginalPins`
   and `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`.
-- Criterion 5 stays open: the activation-refusal gate lands with the cutover
-  slice, and this publication runs no activation witness. The before-mutation
-  refusal baseline it extends is
-  `internal/store.TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable`.
+- Criterion 5 is covered by
+  `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
+  `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
+  Readiness refuses the nonterminal archived pin without moving event or migration rows;
+  terminal historical pins remain readable and rebuild with an unchanged projection hash.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 keeps its ordinary-recovery anchors:
   `go test ./internal/store/ -run TestStaleRegistryRescanAdmitsExactlyOneRePinRoute`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
+- Criterion 8's derived-failure actor and fenced checkpoint anchors are:
+  `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`,
+  `go test ./internal/store/ -run TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint`,
+  `go test ./internal/store/ -run TestDerivedDispositionRefusesTheDisposedLaneCheckpoint`
+  and `go test ./internal/store/ -run TestDerivedDispositionWriterLosesThePenAtTheNextDispatch`.
+  The last two refuse the disposed lane's checkpoint and, after the next dispatch
+  re-pins a lane, the former disposer's checkpoint.
+
+Retained research failure derivation, retry and rebuild are covered by
+`internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.
+These runtime witnesses establish enforcement, not live consumer disposition,
+supersession publication or release activation. D5 still governs those operator actions.

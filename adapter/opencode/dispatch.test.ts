@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
-import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
@@ -74,6 +74,7 @@ const coreOk = () => ({ schema_version: "1.0", request_id: "auth-test", origin: 
 const permissiveAuthorizer = (): DispatchAuthorizer => async () => coreOk()
 
 const lane = agentLanes[0]
+const packetSchemaVersions = agentLanePacketSchema.properties.schema_version.enum
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 // CD-0067 D6: dispatchWorker needs packetDigest on the happy path so the
 // signed assertion can quote the value the core recorded. Tests that
@@ -2153,9 +2154,9 @@ test("legacy report identity forbids a worker-job claim", () => {
 })
 
 test("report admission derives schema identity from the packet, not the worker", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const p = { ...packet(), schema_version }
-    for (const workerVersion of ["1.0", "1.1", "invalid", null, 11, undefined]) {
+    for (const workerVersion of [...packetSchemaVersions, "invalid", null, 11, undefined]) {
       const workerReport = report({ schema_version: workerVersion })
       for (const admitted of [
         resolveWorkerReportFromText(JSON.stringify(workerReport), p),
@@ -2212,7 +2213,7 @@ for (const [label, worker_job] of workerJobEchoes) {
 }
 
 test("report admission keeps packets without jobs unbound regardless of worker-job echoes", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const p = { ...packet(), schema_version }
     for (const [, worker_job] of workerJobEchoes) {
       const workerReport = report({ schema_version: "1.1", worker_job })
@@ -2268,8 +2269,8 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
-test("terminal evidence preserves both legacy and current schema pairs without relabeling", async () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+test("terminal evidence preserves historical and current schema pairs without relabeling", async () => {
+  for (const schema_version of packetSchemaVersions) {
     const { result, verbs, payloads } = await terminalEvidence(report({ schema_version }), { ...packet(), schema_version })
     expect(result.outcome).toBe("ok")
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -2279,15 +2280,17 @@ test("terminal evidence preserves both legacy and current schema pairs without r
   }
 })
 
-test("a legacy worker schema echo on a current packet records completion with current identity", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(report({ schema_version: "1.0" }), { ...packet(), schema_version: "1.1" })
-  expect(result.outcome).toBe("ok")
-  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[0].packet_schema_version).toBe("1.1")
-  expect(payloads[0].report_schema_version).toBe("1.1")
-  expect(payloads[1].report_schema_version).toBe("1.1")
-  expect(payloads[1].evidence).toEqual(reportEvidence())
-})
+for (const schema_version of packetSchemaVersions.filter(version => version !== "1.0")) {
+  test(`a 1.0 worker schema echo on a ${schema_version} packet records completion with packet identity`, async () => {
+    const { result, verbs, payloads } = await terminalEvidence(report({ schema_version: "1.0" }), { ...packet(), schema_version })
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(payloads[0].packet_schema_version).toBe(schema_version)
+    expect(payloads[0].report_schema_version).toBe(schema_version)
+    expect(payloads[1].report_schema_version).toBe(schema_version)
+    expect(payloads[1].evidence).toEqual(reportEvidence())
+  })
+}
 
 for (const [label, worker_job] of workerJobEchoes) {
   test(`terminal evidence carries the dispatched worker-job binding with ${label} echo`, async () => {
@@ -2302,7 +2305,7 @@ for (const [label, worker_job] of workerJobEchoes) {
 }
 
 test("terminal evidence never invents a worker-job binding for an unbound packet", async () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     const { result, verbs, payloads } = await terminalEvidence(report({ worker_job: dispatchedJobBinding }), { ...packet(), schema_version })
     expect(result.outcome).toBe("ok")
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -3007,8 +3010,8 @@ test("the report schema admits the optional context_findings array and closes it
   }
 })
 
-test("context_findings stay optional content on both report schema identities", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+test("context_findings stay optional content on all supported report schema identities", () => {
+  for (const schema_version of agentLaneReportSchema.properties.schema_version.enum) {
     expect(validateAgentLaneReport(report({ schema_version, context_findings: [contextFinding()] }))).toBe(true)
   }
 })

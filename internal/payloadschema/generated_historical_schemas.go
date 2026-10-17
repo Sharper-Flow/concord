@@ -6,7 +6,7 @@ package payloadschema
 // beside the public authoring document. The engine resolves retained
 // workflow definitions' declared payload schemas against this frozen
 // baseline closure, so a public authoring change cannot break historical
-// payload validation (CON-902 S0).
+// payload validation.
 const GeneratedHistoricalSchemaDocument = `{
   "$defs": {
     "architecture_binding": {

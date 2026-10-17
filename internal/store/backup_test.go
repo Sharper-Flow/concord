@@ -193,7 +193,7 @@ func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	if err := os.WriteFile(manifestPath(corrupt), manifestData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(driverName, "file:"+corrupt+"?_pragma=foreign_keys(0)")
+	db, err := sql.Open(driverName, SQLiteFileURI(corrupt)+"?_pragma=foreign_keys(0)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,12 +360,8 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("evidence-finding"), PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("evidence-pin-required"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "evidence-required-consumer", UseRole: UseDecisionBasis, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("evidence-pin-optional"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 4, Consumer: ResearchConsumer{ConsumerWorkID: "evidence-optional-consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "evidence-required-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
+	pinResearch(t, s, "evidence-optional-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	seededPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(seededPack.Revisions) != 1 || len(seededPack.Revisions[0].Sources) != 1 || len(seededPack.Revisions[0].Findings) != 1 || len(seededPack.Consumers) != 2 {
 		t.Fatalf("source pack=%+v err=%v, want one revision with one source, one finding and two consumers", seededPack, err)
@@ -967,6 +963,9 @@ func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
 	if !strings.Contains(err.Error(), "unstamped development build refuses schema migration") {
 		t.Fatalf("development refusal = %v, want the unstamped migration rule", err)
 	}
+	// The staging copy refuses inside its migration transaction; the carrier
+	// is read from that transaction's manifest.
+	assertUnstampedRefusal(t, err, applied)
 	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
 		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("refused development backup left %s: %v", candidate, err)

@@ -17,7 +17,7 @@ func holdReplayDurabilityReader(t *testing.T, s *store.Store) func() {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, "PRAGMA busy_timeout=100"); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := sql.Open("sqlite", "file:"+s.Path()+"?mode=ro")
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path())+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	metadataBefore := replayMetadataCount(t, s, "durability-replay")
 	beforeEvents := countWorkflowEvents(t, s)
 	beforeVersion := workflowReplayWorkVersion(t, s)
-	writer, err := sql.Open("sqlite", "file:"+s.Path())
+	writer, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,12 +199,12 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				release := holdReplayDurabilityReader(t, s)
 				raw := json.RawMessage(`{"work_id":"work-1","idempotency_key":"compaction-replay"}`)
 				const scope = `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"]}`
-				claim, err := store.ClaimStep(ctx, s, store.ClaimRequest{
+				claim, err := store.ClaimStepAuthorized(ctx, s, store.ClaimRequest{
 					OpID: "compaction-replay", WorkID: "work-1", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1,
 					StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: mutationDigest("concord_work_compact", operation, env, raw),
 					AcceptedScopeSnapshot: scope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "compaction-replay",
 					RequestID: env.RequestID, ObservedAt: fixedTime(), ContractDigest: ManifestDigest,
-				})
+				}, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

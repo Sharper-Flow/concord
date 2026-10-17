@@ -174,11 +174,16 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	}); err != nil {
 		t.Fatalf("add research finding: %v", err)
 	}
-	if _, err := store.BindResearchConsumer(ctx, s, store.BindResearchConsumerRequest{
-		Identity: identity("bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3,
-		Consumer: store.ResearchConsumer{ConsumerWorkID: "work-1", UseRole: store.UseContext, Required: true, AcceptedAt: "2026-01-03T00:00:00Z"},
-	}); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BindResearchRelianceTx(ctx, tx, "work-1", []store.ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: store.UseContext, Required: true}}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)); err != nil {
+		_ = tx.Rollback()
 		t.Fatalf("bind research consumer: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	got, err := s.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: pack.PackID, Limit: 100})
 	if err != nil {
@@ -1220,7 +1225,7 @@ func TestClosedMutationResultPayloadsSurviveEnrichment(t *testing.T) {
 			var enriched json.RawMessage
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				var txErr error
-				enriched, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, raw, changed)
+				enriched, _, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, raw, changed)
 				return txErr
 			}); err != nil {
 				t.Fatalf("enrich %s result through a real transaction: %v", op.ID, err)

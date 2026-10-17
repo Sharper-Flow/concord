@@ -95,15 +95,16 @@ def check_schema_states() -> list[str]:
     return findings
 
 
-def main() -> int:
+def validate() -> tuple[list[str], list[dict]]:
     findings: list[str] = check_schema_states()
     try:
         manifest = knowledge_index.compose_law_coverage(ROOT)
     except knowledge_index.ComposeError as exc:
         findings.extend(exc.findings)
-        return report(findings, "law coverage")
+        return findings, []
     if not isinstance(manifest, dict):
-        return report(findings, "law coverage")
+        findings.append("law coverage manifest must be an object")
+        return findings, []
 
     unknown = set(manifest) - ALLOWED_ROOT
     if unknown:
@@ -114,7 +115,7 @@ def main() -> int:
     records = manifest.get("records")
     if not isinstance(records, list) or not records:
         findings.append("records must be a non-empty array")
-        return report(findings, "law coverage")
+        return findings, []
 
     declared: list[str] = []
     issue_states: dict[str, str] | None = load_issue_states(findings)
@@ -150,6 +151,11 @@ def main() -> int:
                     check_anchor(anchor, f"{prefix} anchor {position}", findings)
 
     check_subject_set(declared, indexed_record_ids(findings), "law record", findings)
+    return findings, records
+
+
+def main() -> int:
+    findings, _ = validate()
     return report(findings, "law coverage")
 
 

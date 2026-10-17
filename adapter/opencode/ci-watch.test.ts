@@ -2,7 +2,7 @@ import { afterAll, afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { bindCiWatchClient, ciWatchSettled, ciWatchSnapshot, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, validateCiWatchArgs, type CiWatchArgs, type VerbSpawner } from "./ci-watch"
+import { bindCiWatchClient, ciWatchRedelivery, ciWatchSettled, ciWatchSnapshot, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, validateCiWatchArgs, type CiWatchArgs, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostToolSchemas } from "./generated-contracts"
@@ -371,7 +371,7 @@ test("supported argument normalizations hold under the published contract", asyn
 })
 
 test("the watch returns at once, carries one state file across slices, and prompts only after the terminal slice", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -416,6 +416,41 @@ test("the watch returns at once, carries one state file across slices, and promp
   expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
 })
 
+// The pinned host prompt payload carries the variant as a top-level field
+// beside its { providerID, modelID } model reference, and the host persists
+// the prompt's variant as the session's next choice, treating "default" as
+// none. A wake or notice that omits a selected variant resets the session.
+const GLM = { providerID: "zai", modelID: "glm-test" }
+for (const { label, model, postedModel, posted } of [
+  { label: "a selected variant", model: { id: "glm-test", providerID: "zai", variant: "high" }, postedModel: GLM, posted: "high" },
+  { label: "no variant", model: { id: "glm-test", providerID: "zai" }, postedModel: GLM, posted: undefined },
+  { label: "the default variant", model: { id: "glm-test", providerID: "zai", variant: "default" }, postedModel: GLM, posted: undefined },
+  { label: "a variant without a usable model", model: { providerID: "zai", variant: "high" }, postedModel: undefined, posted: undefined },
+]) {
+  test(`the wake prompt and the start notice carry the session's model variant for ${label}`, async () => {
+    const fixture = hostFixture({ reply: "parented", session: { id: SESSION, agent: "concord-1", model } })
+    hostControlPlane().bind(fixture.client)
+    bindCiWatchClient(fixture.client)
+    configureCoreBinary("/synthetic/concord")
+    configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+    const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+    configureCiWatch({ spawner })
+    const started = await startWatch(fixture)
+    await ciWatchSettled(String(started.watch_id))
+    const bodies = ["/session/{id}/prompt_async", "/session/{id}/message"].map((url) => {
+      const posts = fixture.posts.filter((post) => post.url === url)
+      expect(posts).toHaveLength(1)
+      return posts[0].body as Record<string, unknown>
+    })
+    for (const body of bodies) {
+      expect(body.agent).toBe("concord-1")
+      expect(body.model).toEqual(postedModel)
+      if (posted === undefined) expect(Object.hasOwn(body, "variant")).toBe(false)
+      else expect(body.variant).toBe(posted)
+    }
+  })
+}
+
 test("an unconfirmed wake queues the report and the next chat.message injects it", async () => {
   const fixture = hostFixture({ messages: [] })
   hostControlPlane().bind(fixture.client)
@@ -427,10 +462,12 @@ test("an unconfirmed wake queues the report and the next chat.message injects it
   const started = await startWatch(fixture)
   await ciWatchSettled(String(started.watch_id))
   // The prompt was accepted (204) but no assistant reply followed.
-  expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(true)
+  // The idle session gave the report its one try at once, and no reply followed that either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
 
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_1", output)
@@ -512,7 +549,7 @@ test("a failed /log write surfaces on stderr, so a delivery failure keeps a diag
 })
 
 test("consecutive verb slice failures deliver an explicit error report and are logged", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -532,7 +569,7 @@ test("consecutive verb slice failures deliver an explicit error report and are l
 })
 
 test("a verb error report is terminal and cannot reset the deadline through a retry", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -610,7 +647,7 @@ test("a duplicate watch for the same session and selector returns the active ide
 })
 
 test("a different selector starts its own watch and each session wakes with its own report", async () => {
-  const fixture = hostFixture()
+  const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
@@ -710,7 +747,7 @@ test("a serialized selector string and a flattened kind/value pair both start th
 })
 
 test("an entry absent from the session status map is idle, so delivery proceeds", async () => {
-  const fixture = hostFixture({ absentStatus: true, messages: [] })
+  const fixture = hostFixture({ absentStatus: true, messages: [], reply: "parented" })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2, idleTimeoutMs: 60 })
@@ -775,9 +812,13 @@ test("a pre-model placeholder parented to the injected report does not confirm t
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_placeholder", output)
   expect(output.parts).toHaveLength(1)
@@ -798,9 +839,13 @@ test("an errored assistant record parented to the injected report does not confi
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_errored", output)
   expect(output.parts).toHaveLength(1)
@@ -818,9 +863,13 @@ test("a concurrent assistant reply not parented to the injected report does not 
   await ciWatchSettled(String(started.watch_id))
   const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
   expect(delivered).toHaveLength(0)
+  // The idle session gives the report its one try at once, and that try is not confirmed either.
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(2)
   const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
-  expect(logged).toHaveLength(1)
-  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  expect(logged).toHaveLength(2)
+  expect(String((logged[0].body as { message: string }).message)).toContain("the report is queued for the next message")
+  expect(String((logged[1].body as { message: string }).message)).toContain("idle redelivery of 1 queued report(s)")
+  expect(String((logged[1].body as { message: string }).message)).toContain("any not yet drained stay queued for the next message")
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_unrelated", output)
   expect(output.parts).toHaveLength(1)
@@ -946,6 +995,249 @@ test("a queued report that cannot drain yet still holds the session's admission 
   const third = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
   expect(third.status).toBe("started")
   await ciWatchSettled(String(third.watch_id))
+})
+
+test("a report queued while the session stayed busy reaches the model when the session goes idle, with no chat message, and admission frees", async () => {
+  const host: { status: string; reply: "parented" } = { status: "busy", reply: "parented" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  // The host reports every prompted user message through chat.message.
+  const hooked: unknown[][] = []
+  const post = fixture.client.post
+  fixture.client.post = async (request: { url: string; body?: unknown }) => {
+    const answer = await post(request)
+    if (request.url === "/session/{id}/prompt_async") {
+      const output = { parts: [...(request.body as { parts: unknown[] }).parts] }
+      await plugin["chat.message"]({ sessionID: SESSION, messageID: `msg_prompted_${hooked.length}` }, output)
+      hooked.push(output.parts)
+    }
+    return answer
+  }
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  expect(first.status).toBe("started")
+  await ciWatchSettled(String(first.watch_id))
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  // The session stayed busy past idleTimeoutMs, so the report queued without a wake.
+  expect(prompts()).toHaveLength(0)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("queued")
+  const blocked = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(blocked.status).toBe("refused")
+
+  host.status = "idle"
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await ciWatchRedelivery(SESSION)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("delivered")
+  expect(prompts()).toHaveLength(1)
+  const body = prompts()[0].body as { agent: string; model: unknown; parts: Array<{ text: string; synthetic: boolean }> }
+  expect(body.parts).toHaveLength(1)
+  expect(body.parts[0].synthetic).toBe(true)
+  expect(body.parts[0].text).toContain(`[concord ci-watch ${String(first.watch_id)}] CI wait success for owner/name pr:12.`)
+  expect(body.agent).toBe("concord-1")
+  expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
+  // The redelivery's own message does not drain the report it already carries.
+  expect(hooked).toHaveLength(1)
+  expect(hooked[0]).toHaveLength(1)
+  // The confirmed redelivery emptied the queue, so the next watch is admitted.
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(second.status).toBe("started")
+  await ciWatchSettled(String(second.watch_id))
+})
+
+test("a queued report gets one idle redelivery try, so an unanswered try leaves it queued for the next message and a later idle event sends nothing", async () => {
+  const host: { status: string; reply: "none" } = { status: "busy", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(0)
+
+  host.status = "idle"
+  const idle = { event: { type: "session.idle", properties: { sessionID: SESSION } } }
+  await plugin.event(idle)
+  // A second idle event while the try is in flight starts no second try.
+  await plugin.event(idle)
+  await ciWatchRedelivery(SESSION)
+  expect(prompts()).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  const warned = fixture.posts.filter((post) => post.url === "/log" && String((post.body as { message: string }).message).includes("idle redelivery"))
+  expect(warned).toHaveLength(1)
+  expect((warned[0].body as { level: string }).level).toBe("warn")
+
+  // The spent try is not repeated: the idle event that ends any later turn sends nothing.
+  await plugin.event(idle)
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(prompts()).toHaveLength(1)
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_after_spent_try" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect((output.parts[0] as { text: string }).text).toContain(`[concord ci-watch ${String(started.watch_id)}] CI wait success`)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("an operator message that arrives before the idle try posts carries the queued report, and the try then posts nothing", async () => {
+  const host: { status: string; reply: "parented" } = { status: "busy", reply: "parented" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  configureCiWatch({ idleTimeoutMs: 2_000 })
+
+  // The idle event starts the try, but the operator's message makes the session busy before the try posts.
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_operator" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect((output.parts[0] as { text: string }).text).toContain(`[concord ci-watch ${String(started.watch_id)}] CI wait success`)
+  host.status = "idle"
+  await ciWatchRedelivery(SESSION)
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("a report queued while an idle redelivery is in flight gets its own try on the next idle event", async () => {
+  const host: { status: string; reply: "none" } = { status: "busy", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5, confirmPollMs: 2, confirmWindowMs: 500 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "failure", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const idle = { event: { type: "session.idle", properties: { sessionID: SESSION } } }
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(first.watch_id))
+
+  host.status = "idle"
+  await plugin.event(idle)
+  await until(() => prompts().length === 1, "the first idle redelivery to send")
+  host.status = "busy"
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  await ciWatchSettled(String(second.watch_id))
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(second.watch_id))!.delivery_state).toBe("queued")
+  // The first try is still inside its confirm window.
+  expect(ciWatchRedelivery(SESSION)).not.toBeNull()
+  expect(prompts()).toHaveLength(1)
+
+  host.status = "idle"
+  await plugin.event(idle)
+  await until(() => prompts().length === 2, "the second report's own idle redelivery to send")
+  const text = (prompts()[1].body as { parts: Array<{ text: string }> }).parts[0].text
+  expect(text).toContain(`[concord ci-watch ${String(second.watch_id)}]`)
+  expect(text).not.toContain(`[concord ci-watch ${String(first.watch_id)}]`)
+  await ciWatchRedelivery(SESSION)
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+})
+
+test("a report queued after its session already went idle gets its one try at once, with no idle event, and admission frees", async () => {
+  const host: { status: string; reply: "none" | "parented" } = { status: "idle", reply: "none" }
+  const fixture = hostFixture(host)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  // The first wake is lost: the host persists it and no turn answers. The session is idle throughout.
+  const post = fixture.client.post
+  fixture.client.post = async (request: { url: string; body?: unknown }) => {
+    const answer = await post(request)
+    if (request.url === "/session/{id}/prompt_async") host.reply = "parented"
+    return answer
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const first = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  expect(first.status).toBe("started")
+  await ciWatchSettled(String(first.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(2)
+  const retried = prompts()[1].body as { parts: Array<{ text: string }> }
+  expect(retried.parts[0].text).toContain(`[concord ci-watch ${String(first.watch_id)}] CI wait success for owner/name pr:12.`)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(first.watch_id))!.delivery_state).toBe("delivered")
+  const second = result(await plugin.tool.concord_ci_watch.execute!({ repo: "owner/name", selector: { kind: "pr", value: "2" } }, context))
+  expect(second.status).toBe("started")
+  await ciWatchSettled(String(second.watch_id))
+})
+
+test("the at-once try is the report's one idle try: unanswered, the report stays queued, a later idle event sends nothing, and the next message carries it", async () => {
+  const fixture = hostFixture({ status: "idle", reply: "none" })
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const prompts = () => fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts()).toHaveLength(2)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(prompts()).toHaveLength(2)
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_after_at_once_try" }, output)
+  expect(output.parts).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("drained")
+})
+
+test("a status read that fails when the report is queued is logged, and the session's next idle event still gives the report its try", async () => {
+  const fixture = hostFixture({ status: "idle", reply: "parented" })
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success", iterations: 1 }) }])
+  configureCiWatch({ spawner })
+  // The status route fails until the session's idle event, so settle cannot deliver and the queue-time read fails.
+  let statusFails = true
+  const get = fixture.client.get
+  fixture.client.get = async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
+    if (request.url === "/session/status" && statusFails) return { response: new Response(null, { status: 503 }) }
+    return get(request)
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  await ciWatchRedelivery(SESSION)
+  const failed = fixture.posts.filter((post) => post.url === "/log" && String((post.body as { message: string }).message).includes("could not read whether session"))
+  expect(failed).toHaveLength(1)
+  expect((failed[0].body as { level: string }).level).toBe("warn")
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("queued")
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+
+  statusFails = false
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await ciWatchRedelivery(SESSION)
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(receiptFor(ciWatchSnapshot(SESSION), String(started.watch_id))!.delivery_state).toBe("delivered")
+})
+
+test("an idle event for a session with no queued report, or an event of another type, starts no redelivery", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID: SESSION } } })
+  await plugin.event({ event: { type: "session.status", properties: { sessionID: SESSION, status: { type: "idle" } } } })
+  expect(ciWatchRedelivery(SESSION)).toBeNull()
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
 })
 
 test("a new watch posts one noReply notice naming repo, selector, mode, and budget, and a reused watch posts none", async () => {
@@ -1648,10 +1940,11 @@ test("the receipts ring holds 64 delivered watches, reports the eviction floor, 
 test("a queued adapter error retains its terminal observation after receipt eviction", async () => {
   const fixture = hostFixture({ reply: "parented" })
   const post = fixture.client.post
-  let rejectPrompt = true
+  // The wake and the report's at-once idle try are both refused, so the report stays queued.
+  let rejectPrompts = 2
   fixture.client.post = async (request: { url: string; body?: unknown }) => {
-    if (request.url === "/session/{id}/prompt_async" && rejectPrompt) {
-      rejectPrompt = false
+    if (request.url === "/session/{id}/prompt_async" && rejectPrompts > 0) {
+      rejectPrompts--
       return { response: new Response(null, { status: 400 }) }
     }
     return post(request)

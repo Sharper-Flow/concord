@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Issue #87: waiting must be distinguishable from will-never-complete.
-// Four cases: within bound, beyond bound, completed-late, never-completable
-// (no bound declared — honest output is unknown, never alarm).
+// Waiting must be distinguishable from will-never-complete. Four cases:
+// within bound, beyond bound, completed-late, never-completable (no bound
+// declared — honest output is unknown, never alarm).
 
 func awaitFixture(t *testing.T) *Store {
 	t.Helper()
@@ -79,28 +79,7 @@ func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
 	// Case 4: never-completable shape — no bound declared: unknown, not alarm.
 	addAwaitCondition(t, s, "cond-nobound", 0, now.Add(-48*time.Hour))
 
-	health, err := s.AwaitHealthForWork(ctx, "work-await", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	byID := map[string]AwaitHealth{}
-	for _, h := range health {
-		byID[h.ConditionID] = h
-	}
-	if len(byID) != 3 {
-		t.Fatalf("health=%+v", health)
-	}
-	if h := byID["cond-bounded"]; h.Overdue || h.Health != AwaitHealthWaiting || h.ExpectedWithinSeconds != 3600 || h.AgeSeconds < 550 {
-		t.Fatalf("within bound must be waiting: %+v", h)
-	}
-	if h := byID["cond-overdue"]; !h.Overdue || h.Health != AwaitHealthOverdue {
-		t.Fatalf("beyond bound must be overdue: %+v", h)
-	}
-	if h := byID["cond-nobound"]; h.Overdue || h.Health != AwaitHealthWaiting || h.ExpectedWithinSeconds != 0 {
-		t.Fatalf("no declared bound must read waiting/unknown: %+v", h)
-	}
-
-	// The workflow read projection carries the same split. It needs a
+	// The workflow read projection derives await health; it needs a
 	// workflow instance for the read to resolve.
 	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if defErr != nil {
@@ -117,9 +96,30 @@ func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
 	if err := initTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "work-await", Limit: 10, Now: now})
-	if err != nil {
-		t.Fatal(err)
+	readHealth := func() (WorkflowReadProjection, map[string]WorkflowReadCondition) {
+		t.Helper()
+		projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "work-await", Limit: 10, Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		byID := map[string]WorkflowReadCondition{}
+		for _, h := range projection.AwaitHealth {
+			byID[h.ID] = h
+		}
+		return projection, byID
+	}
+	projection, byID := readHealth()
+	if len(byID) != 3 {
+		t.Fatalf("health=%+v", projection.AwaitHealth)
+	}
+	if h := byID["cond-bounded"]; h.Overdue || h.Health != "waiting" || h.ExpectedWithinSeconds != 3600 || h.AgeSeconds < 550 {
+		t.Fatalf("within bound must be waiting: %+v", h)
+	}
+	if h := byID["cond-overdue"]; !h.Overdue || h.Health != "overdue" {
+		t.Fatalf("beyond bound must be overdue: %+v", h)
+	}
+	if h := byID["cond-nobound"]; h.Overdue || h.Health != "waiting" || h.ExpectedWithinSeconds != 0 {
+		t.Fatalf("no declared bound must read waiting/unknown: %+v", h)
 	}
 	if len(projection.OverdueAwaits) != 1 || projection.OverdueAwaits[0] != "cond-overdue" {
 		t.Fatalf("overdue awaits=%v", projection.OverdueAwaits)
@@ -131,19 +131,14 @@ func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
 	if err := ResolveWorkflowCondition(ctx, s, "work-await", "cond-overdue", resolver, now); err != nil {
 		t.Fatalf("late resolution refused: %v", err)
 	}
-	health, err = s.AwaitHealthForWork(ctx, "work-await", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range health {
-		if h.ConditionID == "cond-overdue" {
-			t.Fatal("resolved await must leave the open-health projection")
-		}
+	_, byID = readHealth()
+	if _, open := byID["cond-overdue"]; open {
+		t.Fatal("resolved await must leave the open-health projection")
 	}
 	// Never-completable stays visible, still honestly "no bound declared":
 	// the operator sees the age, not a fabricated verdict.
-	if h := byID["cond-nobound"]; h.Overdue {
-		t.Fatal("elapsed time alone must never create a verdict")
+	if h, open := byID["cond-nobound"]; !open || h.Overdue {
+		t.Fatalf("elapsed time alone must never create a verdict: %+v", h)
 	}
 }
 
@@ -151,21 +146,4 @@ type lateResolver struct{ conditionID string }
 
 func (l lateResolver) Resolve(_ context.Context, condition ExternalCondition, _ time.Time) (Resolution, error) {
 	return Resolution{ResolutionEvidence: []string{"evidence:merged-late:" + condition.ConditionID}, ResolvedByEvent: "resolved:" + condition.ConditionID, ActorRef: "actor:resolver"}, nil
-}
-
-func TestOverdueAwaitsInProductListsStalledWaits(t *testing.T) {
-	t.Parallel()
-	s := awaitFixture(t)
-	ctx := context.Background()
-	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	addAwaitCondition(t, s, "cond-stalled", 30, now.Add(-3*time.Hour))
-	addAwaitCondition(t, s, "cond-fresh", 3600, now.Add(-5*time.Minute))
-
-	overdue, err := s.OverdueAwaitsInProduct(ctx, "p-await", now, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(overdue) != 1 || overdue[0].ConditionID != "cond-stalled" || !overdue[0].Overdue {
-		t.Fatalf("overdue=%+v", overdue)
-	}
 }

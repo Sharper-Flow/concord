@@ -38,7 +38,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	dataRoot, err := leaseDataRoot()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", err.Error())
+		writeOperatorDiagnostic(errOut, "repair", diagnosticText(err))
 		return 1
 	}
 	manifestPath := filepath.Join(dataRoot, "install-manifest.json")
@@ -66,7 +66,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	workspace, err := os.MkdirTemp("", "concord-repair-")
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", "cannot create a repair workspace: "+err.Error())
+		writeOperatorDiagnostic(errOut, "repair", "cannot create a repair workspace: "+diagnosticText(err))
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(workspace) }()
@@ -86,7 +86,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	for _, asset := range assets {
 		if err := gatherRepairAsset(asset.name, asset.tag, baseURL, request.ArtifactDir, workspace); err != nil {
-			writeOperatorDiagnostic(errOut, "repair", err.Error())
+			writeOperatorDiagnostic(errOut, "repair", diagnosticText(err))
 			return 1
 		}
 	}
@@ -95,7 +95,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	checksumPath := filepath.Join(workspace, fmt.Sprintf("concord-%s.sha256", installerTag))
 	records, err := parseChecksumFile(checksumPath)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", err.Error())
+		writeOperatorDiagnostic(errOut, "repair", diagnosticText(err))
 		return 1
 	}
 	installerPath := filepath.Join(workspace, "concord-installer.py")
@@ -105,13 +105,13 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	if err := verifyFileSHA256(installerPath, expected); err != nil {
-		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("installer checksum mismatch for concord-installer.py from %s: %s", installerTag, err.Error()))
+		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("installer checksum mismatch for concord-installer.py from %s: %s", installerTag, diagnosticText(err)))
 		return 1
 	}
 	// The direct-exec entry documented for a missing executable needs the
 	// executable bit; the gathered copy carries data permissions only.
 	if err := os.Chmod(installerPath, 0o755); err != nil { //nolint:gosec // the executable bit is the documented direct-exec entry contract for the checksum-verified installer copy.
-		writeOperatorDiagnostic(errOut, "repair", "cannot prepare the verified installer: "+err.Error())
+		writeOperatorDiagnostic(errOut, "repair", "cannot prepare the verified installer: "+diagnosticText(err))
 		return 1
 	}
 	// A verified database snapshot precedes the repair mutation. A missing
@@ -135,7 +135,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
-		writeOperatorDiagnostic(errOut, "repair", "cannot run the verified installer: "+err.Error())
+		writeOperatorDiagnostic(errOut, "repair", "cannot run the verified installer: "+diagnosticText(err))
 		return 1
 	}
 	return 0
@@ -147,12 +147,12 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 	path, err := databasePath()
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", err.Error())
+		writeOperatorDiagnostic(errOut, "repair", diagnosticText(err))
 		return 1
 	}
 	destination, present, err := snapshotBeforeMutation(path, dataRoot, "repair", version)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %v", destination, err))
+		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %s", destination, diagnosticText(unstampedRefusalDiagnostic(err, filepath.Dir(path)))))
 		return 1
 	}
 	if !present {

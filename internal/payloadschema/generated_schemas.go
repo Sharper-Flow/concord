@@ -10428,7 +10428,7 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "not": {
               "anyOf": [
                 {
@@ -10444,6 +10444,11 @@ const GeneratedPayloadSchemaDocument = `{
                 {
                   "required": [
                     "obligations"
+                  ]
+                },
+                {
+                  "required": [
+                    "outstanding_evidence_kinds"
                   ]
                 }
               ]
@@ -10568,6 +10573,15 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 1,
           "minItems": 1,
           "type": "array"
+        },
+        "outstanding_evidence_kinds": {
+          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including recovery check verification. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots.",
+          "items": {
+            "$ref": "#/$defs/evidence_kind"
+          },
+          "maxItems": 7,
+          "type": "array",
+          "uniqueItems": true
         },
         "pending_operator_decision": {
           "oneOf": [

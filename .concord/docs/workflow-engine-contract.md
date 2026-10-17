@@ -20,10 +20,11 @@ Only contracts approved through surface `2.2.0` carry the internal persisted
 law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
 checks the accepted Git-derived `law_subjects` and `law_relations` projection;
-an explicit conflict may pass planning only when a conflicting endpoint is in
-`law_modifies`. Completion reruns the check without that exception, so only a
-Git-authorized law delta can resolve the conflict. Earlier contracts retain
- their prior evidence-reference interpretation of `spec_mandate`.
+an explicit conflict may pass planning only when the endpoint whose record
+declares it is in `law_modifies`. Completion reruns the check without that
+exception, so only a Git-authorized law delta can resolve the conflict. Earlier
+contracts retain their prior evidence-reference interpretation of
+`spec_mandate`.
 
 CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a
@@ -204,7 +205,7 @@ mutating workflow payload also carries the existing subject-version convention
 `expected_version` and `resulting_version`; they are consecutive positive
 integers and are validated in the fold. This common pair is not repeated in each
 row below. The following are the complete v1 family payloads; omitted keys are
-rejected. `workflow.completed` may only be appended by `CompleteWorkflowTx` after
+rejected. `workflow.completed` may only be appended by `CompleteWorkflowTxWithRegistry` after
 the ordered gate in §7; the generic event append path rejects it structurally.
 `workflow.staleness_observed` is an external observation event. It does not
 advance the work-item version.
@@ -252,7 +253,7 @@ source-owned edge. Both event kinds are emitted as v2 after migration V28.
 
 V15 creates the ten D2 projections below. Every table has `fold_guard=workflow`
 semantics: direct writes are refused; only event application inside
-`ApplyOperationTx`, `CompleteWorkflowTx`, or `RebuildFromLog` may mutate it. `work_id` references the
+`ApplyOperationTx`, `CompleteWorkflowTxWithRegistry`, or `RebuildFromLog` may mutate it. `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
@@ -466,7 +467,7 @@ record does not satisfy the predicate or unblock a dependent managed work unit.
 
 ## 7. Ordered completion gate
 
-`CompleteWorkflowTx` executes the following ordered clauses in one SQLite
+`CompleteWorkflowTxWithRegistry` executes the following ordered clauses in one SQLite
 transaction. It locks the work item, checks the pinned definition and expected
 version, and rolls back on the first refusal. The typed refusal and recovery action
 are stable:

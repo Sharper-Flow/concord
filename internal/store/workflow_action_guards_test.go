@@ -382,8 +382,9 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			if available, err := workflowEvidenceBindingRecoveryAvailable(ctx, s.db, entry.Definition, workID, "acceptance"); available || err != nil {
-				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, available, err)
+			state, _, _, err := loadWorkflowAdmissionStateTx(ctx, s.db, workID, entry.Definition, "acceptance", "test")
+			if state.EvidenceRecoveryRoute || err != nil {
+				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}
 			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)

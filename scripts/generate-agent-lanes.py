@@ -316,7 +316,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"x-maxBytes={context_rationale['x-maxBytes']}. "
         "Required when domain_id names the root Domain, and refused on a child Domain.",
         "evidence_entry.oracle_receipt: "
-        "optional object (CON-890); "
+        "optional object; "
         f"type={oracle_receipt['type']}, "
         f"additionalProperties={json.dumps(oracle_receipt['additionalProperties'])}, "
         f"required={json.dumps(oracle_receipt['required'], ensure_ascii=False)}. "
@@ -365,7 +365,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minLength={review_finding['properties']['detail']['minLength']}, "
         f"maxLength={review_finding['properties']['detail']['maxLength']}.",
         "review_finding.oracle: "
-        "optional object (CON-890); "
+        "optional object; "
         f"type={oracle_finding['type']}, "
         f"additionalProperties={json.dumps(oracle_finding['additionalProperties'])}, "
         f"required={json.dumps(oracle_finding['required'], ensure_ascii=False)}. "
@@ -381,7 +381,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "finding; `variant_of` marks a newly reproduced alternate entry path as a new identity "
         "beside its owner-family finding.",
         "review.resolved_findings: "
-        "optional array (CON-890); "
+        "optional array; "
         f"type={resolved_findings['type']}, "
         f"minItems={resolved_findings['minItems']}, "
         f"maxItems={resolved_findings['maxItems']}, "
@@ -735,6 +735,7 @@ assigned result.
 
 def work_context_instructions(packet_schema: dict) -> str:
     # Readings retain their declared order and immutable source identity.
+    # Reading and finding bounds are derived from the packet schema.
     view = packet_schema["$defs"]["lane_work_context_view"]
     readings_max = view["properties"]["required_reading"]["maxItems"]
     findings_max = view["properties"]["findings"]["maxItems"]
@@ -776,7 +777,7 @@ Do not run shell commands or review a different commit.
 
 
 def checkpoint_instructions() -> str:
-    # CON-883: when the packet carries the latest context checkpoint, its
+    # When the packet carries the latest context checkpoint, its
     # strategy and diagnosis are coordinator directions the worker follows
     # for the attempt, and a departure is recorded on the report rather
     # than silently taken.

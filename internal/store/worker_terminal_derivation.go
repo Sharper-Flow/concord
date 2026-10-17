@@ -174,16 +174,7 @@ const workflowDerivedWorkerFailureEventIDSuffix = ":workflow-failure"
 // (CD-0198 D5). Earlier versions keep the callable record and the behavior
 // and digest they shipped with.
 func workflowDerivedWorkerFailureActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 29
-	case "workflow.break_fix":
-		return definition.Version >= 26
-	case "workflow.research":
-		return definition.Version >= 17
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityDerivedWorkerFailure)
 }
 
 // workflowDerivedWorkerFailurePairAdmitsFold reports whether one

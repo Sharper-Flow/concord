@@ -922,11 +922,6 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 	}
 }
 
-// applyRetryApprovalBinding installs the retry-approval scope bindings a
-// retry approval binds to, and returns the bound contract version. A contract
-// version of zero is the absence of a contract, not a version: pre-contract
-// retries bind the attempt identity, the attempt epoch, and the work version,
-// and the contract key travels only when a contract is pinned.
 // supersededAttemptBindings reads the attempt a fenced action would
 // supersede and binds it into the approval challenge. A worker dispatch after
 // a failed attempt below the convergence wall binds that failed attempt
@@ -950,6 +945,11 @@ func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.D
 	return nil, takeover, nil
 }
 
+// applyRetryApprovalBinding installs the retry-approval scope bindings a
+// retry approval binds to, and returns the bound contract version. A contract
+// version of zero is the absence of a contract, not a version: pre-contract
+// retries bind the attempt identity, the attempt epoch, and the work version,
+// and the contract key travels only when a contract is pinned.
 func applyRetryApprovalBinding(scope map[string]any, versions map[string]any, binding *store.WorkflowRetryApprovalBinding) int64 {
 	scope["failed_attempt_id"] = binding.FailedAttemptID
 	versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch

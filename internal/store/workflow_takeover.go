@@ -28,15 +28,7 @@ func WorkflowActionOpensHeldAttempt(action WorkflowActionDefinition) bool {
 }
 
 func workflowActionOpensHeldAttempt(definition WorkflowDefinition, actionID string) bool {
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			return WorkflowActionOpensHeldAttempt(action)
-		}
-	}
-	if action, ok := workflowRecoveryActionDefinition(actionID); ok {
-		return WorkflowActionOpensHeldAttempt(action)
-	}
-	return false
+	return WorkflowActionOpensHeldAttempt(workflowActionDefinitionByID(definition, actionID))
 }
 
 // WorkflowStartTakeoverRead opens its own read transaction around the single

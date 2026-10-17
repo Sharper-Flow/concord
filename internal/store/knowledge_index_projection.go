@@ -77,8 +77,7 @@ type compactionLinkPayload struct {
 }
 
 // compactionLinkPayloadV2 is the recorded v2 shape: the current payload plus
-// a resulting_version that must equal expected_version+1. The fold never
-// advanced the work version, so the upcaster checks the pair and drops it.
+// a resulting_version that must equal expected_version+1.
 type compactionLinkPayloadV2 struct {
 	compactionLinkPayload
 	ResultingVersion int64 `json:"resulting_version"`
@@ -355,8 +354,8 @@ func upcastCompactionLinkPublishedV1(event Event) (Event, error) {
 	return event, nil
 }
 
-// upcastCompactionLinkPublishedV2 refuses a v2 link whose version pair is not
-// consecutive, the check the v2 fold made, and drops resulting_version.
+// upcastCompactionLinkPublishedV2 keeps the v2 acceptance set: it refuses a
+// pair that is not consecutive and drops resulting_version.
 func upcastCompactionLinkPublishedV2(event Event) (Event, error) {
 	var v2 compactionLinkPayloadV2
 	if err := decodeRegisteredPayload(event, &v2); err != nil {

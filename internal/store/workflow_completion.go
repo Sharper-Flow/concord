@@ -667,21 +667,16 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 	if err != nil {
 		return err
 	}
-	verdictByPredicate := make(map[string]workflowVerdictRecordedPayload, len(verdicts))
 	for _, verdict := range verdicts {
-		verdictByPredicate[verdict.PredicateID] = verdict
-	}
-	for _, predicate := range contract.Predicates {
-		verdict, ok := verdictByPredicate[predicate.PredicateID]
-		if !ok {
+		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
 			continue
 		}
 		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
 			var failure *Failure
-			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable || failure.RecoveryAction == "contact_operator" {
 				return err
 			}
-			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+predicate.PredicateID+": "+failure.Detail, false, "record_verdict for "+predicate.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
+			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+verdict.PredicateID+": "+failure.Detail, false, "record_verdict for "+verdict.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
 		}
 	}
 	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)

@@ -31,8 +31,8 @@ func TestConfirmPremiseRefusesVerdictWhoseActorExecutedAfterIt(t *testing.T) {
 		t.Fatalf("independent reviewer verdict refused: %v", err)
 	}
 
-	// The item returns to execution, as a declared correction route returns
-	// it, and the reviewer runs the next delivery pass itself.
+	// The item is forced back to execution, and the reviewer runs the next
+	// delivery pass itself.
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "execution")
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, reviewer); err != nil {
 		t.Fatalf("reviewer start_execution refused: %v", err)

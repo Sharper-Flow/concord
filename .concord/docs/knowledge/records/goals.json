@@ -3,9 +3,11 @@
     "tier": "derived"
   },
   "date": "2026-10-16T00:00:00Z",
+  "home_domain_id": "product-root:concord",
   "id": "goals",
-  "kind": "reference",
+  "kind": "constitution",
   "path": ".concord/docs/goals.md",
+  "product_wide_rationale": "The operator's goals, their measures, and the conflict rules apply to every Domain, and they rank first in Concord's direction.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -13,9 +15,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:976eabd21f6d472b9d21dc43cefdb66103b5700c460a4649b9b4db4911968078",
-  "status": "published",
-  "summary": "The operator's stated goals for Concord: purpose, six equal goals with measures, approved conflict rules, constraints, and the conflicts found with current Product law. Not accepted law: it is operator direction that a later alignment step carries into the backlog and law, and the law it conflicts with stays in force until amended.",
+  "sha256": "sha256:7d58cc039a9069c238dc804858ecd211f8e22d5960730c1ee855e280645cf96b",
+  "status": "accepted",
+  "summary": "The operator's goals for Concord: purpose, six equal goals with measures, the conflict rules (Appendix A), constraints, and the conflicts found with current Concord text (Appendix C). Accepted law, ranked first; priorities.md follows it. Where it conflicts with an accepted decision record, goals.md sets the direction, and the conflicting record is amended under CD-0036 D2 (in place when compatible, by a superseding record when breaking) before work relies on it.",
   "tags": [
     "goals",
     "direction",

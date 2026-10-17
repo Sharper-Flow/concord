@@ -375,7 +375,7 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	}
 	freshID := attemptID + ":fresh"
 	freshPacket := joinPacketFor(t, s, workID, "repair", freshID, "implement", laneVersion, laneDigest)
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Actor: fixture.owner,
 		Payload:         mustJSONValue(map[string]any{"attempt_id": freshID, "worker_packet": freshPacket}),
 		SessionWorktree: dispatchSessionWorktree(t, s, workID),

@@ -230,7 +230,7 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 	if correction == nil || correction.AttemptCount != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("dispatch correction context = %+v, want the first verdict correction", correction)
 	}
-	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
 		t.Fatal("request_correction remained available before a fresh verdict")
 	}
 }
@@ -277,7 +277,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(`{"diagnosis":"missing accepted delivery","strategy":"accept a completed worker result first","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`), Actor: fixture.owner,
 	})
 	// Admission gates request_correction on the shared prerequisite
@@ -310,7 +310,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
 			fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
-			err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+			err := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
 			})
 			var failure *Failure
@@ -809,7 +809,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
 		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 	}); err != nil {
@@ -963,7 +963,7 @@ func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
 		t.Fatalf("unaccepted review missing class = %q, want %q", missing, workflowCorrectionMissingAcceptedDelivery)
 	}
 	payload := json.RawMessage(`{"diagnosis":"the review found the delivered subject does not satisfy the approved predicate","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: fixture.owner,
 	})
 	var failure *Failure

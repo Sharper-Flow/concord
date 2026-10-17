@@ -76,13 +76,10 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 		assertFailureKind(t, err, KindVersionConflict)
 	}
 	beforeEvents := countRows(t, s, "domain_events")
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("source"), PackID: pack.PackID, ExpectedVersion: 2, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Example", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("source"), PackID: pack.PackID, ExpectedVersion: 3, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Example", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("finding-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, FindingID: "f1", SourceID: "s1"}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	complete, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
@@ -99,62 +96,52 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if got := countRows(t, s, "domain_events"); got != beforeEvents {
 		t.Fatalf("research content entered domain_events: %d -> %d", beforeEvents, got)
 	}
-	consumer, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 5, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}})
-	if err != nil {
-		t.Fatal(err)
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 2, UseRole: UseContext, Required: true})
+	pinned, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(pinned.Consumers) != 1 || pinned.Consumers[0].Revision != 2 {
+		t.Fatalf("consumer pins = %+v, %v", pinned.Consumers, err)
 	}
-	if consumer.Revision != 2 {
-		t.Fatalf("consumer revision = %d", consumer.Revision)
-	}
-	if _, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("consumed-update"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 6, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "updated", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err == nil {
+	if _, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("consumed-update"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 5, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "updated", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err == nil {
 		t.Fatal("consumed revision update succeeded")
 	} else {
 		assertFailureKind(t, err, KindResearchRevisionImmutable)
 	}
-	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-consume"), PackID: pack.PackID, ExpectedVersion: 6, Revision: ResearchRevisionInput{Question: "q3", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}}); err != nil {
+	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-consume"), PackID: pack.PackID, ExpectedVersion: 5, Revision: ResearchRevisionInput{Question: "q3", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("new-current-finding"), PackID: pack.PackID, ExpectedVersion: 7, Finding: ResearchFinding{FindingID: "f3", Kind: FindingConclusion, Statement: "new current", Confidence: ConfidenceMedium, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("new-current-finding"), PackID: pack.PackID, ExpectedVersion: 6, Finding: ResearchFinding{FindingID: "f3", Kind: FindingConclusion, Statement: "new current", Confidence: ConfidenceMedium, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchCurrent {
-		t.Fatalf("required current freshness = %q, %v", got, err)
+	if err := bindResearchReliance(ctx, s, "consumer"); err != nil {
+		t.Fatalf("required current pin refused: %v", err)
 	}
 	// Issue #122: freshness targets the revision the consumer pins, not the
 	// pack. A pack-level set does not poison unchanged revisions, and an
 	// unrelated append does not un-stale pinned content.
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-other"), PackID: pack.PackID, ExpectedVersion: 8, Freshness: ResearchStale}); err != nil {
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-other"), PackID: pack.PackID, ExpectedVersion: 7, Freshness: ResearchStale}); err != nil {
 		t.Fatal(err)
 	}
 	// That set targeted the CURRENT revision (3); the consumer pinned to
 	// revision 2 is unaffected by another revision's staleness.
-	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchCurrent {
-		t.Fatalf("consumer pinned to unchanged revision poisoned: %q, %v", got, err)
+	if err := bindResearchReliance(ctx, s, "consumer"); err != nil {
+		t.Fatalf("consumer pinned to unchanged revision poisoned: %v", err)
 	}
 	// Staling the pinned revision blocks the consumer...
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-pinned"), PackID: pack.PackID, ExpectedVersion: 9, Freshness: ResearchStale, Revision: 2}); err != nil {
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-pinned"), PackID: pack.PackID, ExpectedVersion: 8, Freshness: ResearchStale, Revision: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchStale {
-		t.Fatalf("required stale freshness = %q, %v", got, err)
-	}
-	freshness, err := ResearchFreshnessForPack(ctx, s, pack.PackID)
-	if err != nil || freshness.Status != ResearchStale || !freshness.Blocked {
-		t.Fatalf("freshness = %+v, %v", freshness, err)
-	}
+	assertRequiredPinBlocked(t, bindResearchReliance(ctx, s, "consumer"), ResearchStale)
 	// ...and stays blocked across an unrelated append (two revisions of one
 	// pack disagree: current 4 is fresh, pinned 2 is stale).
-	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-while-stale"), PackID: pack.PackID, ExpectedVersion: 10, Revision: ResearchRevisionInput{Question: "q4", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "docs"}}); err != nil {
+	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-while-stale"), PackID: pack.PackID, ExpectedVersion: 9, Revision: ResearchRevisionInput{Question: "q4", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "docs"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchStale {
-		t.Fatalf("unrelated append un-staled pinned content: %q, %v", got, err)
-	}
+	assertRequiredPinBlocked(t, bindResearchReliance(ctx, s, "consumer"), ResearchStale)
 	// Retention cutover: deletion is retire-only. The owner is still needed
 	// here, so terminalize it to isolate the pin protection this assertion
 	// owns: the active required pin keeps the pack protected.
 	terminalizeResearchOwner(t, s, "owner")
-	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 11}}})
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 10}}})
 	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementProtected || out.Candidates[0].ProtectionReason != "active_pin" {
 		t.Fatalf("retirement with required active consumer=%+v err=%v", out, err)
 	}
@@ -217,15 +204,12 @@ func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind-optional"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "optional", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "optional", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("unknown-optional"), PackID: pack.PackID, ExpectedVersion: 2, Freshness: ResearchUnknown}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ResearchFreshnessForPack(ctx, s, pack.PackID)
-	if err != nil || got.Blocked {
-		t.Fatalf("optional freshness = %+v, %v", got, err)
+	if err := bindResearchReliance(ctx, s, "optional"); err != nil {
+		t.Fatalf("optional pin on unknown freshness blocked: %v", err)
 	}
 	// An optional pin protects the pack too: after the owner terminalizes, the
 	// pack stays protected until the optional consumer releases.
@@ -236,29 +220,6 @@ func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
 	}
 	if countRows(t, s, "active_research_packs") != 1 {
 		t.Fatal("optional pin did not protect the pack")
-	}
-}
-
-func TestResearchFreshnessReturnsOnlyFirstFailingConsumer(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner", "consumer-c", "consumer-a", "consumer-b")
-	pack := createSimplePack(t, s, "bounded-freshness", "owner")
-	for i, consumerID := range []string{"consumer-c", "consumer-a", "consumer-b"} {
-		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bounded-freshness-bind-" + consumerID), PackID: pack.PackID, Revision: 1, ExpectedVersion: int64(1 + i), Consumer: ResearchConsumer{ConsumerWorkID: consumerID, UseRole: UseContext, Required: true}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("bounded-freshness-stale"), PackID: pack.PackID, ExpectedVersion: 4, Freshness: ResearchStale}); err != nil {
-		t.Fatal(err)
-	}
-	result, err := ResearchFreshnessForPack(ctx, s, pack.PackID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Blocked || result.Status != ResearchStale || len(result.Reasons) != 1 || result.Reasons[0] != "consumer-a:stale" {
-		t.Fatalf("bounded freshness result=%+v", result)
 	}
 }
 
@@ -273,6 +234,35 @@ func createSimplePack(t *testing.T, s *Store, key, owner string) ResearchPack {
 		t.Fatal(err)
 	}
 	return pack
+}
+
+// bindResearchReliance records consumer pins through the reliance boundary a
+// consuming workflow action applies inside its transaction.
+func bindResearchReliance(ctx context.Context, s *Store, consumerWorkID string, declarations ...ResearchBindingDeclaration) error {
+	return s.Transact(ctx, func(transaction *Transaction) error {
+		tx, err := transactionSQL(transaction, "research_reliance")
+		if err != nil {
+			return err
+		}
+		return BindResearchRelianceTx(ctx, tx, consumerWorkID, declarations, transaction.now())
+	})
+}
+
+// assertRequiredPinBlocked asserts the fail-closed refusal a required pin on
+// non-current freshness produces.
+func assertRequiredPinBlocked(t *testing.T, err error, freshness ResearchFreshness) {
+	t.Helper()
+	assertFailureKind(t, err, KindResearchConsumerBlocked)
+	if !strings.Contains(err.Error(), "on "+string(freshness)+" freshness") {
+		t.Fatalf("required pin refusal=%v, want %s freshness", err, freshness)
+	}
+}
+
+func pinResearch(t *testing.T, s *Store, consumerWorkID string, declarations ...ResearchBindingDeclaration) {
+	t.Helper()
+	if err := bindResearchReliance(context.Background(), s, consumerWorkID, declarations...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
@@ -324,39 +314,11 @@ func TestResearchConsumersPinDifferentRevisions(t *testing.T) {
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("pins-revision"), PackID: pack.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("pin-a"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 2, Consumer: ResearchConsumer{ConsumerWorkID: "consumer-a", UseRole: UseContext, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("pin-b"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer-b", UseRole: UseDesignInput, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer-a", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
+	pinResearch(t, s, "consumer-b", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 2, UseRole: UseDesignInput, Required: true})
 	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Consumers) != 2 || got.Consumers[0].Revision == got.Consumers[1].Revision {
 		t.Fatalf("pinned consumers=%+v err=%v", got.Consumers, err)
-	}
-}
-
-func TestResearchPruneKeepsCurrentAndConsumedRevisions(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner", "consumer")
-	pack := createSimplePack(t, s, "prune", "owner")
-	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("prune-r2"), PackID: pack.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("prune-r3"), PackID: pack.PackID, ExpectedVersion: 2, Revision: simpleResearchRevision()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("prune-pin"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
-	if count, err := PruneResearchRevisions(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("prune-operation"), PackID: pack.PackID, ExpectedVersion: 4}); err != nil || count != 1 {
-		t.Fatalf("prune count=%d err=%v", count, err)
-	}
-	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(got.Revisions) != 2 || got.Revisions[0].Revision != 1 || got.Revisions[1].Revision != 3 {
-		t.Fatalf("pruned revisions=%+v err=%v", got.Revisions, err)
 	}
 }
 
@@ -366,9 +328,7 @@ func TestRetainedOwnerContentIsReadOnlyExceptFreshness(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
 	pack := createSimplePack(t, s, "retained-readonly", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	terminalizeResearchOwner(t, s, "owner")
 	// A freshness review stays available: staling a retained revision is the
 	// one retained-owner write the retention cutover keeps.
@@ -391,13 +351,6 @@ func TestRetainedOwnerContentIsReadOnlyExceptFreshness(t *testing.T) {
 			_, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retained-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}})
 			return err
 		}},
-		{"citation", func() error {
-			return BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("retained-citation"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, FindingID: "f1", SourceID: "s1"})
-		}},
-		{"prune", func() error {
-			_, err := PruneResearchRevisions(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("retained-prune"), PackID: pack.PackID, ExpectedVersion: 3})
-			return err
-		}},
 	}
 	for _, write := range authoring {
 		if err := write.run(); err == nil {
@@ -406,10 +359,9 @@ func TestRetainedOwnerContentIsReadOnlyExceptFreshness(t *testing.T) {
 			t.Fatalf("retained pack %s refusal=%v", write.name, err)
 		}
 	}
-	// Releasing a pin is not authoring: the optional consumer may still unbind.
-	if _, err := UnbindResearchConsumer(ctx, s, UnbindResearchConsumerRequest{Identity: researchIdentity("retained-unbind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, ConsumerWorkID: "consumer"}); err != nil {
-		t.Fatalf("retained pack refused a pin release: %v", err)
-	}
+	// Releasing a pin is not authoring: the consumer's terminal transition
+	// still releases its optional pin on the retained pack.
+	terminalizeResearchOwner(t, s, "consumer")
 	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 1 || got.Revisions[0].Freshness != ResearchStale || len(got.Consumers) != 0 {
 		t.Fatalf("retained pack after read-only proofs=%+v err=%v", got, err)
@@ -464,14 +416,11 @@ func TestResearchRetentionTerminalOwnerAllowsReliance(t *testing.T) {
 
 func TestRetirementDeleteGuardRefusesIneligibleDeletes(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
 	activePack := createSimplePack(t, s, "guard-active", "owner")
 	retainedPack := createSimplePack(t, s, "guard-retained", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("guard-bind"), PackID: retainedPack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: retainedPack.PackID, Revision: 1, UseRole: UseContext})
 	db := s.DatabaseForTesting()
 	// The guard applies retirement authority to every delete, so a raw or
 	// legacy binary delete of an active-owner pack is refused.
@@ -537,9 +486,7 @@ func TestWorkRemovalReleasesOptionalConsumerPin(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
 	pack := createSimplePack(t, s, "removal-pin", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("removal-pin-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	req := removalTestRequest()
 	req.OperationID = "remove-research-consumer"
 	req.IdempotencyKey = "remove-research-consumer-key"
@@ -576,9 +523,7 @@ func TestRetainedPackSurvivesProjectionRebuild(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
 	pack := createSimplePack(t, s, "rebuild-retained", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("rebuild-retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	terminalizeResearchOwner(t, s, "owner")
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
@@ -599,9 +544,7 @@ func TestRetainedPackSurvivesCloseAndReopen(t *testing.T) {
 	}
 	seedResearchWork(t, s, "owner", "consumer")
 	pack := createSimplePack(t, s, "reopen-retained", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("reopen-retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
 	terminalizeResearchOwner(t, s, "owner")
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -726,9 +669,7 @@ func TestBlockedLinkedOwnerDoesNotBlockUnrelatedPackMutation(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner-a", "consumer-a", "owner-b")
 	packA := createSimplePack(t, s, "blocked-owner", "owner-a")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("blocked-owner-bind"), PackID: packA.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer-a", UseRole: UseContext, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer-a", ResearchBindingDeclaration{PackID: packA.PackID, Revision: 1, UseRole: UseContext, Required: true})
 	terminalizeResearchOwner(t, s, "owner-a")
 	linkArchivedResearchOwner(t, s, "owner-a")
 	packB := createSimplePack(t, s, "unrelated-owner", "owner-b")
@@ -754,10 +695,8 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 			seedResearchWork(t, s, "owner", "consumer", "successor")
 			packA := createSimplePack(t, s, "terminal-consumer-a-"+tc.name, "owner")
 			packB := createSimplePack(t, s, "terminal-consumer-b-"+tc.name, "owner")
-			for i, pack := range []ResearchPack{packA, packB} {
-				if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity(tc.name + "-terminal-bind-" + string(rune('a'+i))), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {
-					t.Fatal(err)
-				}
+			for _, pack := range []ResearchPack{packA, packB} {
+				pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 			}
 			var event Event
 			if tc.kind == "work.superseded" {
@@ -799,9 +738,7 @@ func compactionFixture(t *testing.T, required bool) (*Store, KnowledgeHome, Rese
 	seedEventDerivedLocator(t, s, "home", "owner-repo", repo)
 	pack := createSimplePack(t, s, "compaction-fixture", "owner")
 	if required {
-		if _, err := BindResearchConsumer(context.Background(), s, BindResearchConsumerRequest{Identity: researchIdentity("compaction-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {
-			t.Fatal(err)
-		}
+		pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 	}
 	terminalizeResearchOwner(t, s, "owner")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "owner-repo", RepoPath: repo, HeadRef: "HEAD"}
@@ -874,20 +811,15 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	seedResearchWork(t, s, "owner", "consumer")
 	seedEventDerivedLocator(t, s, "home", "owner-repo", repo)
 	pack := createSimplePack(t, s, "compaction-fixture", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("compaction-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 	secret := "SECRET-RESEARCH-PACK-BODY"
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("secret-revision"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: secret, ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "test"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("secret-finding"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("secret-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("secret-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("secret-citation"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 5, FindingID: "f1", SourceID: "s1"}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("secret-finding"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	terminalizeResearchOwner(t, s, "owner")
@@ -977,18 +909,16 @@ func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	pack := createSimplePack(t, s, "finding-source-overflow", "owner")
-	for i, findingID := range []string{"f1", "f2"} {
-		if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("overflow-finding-" + findingID), PackID: pack.PackID, ExpectedVersion: int64(1 + i), Finding: ResearchFinding{FindingID: findingID, Kind: FindingObservation, Statement: findingID, Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	for i, sourceID := range []string{"s1", "s2"} {
-		if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("overflow-source-" + sourceID), PackID: pack.PackID, ExpectedVersion: int64(3 + i), Source: ResearchSource{SourceID: sourceID, Kind: SourceOfficialDoc, Locator: "https://example.com/" + sourceID, Title: sourceID, PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
+		if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("overflow-source-" + sourceID), PackID: pack.PackID, ExpectedVersion: int64(1 + i), Source: ResearchSource{SourceID: sourceID, Kind: SourceOfficialDoc, Locator: "https://example.com/" + sourceID, Title: sourceID, PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, link := range []struct{ finding, source string }{{"f1", "s1"}, {"f1", "s2"}, {"f2", "s1"}} {
-		if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("overflow-link-" + string(rune('a'+i))), PackID: pack.PackID, Revision: 1, ExpectedVersion: int64(5 + i), FindingID: link.finding, SourceID: link.source}); err != nil {
+	for i, cited := range []struct {
+		finding string
+		sources []string
+	}{{"f1", []string{"s1", "s2"}}, {"f2", []string{"s1"}}} {
+		if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("overflow-finding-" + cited.finding), PackID: pack.PackID, ExpectedVersion: int64(3 + i), Finding: ResearchFinding{FindingID: cited.finding, Kind: FindingObservation, Statement: cited.finding, Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: cited.sources}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1164,9 +1094,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 
 	t.Run("the pinned revision is untouched", func(t *testing.T) {
 		s, pack := seed(t)
-		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true, AcceptedAt: "2026-01-01T00:00:00Z"}}); err != nil {
-			t.Fatal(err)
-		}
+		pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 		restated := sameBrief
 		restated.Question = "a different question entirely"
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-bind"), PackID: pack.PackID, ExpectedVersion: 4, Revision: restated}); err != nil {
@@ -1279,9 +1207,7 @@ func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
 	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("provenance-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("provenance-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseDecisionBasis, Required: true}}); err != nil {
-		t.Fatal(err)
-	}
+	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -175,7 +175,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 		if decision.Admitted || decision.ApprovalRequired || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
 			t.Fatalf("admission %s = %+v", action.ID, decision)
 		}
-		assertFailureKind(t, InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID}), KindOutsideRepairActive)
+		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID}), KindOutsideRepairActive)
 		err := s.Transact(context.Background(), func(tx *Transaction) error {
 			_, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: work, ActionID: action.ID, ExpectedVersion: 5})
 			return err
@@ -227,7 +227,7 @@ func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind IN ('workflow.completed','workflow.verdict_recorded','workflow.premise_confirmed','workflow.evidence_bound','work.transitioned') AND event_id NOT LIKE '%:start'`, work).Scan(&fabricated); err != nil || fabricated != 0 {
 				t.Fatalf("fabricated=%d err=%v", fabricated, err)
 			}
-			assertFailureKind(t, InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal"}), KindInvalidOperation)
+			assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal"}), KindInvalidOperation)
 			if err := RebuildFromLog(context.Background(), s); err != nil {
 				t.Fatal(err)
 			}
@@ -311,7 +311,7 @@ func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal", Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/test", SessionRef: "session/test", ActorClass: ActorAgent}, Payload: json.RawMessage(`{"problem":"repair the defect","affected":["service"],"stakes":"safe coordination","constraints":[],"user_outcomes":["typed repair"],"open_questions":[],"out_of_scope":[]}`)}); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal", Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/test", SessionRef: "session/test", ActorClass: ActorAgent}, Payload: json.RawMessage(`{"problem":"repair the defect","affected":["service"],"stakes":"safe coordination","constraints":[],"user_outcomes":["typed repair"],"open_questions":[],"out_of_scope":[]}`)}); err != nil {
 		t.Fatalf("resume did not restore admission: %v", err)
 	}
 	after, err := ReadWorkPin(context.Background(), s, work)

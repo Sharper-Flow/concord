@@ -114,7 +114,7 @@ func TestNormalWorkflowActionRefusesAnAmbiguousProjection(t *testing.T) {
 	f := newAcceptanceRecoveryFixture(ctx, t)
 	duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
 	version := verdictItemVersion(t, f.store, f.workID)
-	err := InspectWorkflowActionAdmission(ctx, f.store, WorkflowActionPreflightRequest{
+	err := WorkflowActionPreflightWithRegistry(ctx, f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: f.workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: []byte(`{}`),
 		Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/recovery", ActorClass: ActorAgent},
 	})

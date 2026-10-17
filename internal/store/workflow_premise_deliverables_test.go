@@ -229,7 +229,7 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 	// Without the verdict: the preflight refuses the confirmation with the
 	// verdict refusal the confirmation's own boundary applies.
 	s, workID, operator := replayPremiseQuestionAtAcceptance(t, "workflow.verdict_recorded", "workflow.premise_confirmed")
-	preflightErr := InspectWorkflowActionAdmission(ctx, s, premiseDeliverablesConfirmation(t, s, workID, operator))
+	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), premiseDeliverablesConfirmation(t, s, workID, operator))
 	var failure *Failure
 	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict") {
 		t.Fatalf("preflight confirm_premise without the verdict = %v, want KindMissingEvidence naming the verdict", preflightErr)
@@ -238,7 +238,7 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 	// With the healthy verdict and every required evidence kind bound, the preflight
 	// admits the confirmation: the gate refuses only the missing deliverables.
 	s2, workID2, operator2 := replayPremiseQuestionAtAcceptance(t, "workflow.premise_confirmed")
-	if err := InspectWorkflowActionAdmission(ctx, s2, premiseDeliverablesConfirmation(t, s2, workID2, operator2)); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(ctx, s2, BuiltinWorkflowRegistry(), premiseDeliverablesConfirmation(t, s2, workID2, operator2)); err != nil {
 		t.Fatalf("preflight confirm_premise with full deliverables refused: %v", err)
 	}
 }

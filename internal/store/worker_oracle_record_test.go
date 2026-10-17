@@ -486,7 +486,7 @@ func TestOwnerOracleImmutableProjection(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record oracle-bearing job: %v", err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil || len(views) != 1 {
 		t.Fatalf("recorded views = %#v, error = %v", err, views)
 	}
@@ -543,7 +543,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record oracle-bearing job: %v", err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil || len(views) != 1 {
 		t.Fatalf("recorded views = %#v, error = %v", views, err)
 	}
@@ -632,7 +632,7 @@ func TestOwnerOracleSharedHelperRecordsOracle(t *testing.T) {
 	bootstrapOracleFixtureSubject(t, s, workID)
 	job := &WorkerJobBinding{JobID: "job:helper", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil || len(views) != 1 {
 		t.Fatalf("helper-recorded views = %#v, error = %v", views, err)
 	}

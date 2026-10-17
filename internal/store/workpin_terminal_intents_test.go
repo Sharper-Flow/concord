@@ -44,7 +44,7 @@ func TestTerminalWorkOffersNoWorkflowIntent(t *testing.T) {
 
 	// The fold is the authority the pin must agree with. Ask it directly
 	// rather than restating its rule here.
-	refusal := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: "workpin-terminal", ActionID: live.NextValidIntents[0].ActionID})
+	refusal := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "workpin-terminal", ActionID: live.NextValidIntents[0].ActionID})
 	if refusal == nil {
 		t.Fatalf("the fold still admits %q on terminal work, so the pin is not the defect", live.NextValidIntents[0].ActionID)
 	}

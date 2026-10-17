@@ -57,9 +57,9 @@ re-litigate them silently.
 - **Workflow boundary:** `spec_mandate` remains the referenced law set and
   `law_modifies` is a bounded subset that explicitly enters the operator-approved
   amendment path. Unknown laws and unresolved explicit conflicts block planning
-  and completion, except that planning may proceed when the conflict endpoint is
-  explicitly mandated for amendment. Completion still requires the Git delta to
-  resolve it.
+  and completion, except that planning may proceed when the endpoint whose
+  record declares the conflict is explicitly mandated for amendment. Completion
+  still requires the Git delta to resolve it.
 - **What this closes:** whether law relations need a typed persistence model,
   whether SQLite may author them, and whether a conflict may be bypassed by
   precedence inference. No per-rule obligation field or heuristic persistence is

@@ -155,6 +155,9 @@ type WorkflowAdmissionState struct {
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
 	// requirement the recovery bind_evidence can settle.
 	EvidenceRecoveryRoute bool
+	// EvidenceRecovery retains the eligibility owner's snapshot facts for
+	// readers; admission still decides through EvidenceRecoveryRoute.
+	EvidenceRecovery *workflowEvidenceBindingRecoveryState
 	// PendingOperatorDecision reports an open operator question at the
 	// current step: the checkpoint declares an approval-required action and
 	// the investigation artifact stands behind it. workflowAdmit refuses
@@ -424,13 +427,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, holdErr
 	}
 	state.DispatchHold = dispatchHold
-	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryAvailable(ctx, q, definition, workID, currentStep); evidenceErr != nil {
+	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0); evidenceErr != nil {
 		if !duplicatedProjection || !workflowDuplicateContractProjection(evidenceErr) {
 			return WorkflowAdmissionState{}, nil, nil, evidenceErr
 		}
 		state.EvidenceRecoveryRoute = false
 	} else {
-		state.EvidenceRecoveryRoute = evidenceRecovery
+		state.EvidenceRecoveryRoute = evidenceRecovery.Refusal == nil && len(evidenceRecovery.Requirements) != 0
+		state.EvidenceRecovery = &evidenceRecovery
 	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err

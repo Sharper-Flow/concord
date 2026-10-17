@@ -151,6 +151,8 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
+from migration_source import UNSUPPORTED_ELEMENT, field_run, migrations
+
 SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema.go"
 
 # The fold-maintenance rules bind only migrations above this floor. Migration
@@ -163,10 +165,6 @@ FOLD_VOCABULARY = ("advance", "origin")
 # own line: present, unreadable, and outside every vocabulary. Text no Go
 # value can carry keeps it from colliding with a real residue.
 FOLD_VALUE_ELSEWHERE = "<value on a later line>"
-# A migrations list element that is not a composite literal cannot supply a
-# Version field to read, and the checker refuses it instead of omitting it.
-UNSUPPORTED_ELEMENT = -2
-
 # SQLite's tokenizer admits A-Z, a-z, 0-9, _, $ and every code point at or
 # above U+0080 inside a bare identifier, and a bare name does not start with a
 # digit. The regex must consume the whole token: a prefix match records table
@@ -2065,137 +2063,6 @@ def classify(sql: str, world: World | None = None) -> list[str]:
     return reasons
 
 
-class Tok(NamedTuple):
-    kind: str  # ident, string, raw, rune, number, punct, newline
-    text: str
-    at: int  # offset of the token's first byte in the scanned source
-
-
-GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-GO_NUMBER = re.compile(r"\d[\w.]*")
-# Integer literal forms of the Go spec: decimal, 0-leading octal, and the
-# 0x, 0o, and 0b prefixes, with underscores between digits. Anything else
-# a number token can carry (a float, an exponent) is not a version.
-GO_INT = re.compile(r"^(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|0[0-7_]*|[1-9][0-9_]*|0)$")
-
-
-def go_int(text: str) -> int | None:
-    """Parse one Go integer literal, or None when the text is not one."""
-    if not GO_INT.match(text):
-        return None
-    digits = text.replace("_", "")
-    lowered = digits.lower()
-    if lowered.startswith("0x"):
-        return int(digits, 16)
-    if lowered.startswith("0b"):
-        return int(digits, 2)
-    if lowered.startswith("0o"):
-        return int(digits, 8)
-    if digits.startswith("0") and len(digits) > 1:
-        return int(digits, 8)
-    return int(digits, 10)
-
-
-def go_tokens(region: str) -> list[Tok]:
-    """Tokenize the region's Go code enough to find keyed struct fields.
-
-    Comments produce no tokens, string and raw literals are each one token,
-    and newlines survive as tokens. Field recognition therefore never
-    depends on how source is laid out on lines: text inside a literal or a
-    comment cannot pose as a field, a comment cannot hide one wherever it
-    sits, and two fields on one line are still two fields.
-    """
-    out: list[Tok] = []
-    i, n = 0, len(region)
-    while i < n:
-        ch = region[i]
-        if ch == "\n":
-            out.append(Tok("newline", "\n", i))
-            i += 1
-        elif ch in " \t\r":
-            i += 1
-        elif region.startswith("//", i):
-            end = region.find("\n", i)
-            i = n if end < 0 else end
-        elif region.startswith("/*", i):
-            end = region.find("*/", i + 2)
-            i = n if end < 0 else end + 2
-        elif ch == '"':
-            j = i + 1
-            while j < n and region[j] != '"':
-                j += 2 if region[j] == "\\" else 1
-            j = min(j, n - 1)
-            out.append(Tok("string", region[i : j + 1], i))
-            i = j + 1
-        elif ch == "`":
-            end = region.find("`", i + 1)
-            end = n - 1 if end < 0 else end
-            out.append(Tok("raw", region[i : end + 1], i))
-            i = end + 1
-        elif ch == "'":
-            j = i + 1
-            while j < n and region[j] != "'":
-                j += 2 if region[j] == "\\" else 1
-            j = min(j, n - 1)
-            out.append(Tok("rune", region[i : j + 1], i))
-            i = j + 1
-        else:
-            match = GO_IDENT.match(region, i)
-            kind = "ident"
-            if not match:
-                match = GO_NUMBER.match(region, i)
-                kind = "number"
-            if match:
-                out.append(Tok(kind, match.group(0), i))
-                i = match.end()
-            else:
-                out.append(Tok("punct", ch, i))
-                i += 1
-    return out
-
-
-def field_run(entry: str, name: str) -> list[Tok] | None:
-    """Return the value tokens of the entry's keyed field `name`.
-
-    None means the entry never declares the field at the migration
-    literal's own level: a field name inside a value, such as a local
-    struct or an Applies function body, sits at deeper bracket depth and
-    is part of that value, never a declaration. The run spans from after
-    the colon to the comma that closes the value at bracket depth zero,
-    so a function-valued field's internal commas stay inside it. A run
-    holding only a newline means the value starts on a later line than
-    its colon.
-    """
-    tokens = go_tokens(entry)
-    depth = 0
-    for i, tok in enumerate(tokens):
-        if tok.kind == "punct":
-            if tok.text in "([{":
-                depth += 1
-            elif tok.text in ")]}":
-                depth = max(0, depth - 1)
-            continue
-        if depth != 0 or tok.kind != "ident" or tok.text != name:
-            continue
-        if i + 1 >= len(tokens) or tokens[i + 1].text != ":":
-            continue
-        run: list[Tok] = []
-        value_depth = 0
-        for value in tokens[i + 2 :]:
-            if value.kind == "newline" and not run:
-                return [value]
-            if value.kind == "punct":
-                if value.text in "([{":
-                    value_depth += 1
-                elif value.text in ")]}":
-                    value_depth -= 1
-                elif value.text == "," and value_depth <= 0:
-                    break
-            run.append(value)
-        return run
-    return None
-
-
 def fold_maintained(entry: str) -> str:
     """Return the entry's FoldMaintained declaration, or "" when the field
     is absent.
@@ -2269,142 +2136,10 @@ def adds_preexisting_column(sql: str, world: World | None = None) -> bool:
     return False
 
 
-def sql_literal(entry: str) -> str:
-    """Return the SQL field's content, or "" when the field is absent.
-
-    The value comes from the token-recognized SQL field, so a commented or
-    nested lookalike cannot supply it; a field whose value is anything but
-    one raw string literal also reads as empty and sql_field_sound refuses
-    the entry separately. The content is the Go raw-string value: the
-    language discards carriage returns inside raw string literals, so the
-    checker discards them too and classifies the SQL that actually runs.
-    """
-    run = field_run(entry, "SQL")
-    if run and len(run) == 1 and run[0].kind == "raw":
-        return run[0].text[1:-1].replace("\r", "")
-    return ""
-
-
 def sql_field_sound(entry: str) -> bool:
     """Return whether the SQL field is absent or exactly one raw literal."""
     run = field_run(entry, "SQL")
     return run is None or (len(run) == 1 and run[0].kind == "raw")
-
-
-def migrations_binding(tokens: list[Tok]) -> int:
-    """Return the index of the package-level migrations literal's opening
-    brace token.
-
-    The binding is the token sequence var migrations = []migration followed
-    by an opening brace, at package scope: bracket depth zero. A lookalike
-    sequence inside a comment, a literal, or a function body is never these
-    tokens at this scope and cannot redirect the walk to a decoy list.
-    """
-    keys = ("var", "migrations", "=", "[", "]", "migration")
-    depth = 0
-    for i, tok in enumerate(tokens):
-        if i + len(keys) < len(tokens):
-            window = tokens[i : i + len(keys)]
-            if (
-                depth == 0
-                and all(
-                    t.kind in ("ident", "punct") and t.text == key
-                    for t, key in zip(window, keys)
-                )
-                and tokens[i + len(keys)].kind == "punct"
-                and tokens[i + len(keys)].text == "{"
-            ):
-                return i + len(keys)
-        if tok.kind == "punct":
-            if tok.text in "([{":
-                depth += 1
-            elif tok.text in ")]}":
-                depth = max(0, depth - 1)
-    raise ValueError("no migrations binding in source")
-
-
-def brace_close(sig: list[Tok], open_at: int) -> int:
-    """Return the index of the bracket that closes sig[open_at], or -1."""
-    depth = 0
-    for i in range(open_at, len(sig)):
-        tok = sig[i]
-        if tok.kind == "punct" and tok.text in "([{":
-            depth += 1
-        elif tok.kind == "punct" and tok.text in ")]}":
-            depth -= 1
-            if depth == 0:
-                return i
-    return -1
-
-
-def migrations(source: str) -> list[tuple[int, str, str]]:
-    """Return each migration's version, its entry text, and its SQL.
-
-    A list element is one complete expression, split at top-level commas
-    over every bracket type. Only a migration composite literal is a
-    readable entry: the elided-type group, or the type name beside one
-    group that ends the element. A call, a selector, a method call on a
-    literal, or any other expression is refused whole, never mined for a
-    nested literal that is not the element itself. Classification reads
-    significant tokens, so a comment in the element changes nothing.
-
-    Field recognition inside an entry is the token walk in field_run: a
-    comment or a literal cannot supply or hide a field, and field order
-    does not affect recognition. The SQL is the token-recognized SQL
-    field's raw string content. An entry whose Version field is missing
-    or not one Go integer literal parses with version -1; evaluate
-    refuses it by name. A non-literal element parses with version -2.
-    """
-    tokens = go_tokens(source)
-    opener = migrations_binding(tokens)
-    out: list[tuple[int, str, str]] = []
-    depth = 1
-    element: list[Tok] = []
-
-    def flush() -> None:
-        nonlocal element
-        sig = [t for t in element if t.kind != "newline"]
-        element = []
-        if not sig:
-            return
-        open_at = 0
-        if (
-            sig[0].kind == "ident"
-            and sig[0].text == "migration"
-            and len(sig) > 1
-            and sig[1].text == "{"
-        ):
-            open_at = 1
-        if open_at == 1 or sig[0].text == "{":
-            close = brace_close(sig, open_at)
-            if close == len(sig) - 1:
-                entry = source[sig[open_at].at + 1 : sig[close].at]
-                version_run = field_run(entry, "Version")
-                version = -1
-                if (
-                    version_run
-                    and len(version_run) == 1
-                    and version_run[0].kind == "number"
-                ):
-                    version = go_int(version_run[0].text) or -1
-                out.append((version, entry, sql_literal(entry)))
-                return
-        end = sig[-1].at + len(sig[-1].text)
-        out.append((UNSUPPORTED_ELEMENT, source[sig[0].at : end], ""))
-
-    for tok in tokens[opener + 1 :]:
-        if tok.kind == "punct" and tok.text in ")]}":
-            depth -= 1
-            if depth == 0:
-                flush()
-                break
-        if tok.kind == "punct" and tok.text == "," and depth == 1:
-            flush()
-            continue
-        if tok.kind == "punct" and tok.text in "([{":
-            depth += 1
-        element.append(tok)
-    return out
 
 
 def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]:
@@ -2501,7 +2236,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
 
 def main() -> int:
     # newline="" keeps the file's own characters: Go raw-string semantics
-    # discard carriage returns at value derivation (see sql_literal), and
+    # discard carriage returns at value derivation (see migration_source.sql_literal), and
     # universal-newline translation would erase the evidence first.
     with open(SCHEMA, encoding="utf-8", newline="") as handle:
         source = handle.read()

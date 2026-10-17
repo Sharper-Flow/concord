@@ -76,11 +76,18 @@ reset the epoch. Refused actions leave no derived start. Correction re-entry
 uses the existing declared epoch owner. Pre-start verification remains stale.
 
 A terminal failed attempt supplies its workflow failure/correction fact once,
-from the original cause, actor, and evidence. A completed result's rejection is
+from the original cause and evidence. A completed result's rejection is
 not a terminal worker failure. Neither fact grants new dispatch authority.
 This successor explicitly extends derivation to retained research. CD-0198's
 implementation/break-fix approval alone does not authorize that extension.
 Research requires a new definition and its own failure/retry/rebuild witnesses.
+
+The actor of a derived `record_worker_failure` is the `actor_ref` of the latest
+matching `dispatch_worker` completion for that attempt. The terminal producer's
+identity does not select the disposer. This actor holds the fenced
+checkpoint-writing authority after disposition until the next dispatch re-pins
+a lane. Other actors, including the disposed lane, cannot write that fenced
+checkpoint.
 
 Result rejection may carry a bounded retry lane. One transaction records the
 rejection and an admitted fresh dispatch intent through the existing dispatch
@@ -236,6 +243,13 @@ than publish competing overrides.
   Then the ordinary re-pin commits without requiring disproved-premise correction
 ```
 
+```gherkin
+  Given a terminal failed attempt whose dispatch actor differs from its terminal producer
+  When the store derives its workflow failure record
+  Then the record actor is the matching dispatch completion's actor
+  And only that disposer may write the fenced checkpoint until the next dispatch
+```
+
 ## Alternatives considered
 
 - Delete historical definitions and recover them manually from Git. The installed
@@ -320,6 +334,9 @@ immutability, retention, and digest-proof obligations under D6.
 - Criterion 7 keeps its ordinary-recovery anchors:
   `go test ./internal/store/ -run TestStaleRegistryRescanAdmitsExactlyOneRePinRoute`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
+- Criterion 8's derived-failure actor and fenced checkpoint anchors are:
+  `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`
+  and `go test ./internal/store/ -run TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint`.
 
 Retained research failure derivation, retry and rebuild are covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.

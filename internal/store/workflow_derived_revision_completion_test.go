@@ -14,7 +14,7 @@ import (
 // tier admits as a revision line. Completion re-checks the conflict without
 // the amendment allowance, so it refuses while the Git-derived projection
 // still carries the conflict. The derived record declares the conflict, which
-// the projection stores ordered by law ID, so the landing commit edits only
+// the projection records as its declarer, so the landing commit edits only
 // derived law. The test writes the projection a rebuild at that commit
 // produces, a new content hash for the derived law and no conflict row, and
 // the same contract completes with no further approval.
@@ -25,7 +25,7 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedDerivedLawExtension(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test','spec:one'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}

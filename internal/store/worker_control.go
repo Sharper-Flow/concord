@@ -25,6 +25,7 @@ type WorkerControlPlan struct {
 	Oracle        NativeOracleRequest `json:"oracle"`
 	Actor         WorkflowActor       `json:"actor"`
 	SubjectCommit string              `json:"subject_commit"`
+	WorktreePath  string              `json:"worktree_path"`
 }
 
 // ResolveWorkerControl reads the exact recorded control without executing it,
@@ -76,6 +77,13 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	if err := ValidateRecoveryPacket(req.Packet, window.PacketDigest, req.WorkID, req.AttemptID); err != nil {
 		return err
 	}
+	entry, err := activeWorktreeEntryForProject(ctx, q, "worker_control", req.WorkID, req.ProjectID)
+	if err != nil {
+		return err
+	}
+	if workerWorktreeIdentity(entry.Path) != req.WorktreeIdentity {
+		return workerControlUnauthorized()
+	}
 	dispatch, actor, err := readWorkerControlActor(ctx, q, req, window.StartSeq)
 	if err != nil {
 		return err
@@ -102,7 +110,7 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	if preparation == nil || preparation.ContractVersion != version || preparation.SubjectCommit != window.SubjectCommit || preparation.BundleDigest != nativeBundleDigest(bundle) {
 		return workerControlUnauthorized()
 	}
-	*plan = WorkerControlPlan{Oracle: oracle, Actor: actor, SubjectCommit: window.SubjectCommit}
+	*plan = WorkerControlPlan{Oracle: oracle, Actor: actor, SubjectCommit: window.SubjectCommit, WorktreePath: entry.Path}
 	return nil
 }
 

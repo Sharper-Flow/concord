@@ -591,6 +591,9 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 	if expected != nil && (expected.SubjectCommit != observed.head || expected.ContractVersion != version || expected.BundleDigest != nativeBundleDigest(b) || expected.Authorization != auth) {
 		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native plan applicability changed", "request a new explicitly authorized run")
 	}
+	if err := authorizeNativeExecutionTx(ctx, tx, req, s.Clock, s.Path()); err != nil {
+		return b, version, auth, err
+	}
 	if err := acquireVerifyLeaseTx(ctx, tx, req, entry, req.nativeCommandJSON, req.Now); err != nil {
 		return b, version, auth, err
 	}
@@ -598,6 +601,15 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 		return b, version, auth, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the native verify lease", false, "reconcile_operation", err), nativeLeaseRef(req.LeaseID))
 	}
 	return b, version, auth, nil
+}
+
+func authorizeNativeExecutionTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, clock func() time.Time, path string) error {
+	if req.NativeAuthorization == nil {
+		return nil
+	}
+	transaction := &Transaction{tx: tx, clock: clock, path: path}
+	defer func() { transaction.tx = nil }()
+	return req.NativeAuthorization(ctx, transaction)
 }
 
 func validateNativeBundleAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, version int64, b NativeOracleControlBundle) error {
@@ -672,6 +684,13 @@ func (s *Store) nativeOracleReplay(ctx context.Context, req WorktreeVerifyReques
 	var r WorktreeVerifyResult
 	if json.Unmarshal([]byte(raw), &r) != nil || r.Oracle == nil || r.Oracle.NativePlanSHA256 != digest || r.WorkID != work || r.ProjectID != project || r.LeaseID != req.LeaseID || r.OperationRef != worktreeVerifyOperationRef(req.LeaseID) || !slices.Equal(r.Command, expectedCommand) {
 		return r, true, oracleFailure(KindInvariantViolation, "native replay metadata is corrupt", "reconcile the retained native run")
+	}
+	if req.NativeAuthorization != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			return req.NativeAuthorization(ctx, tx)
+		}); err != nil {
+			return WorktreeVerifyResult{}, true, err
+		}
 	}
 	return r, true, nil
 }

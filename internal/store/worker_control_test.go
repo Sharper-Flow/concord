@@ -49,7 +49,7 @@ func TestResolveWorkerControlUsesRecordedProducerBindingAndLaneActor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !oracleEntryIdentical(plan.Oracle, f.a) || plan.SubjectCommit != f.head {
+	if !oracleEntryIdentical(plan.Oracle, f.a) || plan.SubjectCommit != f.head || plan.WorktreePath != f.repo {
 		t.Fatalf("plan = %+v, want the exact recorded oracle request and raw subject", plan)
 	}
 	actor := plan.Actor

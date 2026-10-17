@@ -10,6 +10,7 @@ import { configureCiWatch } from "./ci-watch"
 import { armedClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane, MOVE_SESSION_ROUTE } from "./move-session"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { queueWorkStartContinuation, resetWorkStartContinuations, workStartContinuationSettled } from "./work-start-continuation"
 
 const sessionID = "session-start-continuation"
 const origin = "/synthetic/default"
@@ -27,6 +28,8 @@ let status: string
 let posts: Array<{ url: string; body?: any }>
 let bootstrapKeys: string[]
 let messages: any[]
+let promptStatus: number
+let logs: string[]
 
 beforeEach(async () => {
   stateDirectory = mkdtempSync(join(tmpdir(), "concord-start-continuation-"))
@@ -35,12 +38,15 @@ beforeEach(async () => {
   status = "busy"
   posts = []
   bootstrapKeys = []
+  promptStatus = 204
+  logs = []
   messages = [
     { info: { id: "user-original", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "Start work" }] },
     { info: { id: "message-original", role: "assistant", parentID: "user-original", time: { created: 2, completed: 3 } }, parts: [{ type: "tool" }] },
   ]
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
+  resetWorkStartContinuations()
   configureCoreBinary("concord")
   configureCiWatch({ reset: true, stateDir: stateDirectory })
   configureHostLease({ reset: true })
@@ -55,6 +61,7 @@ beforeEach(async () => {
       posts.push(request)
       if (request.url === MOVE_SESSION_ROUTE) directory = request.body.destination.directory
       if (request.url === "/session/{id}/prompt_async") {
+        if (promptStatus !== 204) return { response: new Response(null, { status: promptStatus }) }
         await plugin["chat.message"]({ sessionID, messageID: "user-wake" }, { parts: request.body.parts })
         messages.push(
           { info: { id: "user-wake", role: "user", time: { created: 4 } }, parts: request.body.parts },
@@ -68,7 +75,7 @@ beforeEach(async () => {
       return { response: new Response(null, { status: 200 }) }
     },
   }
-  plugin = await ConcordAdapterPlugin({ client: { _client: client } as never })
+  plugin = await ConcordAdapterPlugin({ client: { _client: client, app: { async log({ body }: { body: { message: string } }) { logs.push(body.message) } } } as never })
   // An unstamped checkout has no release lease to claim. Clear its test-local
   // fault instead of reaching the live store or supplying a forged release.
   configureHostLease({ reset: true })
@@ -98,6 +105,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await plugin?.dispose?.()
+  await workStartContinuationSettled(sessionID)
+  resetWorkStartContinuations()
   configureCiWatch({ reset: true })
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
@@ -150,6 +159,7 @@ test("an unlanded start wakes its session after idle without an operator message
   expect(wakes).toHaveLength(1)
   expect(wakes[0].body.parts[0].synthetic).toBe(true)
   expect(wakes[0].body.parts[0].text).toContain(JSON.stringify(args))
+  expect(wakes[0].body.parts[0].text).toContain("work-1")
   await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
   await new Promise<void>(resolve => setImmediate(resolve))
   expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
@@ -157,14 +167,95 @@ test("an unlanded start wakes its session after idle without an operator message
   expect(armedClaimedWorktree(sessionID)).toBeNull()
 })
 
-test.each(["operator", "error", "cancelled", "wrong-session", "vacated"])("suppresses the wake when %s supersedes the pending move", async mode => {
+test("a stale automatic replay spends no second continuation", async () => {
+  await start()
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  const refused = await start(context(origin, "assistant-wake"))
+  expect(refused.error.kind).toBe("session_directory_mismatch")
+  expect(refused.error.message).toContain("already spent")
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(bootstrapKeys).toEqual([args.idempotency_key, args.idempotency_key])
+  expect(armedClaimedWorktree(sessionID)).toBeNull()
+})
+
+test("concurrent exact replay and duplicate idle events coalesce one wake", async () => {
+  const results = await Promise.all([start(), start()])
+  expect(results.every(result => result.error.kind === "session_directory_mismatch")).toBe(true)
+  await Promise.all([1, 2].map(() => plugin.event({ event: { type: "session.idle", properties: { sessionID } } })))
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(bootstrapKeys).toEqual([args.idempotency_key, args.idempotency_key])
+})
+
+test("normal native stream finalization does not cancel a continuation", async () => {
+  const controller = new AbortController()
+  expect((await start({ ...context(), abort: controller.signal })).error.kind).toBe("session_directory_mismatch")
+  controller.abort()
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(armedClaimedWorktree(sessionID)).toBeNull()
+})
+
+test.each(["originating", "later"])("a persisted %s assistant cancellation suppresses a wake without an error event", async source => {
+  expect((await start()).error.kind).toBe("session_directory_mismatch")
+  const error = { name: "MessageAbortedError", data: { message: "Aborted" } }
+  if (source === "originating") messages[1].info.error = error
+  else messages.push({ info: { id: "assistant-cancelled", role: "assistant", parentID: "user-original", time: { created: 4 }, error } })
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+  expect(armedClaimedWorktree(sessionID)).toBeNull()
+})
+
+test.each(["operator", "error", "cancelled", "deleted", "wrong-session", "vacated"])("suppresses the wake when %s supersedes the pending move", async mode => {
   expect((await start()).error.kind).toBe("session_directory_mismatch")
   if (mode === "operator") await plugin["chat.message"]({ sessionID, messageID: "user-new" }, { parts: [{ type: "text", text: "Stop" }] })
   if (mode === "error" || mode === "cancelled") await plugin.event({ event: { type: "session.error", properties: { sessionID, error: { name: mode === "cancelled" ? "MessageAbortedError" : "UnknownError" } } } })
+  if (mode === "deleted") await plugin.event({ event: { type: "session.deleted", properties: { info: { id: sessionID } } } })
   if (mode === "vacated") resetClaimedWorktrees()
   status = "idle"
   await plugin.event({ event: { type: "session.idle", properties: { sessionID: mode === "wrong-session" ? "other-session" : sessionID } } })
   await new Promise<void>(resolve => setImmediate(resolve))
   expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
   expect(armedClaimedWorktree(sessionID)).toBeNull()
+})
+
+test.each([404, 503])("a %i prompt failure is visible, stays unarmed and does not resend", async statusCode => {
+  await start()
+  promptStatus = statusCode
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(logs.some(message => message.includes(`the host prompt_async route answered ${statusCode}`))).toBe(true)
+  expect(armedClaimedWorktree(sessionID)).toBeNull()
+  expect(unlandedClaimedWorktree(sessionID)).toBe(claimed)
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+})
+
+test.each([["/synthetic/other", "work-other"], [claimed, "work-other"]])("another target or work identity %s/%s cannot replace the pending continuation", async (directory, workID) => {
+  await start()
+  expect(queueWorkStartContinuation(args, context(), directory, workID)).toBe(false)
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  const wakes = posts.filter(post => post.url === "/session/{id}/prompt_async")
+  expect(wakes).toHaveLength(1)
+  expect(wakes[0].body.parts[0].text).toContain(claimed)
+  expect(wakes[0].body.parts[0].text).not.toContain("/synthetic/other")
+  expect(wakes[0].body.parts[0].text).not.toContain("work-other")
+})
+
+test("session deletion retires its continuation record", async () => {
+  await start()
+  const next = { ...args, idempotency_key: "next-start" }
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(false)
+  await plugin.event({ event: { type: "session.deleted", properties: { info: { id: sessionID } } } })
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(true)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
 })

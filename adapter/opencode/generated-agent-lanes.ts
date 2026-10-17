@@ -215,9 +215,6 @@ export const agentUtilities = [
   }
 ] as const;
 export const laneToolRequirements = {
-  "execute": [
-    []
-  ],
   "skill": [
     []
   ],

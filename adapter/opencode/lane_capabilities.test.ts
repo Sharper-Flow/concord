@@ -55,13 +55,16 @@ test("authoring and execution grants follow capabilities without expanding them"
   expect(toolAllowedByCapabilities(["search_public_sources"], "exa_web_fetch_exa")).toBe(true)
 })
 
-test("the authenticated worker hook refuses direct and nested MCP mutation before execution", async () => {
+test("the authenticated worker guard refuses opaque Code Mode and direct mutation keys", async () => {
   const f = await fixture()
-  for (const tool of ["bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
+  for (const tool of ["execute", "bash", "apply_patch", "morph_edit", "vision_vision_remove", "linear_update_issue"]) {
     await expect(f.before(tool)).rejects.toThrow("does not grant")
   }
-  await f.before("execute")
   await f.before("read")
+})
+
+test("no lane grants opaque Code Mode execution without nested host-path proof", () => {
+  for (const lane of agentLanes) expect(toolAllowedByCapabilities(lane.capabilities, "execute")).toBe(false)
 })
 
 test("local MCP reads and cache preparation stay in the dispatched repository", async () => {

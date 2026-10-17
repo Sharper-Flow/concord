@@ -31,6 +31,13 @@ def bound_worker_tools(capabilities):
 
 
 class CapabilityToolProjectionTests(unittest.TestCase):
+    def test_opaque_code_mode_is_denied_for_every_lane(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                self.assertFalse(generator.lane_tool_grants(lane).get("execute", True))
+                self.assertIn("\n  execute: false\n", lane_projection(lane))
+
     def test_non_authoring_lanes_cannot_inherit_shell_or_file_authoring_tools(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:

@@ -535,7 +535,7 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
         "run_targeted_checks": ["concord_worker_check"],
         "run_validators": ["concord_worker_check"],
     }
-    requirements = {tool_id: [[]] for tool_id in ("execute", "skill", "todowrite")}
+    requirements = {tool_id: [[]] for tool_id in ("skill", "todowrite")}
     for capability, tool_ids in bindings.items():
         for tool_id in tool_ids:
             requirements.setdefault(tool_id, []).append([capability])
@@ -546,22 +546,20 @@ def lane_tool_requirements() -> dict[str, list[list[str]]]:
     return requirements
 
 
-def lane_tool_grants(lane: dict) -> dict[str, bool]:
+def lane_allows(lane: dict, tool_id: str) -> bool:
     capabilities = set(lane.get("capabilities", []))
-    requirements = lane_tool_requirements()
+    return any(set(required) <= capabilities for required in lane_tool_requirements().get(tool_id, []))
+
+
+def lane_tool_grants(lane: dict) -> dict[str, bool]:
     return {
-        tool_id: any(set(required) <= capabilities for required in requirements[tool_id])
-        for tool_id in ("bash", "edit", "write", "patch", "apply_patch", "morph_edit")
+        tool_id: lane_allows(lane, tool_id)
+        for tool_id in ("execute", "bash", "edit", "write", "patch", "apply_patch", "morph_edit")
     }
 
 
 def lane_denied_concord_tools(lane: dict) -> list[str]:
-    capabilities = set(lane.get("capabilities", []))
-    requirements = lane_tool_requirements()
-    return [
-        tool_id for tool_id in concord_tool_ids()
-        if not any(set(required) <= capabilities for required in requirements.get(tool_id, []))
-    ]
+    return [tool_id for tool_id in concord_tool_ids() if not lane_allows(lane, tool_id)]
 
 
 def repository_edit_boundary(lane: dict) -> str:
@@ -885,7 +883,11 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in lane_denied_concord_tools(lane))
     # A capability is a ceiling, not a grant over the operator's host policy.
-    tool_grants = "\n".join(f"  {tool_id}: false" for tool_id, allowed in lane_tool_grants(lane).items() if not allowed)
+    tool_denies = "\n".join([
+        "  task: false",
+        *(f"  {tool_id}: false" for tool_id, allowed in lane_tool_grants(lane).items() if not allowed),
+        concord_denies,
+    ])
     edit_denies = "" if edits_scoped_files(lane) else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
     if discharged:
         obligation_rule = (
@@ -925,9 +927,7 @@ description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
 mode: all
 hidden: true
 tools:
-  task: false
-{tool_grants}
-{concord_denies}
+{tool_denies}
 permission:
 {edit_denies}  task:
     "*": deny

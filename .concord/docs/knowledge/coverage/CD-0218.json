@@ -67,6 +67,14 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestResearchDerivedFailureRetriesAndRebuilds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint"
     }
   ],
   "id": "CD-0218",

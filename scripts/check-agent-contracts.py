@@ -291,8 +291,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "rebuild_after_interrupt": {"payload", "operation_id", "event_stream"},
         "retry_same_action": {"payload", "operation_id"},
         "takeover_attempt": {"payload", "operation_id", "current_claim"},
-        "resolve_conditions": {"payload", "condition_id", "resolver_authority", "resolution_evidence"},
-        "explicit_resolve": {"payload", "condition_id", "resolver_authority", "resolution_evidence"},
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
         "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},

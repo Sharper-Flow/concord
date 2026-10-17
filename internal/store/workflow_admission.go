@@ -200,9 +200,8 @@ type WorkflowAdmissionDecision struct {
 	// boundary obtains that approval; an escalated retry needs convergence.
 	ApprovalRequired bool
 	// ConvergenceRequired keeps the refused retry visible on the work pin.
-	ConvergenceRequired     bool
-	RecoveryRoute           bool
-	ConsequentialConditions bool
+	ConvergenceRequired bool
+	RecoveryRoute       bool
 	// OffStep marks the structural step-legality refusal. The callers apply
 	// it at the engine's late position — after the payload and guard checks
 	// whose specific refusals precede the generic off-step one — instead of
@@ -565,7 +564,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			return decision
 		}
 		if state.ExternalConditionsOpen != 0 {
-			decision.ConsequentialConditions = true
 			decision.Failure = newFailure(KindNotTerminal, "workflow_action", "consequential action has unresolved external conditions", false, "reread_entities")
 			return decision
 		}

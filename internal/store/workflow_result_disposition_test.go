@@ -695,7 +695,7 @@ func TestCrossAttemptRejectionOnceOnly(t *testing.T) {
 		Payload: f.rejectRequest(t, versionBefore, f.attemptR, epochR, "", 50).Payload, Actor: f.fixture.owner,
 	}
 	replayRan := false
-	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, func(transaction *Transaction) (bool, error) {
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, func(transaction *Transaction) (bool, error) {
 		tx, err := transactionSQL(transaction, "cross-attempt-replay-witness")
 		if err != nil {
 			return false, err

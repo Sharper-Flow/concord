@@ -14,7 +14,7 @@ approved.
   - product laws for functionality;
   - architectural information, organized by domain.
 - Purpose of both: "many agents working separately on the same system can understand the greater picture and
-  adhere to those different sources of alignment OR modify them in a way that all agents will then also align
+  adhere to those different sources of alignment **or** modify them in a way that all agents will then also align
   to."
 - For whom: agents that work separately on the same system, under one operator.
 - The operator's role on a good day:

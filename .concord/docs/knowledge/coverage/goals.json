@@ -1,0 +1,5 @@
+{
+  "id": "goals",
+  "reason": "Operator direction with status published and no authority over implementations; the decisions and specs that later enact it carry their own coverage. Its link integrity is proved by scripts/check-doc-links.py.",
+  "state": "out_of_scope"
+}

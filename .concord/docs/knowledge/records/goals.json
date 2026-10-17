@@ -1,0 +1,25 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-16T00:00:00Z",
+  "id": "goals",
+  "kind": "reference",
+  "path": ".concord/docs/goals.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:976eabd21f6d472b9d21dc43cefdb66103b5700c460a4649b9b4db4911968078",
+  "status": "published",
+  "summary": "The operator's stated goals for Concord: purpose, six equal goals with measures, approved conflict rules, constraints, and the conflicts found with current Product law. Not accepted law: it is operator direction that a later alignment step carries into the backlog and law, and the law it conflicts with stays in force until amended.",
+  "tags": [
+    "goals",
+    "direction",
+    "companion"
+  ],
+  "title": "Concord goals"
+}

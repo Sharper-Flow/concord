@@ -2,7 +2,7 @@
 
 *Organized Product Development at Chaotic Speed.*
 
-> **Status:** Public constitutional bootstrap snapshot; authority begins at the annotated `constitutional-bootstrap` tag.
+> **Status:** Public documentation index.
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module `github.com/sharper-flow/concord`.
@@ -24,8 +24,8 @@ are in [`priorities.md`](./priorities.md).
 1. Start with [`goals.md`](./goals.md) for the goals, their measures, and the conflict rules, then [`priorities.md`](./priorities.md) for the operating envelope and the standing law.
 2. Read [`design-constraints.md`](./design-constraints.md) for the hard boundaries that shape architecture.
 3. Read [`core-architecture.md`](./core-architecture.md) for the Go-core direction, state authority (CD-0002: SQLite sole authority), and consolidated resilience invariants.
-4. Read [`clarifications.md`](./clarifications.md) for accepted decisions and the
-   explicitly deferred questions that do not block the first storage slice.
+4. Read [`clarifications.md`](./clarifications.md) for accepted decisions and
+   explicitly deferred questions.
 5. Read [`rollout-plan.md`](./rollout-plan.md) for the dependency-driven sequence.
 
 ---
@@ -36,15 +36,11 @@ are in [`priorities.md`](./priorities.md).
 |---|---|
 | [`goals.md`](./goals.md) | The operator's goals, their measures, the conflict rules, and the constraints. **Accepted law, ranked first.** |
 | [`priorities.md`](./priorities.md) | Operating envelope and the standing law that serves each goal. **Authority after [`goals.md`](./goals.md).** |
-| [`floor-readiness.md`](./floor-readiness.md) + [`floor-readiness.v1.json`](./floor-readiness.v1.json) | **History:** the first-usable floor, recorded satisfied on 2026-09-01, with the validated per-item state of each condition. |
 | [`knowledge/coverage/`](./knowledge/coverage/) | **Authorizing coverage record:** how each indexed law record is proved, by typed anchor rather than by repository path; an indexed record the shards omit is a validator finding (CD-0047). One shard per record; readers compose the record through `scripts/knowledge_index.py` (CD-0114). |
 | [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0047). |
-| [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md) | **Authorizing for floor condition 6:** predecessor operational territory enumerated by outcome; the fc6 bar is covered-with-evidence or excluded-with-reason, with nothing left not covered (see `floor-readiness.v1.json`). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and hard constraints derived from the priorities. |
 | [`rollout-plan.md`](./rollout-plan.md) | Sequencing and dependency-driven entry conditions. |
-| [`advance-postmortem.md`](./advance-postmortem.md) | Evidence record of Advance's state-model and coordination failures; source for constraints §14–§19 and Research Backlog items 6–7. |
-| [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public, issue-linked lessons from the predecessor; non-authorizing design input. |
 | [`provenance.md`](./provenance.md) | Public-safety boundary, preserved identifiers, and authority transition. |
 | [`managed-development-authority.md`](./managed-development-authority.md) | Accepted development authority: Linear MCP owns planning; Concord owns explicitly managed execution; outside-work defect repair and repository evidence remain. |
 | [`installation.md`](./installation.md) | Release installation, Secret Service prerequisites, OpenCode registration, upgrade, and uninstall. |
@@ -91,7 +87,7 @@ are in [`priorities.md`](./priorities.md).
 | [`decisions/CD-0028-resource-claims.md`](./decisions/CD-0028-resource-claims.md) | **Accepted CD-0028:** durable, typed resource claims — records of intent, not locks; holders are work items so claims survive session death and end at terminal transition; advisory and honest about foreign mutation. |
 | [`decisions/CD-0029-peer-messages.md`](./decisions/CD-0029-peer-messages.md) | **Accepted CD-0029:** peer messages are durable events addressed to work — direct or Product broadcast, delivered pull-at-next-call through a continuity pending-count, withdrawable, carrying no authority. |
 | [`decisions/CD-0030-mid-execution-observations.md`](./decisions/CD-0030-mid-execution-observations.md) | **Accepted CD-0030:** observations are the durable form of "I noticed something" — a lightweight mid-life record on work items, visible at resume through continuity, carrying no authority; promotion to work stays the unchanged CD-0018 path. |
-| [`decisions/CD-0031-core-derived-session-boot.md`](./decisions/CD-0031-core-derived-session-boot.md) | **Accepted CD-0031:** launcher-started operator sessions receive a core-derived, versioned continuity packet before OpenCode starts; the launcher remains identity-only. |
+| [`decisions/CD-0031-core-derived-session-boot.md`](./decisions/CD-0031-core-derived-session-boot.md) | **Accepted CD-0031, preserved by [`CD-0219`](./decisions/CD-0219-the-terminal-launcher-tui-is-retired.md) D4:** session entry delivers the core-derived, versioned continuity packet before OpenCode starts; the handoff remains identity-only. |
 | [`decisions/CD-0033-out-of-band-direction.md`](./decisions/CD-0033-out-of-band-direction.md) | **Accepted CD-0033:** operator direction of agent labor stays out-of-band; its effects on a declared end-state enter through contract supersession — the single write path — with clause 5's premise confirmation restated as the check and the unverifiable trigger documented with its falsifier. |
 | [`decisions/CD-0034-host-prompt-provenance.md`](./decisions/CD-0034-host-prompt-provenance.md) | **Accepted CD-0034:** host prompt injection is permitted only when recorded — dispatch evidence v3 carries a host provenance digest over the enumerable injection surfaces; unenumerable surfaces are named; D7 evals are reproducible only when both digests match. |
 | [`decisions/CD-0035-governing-requirements-at-capture.md`](./decisions/CD-0035-governing-requirements-at-capture.md) | **Accepted CD-0035:** governing requirements bind to a Project scope and capture refuses by set difference, never by reading the instruction; the refusal carries typed operator `options` and mints the challenge an approved scope cut resolves against. |
@@ -156,9 +152,7 @@ through those pull requests.
 [`CD-0122`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md)
 permits that outside work.
 
-The first-usable floor was recorded satisfied on 2026-09-01.
-[`floor-readiness.md`](./floor-readiness.md) keeps its definition and state as
-history. The maturity manifests
+The maturity manifests
 [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
 [`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
 record current condition states and evidence.

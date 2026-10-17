@@ -28,8 +28,8 @@ GitHub keeps requiredness in two places, and a repository can use either. The
 the active ruleset rules for a branch. A `required_status_checks` rule lists
 its contexts. The [branch endpoint](https://docs.github.com/en/rest/branches/branches)
 returns a `protection` summary whose `required_status_checks` lists the
-classic protection contexts. The branch endpoint returns that summary for an
-unprotected branch too.
+classic protection contexts. The branch endpoint returns that summary, with
+empty lists, for an unprotected branch too.
 
 ## Decision
 
@@ -61,10 +61,10 @@ reads per base branch, plus any further ruleset pages, not per poll.
 ### D3. A failed read fails closed
 
 A `gh` error on either read, an unreadable answer, a branch answer without a
-`protection` summary, or a pull request without a base is an `error` report
-under CD-0160 D7. Completeness cannot be judged without the read, so the wait
-never guesses. A stalled read is `pending` under CD-0168 D3. A failed read
-caches nothing.
+`protection` summary or without its `required_status_checks`, or a pull
+request without a base is an `error` report under CD-0160 D7. Completeness
+cannot be judged without the read, so the wait never guesses. A stalled read
+is `pending` under CD-0168 D3. A failed read caches nothing.
 
 ### D4. Merge mode reads no requiredness
 
@@ -86,16 +86,15 @@ D2: it adds no requiredness read.
 ## Consequences
 
 A wait whose token cannot read the rules or branch endpoints now ends every
-checks wait as `error`. The classic read was proven only with an
-administrator token. Whether a read-only token sees `protection` was not
-verified. Such a token fails closed only when GitHub refuses the read or
-omits `protection`. A summary that omits `required_status_checks` counts as
-no classic context, and the wait then judges only the ruleset contexts.
+checks wait as `error`. Whether every token sees the classic summary was not
+verified. A token that GitHub refuses, or that receives a branch answer
+without `protection.required_status_checks`, fails closed instead of
+reporting a partial success.
 
 A required context that another app reports under the same name satisfies the
 requirement here. A ruleset rule can name the integration the status must
-originate from, and then GitHub does not accept that report. A required context that
-never reports leaves the wait pending until the deadline.
+originate from, and then GitHub does not accept that report. A required
+context that never reports leaves the wait pending until the deadline.
 
 ## Verification
 

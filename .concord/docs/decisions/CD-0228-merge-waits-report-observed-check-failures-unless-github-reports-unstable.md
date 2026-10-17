@@ -47,7 +47,8 @@ URLs, classifications, and available failed-log excerpts under CD-0160 D4.
 
 With `UNSTABLE`, the wait stays pending despite observed failures, because
 GitHub reports that the pull request can merge. Without an observed failure
-or a merge-queue removal under CD-0232, every open merge wait stays pending. `CLEAN` and `HAS_HOOKS` are not a merge.
+or a merge-queue removal under CD-0232, every open merge wait stays pending.
+`CLEAN` and `HAS_HOOKS` are not a merge.
 Only an observed merge produces `merged`.
 
 ### D2. The existing rollup supplies the observation

@@ -275,7 +275,7 @@ func TestCiWaitPRMergeModeQueueReadFailureIsError(t *testing.T) {
 	}{
 		{"gh fails", ""},
 		{"no pull request", `{"data":{"repository":{"pullRequest":null}}}`},
-		{"a GraphQL error", `{"data":null,"errors":[{"message":"Could not resolve to a Repository"}]}`},
+		{"no repository", `{"data":{"repository":null}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, terminal, _, err := ciWaitPollQueueOnce(t, ciWaitQueueState(&added), tc.answer, ciWaitQueueRuns)

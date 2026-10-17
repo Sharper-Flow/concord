@@ -21,9 +21,6 @@ type ghMergeQueueAnswer struct {
 			PullRequest *ghMergeQueuePR `json:"pullRequest"`
 		} `json:"repository"`
 	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
 }
 
 type ghMergeQueuePR struct {
@@ -57,9 +54,6 @@ func ciWaitMergeQueueRemoval(ctx context.Context, state *ciWaitState) (*ghMergeQ
 	var answer ghMergeQueueAnswer
 	if err := ciWaitDecode(body, &answer); err != nil {
 		return nil, err
-	}
-	if len(answer.Errors) > 0 {
-		return nil, fmt.Errorf("gh api graphql: %s", answer.Errors[0].Message)
 	}
 	if answer.Data.Repository == nil || answer.Data.Repository.PullRequest == nil {
 		return nil, fmt.Errorf("gh api graphql returned no pull request")

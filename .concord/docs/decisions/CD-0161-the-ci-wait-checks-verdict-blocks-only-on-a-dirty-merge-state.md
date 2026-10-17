@@ -11,7 +11,8 @@
 - **Preserves:** The CD-0160 verb ownership, one bounded slice, carried
   deadline, head-SHA supersession, narrowed command allowance, and explicit
   error reporting
-- **Amends:** CD-0160 D4
+- **Amends:** CD-0160 D1 (the `mode` input), D2 (the `merged` and `closed`
+  statuses), and D4
 
 ## Context
 
@@ -89,8 +90,7 @@ unchanged.
 - A green pull request with `UNKNOWN`, `BEHIND`, `BLOCKED`, `UNSTABLE`, or
   `DRAFT` merge state reports `success` in checks mode. The operator accepts
   those states as check-completeness outcomes; only `DIRTY` holds a complete
-  green wait open. Under CD-0233, a missing required context makes the set
-  incomplete.
+  green wait open.
 - A merge-mode wait can still time out while GitHub has not computed
   mergeability. No claim is made that `UNKNOWN` resolves on demand.
 - The manifest digest moves, and all generated projections regenerate.

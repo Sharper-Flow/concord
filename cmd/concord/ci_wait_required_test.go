@@ -13,8 +13,8 @@ import (
 
 // The required-context fixtures follow the GitHub REST shapes: the branch
 // rules endpoint read with --paginate --slurp answers an array of rule pages,
-// and the branch endpoint carries a protection summary even when the branch
-// is unprotected.
+// and the branch endpoint carries a protection summary with
+// required_status_checks even when the branch is unprotected.
 
 func ciWaitRulesAnswer(contexts ...string) string {
 	rules := []map[string]any{{"type": "merge_queue", "parameters": map[string]any{"merge_method": "SQUASH"}}}
@@ -278,6 +278,7 @@ func TestCiWaitPRChecksModeRequiredReadFailureIsError(t *testing.T) {
 		{"an unreadable ruleset answer", "main", `{"message":"Not Found"}`, ciWaitBranchAnswer()},
 		{"a ruleset with an unreadable check list", "main", `[[{"type":"required_status_checks","parameters":{"required_status_checks":"verify-go"}}]]`, ciWaitBranchAnswer()},
 		{"a branch without a protection summary", "main", ciWaitRulesAnswer(), `{"name":"main","protected":true}`},
+		{"a protection summary without required status checks", "main", ciWaitRulesAnswer(), `{"name":"main","protected":true,"protection":{"enabled":true}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			newCiWaitRequiredFixture(t, ciWaitRequiredHead(t, tc.base, passing), tc.rules, tc.branch, "")

@@ -29,8 +29,9 @@ type ghRequiredStatusChecksRule struct {
 	} `json:"required_status_checks"`
 }
 
-// ghBranch is the branch endpoint's protection summary. GitHub returns it for
-// an unprotected branch too, so an absent summary is an unreadable answer.
+// ghBranch is the branch endpoint's protection summary. GitHub returns it, with
+// required_status_checks, for an unprotected branch too, so an absent summary
+// or an absent required_status_checks is an unreadable answer.
 type ghBranch struct {
 	Protection *struct {
 		RequiredStatusChecks *struct {
@@ -72,8 +73,8 @@ func ciWaitRequiredContexts(ctx context.Context, state *ciWaitState, base string
 	if err := ciWaitDecode(branchBody, &protected); err != nil {
 		return nil, err
 	}
-	if protected.Protection == nil {
-		return nil, fmt.Errorf("gh api repos/%s/branches/%s returned no protection summary", state.Repo, branch)
+	if protected.Protection == nil || protected.Protection.RequiredStatusChecks == nil {
+		return nil, fmt.Errorf("gh api repos/%s/branches/%s returned no required status checks summary", state.Repo, branch)
 	}
 
 	var required []string
@@ -100,13 +101,12 @@ func ciWaitRequiredContexts(ctx context.Context, state *ciWaitState, base string
 			}
 		}
 	}
-	if checks := protected.Protection.RequiredStatusChecks; checks != nil {
-		for _, name := range checks.Contexts {
-			add(name)
-		}
-		for _, check := range checks.Checks {
-			add(check.Context)
-		}
+	classic := protected.Protection.RequiredStatusChecks
+	for _, name := range classic.Contexts {
+		add(name)
+	}
+	for _, check := range classic.Checks {
+		add(check.Context)
 	}
 	state.RequiredBase = base
 	state.RequiredContexts = required

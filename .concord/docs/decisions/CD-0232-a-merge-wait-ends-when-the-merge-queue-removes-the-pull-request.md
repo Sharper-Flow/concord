@@ -81,9 +81,10 @@ failure entry.
 ### D3. Naming the failed queue run is best-effort detail
 
 After a removal is established, the verb lists the workflow runs of the
-removal's `beforeCommit` when it is a full 40-character SHA. Each failed or
-cancelled run becomes a failure entry with its name, URL, class, and
-failed-log excerpt under CD-0160 D4. The first entry supplies `run_url`.
+removal's `beforeCommit` when it is a full 40-character SHA. Each completed
+run whose conclusion is not success, skipped, or neutral becomes a failure
+entry with its name, URL, class, and failed-log excerpt under CD-0160 D4. The
+first entry supplies `run_url`.
 
 This amends CD-0160 D7. A failed run-list read, a missing commit, or no
 failed run leaves the failure entries empty. The removal remains the verdict.

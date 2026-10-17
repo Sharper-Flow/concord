@@ -1247,7 +1247,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "spec_mandate": {
               "items": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               },
               "maxItems": 32,
               "type": "array",
@@ -1836,7 +1836,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "shared_law_ids": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 64,
           "type": "array"
@@ -20529,7 +20529,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "law_modifies": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 32,
           "type": "array",
@@ -20543,7 +20543,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/digest"
               },
               "law_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               }
             },
             "required": [
@@ -20615,7 +20615,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "spec_mandate": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           },
           "maxItems": 32,
           "type": "array",
@@ -21491,13 +21491,13 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/digest"
             },
             "accepted_successor_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
             "old_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "recovery_actions": {
               "items": {

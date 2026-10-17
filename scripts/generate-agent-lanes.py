@@ -325,7 +325,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"x-maxBytes={context_rationale['x-maxBytes']}. "
         "Required when domain_id names the root Domain, and refused on a child Domain.",
         "evidence_entry.oracle_receipt: "
-        "optional object (CON-890); "
+        "optional object; "
         f"type={oracle_receipt['type']}, "
         f"additionalProperties={json.dumps(oracle_receipt['additionalProperties'])}, "
         f"required={json.dumps(oracle_receipt['required'], ensure_ascii=False)}. "
@@ -374,7 +374,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minLength={review_finding['properties']['detail']['minLength']}, "
         f"maxLength={review_finding['properties']['detail']['maxLength']}.",
         "review_finding.oracle: "
-        "optional object (CON-890); "
+        "optional object; "
         f"type={oracle_finding['type']}, "
         f"additionalProperties={json.dumps(oracle_finding['additionalProperties'])}, "
         f"required={json.dumps(oracle_finding['required'], ensure_ascii=False)}. "
@@ -390,7 +390,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "finding; `variant_of` marks a newly reproduced alternate entry path as a new identity "
         "beside its owner-family finding.",
         "review.resolved_findings: "
-        "optional array (CON-890); "
+        "optional array; "
         f"type={resolved_findings['type']}, "
         f"minItems={resolved_findings['minItems']}, "
         f"maxItems={resolved_findings['maxItems']}, "
@@ -679,7 +679,7 @@ assigned result.
 
 
 def work_context_instructions(packet_schema: dict) -> str:
-    # CON-887: when the packet carries the typed work context, the worker
+    # When the packet carries the typed work context, the worker
     # reads it before the objective's own sources, walks the readings in
     # order at the pinned commits, and records new typed findings on the
     # report. The bounds the block states are read off the packet schema,
@@ -722,7 +722,7 @@ Never review a different commit, and never author `subject_commit`.
 
 
 def checkpoint_instructions() -> str:
-    # CON-883: when the packet carries the latest context checkpoint, its
+    # When the packet carries the latest context checkpoint, its
     # strategy and diagnosis are coordinator directions the worker follows
     # for the attempt, and a departure is recorded on the report rather
     # than silently taken.

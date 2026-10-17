@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -455,6 +457,86 @@ func TestNativeOracleToolchainResolutionIsOffline(t *testing.T) {
 	}
 	if _, err := resolveNativeGoEnvironment(context.Background(), "go1.999.0"); failureKind(err) != KindUnavailable || !strings.Contains(err.Error(), "go1.999.0") || !strings.Contains(err.Error(), "toolchain not available") {
 		t.Fatalf("uncached toolchain did not name offline pin/cause: %v", err)
+	}
+}
+
+func TestNativeOracleCachedToolchainWithScrubbedHome(t *testing.T) {
+	for _, source := range []string{"GOMODCACHE", "GOPATH", "HOME"} {
+		t.Run(source, func(t *testing.T) {
+			root, home := t.TempDir(), t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("GOMODCACHE", "")
+			t.Setenv("GOPATH", "")
+			cache := filepath.Join(root, "module cache")
+			switch source {
+			case "GOMODCACHE":
+				t.Setenv("GOMODCACHE", cache+string(filepath.Separator)+".")
+				t.Setenv("GOPATH", filepath.Join(root, "unused"))
+			case "GOPATH":
+				gopath := filepath.Join(root, "gopath")
+				t.Setenv("GOPATH", gopath+string(filepath.ListSeparator)+filepath.Join(root, "unused"))
+				cache = filepath.Join(gopath, "pkg", "mod")
+			case "HOME":
+				cache = filepath.Join(home, "go", "pkg", "mod")
+			}
+			const pinned = "go1.26.7"
+			goroot := filepath.Join(cache, "golang.org", "toolchain")
+			files := map[string]string{}
+			for _, name := range []string{"bin/go", "pkg/tool/" + runtime.GOOS + "_" + runtime.GOARCH + "/compile", "pkg/tool/" + runtime.GOOS + "_" + runtime.GOARCH + "/link", "pkg/tool/" + runtime.GOOS + "_" + runtime.GOARCH + "/asm", "src/cmd/test2json/main.go", "src/cmd/internal/test2json/test2json.go"} {
+				files[name] = "fixture tool bytes"
+			}
+			writeRepoFilesForTest(t, goroot, files)
+			values := map[string]string{"GOVERSION": "go1.26.8", "GOROOT": goroot, "GOMODCACHE": cache, "GOOS": runtime.GOOS, "GOARCH": runtime.GOARCH}
+			local, _ := json.Marshal(values)
+			values["GOVERSION"] = pinned
+			cached, _ := json.Marshal(values)
+			db := url.URL{Scheme: "file", Path: filepath.Join(cache, "cache", "download", "sumdb", "sum.golang.org")}
+			launcher := filepath.Join(root, "go")
+			script := fmt.Sprintf(`#!/bin/sh
+[ "$GOMODCACHE" = %q ] || { printf 'wrong module cache\n' >&2; exit 1; }
+[ "$GOPROXY" = off ] || exit 2
+[ "$GOSUMDB" = %q ] || { printf 'checksum database is not file-only\n' >&2; exit 3; }
+case "$GOTOOLCHAIN" in
+local) printf '%%s\n' %q ;;
+%s) printf '%%s\n' %q ;;
+*) exit 4 ;;
+esac
+`, cache, "sum.golang.org "+db.String(), string(local), pinned, string(cached))
+			writeRepoFilesForTest(t, root, map[string]string{"go": script})
+			if err := os.Chmod(launcher, 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", root)
+			e, err := resolveNativeGoEnvironment(context.Background(), pinned)
+			if err != nil || e.Version != pinned || e.ModuleCache != cache || e.GoRoot != goroot {
+				t.Fatalf("cached pin under scrubbed HOME: %+v %v", e, err)
+			}
+			wantDigest := nativeDigest([]byte(e.ToolchainIdentity + "\x00" + e.GOOS + "\x00" + e.GOARCH + "\x00GOTOOLCHAIN=local\x00GOPROXY=off\x00GOSUMDB=off\x00GOFLAGS=-mod=readonly\x00CGO_ENABLED=0\x00GOWORK=off\x00GOENV=off\x00private-disposable-per-lease"))
+			if e.Digest != wantDigest {
+				t.Fatal("resolution policy invalidated identical build-environment evidence")
+			}
+			for _, setting := range []string{"GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off"} {
+				if !slices.Contains(nativeControlledEnv(e, root), setting) {
+					t.Fatalf("candidate environment lost %s", setting)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeOracleCachedToolchainMissingProofIsOffline(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GOMODCACHE", cache)
+	const pinned = "go1.999.0"
+	version := "v0.0.1-" + pinned + "." + runtime.GOOS + "-" + runtime.GOARCH
+	writeRepoFilesForTest(t, cache, map[string]string{
+		filepath.Join("golang.org", "toolchain@"+version, "go.mod"):                             "module golang.org/toolchain\n",
+		filepath.Join("cache", "download", "golang.org", "toolchain", "@v", version+".ziphash"): "h1:" + strings.Repeat("A", 43) + "=",
+	})
+	_, err := resolveNativeGoEnvironment(context.Background(), pinned)
+	if failureKind(err) != KindUnavailable || !strings.Contains(err.Error(), "file://") || !strings.Contains(err.Error(), "sum.golang.org/lookup/golang.org/toolchain@"+version) || strings.Contains(err.Error(), "https://") {
+		t.Fatalf("missing proof did not refuse through local files only: %v", err)
 	}
 }
 

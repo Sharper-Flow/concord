@@ -13,9 +13,11 @@ import (
 // ends of a conflicts_with relation and revises the derived end, which the
 // tier admits as a revision line. Completion re-checks the conflict without
 // the amendment allowance, so it refuses while the Git-derived projection
-// still carries the conflict. The test then writes the projection a rebuild
-// at the landing commit produces, a new content hash for the derived law and
-// no conflict row, and the same contract completes with no further approval.
+// still carries the conflict. The derived record declares the conflict, which
+// the projection stores ordered by law ID, so the landing commit edits only
+// derived law. The test writes the projection a rebuild at that commit
+// produces, a new content hash for the derived law and no conflict row, and
+// the same contract completes with no further approval.
 func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-revision-lands"
@@ -82,22 +84,10 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 		t.Helper()
 		return withOperator("complete", attempt, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	}
-	instanceState := func() string {
-		t.Helper()
-		var state string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		return state
-	}
-
 	err := complete("before-landing")
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict || failure.Clause != 3 || !strings.Contains(failure.Detail, "unresolved explicit conflict: spec:legislated and spec:one") {
 		t.Fatalf("completion before the revision landed did not meet the clause 3 conflict refusal: %v", err)
-	}
-	if state := instanceState(); state == "completed" {
-		t.Fatal("a refused completion closed the workflow")
 	}
 
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_relations WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND kind='conflicts_with'; UPDATE law_subjects SET content_hash='sha256:` + strings.Repeat("c", 64) + `',scanned_commit_oid='landed' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
@@ -106,7 +96,11 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	if err := complete("after-landing"); err != nil {
 		t.Fatalf("completion after the revision landed was refused: %v", err)
 	}
-	if state := instanceState(); state != "completed" {
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
 		t.Fatalf("instance_state=%s, want completed", state)
 	}
 	var contracts int

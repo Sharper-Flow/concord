@@ -17,7 +17,7 @@ const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_r
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 const WATCHING = ["concord_ci_watch"]
 const WORKFLOW_CATALOG = [...MUTATING, ...READS, ...WATCHING].sort()
-const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read", "concord_worker_check"].sort()
+const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read", "concord_worker_check", "concord_worker_diff"].sort()
 const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
 const UTILITY_AGENTS = agentUtilities.map((utility) => `concord-${utility.id}`)
 
@@ -167,6 +167,7 @@ describe("primary role guard", () => {
       const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
       const granted = new Set<string>()
       if (lane?.capabilities.includes("read_repository")) granted.add("concord_worker_read")
+      if (lane?.capabilities.includes("inspect_diff")) granted.add("concord_worker_diff")
       if (lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))) granted.add("concord_worker_check")
       const expected = CATALOG.filter((tool) => !granted.has(tool))
       expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(expected)

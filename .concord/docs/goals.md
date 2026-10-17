@@ -5,7 +5,7 @@ operator, who said that "the concord backlog and operation snowball no longer re
 Quotes are the operator's exact words. Items marked "approved" began as agent proposals that the operator
 approved.
 
-## 1. What Concord is for, and for whom
+## Purpose
 - Scope: "a single machine solution using Opencode to coordinate agent led code development of software
   products."
 - Form: "a set of tools and infrastructure that make subjects larger than one session can own understood and
@@ -118,7 +118,7 @@ the case (Appendix A), not a ranking.
 
 ## 3. Non-goals and things to stop doing
 - Rule: what to stop or remove "depends what conflicts with what we just decided". Anything in Concord that
-  conflicts with sections 1, 2, and 4 is a candidate to stop or remove. The full sweep belongs to the alignment
+  conflicts with the Purpose section and sections 2 and 4 is a candidate to stop or remove. The full sweep belongs to the alignment
   step. Appendix C lists the conflicts found during the interview.
 - Stop giving agents prose instructions for jobs that a programmed function or tool can do.
 - Stop defining each workflow separately in full.
@@ -247,7 +247,7 @@ Not a full sweep. In each case the operator's decision wins.
 | 4 | Priority 1: overlapping work needs "an explicit, version-pinned compatibility, sequencing, merger, supersession, or terminal resolution". | The coordinator sequences the overlapping step (R2). |
 | 5 | CD-0222 D2: a domain "is not inferred from paths"; owner notes do not "assign Domain identity from paths". | A declared, checked package-to-domain map (goal A). |
 | 6 | Priority 6: one purpose-built workflow type for each kind of work. | Workflows composed from shared parts (goal C). |
-| 7 | Shipped instruction `instructions/change.md`: "Fix the same fault where it recurs nearby." | Bloat the fix did not make gets a follow-up item (R1). |
+| 7 | Shipped instruction `.concord/instructions/change.md`: "Fix the same fault where it recurs nearby." | Bloat the fix did not make gets a follow-up item (R1). |
 | 8 | Priority 4 and the first-usable floor name the launcher, retired by CD-0219. | Remove the launcher text. |
 | 9 | Advance-successor sections in `priorities.md` and `.concord/docs/README.md`. | History. |
 | 10 | Prose instruction files given to agents. | Programmed tools wherever a tool can do the job (goal D, P3, P7). |

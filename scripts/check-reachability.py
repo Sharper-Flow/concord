@@ -18,8 +18,9 @@ to `func X(ctx, s, req)` — so grepping for `.X(` misses every call through the
 core and reports live code as dead. deadcode resolves the callgraph properly.
 
 Not every unreachable function is a defect. CD-0008 permits read-only
-point-in-time reconstruction with no operator verb, so its unreachability is
-accepted law working as intended. The manifest is how the two categories are
+point-in-time reconstruction for audit and diagnosis, and no operator verb is
+owed for it before the floor, so its unreachability is accepted law working as
+intended. The manifest is how the two categories are
 told apart, and declaring an exception is a deliberate act with a reason
 attached rather than an absence nobody noticed.
 

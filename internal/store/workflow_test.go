@@ -291,7 +291,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	beforeReplay := s.DurableCommits()
 	replayRan := false
 	replay := WorkflowActionPreflightRequest{WorkID: "complete-work", ExpectedVersion: finalVersion, ActionID: "complete"}
-	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, BuiltinWorkflowRegistry(), replay, nil, time.Time{}, func(transaction *Transaction) (bool, error) {
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, BuiltinWorkflowRegistry(), replay, func(transaction *Transaction) (bool, error) {
 		tx, err := transactionSQL(transaction, "completion-replay")
 		if err != nil {
 			return false, err

@@ -7,6 +7,9 @@
   [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md) D1
 - **Preserves:** Checks-mode completeness, head supersession, merged and closed
   precedence, bounded slices, carried deadlines, and the closed report statuses
+- **Amended by:** [CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md)
+  at D1 and D2: a merge-queue removal ends the wait before check failures,
+  and merge mode reads the newest merge-queue event
 - **Related:** [CD-0160](CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md)
 - **Approval:** The Snowball coordinator approved this law change on 2026-10-15
   under the operator's delegation (coordinator, operator-delegated).
@@ -43,14 +46,16 @@ checks in the same rollup. The report carries the observed failure names,
 URLs, classifications, and available failed-log excerpts under CD-0160 D4.
 
 With `UNSTABLE`, the wait stays pending despite observed failures, because
-GitHub reports that the pull request can merge. Without an observed failure,
-every open merge wait stays pending. `CLEAN` and `HAS_HOOKS` are not a merge.
+GitHub reports that the pull request can merge. Without an observed failure
+or a merge-queue removal under CD-0232, every open merge wait stays pending.
+`CLEAN` and `HAS_HOOKS` are not a merge.
 Only an observed merge produces `merged`.
 
 ### D2. The existing rollup supplies the observation
 
 Merge mode classifies the rollup already returned by `gh pr view`. It adds
-no requiredness query and no `gh pr checks` population query. A full rollup
+no requiredness query and no `gh pr checks` population query. The
+merge-queue read of CD-0232 is not a population query. A full rollup
 page can establish the existence of an observed failure without establishing
 the complete population. An unobserved failure carries no verdict.
 

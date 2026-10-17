@@ -2,15 +2,16 @@ import { expect, test } from "bun:test"
 import { createWorkerCapabilityGuard, toolAllowedByCapabilities } from "./lane_capabilities"
 import { agentLanes } from "./generated-agent-lanes"
 import { DispatchWindows, serializeLanePacket } from "./dispatch-window"
-import type { AgentLanePacket } from "./dispatch"
+import type { AgentLanePacket, DispatchRunner } from "./dispatch"
 
-async function fixture(laneID = "verify") {
+async function fixture(laneID = "verify", subject?: string, subjectRunner?: DispatchRunner) {
   const lane = agentLanes.find((entry) => entry.id === laneID)!
   const packet: AgentLanePacket = {
     schema_version: "1.0", attempt_id: "capability-attempt", work_id: "capability-work", step_id: "execute",
     lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
     inputs: { task: "Run the recorded check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
   }
+  if (subject) packet.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: subject }
   const windows = new DispatchWindows()
   windows.open("parent", packet, "sha256:" + "a".repeat(64), process.cwd())
   await windows.bind("task", "parent", {}, "task-call", async () => process.cwd(), process.cwd())
@@ -22,7 +23,7 @@ async function fixture(laneID = "verify") {
     },
     messages: async () => ({ data: [{ info: { role: "user", agent: state.openingAgent }, parts: [{ type: "text", text: state.opening }, ...(state.extraPart ? [{ type: "text", text: "extra instruction" }] : [])] }], response: new Response(null, { status: 200 }) }),
   }
-  const guard = createWorkerCapabilityGuard({ windows, sessions: {
+  const guard = createWorkerCapabilityGuard({ windows, subjectRunner, sessions: {
     sessionReader: () => reader,
     taskScope: async () => "managed" as const,
     hasManagedParent: async (id: string) => {
@@ -136,4 +137,28 @@ test("root host work and a coordinator utility do not acquire or consume lane au
   f.state.opening = "Read the bounded utility assignment"
   await f.before("read")
   expect(f.windows.inFlightAttempt("parent")?.packet.attempt_id).toBe("capability-attempt")
+})
+
+test("review tool admission refuses subject drift even after the host child is bound", async () => {
+  const subject = "a".repeat(40)
+  let head = subject
+  let dirty = false
+  const calls: string[][] = []
+  const subjectRunner: DispatchRunner = { run: async (argv) => {
+    calls.push(argv)
+    return { exitCode: 0, stdout: argv.includes("rev-parse") ? head + "\n" : dirty ? "?? file\0" : "", stderr: "", signal_state: null }
+  } }
+  const f = await fixture("review", subject, subjectRunner)
+  await f.before("read")
+  head = "b".repeat(40)
+  await expect(f.before("read")).rejects.toThrow("review subject")
+  head = subject
+  dirty = true
+  await expect(f.before("read")).rejects.toThrow("review subject")
+  expect(calls.length).toBeGreaterThan(0)
+  for (const argv of calls) {
+    expect(argv).toEqual(argv.includes("rev-parse")
+      ? ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "rev-parse", "--verify", "HEAD^{commit}"]
+      : ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  }
 })

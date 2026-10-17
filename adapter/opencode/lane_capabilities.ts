@@ -1,6 +1,7 @@
 import { agentLanes, agentUtilities, laneForIdentity, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
 import { dispatchDirectoryIdentityMismatch, dispatchWindows, type DispatchRecord, type DispatchWindows } from "./dispatch-window"
-import { readExportOpeningPacket, readWorkerSessionBody } from "./dispatch"
+import { defaultRunner, readExportOpeningPacket, readWorkerSessionBody, type DispatchRunner } from "./dispatch"
+import { reviewSubjectFailure } from "./worker_subject"
 import { hostControlPlane, type HostControlPlane } from "./move-session"
 
 export class WorkerCapabilityError extends Error {}
@@ -20,7 +21,7 @@ export type WorkerCapabilityContext = {
 }
 
 type Sessions = Pick<HostControlPlane, "sessionReader" | "taskScope" | "hasManagedParent">
-type Options = { sessions?: Sessions; windows?: DispatchWindows }
+type Options = { sessions?: Sessions; windows?: DispatchWindows; subjectRunner?: DispatchRunner }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -112,6 +113,9 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (mismatch) throw new WorkerCapabilityError(mismatch)
     const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
     if (!lane) throw new WorkerCapabilityError("the authorized packet names an unregistered lane identity")
+    const subjectFailure = await reviewSubjectFailure(lane, record.packet, record.workerDirectory, signal, options.subjectRunner ?? defaultRunner)
+    if (subjectFailure) throw new WorkerCapabilityError(subjectFailure.detail)
+    if (windows.activeAttempt(parentSessionID) !== record) throw new WorkerCapabilityError("worker session has no active authorized attempt")
     return { dispatch: record, parentSessionID, sessionID, lane }
   }
 

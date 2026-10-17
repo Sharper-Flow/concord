@@ -13,6 +13,7 @@ import { hostControlPlane, type RouteResult, type SessionReader } from "./move-s
 import { readTaskResult } from "./task-result"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
+import { reviewSubjectFailure } from "./worker_subject"
 
 export const MAX_OUTPUT_BYTES = 65_536
 // MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
@@ -2701,7 +2702,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance; failureAttribution?: WorkerFailureObservation },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; subjectRunner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance; failureAttribution?: WorkerFailureObservation },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -2948,9 +2949,16 @@ async function completeWorkerSession(
   // every worker-fail arm also carries its typed failure attribution.
   // The host arm rides the caller-retained observation for the exact child;
   // the report arms build theirs from what this boundary observed.
+  // A committed terminal replays its proof. An open attempt still owes the
+  // subject check before its first terminal admission, including recovery.
+  const subjectFailure = hostFailure === undefined && options.recovery?.lifecycle_state !== "completed"
+    ? await reviewSubjectFailure(lane, packet, workerDirectory, signal, options.subjectRunner ?? defaultRunner)
+    : null
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[]; failureAttribution: WorkerFailureObservation } =
     hostFailure !== undefined
       ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES), failureAttribution: options.failureAttribution ?? hostFailureFallbackObservation(hostFailure, { tag: hostFailure === TASK_CANCELLED_ERROR ? "cancellation" as const : "terminal" as const, event_type: "message.part.updated", session_id: workerSessionID }) }
+      : subjectFailure !== null
+      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: subjectFailure.detail, failureAttribution: subjectFailure.observation }
       : "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES), failureAttribution: reportRefusalFailureObservation(resolution.detail, resultBody) }
       : resolution.report.status === "failed"

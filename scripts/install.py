@@ -153,6 +153,7 @@ ADAPTER_FILES = (
     "worker_control.ts",
     "worker_recovery.ts",
     "worker_source.ts",
+    "worker_subject.ts",
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (

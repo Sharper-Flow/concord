@@ -99,13 +99,12 @@ with a `domain_id` from the packet's Domains. The view carries at most
 ## Dispatch subject
 
 `inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
-OID identity this attempt reviews; never author or replace it. Before
-reviewing, run `git rev-parse --verify HEAD^{commit}` and
-`git status --porcelain=v1 -z --untracked-files=all` in the dispatched
-worktree. If HEAD is not exactly that `subject_commit`, or the tree is not
-clean, the checked-out change is not the subject the packet pins: return one
-report with `status` `failed` that names the observed HEAD and the mismatch.
-Never review a different commit, and never author `subject_commit`.
+OID identity this attempt reviews; never author or replace it. The host checks
+the dispatched worktree's HEAD and tree cleanliness before review tool access
+and fresh report settlement. A mismatch or unavailable observation refuses
+access or records a failed attempt, never a completed review. If a tool reports
+a subject refusal, return one report with `status` `failed` and its diagnostic.
+Do not run shell commands or review a different commit.
 
 ## Coordinator checkpoint
 

@@ -1518,8 +1518,10 @@ test("an oracle past the closed control bound refuses the packet build", async (
 test("TestReviewSubjectLaneMismatch", async () => {
   const agent = await Bun.file(new URL(`../../.opencode/agents/concord-review.md`, import.meta.url)).text()
   expect(agent).toContain("`inputs.work_context.subject_commit`")
-  expect(agent).toContain("`git rev-parse --verify HEAD^{commit}`")
-  expect(agent).toContain("`git status --porcelain=v1 -z --untracked-files=all`")
+  expect(agent).toContain("The host checks")
+  expect(agent).toContain("before review tool access")
+  expect(agent).toContain("and fresh report settlement")
+  expect(agent).toContain("Do not run shell commands")
   expect(agent).toContain("`failed`")
 })
 

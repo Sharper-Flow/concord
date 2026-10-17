@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""CD-0171 D8 pull request linkage check.
+"""CD-0213 D5 pull request linkage check.
 
 Every Concord-managed pull request carries one non-closing `Related to
 <TEAM>-<n>` line in its body. The phrase links the pull request to its Linear
-issue without a status change, because the Concord outbox is the only writer
-of issue status: a closing phrase such as `Fixes` would let the merge move the
-issue behind Linear's planning authority, so this check refuses one. Linear
+issue without a status change. CD-0213 D5 leaves issue status changes to the
+Linear MCP server or the operator; D6 routes foreign-Product planning to that
+Product's Linear team. A closing phrase such as `Fixes` would let the merge
+change issue status outside that route, so this check refuses one. Linear
 parses a closing magic word in the pull request title as well as the body
 (https://linear.app/docs/github), so both surfaces get the same scan.
 
 The branch name marks Concord-managed work, not the author. Only head
 branches matching `work/work-*` are checked; bot and ad-hoc pull requests
-stay unaffected, as the development-authority document permits. Anything else
-passes without reading the body.
+stay unaffected, as the managed-development-authority document permits.
+Anything else passes without reading the body.
 
 On `pull_request` events the body and head branch come from the event
 payload. A `merge_group` payload names only the queue branch
@@ -31,14 +32,14 @@ import re
 import subprocess
 import sys
 
-# The one relation phrase D8 requires. Anchored to a whole line so a mention
-# inside a sentence does not satisfy the contract.
+# CD-0213 D5 requires the relation phrase on its own line, so an inline
+# mention does not satisfy the contract.
 RELATED_LINE = re.compile(r"^[ \t]*Related to[ \t]+([A-Z][A-Z0-9]*-[0-9]+)[ \t]*$", re.MULTILINE)
 
 # Closing phrases on an issue key would let the merge close or move the issue.
-# D8 forbids them outright, so their presence fails the check even when a
-# Related-to line also exists. The words are Linear's closing magic words,
-# verbatim from https://linear.app/docs/github. Linear accepts a closing word
+# CD-0213 D5 forbids them, even when a Related-to line also exists. The words
+# are Linear's closing magic words, verbatim from https://linear.app/docs/github.
+# Linear accepts a closing word
 # before a bare issue key or before a Linear issue URL that contains the key
 # (for example `Fixes https://linear.app/workspace/issue/ENG-123/title`), so
 # both tails close. Linear parses a closing phrase in the pull request title
@@ -80,8 +81,8 @@ def closing_refusal(where: str, keys: list[str]) -> tuple[bool, str]:
     return False, (
         f"the {where} closes Linear issue"
         f"{'' if len(keys) == 1 else 's'} {' and '.join(sorted(set(keys)))} with a closing "
-        "phrase; CD-0171 D8 keeps issue status with the Concord outbox, so use "
-        "'Related to <TEAM>-<n>' in the body"
+        "phrase; CD-0213 D5 leaves issue status changes to the Linear MCP server "
+        "or the operator, so use 'Related to <TEAM>-<n>' in the body"
     )
 
 
@@ -90,8 +91,8 @@ def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     if not WORK_BRANCH.match(head_ref or ""):
         return True, f"head branch {head_ref!r} is not a Concord work branch; no linkage required"
     # Linear parses closing magic words in the PR title as well as the body,
-    # so a work-branch PR titled 'Fixes ENG-123' would close its issue behind
-    # the outbox's back. Both surfaces get the same refusal.
+    # so a work-branch PR titled 'Fixes ENG-123' would change issue status without
+    # the Linear MCP server or the operator. Both surfaces get the same refusal.
     for where, text in (("title", title), ("body", body)):
         closing = closing_keys(text)
         if closing:

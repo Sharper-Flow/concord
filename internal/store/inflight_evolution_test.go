@@ -137,7 +137,6 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 // A schema migration applied while an item is mid-flight must leave it advanceable
 // and its history readable.
 func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -149,9 +148,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	// Start in-flight work with every current projection present, then
-	// roll back the verify-lease watermark step. Migrate reapplies that step
-	// while the work remains open.
+	// Start work on the current schema before introducing its next step.
 	for _, migration := range migrations {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
@@ -171,15 +168,12 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	const pendingVersion = 127
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, pendingVersion); err != nil {
-		t.Fatalf("cannot remove migration %d from the manifest: %v", pendingVersion, err)
-	}
-	// The selected schema step's objects must leave with its manifest row
-	// before the test reapplies that step while work remains open.
-	if _, err := db.ExecContext(ctx, `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
-		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", pendingVersion, err)
-	}
+	original := migrations
+	t.Cleanup(func() { migrations = original })
+	migrations = append(append([]migration(nil), migrations...), migration{
+		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
+		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,
+	})
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)

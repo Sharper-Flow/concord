@@ -285,9 +285,9 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if state != "completed" {
 		t.Fatalf("workflow state = %q, want completed", state)
 	}
-	// A replay of the complete action reaches the action boundary's exact-replay
-	// hook, which commits through the durable commit owner and never runs the
-	// action again.
+	// A replay that the action boundary's pre-preflight hook reports as handled
+	// commits through the durable commit owner and never runs the complete
+	// action again. The hook here detects the committed completion event.
 	beforeReplay := s.DurableCommits()
 	replayRan := false
 	replay := WorkflowActionPreflightRequest{WorkID: "complete-work", ExpectedVersion: finalVersion, ActionID: "complete"}

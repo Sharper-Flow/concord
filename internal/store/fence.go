@@ -80,7 +80,7 @@ type CompleteRequest struct {
 	ResultEventIDs []string   `json:"result_event_ids,omitempty"`
 }
 
-// FenceResult is the stable result of a claim, completion, or takeover.
+// FenceResult is the stable result of a claim or completion.
 type FenceResult struct {
 	OpID                  string     `json:"op_id"`
 	WorkID                string     `json:"work_id,omitempty"`
@@ -271,7 +271,7 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 		return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
 	}
 	if current.ResultKind != "" {
-		return FenceResult{}, newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or explicitly take over a new attempt")
+		return FenceResult{}, newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or claim a new attempt")
 	}
 	completed := ""
 	if req.CompletedAt != nil {

@@ -14,12 +14,12 @@ func runWorkerControl(ctx context.Context, raw []byte, execute func(context.Cont
 		Assertion agent.WorkerControlAssertion `json:"assertion"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "worker-control", err.Error())
+		writeOperatorDiagnostic(errOut, "worker-control", diagnosticText(err))
 		return inputRefusalExit
 	}
 	result, err := execute(ctx, request.WorkerControlRequest, request.Assertion)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "worker-control", err.Error())
+		writeOperatorDiagnostic(errOut, "worker-control", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, result, errOut)

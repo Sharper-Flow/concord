@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -425,35 +424,8 @@ func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 	}
 }
 
-func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
+func TestWorkflowActorValidationAndDistinctness(t *testing.T) {
 	t.Parallel()
-	approved := OutcomePredicate{Kind: PredicateExists, Surface: "git:tree", Subjects: []string{"path:a"}}
-	equal, err := CompareWorkflowPredicates(approved, approved)
-	if err != nil || equal != StrengthStrongerOrEqual {
-		t.Fatalf("equal exists strength = %q, err=%v", equal, err)
-	}
-	delivered := OutcomePredicate{Kind: PredicateExists, Surface: "git:tree", Subjects: []string{"path:a", "path:b"}}
-	strength, err := CompareWorkflowPredicates(approved, delivered)
-	if err != nil || strength != StrengthStrongerOrEqual {
-		t.Fatalf("exists strength = %q, err=%v", strength, err)
-	}
-	weak := OutcomePredicate{Kind: PredicateExists, Surface: "git:tree", Subjects: []string{"path:a"}}
-	weak.Subjects = []string{"path:b"}
-	strength, err = CompareWorkflowPredicates(approved, weak)
-	if err != nil || strength != StrengthIncomparable {
-		t.Fatalf("different exists identity strength = %q, err=%v", strength, err)
-	}
-	weaker := OutcomePredicate{Kind: PredicateExists, Surface: "git:tree", Subjects: []string{"path:a", "path:b"}}
-	strength, err = CompareWorkflowPredicates(weaker, approved)
-	if err != nil || strength != StrengthWeaker {
-		t.Fatalf("weaker exists strength = %q, err=%v", strength, err)
-	}
-	approvedOutcome := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"no_change"}}
-	unknownOutcome := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"resolved"}}
-	strength, err = CompareWorkflowPredicates(approvedOutcome, unknownOutcome)
-	if err != nil || strength != StrengthWeaker {
-		t.Fatalf("out-of-set outcome strength = %q, err=%v", strength, err)
-	}
 	if err := ValidateWorkflowActor(WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}); err != nil {
 		t.Fatal(err)
 	}
@@ -469,63 +441,20 @@ func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
 	}
 }
 
-func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStrength(t *testing.T) {
+// The pinned definition, not the generic outcome union, decides which outcome
+// tokens a predicate may carry: research refuses the architecture-spike token,
+// and the spike definition admits it without an inline decision record because
+// the bound record lives in workflow_decision_records.
+func TestWorkflowPredicateForDefinitionBindsSpikeTokensToTheSpikeFamily(t *testing.T) {
 	t.Parallel()
-	_, registry, pin := phaseBDefinition(t, "workflow.implementation", 30)
-	approved := OutcomePredicate{Kind: PredicateCheck, CheckRef: "check:workflow-proof", ImmutableSubjectRef: "commit:aaaaaaaa", ExpectedResult: "pass"}
-	for _, testCase := range []struct {
-		name         string
-		strength     WorkflowStrength
-		satisfied    bool
-		incomparable bool
-	}{
-		{"stronger", StrengthStrongerOrEqual, true, false},
-		{"weaker", StrengthWeaker, false, false},
-		{"incomparable", StrengthIncomparable, false, true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			result, err := EvaluateWorkflowOutcome(approved, approved, WorkflowOutcomeEvaluationContext{Registry: registry, DefinitionPin: pin, Checks: phaseBCheckResolver{strength: testCase.strength}})
-			if err != nil || result.Satisfied != testCase.satisfied || result.IncomparableWithApproved != testCase.incomparable {
-				t.Fatalf("result=%+v err=%v", result, err)
-			}
-		})
-	}
-	if _, err := EvaluateWorkflowOutcome(approved, approved, WorkflowOutcomeEvaluationContext{}); err == nil {
-		t.Fatal("generic evaluation path without registry was accepted")
-	}
-	_, researchRegistry, researchPin := phaseBDefinition(t, "workflow.research", 17)
 	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
-	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, WorkflowOutcomeEvaluationContext{Registry: researchRegistry, DefinitionPin: researchPin}); err == nil {
+	researchDefinition := phaseBDefinition(t, "workflow.research", 17)
+	if err := ValidateWorkflowPredicateForDefinition(researchDefinition, spikeToken); err == nil {
 		t.Fatal("research definition accepted an architecture-spike token")
 	}
-	// The bound decision record lives in workflow_decision_records, not on the
-	// predicate: a DecisionRecordRequired definition evaluates against the
-	// record the record_decision fold wrote, so evaluation without the lookup
-	// fails closed, a missing row or out-of-set token is an outcome mismatch,
-	// and the bound token joins the approved allowed set.
-	spikeDefinition, spikeRegistry, spikePin := phaseBDefinition(t, "workflow.architecture_spike", 17)
+	spikeDefinition := phaseBDefinition(t, "workflow.architecture_spike", 17)
 	if err := ValidateWorkflowPredicateForDefinition(spikeDefinition, spikeToken); err != nil {
 		t.Fatalf("spike outcome predicate without an inline decision record was refused: %v", err)
-	}
-	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin}); err == nil {
-		t.Fatal("spike evaluation without a decision-record lookup was accepted")
-	}
-	noRecord := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "", false, nil }}
-	result, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, noRecord)
-	if err != nil || result.Satisfied || result.VerdictKind != "outcome_mismatch" {
-		t.Fatalf("spike evaluation without a record = %+v err=%v", result, err)
-	}
-	otherToken := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "insufficient_evidence", true, nil }}
-	if result, err = EvaluateWorkflowOutcome(spikeToken, spikeToken, otherToken); err != nil || result.Satisfied {
-		t.Fatalf("spike evaluation with an out-of-set record token = %+v err=%v", result, err)
-	}
-	boundRecord := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "accepted_decision", true, nil }}
-	if result, err = EvaluateWorkflowOutcome(spikeToken, spikeToken, boundRecord); err != nil || !result.Satisfied || result.VerdictKind != "ok" {
-		t.Fatalf("spike evaluation with the bound record = %+v err=%v", result, err)
-	}
-	readerError := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "", false, errors.New("lookup failed") }}
-	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, readerError); err == nil {
-		t.Fatal("spike evaluation swallowed a decision-record lookup failure")
 	}
 }
 
@@ -610,25 +539,13 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	}
 }
 
-type phaseBCheckResolver struct{ strength WorkflowStrength }
-
-func (r phaseBCheckResolver) Compare(string, string, string) (WorkflowStrength, error) {
-	return r.strength, nil
-}
-
-func phaseBDefinition(t *testing.T, ref string, version int64) (WorkflowDefinition, DefinitionRegistry, WorkflowDefinitionPin) {
+func phaseBDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
 	t.Helper()
 	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
 	if !ok {
 		t.Fatalf("%s v%d is not registered", ref, version)
 	}
-	definition := entry.Definition
-	registry := NewWorkflowDefinitionRegistry()
-	registered, err := registry.Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return definition, registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: registered.Digest}
+	return entry.Definition
 }
 
 // spikeWorkflowFixture seeds one Product, Project, and task work item the way

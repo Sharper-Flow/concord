@@ -38,22 +38,6 @@
       "reason": "CD-0166 D4 requires parked_delivery in the workflow read, and the published workflow_read schema requires impact_notices and completion_warnings. ReadWorkflowProjection is the only reader that fills them: PM1.Q7 reads through readWorkflowSummaryTx, which omits parked_delivery and stale_law_revision and always emits those arrays empty. The readiness derivation and its reader seam serve only this projection, so deleting them would delete the only implementation of current law. A tracked follow-up folds this projection into the transaction-scoped Q7 reader."
     },
     {
-      "id": "workflow-outcome-strength-evaluator-unwired",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.CompareWorkflowPredicates",
-        "internal/store.EvaluateWorkflowOutcome",
-        "internal/store.EvaluateWorkflowOutcomePredicateSet",
-        "internal/store.compareSubjectSets",
-        "internal/store.compareTokenSets",
-        "internal/store.evaluateWorkflowOutcomePredicateCore",
-        "internal/store.predicateStringSet",
-        "internal/store.setContains",
-        "internal/store.workflowOutcomeDefinition"
-      ],
-      "reason": "CD-0012 D3 and CD-0013 D4 require a mechanical comparison of delivered and approved outcome strength, and these functions are that evaluator. Shipped completion, clause 6 of CompleteWorkflowTxWithRegistry, admits the verdict_kind the verdict actor recorded and never calls the evaluator, so the shipped command entrypoints do not reach it. A tracked follow-up either wires the evaluator into the verdict or completion route or amends that law."
-    },
-    {
       "id": "workflow-acceptance-criteria-without-route",
       "state": "out_of_scope",
       "functions": [

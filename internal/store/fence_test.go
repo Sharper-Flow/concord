@@ -36,7 +36,7 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 	claim := testClaim("op-1", "claim-1")
 	first, err := ClaimStepAuthorized(ctx, s, claim, nil)
 	if err != nil || first.AttemptEpoch != 1 {
-		t.Fatalf("first ClaimStepAuthorized(, nil) = %+v, %v", first, err)
+		t.Fatalf("first ClaimStepAuthorized() = %+v, %v", first, err)
 	}
 	replay, err := ClaimStepAuthorized(ctx, s, claim, nil)
 	if err != nil || !replay.Replayed || replay.AttemptEpoch != first.AttemptEpoch {

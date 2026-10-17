@@ -71,7 +71,7 @@
         "internal/store.ResolveWorkflowCondition",
         "internal/store.ResolveWorkflowConditionsAtBoundary"
       ],
-      "reason": "CD-0013 acceptance criterion 26 requires condition evaluation through a resolver, and CD-0008 D5 requires it on explicit request and at consequential boundaries. The shipped workflow action boundary passes a nil resolver, and the cancel_condition and resolve_condition actions exist only on the archived workflow.ops_runbook family, which refuses every public action. These pooled resolution and cancellation entry points are therefore the only implementation, exercised by WF26, WF28, and the CD-0222 D7 boundary tests. A tracked follow-up wires a resolver or amends that law."
+      "reason": "CD-0013 acceptance criterion 26 requires condition evaluation through a resolver, CD-0008 D5 requires it on explicit request and at consequential boundaries, and the CD-0013 completion gate requires every declared condition to be resolved or canceled. The shipped workflow action boundary passes a nil resolver, and the cancel_condition and resolve_condition actions exist only on the archived workflow.ops_runbook family, which refuses every public action. These pooled resolution and cancellation entry points are therefore the only live routes, exercised by WF26, WF28, and the CD-0222 D7 boundary tests. A tracked follow-up wires a resolver and a cancellation route or amends that law."
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",

@@ -406,9 +406,9 @@ re-litigate them silently.
 - **Question:** Is Concord a rebrand/successor of Advance, or a coexisting layer?
 - **Why:** "Advance V2" suggests succession; a non-goal says coexist indefinitely
   — slight tension worth resolving.
-- **Decision:** Concord is Advance's full successor. No partial slice is called
-  usable or primary. Migration and correction are demand-driven operations with
-  local scope and safeguards. See CD-0006 D1–D2 as amended by CD-0082.
+- **Decision:** [`CD-0006`](./decisions/CD-0006-concord-root-product-policy.md)
+  D1 owns Product direction; its D2 refers migration and correction to
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D1.
 
 ### C12. Realism vs aspiration ✅ Accepted 2026-08-06
 - **Question:** The scope is large (10+ docs, 18+ New capabilities). Is this a
@@ -416,9 +416,10 @@ re-litigate them silently.
   document but build selectively?
 - **Why:** affects how much to commit to "build it all" vs "document the vision,
   build the highest-value slices."
-- **Decision:** incremental design/build/evaluation is allowed, but only the full
-  accepted replacement system is called usable or becomes primary. Replacement
-  readiness is an evidence claim, not migration activity.
+- **Decision:** [`CD-0006`](./decisions/CD-0006-concord-root-product-policy.md)
+  D1 governs usability and delivery through the goals and applicable current law.
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D2 preserves the
+  owning release, maturity, and development-authority requirements.
 
 ### C13. Operator boundary ✅ Accepted 2026-08-06
 - **Question:** When does the Jira/Linear-for-teams ambition activate? (Solo +

@@ -582,7 +582,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	// blocking; a source that later declares one leaves its watermark stale,
 	// which the consequential boundaries refuse.
 	if !manifestMissing && productID != "" {
-		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
+		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest, productID, designated); err != nil {
 			return err
 		}
 	}

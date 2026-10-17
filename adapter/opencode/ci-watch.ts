@@ -11,14 +11,14 @@
 // Delivery survives the upstream promptAsync lost-wake defects (a busy
 // session persists the prompt but never schedules a turn; an idle session can
 // drop one). The protocol: deliver only to an idle session, carry the
-// session's persisted agent and model on the synthetic text part, identify the
-// persisted user message carrying the report, confirm actual assistant output
-// (non-empty text or tool activity) the host parented to that message, and
-// queue the report for the next
-// chat.message when any step fails. Watch admission bounds each session's
-// unresolved watches plus queued reports at the queue cap, so every accepted
-// report is retained and none is dropped to make room. Every delivery failure
-// is logged and queued; none is swallowed.
+// session's persisted agent, model, and variant in the prompt body, identify
+// the persisted user message carrying the report, confirm actual
+// assistant output (non-empty text or tool activity) the host parented to
+// that message, and queue the report for the next chat.message when any step
+// fails. Watch admission bounds each session's unresolved watches plus queued
+// reports at the queue cap, so every accepted report is retained and none is
+// dropped to make room. Every delivery failure is logged and queued; none is
+// swallowed.
 
 import { randomUUID } from "node:crypto"
 import fs from "node:fs"
@@ -48,7 +48,9 @@ export type CiWatchArgs = {
 
 type CiWaitReport = { status: string; reason?: string; state_file?: string; [key: string]: unknown }
 
-type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: string } }
+// The session's persisted choice, shaped as the host prompt payload fields
+// that carry it, so every post spreads it unchanged.
+type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: string }; variant?: string }
 
 type ActiveWatch = {
   id: string
@@ -763,7 +765,8 @@ function stopWatchHeartbeats(watch: ActiveWatch): void {
 
 async function postOperatorNotice(watch: ActiveWatch, identity: SessionIdentity, text: string): Promise<void> {
   const client = requireClient("post an operator notice")
-  const body: Record<string, unknown> = {
+  const body = {
+    ...identity,
     noReply: true,
     parts: [
       {
@@ -774,8 +777,6 @@ async function postOperatorNotice(watch: ActiveWatch, identity: SessionIdentity,
       },
     ],
   }
-  if (identity.agent !== undefined) body.agent = identity.agent
-  if (identity.model !== undefined) body.model = identity.model
   const result = await client.post({ url: SESSION_MESSAGES_ROUTE, path: { id: watch.sessionID }, body, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host session message route answered ${result.response.status}`)
 }
@@ -875,10 +876,12 @@ async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> 
   if (record.model !== null && typeof record.model === "object") {
     // The host session record carries the selected model as { id, providerID,
     // variant? }; the prompt payload's model reference names the same pair
-    // { providerID, modelID }, so the host id maps onto modelID.
-    const model = record.model as { id?: unknown; providerID?: unknown }
+    // { providerID, modelID }, so the host id maps onto modelID. The variant
+    // travels beside its model, and the host reads "default" as no variant.
+    const model = record.model as { id?: unknown; providerID?: unknown; variant?: unknown }
     if (typeof model.providerID === "string" && model.providerID.length > 0 && typeof model.id === "string" && model.id.length > 0) {
       identity.model = { providerID: model.providerID, modelID: model.id }
+      if (typeof model.variant === "string" && model.variant.length > 0 && model.variant !== "default") identity.variant = model.variant
     }
   }
   return identity
@@ -886,9 +889,7 @@ async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> 
 
 async function promptAsync(sessionID: string, identity: SessionIdentity, text: string): Promise<void> {
   const client = requireClient("deliver the terminal report")
-  const body: Record<string, unknown> = { parts: [{ type: "text", text, synthetic: true }] }
-  if (identity.agent !== undefined) body.agent = identity.agent
-  if (identity.model !== undefined) body.model = identity.model
+  const body = { ...identity, parts: [{ type: "text", text, synthetic: true }] }
   const result = await client.post({ url: PROMPT_ASYNC_ROUTE, path: { id: sessionID }, body, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host prompt_async route answered ${result.response.status}`)
 }

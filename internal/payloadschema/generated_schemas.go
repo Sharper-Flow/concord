@@ -1657,14 +1657,30 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "domain_footprint_input": {
       "additionalProperties": false,
-      "anyOf": [
+      "oneOf": [
         {
+          "not": {
+            "required": [
+              "behavior"
+            ]
+          },
           "required": [
             "paths"
           ]
         },
         {
+          "not": {
+            "required": [
+              "paths"
+            ]
+          },
           "required": [
+            "behavior"
+          ]
+        },
+        {
+          "required": [
+            "paths",
             "behavior"
           ]
         }

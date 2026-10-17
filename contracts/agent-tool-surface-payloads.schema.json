@@ -22399,14 +22399,30 @@
       "required": [
         "product_id"
       ],
-      "anyOf": [
+      "oneOf": [
         {
           "required": [
             "paths"
-          ]
+          ],
+          "not": {
+            "required": [
+              "behavior"
+            ]
+          }
         },
         {
           "required": [
+            "behavior"
+          ],
+          "not": {
+            "required": [
+              "paths"
+            ]
+          }
+        },
+        {
+          "required": [
+            "paths",
             "behavior"
           ]
         }

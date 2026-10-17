@@ -119,15 +119,15 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
   const LANE_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch"].sort(), bytes: 19_460 }
-  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 121_445 }
+  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch"].sort(), bytes: 19_555 }
+  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 121_540 }
   expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
   expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
   for (const role of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
     expect(projectedBytes(role), role).toEqual(LANE_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(121_445)
+  expect(registeredTotal).toBe(121_540)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {

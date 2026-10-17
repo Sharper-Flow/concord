@@ -1,0 +1,348 @@
+{
+  "schema_version": "1.0",
+  "source": {
+    "path": ".concord/docs/goals.md",
+    "sha256": "sha256:7d58cc039a9069c238dc804858ecd211f8e22d5960730c1ee855e280645cf96b"
+  },
+  "rules": [
+    {
+      "id": "R1",
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:R1",
+      "state": "outstanding",
+      "issue": "CON-1101"
+    },
+    {
+      "id": "R2",
+      "actors": [
+        "coordinator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1098"
+    },
+    {
+      "id": "R3",
+      "actors": [
+        "agent",
+        "operator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1093"
+    },
+    {
+      "id": "S",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "id": "U",
+      "actors": [
+        "operator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "id": "P1",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1097"
+    },
+    {
+      "id": "P2",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1097"
+    },
+    {
+      "id": "P3",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1097"
+    },
+    {
+      "id": "P4",
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:P4",
+      "state": "outstanding",
+      "issue": "CON-1098"
+    },
+    {
+      "id": "P5",
+      "actors": [
+        "agent",
+        "operator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "id": "P6",
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:P6",
+      "state": "outstanding",
+      "issue": "CON-1098"
+    },
+    {
+      "id": "P7",
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:P7",
+      "state": "outstanding",
+      "issue": "CON-1099"
+    },
+    {
+      "id": "P8",
+      "actors": [
+        "operator",
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "id": "P9",
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:P9",
+      "state": "outstanding",
+      "issue": "CON-1099"
+    },
+    {
+      "id": "P10",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "id": "P11",
+      "actors": [
+        "operator",
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1099"
+    },
+    {
+      "id": "P12",
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1093"
+    }
+  ],
+  "a1": [
+    {
+      "row": "Law",
+      "column": "Arch",
+      "rule": "P1"
+    },
+    {
+      "row": "Law",
+      "column": "Speed",
+      "rule": "R3"
+    },
+    {
+      "row": "Law",
+      "column": "Quality",
+      "rule": "P2"
+    },
+    {
+      "row": "Law",
+      "column": "Safety",
+      "rule": "S"
+    },
+    {
+      "row": "Law",
+      "column": "You",
+      "rule": "R3"
+    },
+    {
+      "row": "Law",
+      "column": "Parts",
+      "rule": "P3"
+    },
+    {
+      "row": "Arch",
+      "column": "Speed",
+      "rule": "R2"
+    },
+    {
+      "row": "Arch",
+      "column": "Quality",
+      "rule": "P4"
+    },
+    {
+      "row": "Arch",
+      "column": "Safety",
+      "rule": "S"
+    },
+    {
+      "row": "Arch",
+      "column": "You",
+      "rule": "P5"
+    },
+    {
+      "row": "Arch",
+      "column": "Parts",
+      "rule": "P6"
+    },
+    {
+      "row": "Speed",
+      "column": "Quality",
+      "rule": "R1"
+    },
+    {
+      "row": "Speed",
+      "column": "Safety",
+      "rule": "S"
+    },
+    {
+      "row": "Speed",
+      "column": "You",
+      "rule": "U"
+    },
+    {
+      "row": "Speed",
+      "column": "Parts",
+      "rule": "P7"
+    },
+    {
+      "row": "Quality",
+      "column": "Safety",
+      "rule": "S"
+    },
+    {
+      "row": "Quality",
+      "column": "You",
+      "rule": "P8"
+    },
+    {
+      "row": "Quality",
+      "column": "Parts",
+      "rule": "P9"
+    },
+    {
+      "row": "Safety",
+      "column": "You",
+      "rule": "P10"
+    },
+    {
+      "row": "Safety",
+      "column": "Parts",
+      "rule": "S"
+    },
+    {
+      "row": "You",
+      "column": "Parts",
+      "rule": "P11"
+    }
+  ],
+  "a2": [
+    {
+      "row": 1,
+      "actors": [
+        "agent"
+      ],
+      "follow_up_label": "rule:A2-1",
+      "state": "outstanding",
+      "issue": "CON-1101"
+    },
+    {
+      "row": 2,
+      "actors": [
+        "coordinator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1098"
+    },
+    {
+      "row": 3,
+      "actors": [
+        "agent",
+        "operator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1093"
+    },
+    {
+      "row": 4,
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1098"
+    },
+    {
+      "row": 5,
+      "actors": [
+        "agent",
+        "coordinator"
+      ],
+      "follow_up_label": "rule:A2-5",
+      "state": "outstanding",
+      "issue": "CON-1101"
+    },
+    {
+      "row": 6,
+      "actors": [
+        "coordinator"
+      ],
+      "follow_up_label": "rule:A2-6",
+      "state": "outstanding",
+      "issue": "CON-1101"
+    },
+    {
+      "row": 7,
+      "actors": [
+        "operator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    },
+    {
+      "row": 8,
+      "actors": [
+        "decision_model",
+        "coordinator"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1090"
+    },
+    {
+      "row": 9,
+      "actors": [
+        "agent"
+      ],
+      "state": "outstanding",
+      "issue": "CON-1100"
+    }
+  ],
+  "duties": [
+    {
+      "id": "follow-up-label",
+      "state": "outstanding",
+      "issue": "CON-1101"
+    }
+  ]
+}

@@ -13,6 +13,13 @@ import (
 type WorkflowReadRequest struct {
 	WorkID string
 	Limit  int
+	// ContractVersion, when nonzero, selects one recorded contract version
+	// instead of the active one. The contract, architecture binding, and
+	// Product-truth flag then describe that version from its own pin; the
+	// stale-law check and operator question belong to the active contract
+	// and are omitted; the instance fields stay current. A version the work
+	// never had refuses unknown_scope.
+	ContractVersion int64
 	// Now pins the read-time clock for await-health derivation; zero means
 	// wall clock.
 	Now time.Time
@@ -34,9 +41,95 @@ type WorkflowReadContract struct {
 	LawModifies         []string                     `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
 	RigorClass          string                       `json:"rigor_class"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ChangesProductTruth *bool                        `json:"changes_product_truth,omitempty"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
+	ApprovedAt          string                       `json:"approved_at,omitempty"`
+	ApprovedBy          string                       `json:"approved_by,omitempty"`
+	SupersededBy        *int64                       `json:"superseded_by,omitempty"`
+	DefinitionPin       WorkflowContractPinRead      `json:"definition_pin,omitzero"`
+}
+
+// WorkflowContractDefinitionPin is the workflow definition a contract version
+// was approved under. Verified reports whether the registry still verifies it.
+type WorkflowContractDefinitionPin struct {
+	Ref      string `json:"ref"`
+	Version  int64  `json:"version"`
+	Digest   string `json:"digest"`
+	Verified bool   `json:"verified"`
+}
+
+// WorkflowContractPinRead distinguishes a pin nobody read (absent from the
+// JSON) from a contract recorded without one (null).
+type WorkflowContractPinRead struct {
+	Read bool
+	Pin  *WorkflowContractDefinitionPin
+}
+
+func (p WorkflowContractPinRead) IsZero() bool { return !p.Read }
+
+func (p WorkflowContractPinRead) MarshalJSON() ([]byte, error) { return json.Marshal(p.Pin) }
+
+// readWorkflowContractVersion reads one recorded contract version and every
+// enrichment keyed by it. It answers sql.ErrNoRows when the work never had
+// that version. The caller decides changes_product_truth: the active read
+// takes it from the instance, a historical read from the version's own pin.
+func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, version int64) (WorkflowReadContract, error) {
+	var contract WorkflowReadContract
+	var required, routes, mandates, modifies string
+	var supersededBy sql.NullInt64
+	var pin WorkflowContractDefinitionPin
+	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,approved_at,approved_by,superseded_by,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Version, &pin.Digest)
+	if err == sql.ErrNoRows {
+		return contract, err
+	}
+	if err != nil {
+		return contract, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
+		return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+	}
+	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
+	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
+	contract.SpecMandate = nonNilStrings(contract.SpecMandate)
+	contract.LawModifies = nonNilStrings(contract.LawModifies)
+	if supersededBy.Valid {
+		contract.SupersededBy = &supersededBy.Int64
+	}
+	contract.DefinitionPin.Read = true
+	if pin.Ref != "" {
+		_, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
+		pin.Verified = verifyErr == nil
+		contract.DefinitionPin.Pin = &pin
+	}
+	if contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.LawRevisions, err = readWorkflowLawRevisions(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.SelfRepair, err = readWorkflowSelfRepair(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	return contract, nil
+}
+
+// pinnedProductTruth answers whether a contract version's own pinned
+// definition changes Product truth. A version with no pin, or a pin the
+// registry no longer verifies, has no answer.
+func pinnedProductTruth(pin *WorkflowContractDefinitionPin) *bool {
+	if pin == nil {
+		return nil
+	}
+	registered, err := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
+	if err != nil {
+		return nil
+	}
+	changes := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	return &changes
 }
 
 type WorkflowReadPredicate struct {
@@ -214,36 +307,27 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
 
-	var contract WorkflowReadContract
-	var required, routes, mandates, modifies string
-	err = q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
-	if err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
-		}
-		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-		contract.LawModifies = nonNilStrings(contract.LawModifies)
-		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, q, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
+	version := activeContractVersion
+	if request.ContractVersion != 0 {
+		version = request.ContractVersion
+	}
+	contract, err := readWorkflowContractVersion(ctx, q, request.WorkID, version)
+	switch {
+	case err == sql.ErrNoRows && request.ContractVersion != 0:
+		return out, newFailure(KindUnknownScope, "workflow_read", "the work item has no such contract version", false, "choose a contract version the work item recorded")
+	case err == sql.ErrNoRows:
+	case err != nil:
+		return out, err
+	case request.ContractVersion != 0:
+		contract.ChangesProductTruth = pinnedProductTruth(contract.DefinitionPin.Pin)
+		out.ChangesProductTruth = contract.ChangesProductTruth != nil && *contract.ChangesProductTruth
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
-		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, q, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
+	default:
+		changes := out.ChangesProductTruth
+		contract.ChangesProductTruth = &changes
+		out.ArchitectureBinding = contract.ArchitectureBinding
+		out.Contract = &contract
 		if len(contract.SpecMandate) != 0 {
 			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, q, request.WorkID)
 			if homeErr != nil {
@@ -258,10 +342,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 				return out, err
 			}
 		}
-	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
-	}
-	if out.Contract != nil {
 		var workVersion int64
 		if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&workVersion); err != nil {
 			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)

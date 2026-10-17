@@ -10393,6 +10393,9 @@ const GeneratedPayloadSchemaDocument = `{
               "actor": {
                 "$ref": "#/$defs/id"
               },
+              "contract_version": {
+                "$ref": "#/$defs/version"
+              },
               "event_id": {
                 "$ref": "#/$defs/id"
               },
@@ -10409,6 +10412,9 @@ const GeneratedPayloadSchemaDocument = `{
               "occurred_at": {
                 "maxLength": 64,
                 "type": "string"
+              },
+              "previous_contract_version": {
+                "$ref": "#/$defs/version"
               },
               "reason": {
                 "$ref": "#/$defs/short"
@@ -12002,6 +12008,12 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_history_input": {
       "additionalProperties": false,
       "properties": {
+        "contract_version": {
+          "description": "Selects the recorded contract version the workflow summary describes instead of the active one.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
         "direction": {
           "$ref": "#/$defs/direction"
         },
@@ -20804,11 +20816,52 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_contract": {
       "additionalProperties": false,
       "properties": {
+        "approved_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "approved_by": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "architecture_binding": {
           "$ref": "#/$defs/architecture_binding"
         },
         "changes_product_truth": {
           "type": "boolean"
+        },
+        "definition_pin": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "ref": {
+                  "$ref": "#/$defs/id"
+                },
+                "verified": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "$ref": "#/$defs/version"
+                }
+              },
+              "required": [
+                "ref",
+                "version",
+                "digest",
+                "verified"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "law_modifies": {
           "items": {
@@ -20904,6 +20957,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "superseded_by": {
+          "$ref": "#/$defs/version"
+        },
         "version": {
           "$ref": "#/$defs/version"
         }
@@ -20914,8 +20970,7 @@ const GeneratedPayloadSchemaDocument = `{
         "outcome_predicates",
         "required_evidence",
         "route_conventions",
-        "spec_mandate",
-        "changes_product_truth"
+        "spec_mandate"
       ],
       "type": "object"
     },

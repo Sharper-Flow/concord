@@ -225,11 +225,12 @@ type researchReadInput struct {
 }
 
 type historyInput struct {
-	WorkID     string    `json:"work_id"`
-	Direction  string    `json:"direction"`
-	EventKinds []string  `json:"event_kinds"`
-	Page       pageInput `json:"page"`
-	Limit      int       `json:"limit,omitempty"`
+	WorkID          string    `json:"work_id"`
+	Direction       string    `json:"direction"`
+	EventKinds      []string  `json:"event_kinds"`
+	ContractVersion int64     `json:"contract_version,omitempty"`
+	Page            pageInput `json:"page"`
+	Limit           int       `json:"limit,omitempty"`
 }
 type observationReadInput struct {
 	WorkID string    `json:"work_id"`
@@ -1655,6 +1656,12 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		}
 		if e.Reason != "" {
 			event["reason"] = e.Reason
+		}
+		if e.ContractVersion != nil {
+			event["contract_version"] = *e.ContractVersion
+		}
+		if e.PreviousContractVersion != nil {
+			event["previous_contract_version"] = *e.PreviousContractVersion
 		}
 		events = append(events, event)
 	}

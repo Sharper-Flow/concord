@@ -552,7 +552,6 @@
           "pending_messages": 0,
           "pinned": {
             "contract": {
-              "changes_product_truth": false,
               "outcome_predicates": [
                 {
                   "ordinal": 0,
@@ -651,7 +650,6 @@
           "pending_messages": 0,
           "pinned": {
             "contract": {
-              "changes_product_truth": false,
               "outcome_predicates": [
                 {
                   "ordinal": 0,
@@ -750,7 +748,6 @@
           "pending_messages": 0,
           "pinned": {
             "contract": {
-              "changes_product_truth": false,
               "outcome_predicates": [
                 {
                   "ordinal": 0,
@@ -850,7 +847,6 @@
         "pending_messages": 0,
         "pinned": {
           "contract": {
-            "changes_product_truth": false,
             "outcome_predicates": [
               {
                 "ordinal": 0,
@@ -3323,5 +3319,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:15e8255b359059d196d2cc41d3366822667eec9e7a283d64b84df1b90ec6a45e"
+  "manifest_digest": "sha256:40bc5414f2efbc8d45bb2fd2e82b778c5f8e6e61a7bea483e5a103585eba6dc3"
 }

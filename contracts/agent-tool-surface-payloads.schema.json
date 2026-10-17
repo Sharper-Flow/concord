@@ -1405,8 +1405,7 @@
         "outcome_predicates",
         "required_evidence",
         "route_conventions",
-        "spec_mandate",
-        "changes_product_truth"
+        "spec_mandate"
       ],
       "properties": {
         "version": {
@@ -1511,6 +1510,50 @@
         },
         "self_repair": {
           "$ref": "#/$defs/workflow_self_repair"
+        },
+        "approved_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "superseded_by": {
+          "$ref": "#/$defs/version"
+        },
+        "definition_pin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ref",
+                "version",
+                "digest",
+                "verified"
+              ],
+              "properties": {
+                "ref": {
+                  "$ref": "#/$defs/id"
+                },
+                "version": {
+                  "$ref": "#/$defs/version"
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "verified": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -2174,6 +2217,12 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "contract_version": {
+          "description": "Selects the recorded contract version the workflow summary describes instead of the active one.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
         }
       }
     },
@@ -4588,6 +4637,12 @@
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }
+              },
+              "contract_version": {
+                "$ref": "#/$defs/version"
+              },
+              "previous_contract_version": {
+                "$ref": "#/$defs/version"
               }
             }
           }

@@ -55,6 +55,7 @@ const TUPLES = {
   worker_abandon_refused_none: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "none", recovery: "reconcile_operation" },
   worker_abandon_refused_possible: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "possible", recovery: "reconcile_operation" },
   worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
+  worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
   lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "restart_query" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "restart_query" },

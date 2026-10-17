@@ -240,7 +240,7 @@ func TestOutsideRepairHoldRefusesPendingDurableOperation(t *testing.T) {
 	seedOutsideRepairTestWork(t, s, work)
 	claim := testClaim("outside-pending", "outside-pending-key")
 	claim.WorkID = work
-	if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+	if _, err := ClaimStepAuthorized(context.Background(), s, claim, nil); err != nil {
 		t.Fatal(err)
 	}
 	req := outsideRepairTestRequest(t, s, work, "hold")

@@ -210,7 +210,9 @@ def main() -> int:
         write_baseline(document, arguments.baseline)
         print(f"baseline recorded: {arguments.baseline}")
         return 0
-    if arguments.baseline is not None and arguments.baseline.is_file():
+    if arguments.baseline is not None:
+        if not arguments.baseline.is_file():
+            raise SystemExit(f"agent-reliability-telemetry: baseline file not found: {arguments.baseline}; use --write-baseline to create it")
         findings = compare(document, arguments.baseline, arguments.tolerance)
         for finding in findings:
             print(f"agent-reliability regression: {finding}")

@@ -35,6 +35,9 @@ func run(args []string, out, errOut io.Writer) int {
 
 func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if filepath.Base(os.Args[0]) == "zl" {
+		if code, handled := runCommandHelpRoute(append([]string{"zl"}, args...), out, errOut); handled {
+			return code
+		}
 		return runZLForwarding(args, in, out, errOut)
 	}
 	if len(args) == 1 && args[0] == "--version" {
@@ -48,7 +51,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == "--version" && args[1] == "--json" {
 		return writeCoreDescriptor(out, errOut)
 	}
-	if len(args) == 1 && args[0] == "--help" {
+	if len(args) == 1 && isHelpFlag(args[0]) {
 		writeUsage(out)
 		return 0
 	}
@@ -238,21 +241,50 @@ func routeCommand(args []string) (string, []string, bool) {
 	return spec.Canonical, rest, true
 }
 
+// verbUsages lists the verbs that route before the JSON-stdin command table,
+// in top-level usage order, with their usage lines. A verb that commandSpecs
+// also declares answers --help with its command section; the others answer
+// with these lines.
+var verbUsages = []struct {
+	Verb  string
+	Lines []string
+}{
+	{"zl", []string{"zl <work> -- <prompt>   # start or resume a session", "zl <work> --project <project>   # land in that member Project of the work", "zl --resume-last   # resume the last workspace"}},
+	{"session", []string{"session    # internal TTY bootstrap; session identity env required"}},
+	{"continuity-block", []string{"continuity-block <directory>   # read-only continuity packet for the session directory"}},
+	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
+	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
+	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
+	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
+	{"recover-fold-guard", []string{"recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log"}},
+	{"ci-wait", []string{"ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)"}},
+}
+
+// isHelpFlag reports whether an argument asks for help; -h is an alias of
+// --help on every help route.
+func isHelpFlag(arg string) bool { return arg == "--help" || arg == "-h" }
+
+// writeVerbUsage writes one verb's usage lines and reports whether the verb
+// has any.
+func writeVerbUsage(out io.Writer, verb string) bool {
+	for _, usage := range verbUsages {
+		if usage.Verb == verb {
+			for _, line := range usage.Lines {
+				_, _ = fmt.Fprintln(out, "  concord "+line)
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume a session")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
-	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
-	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; session identity env required")
-	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
-	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
-	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
-	_, _ = fmt.Fprintln(out, "  concord upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness")
-	_, _ = fmt.Fprintln(out, "  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)")
-	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
-	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
+	for _, usage := range verbUsages {
+		writeVerbUsage(out, usage.Verb)
+	}
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Required-field refusals exit 64 before dispatch.")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
@@ -321,10 +353,12 @@ func writeGroupSections(out io.Writer, group string) {
 	}
 }
 
-// runCommandHelpRoute resolves '<command> --help' and the group words before
-// any stdin read or store open. '<command> --help' prints one section to
-// stdout and exits 0. A bare group word is a usage error that names the group
-// and lists its commands on stderr with exit 2, and '<group> --help' prints
+// runCommandHelpRoute resolves '<command> --help', '<verb> --help', and the
+// group words before any stdin read or store open; -h is the same flag.
+// '<command> --help' prints one section and '<verb> --help' its usage lines,
+// both to stdout with exit 0. A bare group word, or a group word followed by
+// a word that names none of its commands, is a usage error that names the
+// group and lists its commands on stderr with exit 2; '<group> --help' prints
 // the same sections to stdout. It reports whether it handled the arguments,
 // with the exit code to return.
 func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
@@ -332,11 +366,14 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 		return 0, false
 	}
 	if spec, rest, matched := matchCommandSpec(args); matched {
-		if len(rest) == 1 && rest[0] == "--help" {
+		if len(rest) == 1 && isHelpFlag(rest[0]) {
 			writeCommandSection(out, *spec)
 			return 0, true
 		}
 		return 0, false
+	}
+	if len(args) == 2 && isHelpFlag(args[1]) && writeVerbUsage(out, args[0]) {
+		return 0, true
 	}
 	group, ok := groupWord(args[0])
 	if !ok {
@@ -347,9 +384,13 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: %s names a command group, not a command; use 'concord %s --help' to list its commands", group, group))
 		writeGroupSections(errOut, group)
 		return 2, true
-	case len(args) == 2 && args[1] == "--help":
+	case len(args) == 2 && isHelpFlag(args[1]):
 		writeGroupSections(out, group)
 		return 0, true
+	case !isHelpFlag(args[1]):
+		writeDiagnostic(errOut, fmt.Sprintf("concord: %s has no command %s; use 'concord %s --help' to list its commands", group, args[1], group))
+		writeGroupSections(errOut, group)
+		return 2, true
 	}
 	return 0, false
 }

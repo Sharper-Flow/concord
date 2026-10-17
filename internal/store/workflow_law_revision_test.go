@@ -569,12 +569,12 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	t.Parallel()
 	workID := "law-stale-in-flight"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	claim, err := ClaimStep(context.Background(), s, ClaimRequest{
+	claim, err := ClaimStepAuthorized(context.Background(), s, ClaimRequest{
 		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeVersion: 1,
 		StepID: "execution", StepKind: StepInternalSQLite, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: "principal/in-flight", Tool: "workflow-test", IdempotencyKey: "law-stale-in-flight-claim",
 		RequestID: "request:law-stale-in-flight", ContractDigest: testManifestDigest, ObservedAt: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("claim before cutover: %v", err)
 	}

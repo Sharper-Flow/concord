@@ -25,7 +25,7 @@ func TestCompactionClaimOnAWorkflowBearingWorkItemIsAdmitted(t *testing.T) {
 	const workID = "compact-publish-claim"
 	s, _ := seedBootstrapCapturedWork(t, workID, "bug")
 
-	if _, err := ClaimStep(context.Background(), s, compactionClaimRequest(workID)); err != nil {
+	if _, err := ClaimStepAuthorized(context.Background(), s, compactionClaimRequest(workID), nil); err != nil {
 		t.Fatalf("compaction claim on a workflow-bearing work item refused: %v", err)
 	}
 }
@@ -45,7 +45,7 @@ func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
 	own.WorkflowTypeVersion = 999
 	own.StepID = "reproduce"
 	err := func() error {
-		fence, claimErr := ClaimStep(context.Background(), s, own)
+		fence, claimErr := ClaimStepAuthorized(context.Background(), s, own, nil)
 		_ = fence
 		return claimErr
 	}()
@@ -64,7 +64,7 @@ func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
 	}
 	ownTwo.WorkflowTypeVersion = int(entry.Definition.Version)
 	ownTwo.StepID = "verify"
-	_, err = ClaimStep(context.Background(), s, ownTwo)
+	_, err = ClaimStepAuthorized(context.Background(), s, ownTwo, nil)
 	if err == nil {
 		t.Fatal("a claim naming a step that is not the current step was admitted")
 	} else if got := err.Error(); !strings.Contains(got, "current definition step") {

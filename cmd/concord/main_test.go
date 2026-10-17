@@ -1072,8 +1072,12 @@ func TestRetiredPlanningCommandsRefuseBeforeStdinOrStore(t *testing.T) {
 				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
 					t.Fatalf("retired command exit code = %d, want 2; stderr=%q", code, errOut.String())
 				}
-				if out.Len() != 0 || !strings.Contains(errOut.String(), "unsupported arguments") {
-					t.Fatalf("retired command stdout=%q stderr=%q, want unsupported usage", out.String(), errOut.String())
+				want := "unsupported arguments"
+				if _, group := groupWord(args[0]); group {
+					want = "concord: " + args[0] + " has no command " + args[1] + ";"
+				}
+				if out.Len() != 0 || !strings.Contains(errOut.String(), want) {
+					t.Fatalf("retired command stdout=%q stderr=%q, want %q", out.String(), errOut.String(), want)
 				}
 				if stdin.reads != 0 {
 					t.Fatalf("retired command read stdin %d times, want 0", stdin.reads)

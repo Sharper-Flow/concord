@@ -391,15 +391,13 @@ type indexedLaw struct {
 	body   []byte
 }
 
-func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
+func prepareDomainProjection(ctx context.Context, q queryer, manifest KnowledgeManifest, productID string, designated bool) (domainProjection, error) {
 	// CD-0200: a registered source projects its law Domain references from
 	// the shared home's registry instead of carrying its own. A standalone
 	// home outside every source set keeps the registry-required path it
 	// always had.
-	if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
-		return domainProjection{}, err
-	} else if productID != "" && !designated {
-		return prepareFederatedSourceDomainProjection(ctx, s.db, productID, manifest)
+	if productID != "" && !designated {
+		return prepareFederatedSourceDomainProjection(ctx, q, productID, manifest)
 	}
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
@@ -426,30 +424,10 @@ func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, 
 	if result.ProductKey == "" {
 		return result, newFailure(KindUnknownScope, "rebuild_knowledge_index", "Domain registry does not identify its Product", false, "declare the owning Product in the registry")
 	}
-	var products []string
-	rows, err := s.db.QueryContext(ctx, `SELECT product_id FROM product_knowledge_homes WHERE project_id=? AND locator_id=? ORDER BY product_id`, home.HomeProjectID, home.HomeLocatorID)
-	if err != nil {
-		return result, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the Product knowledge home", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var product string
-		if err := rows.Scan(&product); err != nil {
-			rows.Close()
-			return result, err
-		}
-		products = append(products, product)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return result, err
-	}
-	if err := rows.Close(); err != nil {
-		return result, err
-	}
-	if len(products) != 1 {
+	if productID == "" {
 		return result, newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "Domain registry home must resolve exactly one Product", false, "assign exactly one Product knowledge home before rebuilding")
 	}
-	result.ProductID = products[0]
+	result.ProductID = productID
 	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
 	for _, record := range manifest.Records {
 		if !manifestLawBearingKinds[record.Kind] {
@@ -584,9 +562,13 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			notes = append(notes, note)
 		}
 	}
-	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home)
 	if err != nil {
 		return err
+	}
+	role := manifestSharedHomeRole
+	if productID != "" && !designated {
+		role = manifestRegisteredSourceRole
 	}
 	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
 	if err != nil {
@@ -599,17 +581,9 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	// passing rebuild and vanishing at projection, so conflicts stay
 	// blocking; a source that later declares one leaves its watermark stale,
 	// which the consequential boundaries refuse.
-	if !manifestMissing && role == manifestRegisteredSourceRole {
+	if !manifestMissing && productID != "" {
 		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
 			return err
-		}
-	} else if !manifestMissing {
-		if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
-			return err
-		} else if designated && productID != "" {
-			if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
-				return err
-			}
 		}
 	}
 	if !manifestMissing {
@@ -631,19 +605,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			}
 		}
 	}
-	var domainProjectionData domainProjection
-	if !manifestMissing {
-		domainProjectionData, err = prepareDomainProjection(ctx, s, home, manifest)
-		if err != nil {
-			return err
-		}
-	}
-
 	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, domainProjectionData); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, productID, designated); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -670,12 +636,20 @@ var derivedKnowledgeClearOrder = []string{
 	"domain_registries",
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, preparedProductID string, preparedDesignated bool) error {
 	var productID string
 	var designated bool
+	var domainProjectionData domainProjection
 	if !manifestMissing {
 		var err error
 		productID, designated, err = resolveKnowledgeSourceRole(ctx, tx, home)
+		if err != nil {
+			return err
+		}
+		if productID != preparedProductID || designated != preparedDesignated {
+			return newFailure(KindStaleContext, "rebuild_knowledge_index", "knowledge home designation or source registration changed during rebuild preparation", true, "retry the rebuild against the current knowledge home designation and source registration")
+		}
+		domainProjectionData, err = prepareDomainProjection(ctx, tx, manifest, productID, designated)
 		if err != nil {
 			return err
 		}

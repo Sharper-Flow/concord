@@ -106,11 +106,11 @@ def test_a2_sizes_must_cite_each_goals_size_cell() -> None:
     value = table()
     value["a2"][1]["sizes"]["crucial"] = ["R3"]
     findings, _ = validate(value)
-    assert any("A2-2" in finding and "sizes" in finding for finding in findings), findings
+    assert any("A2-2" in finding and "must cite" in finding for finding in findings), findings
     value = table()
     del value["a2"][0]["sizes"]
     findings, _ = validate(value)
-    assert any("A2-1" in finding and "sizes" in finding for finding in findings), findings
+    assert any("A2-1" in finding and "must cite" in finding for finding in findings), findings
 
 
 def test_a2_row_must_be_an_integer() -> None:

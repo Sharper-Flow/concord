@@ -27,14 +27,15 @@ vocabulary rather than to any single plane, so it lives here beside the
 obligation it completes (CD-0047 D3).
 
 CI has no network guarantee, so the deterministic form reads a committed
-snapshot, and scripts/update-issue-state.py is the authoritative online form
-that refreshes it.
+snapshot. scripts/update-issue-state.py assembles it from agent-captured Linear
+MCP observations and GitHub issue reads, retaining each Linear read time.
 """
 from __future__ import annotations
 
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,7 +194,26 @@ def load_issue_states(findings: list[str]) -> dict[str, str] | None:
             )
             continue
         states[key] = value
+    read_times = document.get("linear_read_at")
+    if not isinstance(read_times, dict) or set(read_times) != {key for key in states if LINEAR_ISSUE.fullmatch(key)}:
+        findings.append("issue-state snapshot linear_read_at must cover exactly its Linear identifiers")
+        return None
+    try:
+        generated = parse_utc_time(document["generated_at"])
+        for identifier, read_at in read_times.items():
+            if parse_utc_time(read_at) > generated:
+                raise ValueError(f"read time for {identifier} is after generated_at")
+    except ValueError as exc:
+        findings.append(f"issue-state snapshot has invalid read metadata: {exc}")
+        return None
     return states
+
+
+def parse_utc_time(value: object) -> datetime:
+    """A recorded observation is a UTC instant, not an issue modification time."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value):
+        raise ValueError("expected a UTC timestamp ending in Z")
+    return datetime.fromisoformat(value[:-1] + "+00:00")
 
 
 def check_outstanding_pointer(
@@ -233,10 +253,11 @@ def collect_outstanding_issues() -> list[int | str]:
     return sorted(pointers, key=lambda value: (isinstance(value, str), str(value)))
 
 
-def write_issue_state(states: dict[str, str], generated_at: str) -> None:
+def write_issue_state(states: dict[str, str], generated_at: str, linear_read_at: dict[str, str]) -> None:
     snapshot = {
         "schema_version": "1.0",
         "generated_at": generated_at,
+        "linear_read_at": dict(sorted(linear_read_at.items())),
         "issues": dict(
             sorted(
                 states.items(),

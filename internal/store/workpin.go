@@ -150,7 +150,8 @@ func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEv
 	identity := WorkPin{WorkID: workID}
 	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&identity.Version)
 	var instance bool
-	if err == sql.ErrNoRows {
+	switch err {
+	case sql.ErrNoRows:
 		removed := false
 		for _, eventID := range ownEventIDs {
 			var expected int64
@@ -168,12 +169,12 @@ func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEv
 		if !removed {
 			return WorkPin{}, false, newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
 		}
-	} else if err != nil {
-		return WorkPin{}, false, err
-	} else {
+	case nil:
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, workID).Scan(&instance); err != nil {
 			return WorkPin{}, false, err
 		}
+	default:
+		return WorkPin{}, false, err
 	}
 	if !instance {
 		disposition, err := outsideRepairDispositionTx(ctx, tx, workID)

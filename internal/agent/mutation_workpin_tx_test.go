@@ -109,7 +109,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 		t.Fatalf("unreadable pin must refuse the link: outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	_, current := readWorkFromStore(t, s, "work-cancelled")
-	if current != before || archivedWorkCount(t, s, "work-cancelled") != 0 || durableOperationCompleted(t, s, "work-cancelled") {
+	if current != before || archivedCancelledWorkCount(t, s) != 0 || durableOperationCompleted(t, s, "work-cancelled") {
 		t.Fatalf("pin failure committed: version=%d, want %d with no locator/completion", current, before)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER drift_compaction_pin`); err != nil {

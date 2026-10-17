@@ -224,7 +224,7 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 		t.Fatalf("open and migrate: %v", err)
 	}
 	_ = s.Close()
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
@@ -515,7 +515,7 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	t.Cleanup(func() { version.Value = previous })
 	path, root := cliStoreRoot(t)
 	pendingBreakingStore(t, path, true)
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func TestSupportedReleasePairsCoexistWithOldSessionsAndNewAccess(t *testing.T) {
 		t.Fatalf("the older session's admission = %d: %s", code, errOut.String())
 	}
 	// The newer release applied one additive step this binary does not ship.
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1408,13 +1408,13 @@ func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
 		"products", "projects", "product_projects", "work_items", "work_projects",
 		"workflow_actors", "workflow_instances", "workflow_contracts", "domain_events",
 	}
-	seed, err := sql.Open("sqlite", "file:"+seedPath+"?_pragma=busy_timeout(5000)")
+	seed, err := sql.Open("sqlite", store.SQLiteFileURI(seedPath)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = seed.Close() }()
 	seed.SetMaxOpenConns(1)
-	target, err := sql.Open("sqlite", "file:"+targetPath+"?_pragma=busy_timeout(5000)")
+	target, err := sql.Open("sqlite", store.SQLiteFileURI(targetPath)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}

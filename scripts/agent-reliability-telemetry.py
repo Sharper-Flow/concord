@@ -31,6 +31,7 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 WINDOW_DAYS_DEFAULT = 21
 # Signatures an execute failure carries when the script guessed a tool name or
@@ -53,7 +54,7 @@ def open_shard(shard: Path) -> sqlite3.Connection:
     database = shard / "opencode.db"
     if not database.is_file():
         raise SystemExit(f"agent-reliability-telemetry: no shard database at {database}")
-    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"file:{quote(str(database), safe='/')}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
 

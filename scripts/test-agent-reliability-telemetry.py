@@ -8,6 +8,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 
@@ -74,6 +75,24 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
     def document(self) -> dict:
         self.connection.commit()
         return telemetry.measure(self.shard, 21)
+
+    def test_open_shard_keeps_uri_characters_literal_and_read_only(self) -> None:
+        names = ("plain", "shard#one", "shard#two", "shard?one", "shard%32", "shard2", "shard%", "space + café")
+        for name in names:
+            shard = self.shard / name
+            shard.mkdir()
+            with closing(sqlite3.connect(shard / "opencode.db")) as fixture:
+                fixture.execute("CREATE TABLE path_identity (name text NOT NULL)")
+                fixture.execute("INSERT INTO path_identity VALUES (?)", (name,))
+                fixture.commit()
+        for name in names:
+            with self.subTest(name=name):
+                shard = self.shard / name
+                with closing(telemetry.open_shard(shard)) as connection:
+                    self.assertEqual(connection.execute("PRAGMA database_list").fetchone()[2], str(shard / "opencode.db"))
+                    self.assertEqual(connection.execute("SELECT name FROM path_identity").fetchone()[0], name)
+                    with self.assertRaisesRegex(sqlite3.OperationalError, "readonly database"):
+                        connection.execute("DELETE FROM path_identity")
 
     def test_invalid_input_counts_per_tool_and_model(self) -> None:
         for _ in range(3):

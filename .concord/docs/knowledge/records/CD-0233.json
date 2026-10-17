@@ -1,0 +1,42 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-17T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "operator-surface",
+  "id": "CD-0233",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0160"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0161"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0168"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0233-a-checks-wait-waits-for-every-required-context.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d459705d3e4dd95f105953c15e1c7fbfb3c783ee59bb62b47d71911cf8634ee7",
+  "status": "accepted",
+  "summary": "Checks mode reads the base branch's required status check contexts from both rulesets and classic protection, caches the union per base in the wait state, and adds each unobserved required context to the population as pending. A failed read is an error and a stalled read is pending. Merge mode reads no requiredness.",
+  "tags": [
+    "ci-wait",
+    "cli",
+    "github",
+    "operator-surface"
+  ],
+  "title": "A checks wait waits for every required context"
+}

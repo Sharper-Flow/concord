@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b1b954d1378b5790e530a801c021e82fce93b9fe3a93747c38f194ad377dd98d",
+  "sha256": "sha256:c4534f217475f3835527d079ef8cce5308d53779b59fcc6694e5086553194412",
   "status": "accepted",
   "summary": "Checks mode uses the gh pr view rollup and queries gh pr checks only at the full 100-context page boundary. Merge mode selects the newest attempt per check identity from the already-read rollup without another population query. Selected failures end the merge wait except in UNSTABLE, while lifecycle outcomes retain precedence. The staged poll interval, carried deadline, bounded slice, and stalled-command retry remain unchanged.",
   "tags": [

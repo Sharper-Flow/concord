@@ -1274,7 +1274,7 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	// Every reference that names no usable approval for this exact check is
 	// an invalid approval (workflow-engine contract §11 step 4), whichever
 	// caller reaches it. Store faults keep their own kind.
-	if len(ref) != 64 {
+	if _, err := hex.DecodeString(ref); len(ref) != 64 || err != nil {
 		return approvalInvalid("approval reference malformed")
 	}
 	approval, err := store.ReadApprovalTx(ctx, tx, ref)

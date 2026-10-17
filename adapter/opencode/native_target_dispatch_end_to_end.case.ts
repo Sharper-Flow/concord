@@ -13,11 +13,11 @@
 // case established, and every core effect stays on the real binary.
 import { expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { createHash, createPrivateKey, createPublicKey } from "node:crypto"
+import { createHash, createPrivateKey, createPublicKey, verify as verifySignature } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
-import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
+import { configureConcordAdapter, executeBoundWorkerControl, invokeConcordOperation, laneDispatchRequest } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
 import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchLaneWorker } from "./lane_dispatch"
@@ -27,6 +27,8 @@ import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
 
 // The route test drives the real core through its own runner, so argv[0] is
 // replaced there. Bind the nominal path the transport resolves instead of the
@@ -341,7 +343,7 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
   return {
     async run(argv, input, signal) {
       if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
-      if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
+      if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "worker-control" || argv[1] === "invoke") {
         realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
       }
       return runFixtureProcess([binary, ...argv.slice(1)], input, { env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal })
@@ -621,7 +623,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     })
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const runner = realStoreRunner(binary, dbPath, calls, worktree)
-    configureConcordAdapter({ runner })
+    configureConcordAdapter({ runner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => invokeConcordOperation(toolName, args as any, callContext, sessionDirectory) as Promise<JSONRecord>
     const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
     const transition = (actionID: string, idempotencyKey: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
@@ -735,13 +737,37 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(executed.target_runner).toBe("check")
     expect(execution.result.command).toEqual(["check", WITNESS_ID])
     expect(execution.result.exit_code).toBe(0)
-    const executionRef = execution.result.operation_ref as string
+    let executionRef = execution.result.operation_ref as string
     expect(executionRef).toMatch(/^worktree_verify:/)
     const executedStages = executed.stages as JSONRecord[]
     expect(executedStages).toHaveLength(1)
     expect(executedStages[0].name).toBe("test")
     expect(executedStages[0].argv).toEqual(["bash", "check.sh", "--expected", "7"])
     expect(executedStages[0].exit_code).toBe(0)
+
+    const childContext = contextFor(worktree, task.workerSessionID)
+    const childCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: task.windows }), executeBoundWorkerControl)
+    expect(calls.filter((call) => call.argv[1] === "worker-dispatch")).toHaveLength(0)
+    expect(dbValue(dbPath, `SELECT lifecycle_state FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`).lifecycle_state).toBe("in_flight")
+    const childExecution = JSON.parse(await childCheck.execute({ control_id: CONTROL_ID }, childContext)) as JSONRecord
+    expect(childExecution.oracle.qualification).toBe("pass")
+    expect(childExecution.oracle.subject_commit).toBe(subjectCommit)
+    expect(childExecution.oracle.control_id).toBe(CONTROL_ID)
+    expect(childExecution.command).toEqual(["check", WITNESS_ID])
+    expect(childExecution.exit_code).toBe(0)
+    expect(childExecution.operation_ref).not.toBe(executionRef)
+    executionRef = childExecution.operation_ref
+    const controlCalls = calls.filter((call) => call.argv[1] === "worker-control")
+    expect(controlCalls).toHaveLength(1)
+    const assertion = controlCalls[0].input.assertion
+    expect(assertion.agent_ref).toBe(childContext.agent)
+    expect(assertion.session_ref).toBe(task.workerSessionID)
+    expect(assertion.session_ref).not.toBe(context.sessionID)
+    expect(assertion.packet_digest).toBe(packetDigest)
+    expect(assertion.control_id).toBe(CONTROL_ID)
+    expect(verifySignature(null, Buffer.from(canonicalWorkerControl(assertion)), createPublicKey(privateKeyObject()), Buffer.from(assertion.signature, "base64"))).toBe(true)
+    expect(calls.filter((call) => call.argv[1] === "worker-dispatch")).toHaveLength(0)
+    expect(dbValue(dbPath, `SELECT lifecycle_state FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`).lifecycle_state).toBe("in_flight")
 
     // The worker reports the typed receipt bound to the actual retained run
     // reference. The core's completion join proves the receipt shares the

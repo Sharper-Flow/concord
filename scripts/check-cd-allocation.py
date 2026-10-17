@@ -440,11 +440,10 @@ def check(
     against_ids = set(cd_id_counts(comparison))
     new_ids = sorted(set(tree_counts) - against_ids)
 
-    for identifier in new_ids:
-        count = tree_counts[identifier]
+    for identifier, count in sorted(tree_counts.items()):
         if count > 1:
             findings.append(
-                f"duplicate-new: tree manifest: new CD id {identifier} appears {count} times"
+                f"duplicate-id: tree manifest: CD id {identifier} appears {count} times"
             )
     findings.extend(
         f"removed-records: comparison manifest: CD id {identifier} was removed from tree; "

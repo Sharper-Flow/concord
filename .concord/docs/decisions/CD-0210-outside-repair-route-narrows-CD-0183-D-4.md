@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-07
 - **Scope:** Outside-repair disposition, reconciliation, and session entry
-- **Related:** CD-0122, CD-0183, CD-0036, CD-0104, CD-0189,
+- **Related:** CD-0122, CD-0183, CD-0111, CD-0104, CD-0189,
   [Concord (CON) issue 869](https://linear.app/sharper-flow/issue/CON-869)
 - **Amends:** CD-0183 D4 only for the explicit outside-repair reconciliation
 - **Extends:** CD-0122 D2 with typed entry and reconciliation routes
@@ -159,7 +159,7 @@ workflow ran. This repair itself uses CD-0122 D2 and cannot use its new route
 before release.
 
 The distinct terminal instance state requires a breaking schema migration.
-CD-0036's maintenance fence and compatibility floor apply. Older live sessions
+CD-0111 D3's maintenance boundary and compatibility floor apply. Older live sessions
 cannot cross that boundary merely because the repair is outside the workflow.
 No release installation or session restart belongs to this decision's delivery.
 

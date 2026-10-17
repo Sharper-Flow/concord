@@ -315,6 +315,73 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 	}
 }
 
+func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fed := seedReplacementFederation(t)
+	home := fed.homeA
+	addReplacementLocator(t, fed.store, fed.homeB)
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productID != "fed-product" || !designated {
+		t.Fatalf("fixture is not the designated home: %q, %v", productID, designated)
+	}
+	commit, err := resolveKnowledgeHead(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := knowledgeContentDigest(ctx, home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, manifestSharedHomeRole)
+	if err != nil || missing {
+		t.Fatalf("read home manifest: missing=%v, err=%v", missing, err)
+	}
+	notes := make([]VerifiedNote, 0, len(manifest.Records))
+	laws := make([]indexedLaw, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
+		if manifestLawBearingKinds[record.Kind] {
+			laws = append(laws, indexedLaw{record: record, body: body})
+		}
+	}
+	before := knowledgeDerivedSnapshot(t, fed.reader)
+	designateReplacementHome(t, fed.store, productID, fed.homeB, 2)
+	validationErr := validateFederatedSourceManifest(ctx, fed.store.DatabaseForTesting(), home, manifest, productID, designated)
+	designateReplacementHome(t, fed.store, productID, home, 3)
+	restoredProductID, restoredDesignated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredProductID != productID || restoredDesignated != designated {
+		t.Fatalf("designation did not return to the prepared role: (%q, %v), want (%q, %v)", restoredProductID, restoredDesignated, productID, designated)
+	}
+	if validationErr != nil {
+		t.Fatalf("validation discarded the pinned role during a designation flip and return: %v", validationErr)
+	}
+	tx, err := beginOrdinaryTx(ctx, fed.store.DatabaseForTesting())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, productID, designated); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("rebuild with the restored prepared role: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit rebuild with the restored prepared role: %v", err)
+	}
+	if after := knowledgeDerivedSnapshot(t, fed.reader); after != before {
+		t.Fatalf("the flip-and-return rebuild changed the prior registry or source-law rows:\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
 func TestKnowledgeHomeReplacementMissingManifestKeepsPriorRegistry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -120,7 +120,7 @@ shell gives.
 - The continuity projection re-pins held verify leases only. The
   `expected_target_version` pin is removed from `concord_work_trace.continuity`.
 - Migration 69 is breaking. A binary that defines schema version 68 refuses a
-  database at 69, which is the compatibility floor CD-0082 names.
+  database at 69, which is the schema compatibility floor CD-0111 D3 applies.
 - `worktree_audit`, `worktree_reclaim`, `worktree_destroy`, `worktree_inspect`,
   and `worktree_verify` are unchanged: each resolves its subject through the
   claim and the entry, which Concord owns.

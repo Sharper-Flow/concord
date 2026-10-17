@@ -102,10 +102,10 @@ upgrade.
 Scenario: A watch costs no model turns and wakes the session
   Given a coordinator session that started concord_ci_watch
   When the verb reports pending and then a terminal status
-  Then the tool call returned at once, no prompt ran before the terminal slice, and one synthetic wake carried the report with the session's agent, model, and model variant
+  Then the tool call returned at once, no prompt ran before the terminal slice, and one synthetic wake carried the report with the session's agent, model, and model variant, and the session answered it
 
 Scenario: A lost wake is queued and delivered on the next message
-  Given a terminal report whose injection was refused, dropped, or unconfirmed
+  Given a terminal report still queued because its injection was refused, dropped, or unconfirmed
   When the session receives its next chat message
   Then the queued report joins that message as a synthetic part, and the queue drains exactly once
 

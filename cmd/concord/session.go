@@ -322,19 +322,19 @@ func runContinuityBlockCommandWithDirectory(args []string, out, errOut io.Writer
 	}
 	database, err := databasePath()
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	packet, err := bootstrap(context.Background(), database, args[0])
 	if err != nil {
-		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		writeDiagnostic(errOut, "concord continuity-block: "+diagnosticText(err))
 		return 1
 	}
 	if len(packet) == 0 {
 		return 0
 	}
 	if _, err := out.Write(packet); err != nil {
-		writeDiagnostic(errOut, "concord continuity-block: "+err.Error())
+		writeDiagnostic(errOut, "concord continuity-block: "+diagnosticText(err))
 		return 1
 	}
 	return 0
@@ -402,7 +402,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		// starts (CD-0189).
 		host, err := hostCommand(context.Background(), projectPath)
 		if err != nil {
-			writeDiagnostic(errOut, "concord session: "+err.Error())
+			writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 			return 2
 		}
 		argv := append(append([]string(nil), host.Command...), "--prompt", prompt)
@@ -445,11 +445,11 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// once here rather than read separately by each step.
 	dir, err := sessionDirectory(context.Background(), directory, workID, projectID)
 	if err != nil {
-		writeDiagnostic(errOut, "concord session: "+err.Error())
+		writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 		return 2
 	}
 	if err := identity(dir); err != nil {
-		writeDiagnostic(errOut, "concord session: "+err.Error())
+		writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 		return 2
 	}
 	// The host command resolves in the same directory the session runs in.
@@ -460,7 +460,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// (CD-0093 D2, CD-0189).
 	resolution, err := hostCommand(context.Background(), dir)
 	if err != nil {
-		writeDiagnostic(errOut, "concord session: "+err.Error())
+		writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 		return 2
 	}
 	// The launcher names the agent this session runs as. The verification
@@ -475,7 +475,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	}
 	handle, err := orchestrator(context.Background(), dir, resolution, productID, workID, agent)
 	if err != nil {
-		writeDiagnostic(errOut, "concord session: "+err.Error())
+		writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 		return 2
 	}
 	if handle == "" {
@@ -503,12 +503,12 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	if workID != "" {
 		path, err := databasePath()
 		if err != nil {
-			writeDiagnostic(errOut, err.Error())
+			writeDiagnostic(errOut, diagnosticText(err))
 			return 1
 		}
 		packet, err := bootstrap(context.Background(), path, productID, workID)
 		if err != nil {
-			writeDiagnostic(errOut, "concord session: "+err.Error())
+			writeDiagnostic(errOut, "concord session: "+diagnosticText(err))
 			return 1
 		}
 		prompt = prompt + "\n\nConcord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)

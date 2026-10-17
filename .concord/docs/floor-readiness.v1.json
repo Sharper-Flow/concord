@@ -63,19 +63,7 @@
    "evidence": [
     {
      "kind": "adapter_test",
-     "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
-    },
-    {
-     "kind": "adapter_test",
-     "value": "adapter/opencode/continuity_hook.test.ts#continuity transform carries only the core packet"
-    },
-    {
-     "kind": "adapter_test",
-     "value": "adapter/opencode/continuity_hook.test.ts#continuity transform re-resolves after a work_start retarget"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
+     "value": "adapter/opencode/project_handoff_end_to_end.test.ts#host-started session receives real core context without out-of-surface writes"
     }
    ]
   },

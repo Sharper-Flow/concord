@@ -49,7 +49,7 @@ export type CiWatchArgs = {
 type CiWaitReport = { status: string; reason?: string; state_file?: string; [key: string]: unknown }
 
 // The session's persisted choice, shaped as the host prompt payload fields
-// that carry it, so every post spreads it unchanged.
+// that carry it, so every prompt spreads it unchanged.
 type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: string }; variant?: string }
 
 type ActiveWatch = {

@@ -260,7 +260,7 @@ func TestFrozenOpsRunbookCleanupRecordsAMissingVerdict(t *testing.T) {
 		t.Fatalf("archived cleanup pin offers public intents %#v, want none", pin.NextValidIntents)
 	}
 	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`)
-	lateErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: reviewer, Payload: verdict})
+	lateErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: reviewer, Payload: verdict})
 	var failure *Failure
 	if !errors.As(lateErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.ops_runbook is archived: new public workflow actions are refused") {
 		t.Fatalf("late verdict preflight = %v, want the archived-family invalid_operation refusal", lateErr)

@@ -63,7 +63,7 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "the scanner has no failure path", at)); err != nil {
 		t.Fatalf("record error = %v", err)
 	}
-	rows, err := s.ObservationsForDomain(ctx, "obs-product", "obs-domain", 10)
+	rows, err := observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("RebuildFromLog() error = %v", err)
 	}
-	rows, err = s.ObservationsForDomain(ctx, "obs-product", "obs-domain", 10)
+	rows, err = observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 	if state != DomainObservationDismissed || dismissedAt == "" {
 		t.Fatalf("state = %q dismissed_at = %q", state, dismissedAt)
 	}
-	rows, err := s.ObservationsForDomain(ctx, "obs-product", "obs-domain", DomainObservationOpenWindow)
+	rows, err := observationsForDomain(ctx, s.db, "obs-product", "obs-domain", DomainObservationOpenWindow)
 	if err != nil {
 		t.Fatal(err)
 	}

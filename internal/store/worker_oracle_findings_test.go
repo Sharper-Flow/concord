@@ -567,7 +567,7 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -711,7 +711,7 @@ func oracleBlockerFinding(detail, family string, controls ...string) WorkerRevie
 // fixturePredicate reads the oracle fixture's covered predicate id.
 func fixturePredicate(t *testing.T, s *Store, workID string) string {
 	t.Helper()
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil || len(views) == 0 {
 		t.Fatalf("read recorded oracle jobs for %s: %v", workID, err)
 	}

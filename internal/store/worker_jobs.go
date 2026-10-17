@@ -564,27 +564,6 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	return views, nil
 }
 
-// WorkerJobRevisions is the browse read of every recorded worker-job
-// revision of one work item.
-func (s *Store) WorkerJobRevisions(ctx context.Context, workID string) ([]WorkerJobRevisionView, error) {
-	return readWorkerJobRevisions(ctx, s.db, workID)
-}
-
-// ReadyWorkerJobRevisions reads the revisions a dispatcher may select now.
-func (s *Store) ReadyWorkerJobRevisions(ctx context.Context, workID string) ([]WorkerJobRevisionView, error) {
-	all, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		return nil, err
-	}
-	ready := []WorkerJobRevisionView{}
-	for _, view := range all {
-		if view.Ready {
-			ready = append(ready, view)
-		}
-	}
-	return ready, nil
-}
-
 // requireWorkerJobRevisionReadyTx is the dispatch-time admission of one
 // selected revision: it must be recorded under the named digest, carry the
 // work's active parent contract authority, and satisfy the one readiness

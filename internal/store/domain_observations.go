@@ -135,16 +135,9 @@ func foldDomainObservationDismissed(ctx context.Context, tx *sql.Tx, event Event
 	return nil
 }
 
-// ObservationsForDomain lists a Domain's open observations, newest first,
+// observationsForDomain lists a Domain's open observations, newest first,
 // bounded. CD-0068 D6 folds this into concord_domain.detail rather than adding
 // a read operation. Dismissed rows persist for audit and are not returned.
-func (s *Store) ObservationsForDomain(ctx context.Context, productID, domainID string, limit int) ([]DomainObservation, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "domain_observations", "store is not open", false, "open the authority database")
-	}
-	return observationsForDomain(ctx, s.db, productID, domainID, limit)
-}
-
 func observationsForDomain(ctx context.Context, q queryer, productID, domainID string, limit int) ([]DomainObservation, error) {
 	if limit < 1 {
 		limit = 10

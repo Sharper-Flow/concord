@@ -149,7 +149,7 @@ func TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection(t *testing.T) {
 		t.Fatalf("negative findings misclassified or missing: %#v, err=%v", correction, err)
 	}
 	payload := reviewGateCorrectionPayload("evidence:return-route-verification")
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "request_correction", Payload: payload, Actor: f.owner}); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "request_correction", Payload: payload, Actor: f.owner}); err != nil {
 		t.Fatalf("preflight hid the corrective return: %v", err)
 	}
 	missing := reviewGateCorrectionPayload("evidence:not-bound")

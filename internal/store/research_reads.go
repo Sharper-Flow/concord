@@ -46,34 +46,6 @@ func (s *Store) ReadResearchPack(ctx context.Context, req ResearchReadRequest) (
 	return pack, nil
 }
 
-func (s *Store) ResearchFreshness(ctx context.Context, packID string) (ResearchFreshnessResult, error) {
-	return ResearchFreshnessForPack(ctx, s, packID)
-}
-func ResearchFreshnessForPack(ctx context.Context, s *Store, packID string) (ResearchFreshnessResult, error) {
-	var out ResearchFreshnessResult
-	if s == nil || s.db == nil {
-		return out, researchUnavailable("store is not open", nil)
-	}
-	var freshness string
-	if err := s.db.QueryRowContext(ctx, `SELECT freshness FROM active_research_packs WHERE pack_id=?`, packID).Scan(&freshness); err == sql.ErrNoRows {
-		return out, researchNotFound("research pack does not exist")
-	} else if err != nil {
-		return out, researchUnavailable("cannot read research freshness", err)
-	}
-	out.Status = ResearchFreshness(freshness)
-	var id, status string
-	err := s.db.QueryRowContext(ctx, `SELECT consumer_work_id,status FROM (`+researchConsumerFreshnessSQL+`) WHERE pack_id=? AND required=1 AND status<>'current' ORDER BY consumer_work_id LIMIT 1`, packID).Scan(&id, &status)
-	if err == sql.ErrNoRows {
-		return out, nil
-	}
-	if err != nil {
-		return out, researchUnavailable("cannot read research consumers", err)
-	}
-	out.Blocked = true
-	out.Reasons = []string{id + ":" + status}
-	return out, nil
-}
-
 // ResearchPacksByOwner reads only descriptors, ordered by updated_at DESC and
 // pack_id ASC. The continuation belongs to this owner and that keyset.
 func (s *Store) ResearchPacksByOwner(ctx context.Context, ownerWorkID string, limit int, cursor string) (ResearchPackPage, error) {
@@ -125,32 +97,6 @@ func (s *Store) ResearchPacksByOwner(ctx context.Context, ownerWorkID string, li
 		out.NextCursor = &next
 	}
 	return out, nil
-}
-
-func (s *Store) RequiredResearchFreshness(ctx context.Context, packID, consumerWorkID string) (ResearchFreshness, error) {
-	return requiredResearchFreshness(ctx, s.db, packID, consumerWorkID)
-}
-
-const researchConsumerFreshnessSQL = `SELECT c.pack_id,c.consumer_work_id,c.required,
-	CASE WHEN c.required=0 THEN 'current'
-		WHEN r.freshness IS NULL THEN 'unknown'
-		ELSE r.freshness END AS status
-	FROM active_research_consumers c
-	LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision
-	JOIN work_items w ON w.id=c.consumer_work_id
-	WHERE w.lifecycle NOT IN ('completed','cancelled','superseded')`
-
-func requiredResearchFreshness(ctx context.Context, q queryer, packID, consumerWorkID string) (ResearchFreshness, error) {
-	var status string
-	// Required freshness belongs to the pinned revision, not the pack summary.
-	err := q.QueryRowContext(ctx, `SELECT status FROM (`+researchConsumerFreshnessSQL+`) WHERE pack_id=? AND consumer_work_id=?`, packID, consumerWorkID).Scan(&status)
-	if err == sql.ErrNoRows {
-		return ResearchUnknown, researchNotFound("active research consumer binding does not exist")
-	}
-	if err != nil {
-		return ResearchUnknown, researchUnavailable("cannot read consumer freshness", err)
-	}
-	return ResearchFreshness(status), nil
 }
 
 func readResearchPackRow(ctx context.Context, q interface {
@@ -437,18 +383,4 @@ func readSourcesTx(ctx context.Context, q queryer, pack string, revision int64, 
 		return nil, researchReadBounded("research sources exceed the bounded read limit")
 	}
 	return out, nil
-}
-
-func readConsumerTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, id string) (ResearchConsumer, error) {
-	var c ResearchConsumer
-	var required int
-	err := tx.QueryRowContext(ctx, `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers WHERE pack_id=? AND revision=? AND consumer_work_id=?`, pack, revision, id).Scan(&c.PackID, &c.Revision, &c.ConsumerWorkID, &c.UseRole, &required, &c.AcceptedAt)
-	if err == sql.ErrNoRows {
-		return c, researchNotFound("consumer binding does not exist")
-	}
-	if err != nil {
-		return c, researchUnavailable("cannot read consumer binding", err)
-	}
-	c.Required = required != 0
-	return c, nil
 }

@@ -54,7 +54,7 @@ func TestRecordedCorrectionReturnsReleasedRefinement(t *testing.T) {
 				t.Fatalf("live route unexpectedly admits refinement: %s", got)
 			}
 			liveBefore := histEventRows(t, s)
-			if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Actor: fixture.owner,
 				Payload: json.RawMessage(`{"diagnosis":"The result differs.","strategy":"Repeat production.","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`),
 			}); err == nil {

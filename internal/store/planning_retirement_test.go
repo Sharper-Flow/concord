@@ -359,8 +359,6 @@ func TestRetiredInitiativeActiveSelection(t *testing.T) {
 			t.Errorf("active IDs = %v, %v; want only retired-child", ids, err)
 		}
 	}
-	assertIDs(s.ActiveWorkInProduct(ctx, "product", 100))
-	assertIDs(s.ActiveWorkInProduct(ctx, "product", 1))
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		ids, err := ActiveWorkIDsTx(ctx, tx, "product")
 		assertIDs(ids, err)

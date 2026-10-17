@@ -83,7 +83,7 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 				t.Fatalf("pending review has wrong disposition/correction intents: %#v", pin.NextValidIntents)
 			}
 
-			if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID),
 				ActionID: "accept_worker_evidence", Payload: payload, Actor: acceptor,
 			}); err != nil {

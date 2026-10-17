@@ -87,7 +87,7 @@ func TestHistoricalAcceptedNoShipReviewWithoutRejectionRecovers(t *testing.T) {
 				t.Fatal("shared admission refuses the historical corrective return")
 			}
 			payload := reviewGateCorrectionPayload("evidence:return-route-verification")
-			if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: workPin.Version, ActionID: "request_correction", Payload: payload, Actor: fixture.owner}); err != nil {
+			if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: workPin.Version, ActionID: "request_correction", Payload: payload, Actor: fixture.owner}); err != nil {
 				t.Fatalf("correction preflight disagrees with the work pin: %v", err)
 			}
 			if err := reviewGateRecordDelivery(t, s, workID, reviewGateAcceptor(workID)); err == nil {

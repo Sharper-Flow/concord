@@ -476,7 +476,7 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	eligible := json.RawMessage(`{"verdicts":[` +
 		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]},` +
 		`{"predicate_id":"predicate:batch-third","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-artifact"]}]}`)
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "record_verdict", Payload: eligible, Actor: fixture.owner,
 	}); err != nil {
 		t.Fatalf("late batch admission without a version: %v", err)

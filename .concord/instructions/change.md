@@ -30,9 +30,8 @@ commits, pull requests, and work records. Write no diff labels, no account of
 earlier versions of the code, and no reference to the conversation that
 produced it.
 
-Leave what you touch better than you found it, within the work you were asked to
-do. Fix the same fault where it recurs nearby. Raise anything wider separately
-rather than widening the change quietly.
+Remove the bloat your change made. For other bloat, and for faults outside the
+asked work, even nearby, file a follow-up item instead of widening the change.
 
 Prefer the clearest result over the smallest edit. Do not build for needs that
 have not arrived, and do not refuse necessary structural work to keep a diff

@@ -1,5 +1,5 @@
 {
   "id": "priorities",
-  "reason": "The ranked priority order and the operating envelope govern how a design tradeoff is resolved and which capabilities belong in Concord at all. Both are judgements applied by a reader to a proposed change, not propositions about a running system, so no executable anchor can decide whether a given decision honoured the order. Declared prose-only rather than left unmeasured.",
+  "reason": "The operating envelope and the standing law decide which capabilities belong in Concord and what each goal requires of a change. The envelope and the goal-level statements are judgements applied by a reader to a proposed change, not propositions about a running system; the mechanisms they cite carry their own coverage through the decision records. Declared prose-only rather than left unmeasured.",
   "state": "out_of_scope"
 }

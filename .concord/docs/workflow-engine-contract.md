@@ -673,7 +673,7 @@ validation rather than being downgraded to prose or generic success.
 
 ### Scenarios that bind production routes
 
-WF09, WF22, and WF25 each run the production route that owns their criterion.
+WF09, WF22, and WF25 each bind their criterion to a production route.
 
 - WF09 sends `approve_contract`, the only declared action that writes an
   approved end-state, at the `execution` step. The step does not declare the
@@ -688,7 +688,8 @@ WF09, WF22, and WF25 each run the production route that owns their criterion.
   publication under a new idempotency key without an approval. The agent
   boundary returns `approval_required`, and the attempt epoch does not advance.
   Compaction requires an approval on every publication, so WF25 covers
-  durable-operation claims only.
+  durable-operation claims only. The fenced-start takeover of a held attempt
+  is a separate route for criterion 25, covered by its own tests.
 
 ## 12. Built-in family graphs and actions
 

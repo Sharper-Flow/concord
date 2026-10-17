@@ -632,10 +632,10 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 }
 
 // requireAcceptanceDeliverables refuses the acceptance-step transition while
-// the deliverables completion depends on are absent: a recorded workflow
-// verdict and every required evidence kind durably bound. Once the step
-// advances, no declared action can produce them, so the confirmation is the
-// last point the requirement can be enforced.
+// the deliverables completion depends on are absent: an independent verdict
+// for every approved predicate and every required evidence kind durably
+// bound. Once the step advances, no declared action can produce them, so the
+// confirmation is the last point the requirement can be enforced.
 func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
@@ -659,6 +659,25 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		return err
+	}
+	// Completion's clause 4 judges each verdict actor against the whole
+	// execution history, so a verdict whose actor executed after recording it
+	// fails there, past the last step that declares record_verdict.
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	if err != nil {
+		return err
+	}
+	for _, verdict := range verdicts {
+		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
+			continue
+		}
+		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable || failure.RecoveryAction == "contact_operator" {
+				return err
+			}
+			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+verdict.PredicateID+": "+failure.Detail, false, "record_verdict for "+verdict.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
+		}
 	}
 	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
 	if cutoffErr != nil {
@@ -766,20 +785,20 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // The executing model is read from the instance because it is a property of the
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
-func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
 	if err := workflowStepExecutorRefusal(ctx, tx, workID, verdictActor, "complete_workflow"); err != nil {
 		return err
 	}
 	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
 }
 
-func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	return workflowActorsDistinctForExecutor(ctx, tx, workID, "", verdictActor, verdictModel, requireModelDistinct, operation)
 }
 
 // workflowActorsDistinctForExecutor evaluates distinctness against a supplied
 // executorRef, which must resolve, and otherwise against the instance's current lookup.
-func workflowActorsDistinctForExecutor(ctx context.Context, tx *sql.Tx, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
 	var err error
 	if executorRef == "" {

@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test"
+import { agentLanePacketSchema } from "../../generated-agent-lanes.js"
 import assertLaneReport from "./lane-report.js"
 import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
 
@@ -11,6 +12,7 @@ import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
 // block, lane identity resolution, and the seeded-defect marker surface.
 
 type Result = { pass: boolean; score: number; reason: string }
+const packetSchemaVersions = agentLanePacketSchema.properties.schema_version.enum
 
 const run = (report: Record<string, unknown>, packet: Record<string, unknown> = reviewPacket()): Result =>
   assertLaneReport(stream(report), { prompt: JSON.stringify(packet) })
@@ -219,7 +221,7 @@ const jobPacket = (overrides: Record<string, unknown> = {}): Record<string, unkn
   })
 
 test("report admission derives schema identity from the packet, not the worker", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     for (const echo of ["1.0", "1.1", "2.0", null, 11, undefined]) {
       const result = run(report({ schema_version: echo }), reviewPacket({ schema_version }))
       expect(result.pass, `packet ${schema_version}, worker echo ${JSON.stringify(echo) ?? "dropped"}`).toBe(true)
@@ -247,7 +249,7 @@ test("report admission derives the worker-job binding from the packet, not the w
 })
 
 test("an unbound packet stays unbound whatever the worker echoes", () => {
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of packetSchemaVersions) {
     for (const worker_job of [JOB_BINDING, undefined] as const) {
       const result = run(report({ worker_job }), reviewPacket({ schema_version }))
       expect(result.pass, `packet ${schema_version}, echo ${worker_job === undefined ? "absent" : "present"}`).toBe(true)

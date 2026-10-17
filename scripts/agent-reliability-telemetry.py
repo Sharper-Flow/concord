@@ -21,7 +21,8 @@ Usage:
   agent-reliability-telemetry.py --shard <dir> --baseline <file> [--tolerance 0.0]
 
 Compare mode exits 1 when any rate measure is worse than the recorded
-baseline by more than the tolerance (absolute rate points).
+baseline by more than the tolerance (absolute rate points). A different or
+missing baseline method version refuses comparison, not a regression.
 """
 from __future__ import annotations
 
@@ -34,6 +35,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 WINDOW_DAYS_DEFAULT = 21
+# Bump whenever measurement semantics change; only matching methods compare.
+MEASUREMENT_METHOD_VERSION = "1"
 # Signatures an execute failure carries when the script guessed a tool name or
 # argument shape instead of copying a seen signature.
 GUESS_PATTERNS = (
@@ -160,6 +163,7 @@ def measure(shard: Path, window_days: int) -> dict:
     execute["error_rate"] = round(execute["errors"] / total_execute, 4) if total_execute else 0.0
     execute["guess_rate"] = round(execute["guessed"] / total_execute, 4) if total_execute else 0.0
     return {
+        "method_version": MEASUREMENT_METHOD_VERSION,
         "measures": {"invalid_input": dict(sorted(invalid_input.items())), "execute": execute, "subagent_use": dict(sorted(subagent_use.items()))},
         "window_days": window_days,
     }
@@ -171,6 +175,12 @@ def write_baseline(document: dict, baseline: Path) -> None:
 
 def compare(document: dict, baseline: Path, tolerance: float) -> list[str]:
     recorded = json.loads(baseline.read_text(encoding="utf-8"))
+    method = recorded.get("method_version")
+    if method != MEASUREMENT_METHOD_VERSION:
+        raise SystemExit(
+            f"agent-reliability-telemetry: baseline method {method!r} is incomparable with "
+            f"current method {MEASUREMENT_METHOD_VERSION!r}; re-record with --write-baseline"
+        )
     findings: list[str] = []
     for tool, bucket in document["measures"]["invalid_input"].items():
         recorded_bucket = recorded["measures"]["invalid_input"].get(tool)
@@ -200,7 +210,9 @@ def main() -> int:
         write_baseline(document, arguments.baseline)
         print(f"baseline recorded: {arguments.baseline}")
         return 0
-    if arguments.baseline is not None and arguments.baseline.is_file():
+    if arguments.baseline is not None:
+        if not arguments.baseline.is_file():
+            raise SystemExit(f"agent-reliability-telemetry: baseline file not found: {arguments.baseline}; use --write-baseline to create it")
         findings = compare(document, arguments.baseline, arguments.tolerance)
         for finding in findings:
             print(f"agent-reliability regression: {finding}")

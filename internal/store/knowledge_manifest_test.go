@@ -383,16 +383,20 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	decision := ".concord/docs/decisions/CD-0001.md"
+	spec := ".concord/docs/specs/rich.md"
 	writeManifestFixture(t, repo, manifestFixture{
-		ID: "decision-rich", Kind: "decision", Path: decision, Status: "accepted", Date: "2026-08-10T00:00:00Z",
-		Title: "Decision", Summary: "Decision summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"},
-		Evidence: []string{decision},
+		ID: "spec-rich", Kind: "spec", Path: spec, Status: "accepted", Date: "2026-08-10T00:00:00Z",
+		Title: "Spec", Summary: "Spec summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Evidence: []string{spec}, CriterionBindings: []KnowledgeCriterionBinding{{Criterion: 1, Scenario: "scenario-one"}},
 	})
 	commit := commitKnowledgeRepo(t, repo, "rich manifest knowledge")
 	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
 	if err != nil || missing || len(manifest.Records) != 1 {
 		t.Fatalf("read rich manifest=%#v missing=%v err=%v", manifest, missing, err)
+	}
+	wantBinding := KnowledgeCriterionBinding{Criterion: 1, Scenario: "scenario-one"}
+	if got := manifest.Records[0].CriterionBindings; len(got) != 1 || got[0] != wantBinding {
+		t.Fatalf("rich manifest criterion bindings=%#v, want %#v", got, wantBinding)
 	}
 	driftedProjection := manifest.Records[0]
 	driftedProjection.Title = "Drifted"
@@ -409,14 +413,14 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"}); err != nil || result.Status != "canonical" {
+	if result, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "spec-rich"}); err != nil || result.Status != "canonical" {
 		t.Fatalf("rich manifest Q10=%#v err=%v", result, err)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='decision-rich'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='spec-rich'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"})
+	_, err = s.QueryQ10(ctx, Q10Request{KnowledgeID: "spec-rich"})
 	assertFailureKind(t, err, KindKnowledgeMissing)
 	if !strings.Contains(err.Error(), "title") {
 		t.Fatalf("projection mismatch did not name title: %v", err)

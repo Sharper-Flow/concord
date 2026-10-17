@@ -171,7 +171,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
         },
       },
     },
-    serverUrl: new URL("http://127.0.0.1:4096"),
+    serverUrl: new URL("https://example.invalid"),
   } as never, { session_opener: ["fixture-session-opener", "{directory}", "{title}", "{command}"] })
 }
 

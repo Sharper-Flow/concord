@@ -44,6 +44,9 @@ type CompactionLinkRequest struct {
 	ExpectedHash    string
 	Reason          string
 	Boundary        CompactionBoundary
+	// WithinTx projects the result after the link is applied and before commit.
+	// An identical relink runs it in a transaction without repeating the event.
+	WithinTx func(*Transaction) error
 }
 
 type compactionLinkPayload struct {
@@ -142,6 +145,9 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 			// Publication is proof-backed archive, not destruction (CD-0217):
 			// an identical relink is idempotent and research is never a side
 			// effect. Only an explicit research_retire batch deletes packs.
+			if req.WithinTx != nil {
+				return s.Transact(ctx, req.WithinTx)
+			}
 			return nil
 		}
 		return newFailure(KindCompactionConflict, "publish_compaction_link", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")
@@ -171,7 +177,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return publishCompactionLinkTx(ctx, tx, req.Boundary, req.WorkID, operation)
+		return publishCompactionLinkTx(ctx, tx, req, operation)
 	}); err != nil {
 		return err
 	}
@@ -186,14 +192,20 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 // what can refuse here. That refusal keeps output authorized under a superseded
 // law revision out of Product truth when the cutover commits while the external
 // git write is still in flight.
-func publishCompactionLinkTx(ctx context.Context, tx *Transaction, boundary CompactionBoundary, workID string, operation Operation) error {
-	if boundary == CompactionBoundaryRevalidated {
-		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
+func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation) error {
+	if req.Boundary == CompactionBoundaryRevalidated {
+		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, req.WorkID); err != nil {
 			return err
 		}
 	}
 	_, err := ApplyOperationTx(ctx, tx, operation)
-	return err
+	if err != nil {
+		return err
+	}
+	if req.WithinTx != nil {
+		return req.WithinTx(tx)
+	}
+	return nil
 }
 
 func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) error {

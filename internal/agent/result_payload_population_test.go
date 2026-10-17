@@ -1220,7 +1220,7 @@ func TestClosedMutationResultPayloadsSurviveEnrichment(t *testing.T) {
 			var enriched json.RawMessage
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				var txErr error
-				enriched, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, raw, changed)
+				enriched, _, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, raw, changed)
 				return txErr
 			}); err != nil {
 				t.Fatalf("enrich %s result through a real transaction: %v", op.ID, err)

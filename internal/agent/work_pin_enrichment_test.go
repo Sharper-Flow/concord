@@ -28,7 +28,7 @@ func TestMutationEnrichmentRefusesAPinThatDisagreesWithItsChangedRef(t *testing.
 		var enriched json.RawMessage
 		err := s.Transact(ctx, func(tx *store.Transaction) error {
 			var txErr error
-			enriched, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, mutationPayload(changed, nil), changed)
+			enriched, _, _, txErr = (runtime{}).enrichMutationPayloadTx(ctx, tx, mutationPayload(changed, nil), changed)
 			return txErr
 		})
 		return enriched, err

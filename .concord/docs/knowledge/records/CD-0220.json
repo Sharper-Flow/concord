@@ -24,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:961203fef809191fdbc73fc0c88fdec25ef581b36525329250626b83cc33e5a2",
+  "sha256": "sha256:755c239a7da8048a8507f3e6eda27efa3804496f3ac7d78ba8affd2a7002eb03",
   "status": "accepted",
-  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native shell and named editors. A closed capability ceiling authenticates the dispatched child and attempt before native or nested MCP execution, without overriding narrower host permissions. Non-editing checks select only recorded executable controls through the existing execution owner. Ordinary check strings grant no execution authority. Product-law approval, review, unmanaged host work, and the absence of a filesystem or network sandbox remain explicit boundaries.",
+  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native shell and named editors. A closed capability ceiling authenticates the dispatched child and attempt before native or directly exposed MCP execution, without overriding narrower host permissions. Opaque Code Mode execution remains denied until nested host-path admission is proved. Non-editing checks select only recorded executable controls through the existing execution owner. Ordinary check strings grant no execution authority. Product-law approval, review, unmanaged host work, and the absence of a filesystem or network sandbox remain explicit boundaries.",
   "tags": [
     "agent-lanes",
     "authoring",

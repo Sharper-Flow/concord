@@ -7,6 +7,8 @@
 - **Approval:** Snowball coordinator, operator-delegated, 2026-10-10 01:08 EDT
 - **Amendment approval:** The operator approved the capability-enforcement
   amendment in-session on 2026-10-17 for [Concord (CON) issue 1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
+- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
+  the review-fix amendment in-session.
 - **Related:** [CD-0006](CD-0006-concord-root-product-policy.md), [CD-0036](CD-0036-breaking-law-cutovers.md), [CD-0072](CD-0072-unguarded-trunk-file-writes.md), [CD-0159](CD-0159-authority-tier-for-product-law.md), and [development authority](../development-authority.md).
 - **Preserves:** Product-law approval, revision identity, cutover, host ownership, and the existing lane capability registry.
 
@@ -69,15 +71,17 @@ Dispatch admission enforces the lane's permitted step kind. Generated host
 permissions deny native shell and named editors for non-editing lanes. They
 never override an operator's narrower host policy with a positive tool grant.
 
-Before a dispatched worker uses a native or nested MCP tool, the adapter
-authenticates the host child, its authorized opening packet, its active
-attempt, and its dispatched worktree. One attempt binds one host child.
+Before a dispatched worker uses a native or directly exposed MCP tool, the
+adapter authenticates the host child, its authorized opening packet, its
+active attempt, and its dispatched worktree. One attempt binds one host child.
 The registered lane capabilities determine a closed tool allowlist. Unknown
 tools refuse before execution. A selected-agent change cannot widen that list.
 
-The same ceiling applies to nested Code Mode calls through their actual MCP
-permission keys. Local repository MCP tools must target the dispatched
-repository. A settling or retired attempt grants no further worker calls.
+The opaque Code Mode `execute` tool is denied to every lane. Nested MCP
+admission remains unproved. Enabling that tool requires host-path evidence
+that every nested call reaches the same capability ceiling before execution.
+Direct local repository MCP tools must target the dispatched repository.
+A settling or retired attempt grants no further worker calls.
 
 Independent review examines the actual Git delta, approved scope, and
 law-approval evidence before acceptance and merge. Document, knowledge, and
@@ -123,9 +127,13 @@ Host permission resolution and independent review remain separate evidence oblig
 - `python3 scripts/check-doc-contract.py` checks the decision outline and prose; it does not prove author approval.
 - `python3 scripts/check-knowledge-closure.py --strict` checks registration closure; it does not prove author approval.
 - `python3 scripts/check-knowledge-index.py` checks record identity and content proofs; independent review checks approval and the actual source delta.
-- `adapter/opencode/lane_capabilities.test.ts` exercises native and nested MCP
+- `bun test adapter/opencode/lane_capabilities.test.ts` exercises direct tool
   denials, worktree targeting, opening-packet identity, single-child binding,
-  agent changes, and attempt retirement.
-- Check-helper verification must prove selection of only recorded executable
-  controls through the existing lease and producer. No ordinary check string
-  may become executable authority.
+  agent changes, attempt retirement, and refusal of the opaque Code Mode
+  `execute` tool. It does not prove nested host-hook admission.
+- `go test ./internal/agent -run '^TestWorkerControl'` exercises the shared
+  signed assertion framing, actual-child policy, revocation, and Product scope.
+- `go test ./internal/store -run '^(TestNativeWorkerControl|TestResolveWorkerControl)'`
+  exercises recorded control resolution, live-attempt joins, child attribution,
+  nonce/lease atomicity, and authorized replay through the existing producer.
+  No ordinary check string may become executable authority.

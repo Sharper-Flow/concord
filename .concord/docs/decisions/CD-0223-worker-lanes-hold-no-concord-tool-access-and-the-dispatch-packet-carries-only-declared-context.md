@@ -11,11 +11,13 @@
 - **Preserves:** CD-0017 D1 to D9 at every other sentence, CD-0005 D6, and the
   coordinator routes every lane's parent already uses
 - **Related:** CD-0017, CD-0020, CD-0043, CD-0102, CD-0193, and [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
-- **Terms:** End-of-file (EOF) marks the end of a source.
+- **Terms:** End-of-file (EOF) marks the end of a source. Git's current commit reference (HEAD) identifies the checkout commit.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
 - **Amendment approval:** The operator approved the bounded-capability
   amendment in-session on 2026-10-17 for [CON-1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
+- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
+  the review-fix amendment in-session.
 - **Supersedes:** [CD-0196](CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md).
 
 ## Context
@@ -40,8 +42,9 @@ a refused or mis-scoped call.
 
 A dispatched worker lane holds no general Concord state-query or mutation
 access. The dispatch packet is its complete Concord context. The host may
-expose bounded capability tools for declared pinned readings and recorded
-executable checks. Those tools add no context inventory or workflow authority.
+expose bounded capability tools for declared pinned readings, scoped review
+diffs, and recorded executable checks. Those tools add no context inventory
+or workflow authority.
 
 1. Generated lane definitions deny every Concord tool unless the closed
    capability mapping explicitly binds it to a capability the lane holds.
@@ -56,11 +59,12 @@ executable checks. Those tools add no context inventory or workflow authority.
    worktree. It cannot call a general Concord operation on the worker's behalf.
 
 3. Every lane definition states that its packet is complete. A pinned-reading
-   capability returns only bytes of an original declared reading. A check
-   capability selects only recorded executable controls. A lane reports missing
-   context or executable backing and fails when the gap blocks its assigned
-   result. Neither capability authorizes a worker transition, verdict,
-   acceptance, approval, or completion.
+   capability returns only bytes of an original declared reading. A diff
+   capability returns only the pinned review delta within the approved job's
+   path scope. A check capability selects only recorded executable controls.
+   A lane reports missing context or executable backing and fails when the gap
+   blocks its assigned result. None of these capabilities authorizes a worker
+   transition, verdict, acceptance, approval, or completion.
 
 The packet carries the one fact lanes still fetched. The workflow law context
 gains `registry_path`, the Domain registry's repository path, when the
@@ -78,6 +82,22 @@ the active attempt and sampled source registrations before returning a page.
 A page carries its source identity, whole-content hash, byte offsets, and EOF.
 No caller-supplied path, ref, packet replacement, or mutable-checkout fallback
 is admitted. A source read creates no workflow or evidence record.
+
+An `inspect_diff` capability reads only the committed delta from the recorded
+dispatch subject of the first editing attempt under the review's contract
+version to the review attempt's pinned subject, on the same claimed worktree. The host verifies exact review HEAD
+and a clean tree before access. The diff is restricted to the recorded
+approved job's path scope. Missing base identity or scope refuses; the host
+never guesses another base or widens to the whole repository.
+
+The worker supplies only a nonnegative byte offset and a page length from
+1 to 4096 bytes. The host supplies both raw commit identities, the held packet,
+the attempt, and literal contained paths. It reads immutable Git objects
+outside SQL and revalidates the active dispatch before returning a page.
+A page carries both commit identities, whole-diff hash, byte offsets, and EOF.
+No worker-supplied path, ref, packet replacement, or mutable-checkout fallback
+is admitted. A diff read creates no workflow or evidence record.
+
 When `inputs.checkpoint` is present, its diagnosis and strategy are
 coordinator directions for the attempt.
 

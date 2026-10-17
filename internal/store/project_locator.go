@@ -160,6 +160,27 @@ func normalizePath(value string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+func checkRemoteCredentials(value string) error {
+	value = strings.TrimSpace(value)
+	credentials := false
+	if strings.Contains(value, "://") {
+		u, err := url.Parse(value)
+		if err != nil {
+			return newFailure(KindInvalidFilter, "project_locator", "git remote is not a supported URL", false, "use a remote URL or scp-style SSH remote")
+		}
+		if u.User != nil {
+			_, password := u.User.Password()
+			credentials = password || strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
+		}
+	} else if user, _, ok := strings.Cut(value, "@"); ok {
+		credentials = strings.Contains(user, ":")
+	}
+	if credentials {
+		return newFailure(KindInvalidFilter, "project_locator", "git remote contains credentials", false, "remove credentials from the remote URL; use a git credential helper")
+	}
+	return nil
+}
+
 func normalizeRemote(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.ContainsRune(value, '\x00') {
@@ -422,6 +443,11 @@ func (s *Store) applyLocatorEvent(ctx context.Context, projectID, kind string, l
 		locator.ID = hex.EncodeToString(raw)
 	}
 	if kind != "project.locator_removed" {
+		if locator.Kind == LocatorGitRemote {
+			if err := checkRemoteCredentials(locator.Value); err != nil {
+				return err
+			}
+		}
 		normalized, err := NormalizeProjectLocator(locator.Kind, locator.Value)
 		if err != nil {
 			return err
@@ -558,6 +584,9 @@ func ResolveProjectHost(ctx context.Context, directory, worktree string, runner 
 	remoteOut, remoteErr := runner.Run(ctx, canonical, "config", "--get", "remote.origin.url")
 	remote := ""
 	if remoteErr == nil && strings.TrimSpace(string(remoteOut)) != "" {
+		if err := checkRemoteCredentials(string(remoteOut)); err != nil {
+			return ResolvedProjectHost{}, err
+		}
 		remote, err = normalizeRemote(string(remoteOut))
 		if err != nil {
 			return ResolvedProjectHost{}, err

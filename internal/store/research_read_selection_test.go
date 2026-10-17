@@ -19,10 +19,8 @@ func TestResearchReadRefusesRevisionAndConsumerOverflow(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				for i, id := range []string{"read-c1", "read-c2"} {
-					if _, err := s.BindResearchConsumer(context.Background(), BindResearchConsumerRequest{Identity: researchIdentity("read-bind-" + id), PackID: p.PackID, Revision: 1, ExpectedVersion: int64(i + 1), Consumer: ResearchConsumer{ConsumerWorkID: id, UseRole: UseContext}}); err != nil {
-						t.Fatal(err)
-					}
+				for _, id := range []string{"read-c1", "read-c2"} {
+					pinResearch(t, s, id, ResearchBindingDeclaration{PackID: p.PackID, Revision: 1, UseRole: UseContext})
 				}
 			}
 			tx, err := beginReadTx(context.Background(), s.db)

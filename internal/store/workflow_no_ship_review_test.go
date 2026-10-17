@@ -212,7 +212,7 @@ func TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses(t *testing.T) {
 	// payload is well-formed: the refusal is the admission's, not the
 	// envelope's.
 	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:no-ship-preflight","delivery_state":"asserted"}`)
-	preflightErr := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
+	preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
 	var failure *Failure
 	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
 		t.Fatalf("preflight record_delivery behind review debt = %v, want the typed fresh-review refusal", preflightErr)

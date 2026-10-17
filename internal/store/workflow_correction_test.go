@@ -2350,7 +2350,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		t.Parallel()
 		const workID = "complete-correction-offshape-admission"
 		fixture := seedOffShapeCompletedInstance(t, workID)
-		err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+		err := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: workID, ActionID: "supersede_contract", Payload: offShapeStaleLawSuccessorPayload(workID), Actor: fixture.owner,
 		})
 		var failure *Failure

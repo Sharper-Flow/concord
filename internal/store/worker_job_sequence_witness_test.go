@@ -51,7 +51,7 @@ func sequenceWitnessRecordJob(t *testing.T, s *Store, workID string, actor Workf
 	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", fields["job_id"], err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 
 	// Only the dependency-free job is selectable now; the successor is
 	// recorded but waits on its exact prerequisite revision.
-	ready, err := s.ReadyWorkerJobRevisions(ctx, workID)
+	ready, err := readyWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	attemptA := "attempt:" + workID + ":first"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptA, nil, fixture.owner, 0, "sequence-a-"+workID, jobA)
 	completeAndAcceptAttempt(t, s, workID, attemptA, lane, acceptor)
-	views, err := s.WorkerJobRevisions(ctx, workID)
+	views, err := readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	}
 	// The exact prerequisite revision's acceptance released the successor and
 	// nothing else.
-	ready, err = s.ReadyWorkerJobRevisions(ctx, workID)
+	ready, err = readyWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	attemptB := "attempt:" + workID + ":second"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
-	views, err = s.WorkerJobRevisions(ctx, workID)
+	views, err = readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,22 +207,22 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 
 	// The rebuild folds the stored chain to identical revision bindings,
 	// accepted result references, and derived readiness.
-	viewsBefore, err := s.WorkerJobRevisions(ctx, workID)
+	viewsBefore, err := readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	readyBefore, err := s.ReadyWorkerJobRevisions(ctx, workID)
+	readyBefore, err := readyWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild from the log: %v", err)
 	}
-	viewsAfter, err := s.WorkerJobRevisions(ctx, workID)
+	viewsAfter, err := readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	readyAfter, err := s.ReadyWorkerJobRevisions(ctx, workID)
+	readyAfter, err := readyWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,4 +324,20 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 	if got := len(workflowStartedEventsAtStep(t, s, workID, "execution")); got != startsBefore {
 		t.Fatalf("the rejection-only escape left %d step windows (before %d), want no dispatch start", got, startsBefore)
 	}
+}
+
+// readyWorkerJobRevisions reads the revisions a dispatcher may select now,
+// through the readiness the projection read derives.
+func readyWorkerJobRevisions(ctx context.Context, q queryer, workID string) ([]WorkerJobRevisionView, error) {
+	all, err := readWorkerJobRevisions(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	ready := []WorkerJobRevisionView{}
+	for _, view := range all {
+		if view.Ready {
+			ready = append(ready, view)
+		}
+	}
+	return ready, nil
 }

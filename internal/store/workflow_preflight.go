@@ -1149,10 +1149,3 @@ func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) erro
 	}
 	return nil
 }
-
-// InspectWorkflowActionAdmission answers whether the named workflow action is
-// admissible against current authority, without advancing the instance. It
-// uses the builtin registry and the same read snapshot as registry preflight.
-func InspectWorkflowActionAdmission(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
-	return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
-}

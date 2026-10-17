@@ -103,7 +103,7 @@ func outsideRepairTerminal() (io.ReadWriteCloser, error) {
 // the ad-hoc branch; no Concord claim, workflow action, or receipt is recorded.
 func runOutsideRepairCommand(raw []byte, s *store.Store, deps outsideRepairDeps, out, errOut io.Writer) (exitCode int) {
 	refuse := func(err error) int {
-		writeOperatorDiagnostic(errOut, "outside-repair", err.Error())
+		writeOperatorDiagnostic(errOut, "outside-repair", diagnosticText(err))
 		return outsideRepairLaunchRefusalExit
 	}
 	var input outsideRepairLaunchInput
@@ -166,7 +166,7 @@ func runOutsideRepairCommand(raw []byte, s *store.Store, deps outsideRepairDeps,
 	}
 	defer func() {
 		if err := terminal.Close(); err != nil && exitCode == 0 {
-			writeOperatorDiagnostic(errOut, "outside-repair", "cannot close host terminal: "+err.Error())
+			writeOperatorDiagnostic(errOut, "outside-repair", "cannot close host terminal: "+diagnosticText(err))
 			exitCode = 1
 		}
 	}()
@@ -238,7 +238,7 @@ func runOutsideRepairCommand(raw []byte, s *store.Store, deps outsideRepairDeps,
 		return code
 	}
 	if err := deps.Exec(ctx, path, argv, env, terminal, terminal, terminal); err != nil {
-		writeOperatorDiagnostic(errOut, "outside-repair", "host execution refused: "+err.Error())
+		writeOperatorDiagnostic(errOut, "outside-repair", "host execution refused: "+diagnosticText(err))
 		return 1
 	}
 	return 0

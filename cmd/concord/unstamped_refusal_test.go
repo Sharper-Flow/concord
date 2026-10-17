@@ -87,6 +87,9 @@ func assertOwnedRefusal(t *testing.T, message, lead, dataRoot, release string) {
 			t.Fatalf("refusal %q must contain %q", message, want)
 		}
 	}
+	if count := strings.Count(message, "recovery: "); count != 1 {
+		t.Fatalf("refusal %q carries %d recovery lines, want one", message, count)
+	}
 }
 
 func unstampedRefusal() *store.Failure {
@@ -98,7 +101,8 @@ func unstampedRefusal() *store.Failure {
 
 // The owner is the installer's record for the data root, labeled as such;
 // a missing link is "none found", and anything the installer layout does not
-// explain is "unknown" with its cause. The recovery line is always present.
+// explain is "unknown" with its cause. The rendered refusal always ends with
+// the recovery line.
 func TestUnstampedRefusalDiagnosticNamesTheInstalledRelease(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -130,11 +134,14 @@ func TestUnstampedRefusalDiagnosticNamesTheInstalledRelease(t *testing.T) {
 			tc.prepare(t, root)
 			refusal := unstampedRefusal()
 			err := unstampedRefusalDiagnostic(refusal, root)
-			message := err.Error()
-			for _, want := range []string{refusal.Error(), fmt.Sprintf(tc.want, root), unstampedRecoveryLine} {
+			message := diagnosticText(err)
+			for _, want := range []string{refusal.Error(), fmt.Sprintf(tc.want, root)} {
 				if !strings.Contains(message, want) {
 					t.Fatalf("diagnostic %q must contain %q", message, want)
 				}
+			}
+			if !strings.HasSuffix(message, "\n"+unstampedRecoveryLine) || strings.Count(message, "recovery: ") != 1 {
+				t.Fatalf("diagnostic %q must end with the one recovery line", message)
 			}
 			var failure *store.Failure
 			if !errors.As(err, &failure) || failure != refusal {
@@ -162,7 +169,7 @@ func TestUnstampedRefusalDiagnosticListsLiveSessions(t *testing.T) {
 		SchemaVersion: 125, Directory: "/workspace/example", RecordedAt: "2026-01-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
-	message := unstampedRefusalDiagnostic(unstampedRefusal(), root).Error()
+	message := diagnosticText(unstampedRefusalDiagnostic(unstampedRefusal(), root))
 	want := fmt.Sprintf("live session(s) on this data root: pid %d holds /releases/v9.9.8 at schema version 125, directory /workspace/example", os.Getpid())
 	if !strings.Contains(message, want) || !strings.Contains(message, "owning release: none found") {
 		t.Fatalf("diagnostic %q must list the live session beside the owner", message)
@@ -171,18 +178,9 @@ func TestUnstampedRefusalDiagnosticListsLiveSessions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(hostlease.Directory(root), "stray"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	message = unstampedRefusalDiagnostic(unstampedRefusal(), root).Error()
+	message = diagnosticText(unstampedRefusalDiagnostic(unstampedRefusal(), root))
 	if !strings.Contains(message, "live session(s) on this data root: unknown (") || !strings.Contains(message, unstampedRecoveryLine) {
 		t.Fatalf("an unreadable lease directory must keep the recovery line: %q", message)
-	}
-}
-
-// A refusal about a store outside the data root names no owner: restore
-// refuses a backup file, which no installed release manages.
-func TestUnstampedRefusalDiagnosticWithoutDataRootNamesRecoveryOnly(t *testing.T) {
-	message := unstampedRefusalDiagnostic(unstampedRefusal(), "").Error()
-	if strings.Contains(message, "owning release") || strings.Contains(message, "live session") || !strings.Contains(message, unstampedRecoveryLine) {
-		t.Fatalf("diagnostic %q must carry the recovery line only", message)
 	}
 }
 
@@ -205,12 +203,13 @@ func TestUnstampedRefusalNamesTheOwnerOnEveryRoute(t *testing.T) {
 		lead  string
 		route func(t *testing.T, path string) string
 	}{
-		{"open", unstampedRefusalLead, func(t *testing.T, path string) string {
-			_, err := openStoreForCommand(context.Background(), path)
-			if err == nil {
-				t.Fatal("unstamped open of a release-owned store succeeded")
+		{"open", unstampedRefusalLead, func(t *testing.T, _ string) string {
+			var out, errOut bytes.Buffer
+			input := fmt.Sprintf(`{"destination":%q}`, filepath.Join(t.TempDir(), "snapshot.db"))
+			if code := runWithInput([]string{"backup"}, strings.NewReader(input), &out, &errOut); code != 1 {
+				t.Fatalf("unstamped open of a release-owned store = %d %s, want a refusal", code, &errOut)
 			}
-			return err.Error()
+			return errOut.String()
 		}},
 		{"upgrade", unstampedRefusalLead, func(t *testing.T, _ string) string {
 			code, _, errOut := runUpgradeStdin(t, `{}`)
@@ -330,7 +329,7 @@ func TestUnstampedRestoreRefusalNamesRecoveryOnly(t *testing.T) {
 		t.Fatalf("unstamped restore of an older snapshot = %d %s, want a refusal", code, &errOut)
 	}
 	message := errOut.String()
-	if !strings.Contains(message, unstampedRefusalLead) || !strings.Contains(message, unstampedRecoveryLine) || strings.Contains(message, "owning release") {
-		t.Fatalf("restore refusal %q must carry the recovery line and no owner", message)
+	if !strings.Contains(message, unstampedRefusalLead) || strings.Count(message, unstampedRecoveryLine) != 1 || strings.Count(message, "recovery: ") != 1 || strings.Contains(message, "owning release") {
+		t.Fatalf("restore refusal %q must carry one recovery line and no owner", message)
 	}
 }

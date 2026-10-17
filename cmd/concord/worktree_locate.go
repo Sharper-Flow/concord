@@ -41,7 +41,7 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		Ref       string `json:"ref"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
+		writeOperatorDiagnostic(errOut, "worktree-locate", diagnosticText(err))
 		return 1
 	}
 	if request.ProjectID == "" || request.WorkID == "" {
@@ -55,7 +55,7 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 
 	location, err := s.LocateWorktree(ctx, request.ProjectID, request.WorkID, request.Ref)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
+		writeOperatorDiagnostic(errOut, "worktree-locate", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, location, errOut)

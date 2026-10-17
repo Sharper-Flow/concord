@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -130,6 +131,50 @@ def test_wisdom_maps_to_the_contract() -> None:
             "recorded_at": "2026-05-26T17:16:31.500Z",
         }
     ], entries
+
+
+class RecordingReader:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self.closed = False
+
+    def call(self, tool: str, arguments: dict) -> dict:
+        self.calls.append((tool, arguments))
+        return {"wisdom": [], "count": 0}
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_harvest_reaches_the_predecessor_only_through_sanctioned_reads() -> None:
+    """The harvest invokes the status read and the wisdom read, and nothing else."""
+    commands: list[tuple[list[str], Path]] = []
+    readers: list[RecordingReader] = []
+
+    def fake_run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        commands.append((argv, kwargs["cwd"]))
+        payload = {"live": True, "counts": {"archived": 1}, "changes": [change()]}
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
+
+    def fake_reader(command: str, project_dir: Path) -> RecordingReader:
+        reader = RecordingReader()
+        readers.append(reader)
+        return reader
+
+    original_run, original_reader = harvest.subprocess.run, harvest.McpReader
+    harvest.subprocess.run = fake_run
+    harvest.McpReader = fake_reader
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            project_dir = Path(directory)
+            harvest.harvest_project("example-project", project_dir, harvest.MCP_COMMAND)
+    finally:
+        harvest.subprocess.run = original_run
+        harvest.McpReader = original_reader
+    assert commands == [(["adv", "status", "--json"], project_dir)], commands
+    assert len(readers) == 1, readers
+    assert readers[0].calls == [("wisdom_list", {"project_only": True})], readers[0].calls
+    assert readers[0].closed, "the harvest must close the read surface"
 
 
 def snapshot_with(project: dict) -> dict:

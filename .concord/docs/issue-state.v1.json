@@ -1,14 +1,16 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-10-15T22:22:21Z",
+  "generated_at": "2026-10-17T05:31:03.142392Z",
+  "linear_read_at": {
+    "CON-1063": "2026-10-17T05:30:04.999Z",
+    "CON-1064": "2026-10-17T05:30:07.779Z",
+    "CON-1065": "2026-10-17T05:30:08.606Z",
+    "CON-981": "2026-10-17T05:30:09.551Z"
+  },
   "issues": {
-    "CON-1001": "open",
-    "CON-1002": "open",
-    "CON-1003": "open",
-    "CON-24": "open",
-    "CON-33": "open",
-    "CON-34": "open",
-    "CON-773": "open",
-    "CON-797": "closed"
+    "CON-1063": "open",
+    "CON-1064": "open",
+    "CON-1065": "open",
+    "CON-981": "open"
   }
 }

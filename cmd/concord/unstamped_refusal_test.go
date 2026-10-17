@@ -56,7 +56,7 @@ func removeNewestManifestRow(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version = (SELECT max(version) FROM schema_migrations)`); err != nil {
+	if err := rewindMigrationTail(db, 0, false); err != nil {
 		t.Fatalf("cannot remove the newest manifest row: %v", err)
 	}
 }

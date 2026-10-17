@@ -6,20 +6,22 @@
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module `github.com/sharper-flow/concord`.
-> **Canonical priorities:** [`priorities.md`](./priorities.md)
+> **Goals and conflict rules:** [`goals.md`](./goals.md)
+> **Operating envelope and standing law:** [`priorities.md`](./priorities.md)
 
-Concord is a **Product-law-first, agent-native planning and coordination
-surface** for one operator and many concurrent local AI agents working on one
-machine. Product → Domain architecture binds specifications, work, and evidence
-so independently clean changes cannot silently enact contradictory Product
-truth. Concord is vision-led, not Advance-led: its operating envelope, ranked
-priorities, and quality governance are defined in [`priorities.md`](./priorities.md).
+Concord is a set of tools and infrastructure for one operator and many
+concurrent local AI agents working on one machine. It uses OpenCode to
+coordinate agent-led development of software Products. Product → Domain
+architecture binds specifications, work, and evidence so independently clean
+changes cannot silently enact contradictory Product truth. Its goals and conflict
+rules are in [`goals.md`](./goals.md); its operating envelope and standing law
+are in [`priorities.md`](./priorities.md).
 
 ---
 
 ## How to read this set
 
-1. Start with [`priorities.md`](./priorities.md) for the operating envelope, ranked priorities, and the predecessor relationship.
+1. Start with [`goals.md`](./goals.md) for the goals, their measures, and the conflict rules, then [`priorities.md`](./priorities.md) for the operating envelope and the standing law.
 2. Read [`design-constraints.md`](./design-constraints.md) for the hard boundaries that shape architecture.
 3. Read [`core-architecture.md`](./core-architecture.md) for the Go-core direction, state authority (CD-0002: SQLite sole authority), and consolidated resilience invariants.
 4. Read [`clarifications.md`](./clarifications.md) for accepted decisions and the
@@ -32,8 +34,9 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 
 | Document | What it owns |
 |---|---|
-| [`priorities.md`](./priorities.md) | Ranked priorities, operating envelope, Advance relationship, quality governance, open questions. **This file is the authority.** |
-| [`floor-readiness.md`](./floor-readiness.md) + [`floor-readiness.v1.json`](./floor-readiness.v1.json) | **Authorizing readiness record:** validated per-item state of every first-usable floor condition, distinguishing satisfied, outstanding, unmeasured, and out-of-scope. |
+| [`goals.md`](./goals.md) | The operator's goals, their measures, the conflict rules, and the constraints. **Accepted law, ranked first.** |
+| [`priorities.md`](./priorities.md) | Operating envelope and the standing law that serves each goal. **Authority after [`goals.md`](./goals.md).** |
+| [`floor-readiness.md`](./floor-readiness.md) + [`floor-readiness.v1.json`](./floor-readiness.v1.json) | **History:** the first-usable floor, recorded satisfied on 2026-09-01, with the validated per-item state of each condition. |
 | [`knowledge/coverage/`](./knowledge/coverage/) | **Authorizing coverage record:** how each indexed law record is proved, by typed anchor rather than by repository path; an indexed record the shards omit is a validator finding (CD-0047). One shard per record; readers compose the record through `scripts/knowledge_index.py` (CD-0114). |
 | [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0047). |
 | [`predecessor-operational-coverage.md`](./predecessor-operational-coverage.md) | **Authorizing for floor condition 6:** predecessor operational territory enumerated by outcome; the fc6 bar is covered-with-evidence or excluded-with-reason, with nothing left not covered (see `floor-readiness.v1.json`). |
@@ -145,83 +148,17 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 
 ## Current status
 
-Concord is a **clean, simplicity-first rewrite** of Advance. Advance is a
-**predecessor**, not a prerequisite: its state-model failures (documented in
-[`advance-postmortem.md`](./advance-postmortem.md)) are Concord's founding
-anti-pattern evidence, not a gate Concord waits on. The recurring root cause
-across Advance's 2026-08-02→08-05 failure cluster is **split state authority**
-between Temporal and a disk projection plus the reconciliation machinery around
-it; that shape is what Concord's design structurally prevents.
+Concord's own development runs outside the Concord workflow until the sized
+workflow takes a small change from start to merge queue in one hour or less
+([`goals.md`](./goals.md) §2). Until then, pull requests, required checks, and
+an independent review carry quality, and law and Domain changes land in Git
+through those pull requests.
+[`CD-0122`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md)
+permits that outside work.
 
-> **Operator decision (2026-08-05).** Advance is reclassified from a
-> stabilization prerequisite to a predecessor / anti-pattern source. The
-> "Concord implementation may begin only when Advance is healthy" gating model
-> is **retired**. [`rollout-plan.md`](./rollout-plan.md) §3/§5 and the
-> "Advance healthy" subset alias are retained as historical record and lesson
-> evidence, not as active gates.
->
-> **Operator decision (2026-09-01, issue #685).** The replacement-ready floor is
-> satisfied. [`floor-readiness.v1.json`](./floor-readiness.v1.json) records 40
-> satisfied conditions, zero outstanding, zero unmeasured, and one item out of
-> scope (`fc3-lane-behavioral-evals`, retired by CD-0058); the last open
-> condition closed on 2026-08-22 when 5e3b900 (issue #373) proved the launcher
-> S2 Domain panel against a real store. Both maturity rungs hold:
-> [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
-> [`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
-> carry no outstanding item.
-
-CD-0002/CD-0003 remain the accepted storage baseline as narrowed by PM2 and PM3:
-**one global local SQLite authority** holds one generic authoritative event log
-plus explicit typed Product-memory projections. PM3 supersedes CD-0003 D1's
-generic materialized `entities` spine; PM4 fixes lifecycle and work-relation
-semantics; PM5 fixes membership and cross-Product scope. **The PM1–PM5 storage
-build-authorizing sequence is complete; the storage acceptance slice may begin after
-the public bootstrap snapshot is tagged and the accepted development-authority rules
-are in force.**
-PM6 fixes canonical durable-note
-placement; accepted PM7 fixes projection retention; accepted PM8 excludes WIP-byte
-storage and generic screenshot requirements; accepted PM9 rejects a separate exhaust
-receipt; accepted PM10 defines SQLite/Git disaster recovery. **TS1–TS9 are accepted
-and consolidated by CD-0005; adapter/tool scaffolding may begin and pre-go-live
-changes remain subject to the deterministic TS9 evidence contract.** C15 now fixes managed resources; the
-Product-row glance retired with its read, and its contract is deleted (CD-0224). Storage tables and Go CLI
-commands do not automatically become tools.
-CD-0006 fixes Concord's root Product policy and accepts workflow composition,
-concrete C16 obligations, and structural cross-workflow impact propagation.
-CD-0007 fixes the public repository bootstrap, governance, release/install,
-platform/privacy, workflow/conformance, and skill boundaries. CD-0089 supersedes
-CD-0010's self-hosting prohibition: Concord owns its development workflow.
-CD-0213 makes Linear MCP the sole planning authority without changing repository
-review, merge, or managed execution authority. CD-0122 limits Concord workflow authority
-to explicit participation and preserves outside-work repair and host roles.
-CD-0012 gives Priority 3's *intent fidelity* and *no silent drift* attributes a mechanism,
-extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
-end-state required for delivery: a delivered outcome weaker than the approved one fails,
-and work discovered mid-execution forward-links rather than substituting.
-CD-0016 gives Priority 4's continuity requirement a durable mechanism: bounded
-workflow checkpoints and boundaries, pinned state derived from authority, and a
-canonical continuity read. Summary prose is never an authority source, and
-typed-agent restart remains unavailable until issue #120.
-CD-0222 makes Product law and architectural concordance Priority 1. It replaces
-opaque component authority with canonical Domains, binds Product-changing work
-to exact Domain/law footprints, requires version-pinned resolution for concurrent
-Domain overlap, and retains CD-0002/
-CD-0011 SQLite authority. Its runtime mechanisms are implemented and verified in
-[`floor-readiness.v1.json`](./floor-readiness.v1.json); the constitutional record
-itself carries no floor claim.
-CD-0042 amends the pre-go-live agent-surface path: the generated manifest digest is
-the only current identity, obsolete compatibility machinery is removed, and first
-go-live must define any future compatibility and measurement law.
-The ordered decisions, current non-authorizing leans, evidence plans,
-dependencies, and decision artifacts live in
-[`clarifications.md`](./clarifications.md) under the Product-memory and minimal
-tool-surface backlogs. Planning and source-backed research may continue.
-Storage/core and agent-tool scaffolding may begin after the constitutional snapshot
-is tagged and the accepted development-authority rules are in force.
-Benchmarks, PoCs, and performance/crash harnesses are
-implementation-acceptance evidence after the relevant decisions are accepted—not
-architecture-decision prerequisites.
-
----
-
-*Concord is a direction, not a deadline. Each phase earns the next through evidence, not calendar pressure.*
+The first-usable floor was recorded satisfied on 2026-09-01.
+[`floor-readiness.md`](./floor-readiness.md) keeps its definition and state as
+history. Both maturity rungs hold:
+[`maturity-readiness.v1.json`](./maturity-readiness.v1.json) (alpha) and
+[`maturity-readiness.beta.v1.json`](./maturity-readiness.beta.v1.json) (beta)
+carry no outstanding item.

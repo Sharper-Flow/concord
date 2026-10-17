@@ -1,23 +1,38 @@
 # Concord first-usable floor readiness
 
-The tracked [`floor-readiness.v1.json`](./floor-readiness.v1.json) is the
-authorizing record of Concord's distance from the first-usable floor. The
+The tracked [`floor-readiness.v1.json`](./floor-readiness.v1.json) records the
+validated state of each first-usable floor condition. The
 companion [`floor-readiness.schema.json`](../../contracts/floor-readiness.schema.json)
 is the closed JSON Schema contract, and `scripts/check-floor-readiness.py`
 validates the manifest on every CI run through `scripts/check-json.py`.
 
-The floor itself is defined in two documents:
-[`priorities.md`](./priorities.md) under *First-usable floor* (the six
-usability-floor conditions) and [`rollout-plan.md`](./rollout-plan.md) under
-*Release-evidence bar* (the release/install/privacy/Linux amd64 bar this
-manifest names `fc7`). A condition may carry its own `source`, overriding the
-manifest-level default.
+The floor itself is defined in two places: the *First-usable floor* section
+below (the six usability-floor conditions) and
+[`rollout-plan.md`](./rollout-plan.md) under *Release-evidence bar* (the
+release/install/privacy/Linux amd64 bar this manifest names `fc7`). A condition
+may carry its own `source`, overriding the manifest-level default.
 
 The manifest copies its conditions and never redefines them. That was previously
 an assertion; the checker now enforces it, requiring each condition's title to
 equal the first sentence of the corresponding item in its source section, one to
 one and in order. A dropped, added, reordered, or reworded condition fails, and a
 source section that cannot be resolved fails rather than passing vacuously.
+
+## First-usable floor
+
+This section is history. The operator recorded the floor satisfied on
+2026-09-01. CI still validates the manifest, and the alpha rung of
+[`maturity-readiness.v1.json`](./maturity-readiness.v1.json) requires the floor
+to stay met. Concord's current direction is in [`goals.md`](./goals.md) and
+[`priorities.md`](./priorities.md). The six conditions below keep their
+original words because the manifest copies their titles.
+
+1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
+2. Agents can read, write, and execute within that Product and Domain context through tools.
+3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
+4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
+5. Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution).
+6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
 ## Why it is a manifest
 
@@ -65,8 +80,8 @@ python3 scripts/check-floor-readiness.py
 It is an instrument, not a plan. It records state and does not sequence work,
 assign effort, set dates, or authorize implementation. Nothing about the
 manifest alone constitutes a replacement-readiness claim: a claim requires every
-condition satisfied, and satisfaction is judged against
-[`priorities.md`](./priorities.md), not against this file.
+condition satisfied, and satisfaction is judged against each condition's
+source section, not against the manifest.
 
 It does not replace [`feature-inventory.md`](./feature-inventory.md). That
 document remains a non-authorizing capability-evidence map organized by

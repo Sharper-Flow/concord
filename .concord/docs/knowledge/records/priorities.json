@@ -9,7 +9,7 @@
   "id": "priorities",
   "kind": "constitution",
   "path": ".concord/docs/priorities.md",
-  "product_wide_rationale": "The sole canonical source of ranked Product priorities and the operating envelope. Every Domain defers to it, and it ranks work across all of them.",
+  "product_wide_rationale": "The sole canonical source of the operating envelope; it also states the standing law that serves Concord's goals. Every Domain defers to it, after goals.md.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d2ddb8a8fbbf149cbfac3c48bcdab14dcbe1215fdac9afabdbf8283fbd12158f",
+  "sha256": "sha256:4987302782bc203e39ef573522211b5550e955e08efe79040f07cc67f3c5ddee",
   "status": "accepted",
-  "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
+  "summary": "Sole canonical source for the one-operator operating envelope, and the standing law that serves the goals in goals.md; a cited decision record stays the authority for what it decides. goals.md ranks first and holds the goals and the conflict rules. Where a companion document contradicts Concord's direction, goals.md wins, then this file.",
   "tags": [
     "priorities",
     "envelope",

@@ -51,12 +51,9 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 	return takeoverFixture{s: s, service: service, privateKey: privateKey, owner: owner, ownerGrant: grant, other: other, otherGrant: otherGrant}
 }
 
-func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string, approvalRef string) (Envelope, map[string]any) {
+func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) (Envelope, map[string]any) {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": actionID, "fields": map[string]any{}, "idempotency_key": key}
-	if approvalRef != "" {
-		input["approval"] = map[string]any{"approval_ref": approvalRef}
-	}
 	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry()), input
 }
 
@@ -90,12 +87,12 @@ func actorRefOf(grant Authority) string {
 func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start", ""); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	ownerRef := actorRefOf(f.ownerGrant)
 
-	challenge, input := f.action(t, f.other, "start_execution", "other-start", "")
+	challenge, input := f.action(t, f.other, "start_execution", "other-start")
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		epoch, actor := latestExecutionStart(t, f.s)
 		t.Fatalf("unapproved takeover = outcome %s error %+v (latest epoch %d actor %s), want approval_required", challenge.Outcome, challenge.Error, epoch, actor)
@@ -117,10 +114,10 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 		t.Fatalf("approved takeover epoch %d actor %s, want epoch 2 held by the taker", epoch, actor)
 	}
 	// Criterion 21: the superseded holder's epoch no longer writes.
-	if stale, _ := f.action(t, f.owner, "checkpoint_execution", "owner-stale-checkpoint", ""); stale.Error == nil || stale.Error.Kind != "unauthorized" {
+	if stale, _ := f.action(t, f.owner, "checkpoint_execution", "owner-stale-checkpoint"); stale.Error == nil || stale.Error.Kind != "unauthorized" {
 		t.Fatalf("superseded holder checkpoint = %+v, want unauthorized", stale.Error)
 	}
-	if current, _ := f.action(t, approvedEnv, "checkpoint_execution", "taker-checkpoint", ""); current.Outcome != OutcomeOK {
+	if current, _ := f.action(t, approvedEnv, "checkpoint_execution", "taker-checkpoint"); current.Outcome != OutcomeOK {
 		t.Fatalf("taker checkpoint: %+v", current.Error)
 	}
 }
@@ -128,16 +125,16 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start", ""); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	challenge, input := f.action(t, f.other, "start_execution", "other-start", "")
+	challenge, input := f.action(t, f.other, "start_execution", "other-start")
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved takeover = %+v, want approval_required", challenge.Error)
 	}
 	// The holder restarts its own attempt after the challenge, so the
 	// approval names an epoch that is no longer held.
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart", ""); restart.Outcome != OutcomeOK {
+	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != OutcomeOK {
 		t.Fatalf("owner restart: %+v", restart.Error)
 	}
 	approved := cloneWithApproval(t, input, challenge.Error.Details["approval_ref"].(string))
@@ -162,10 +159,10 @@ func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start", ""); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	challenge, input := f.action(t, f.other, "start_execution", "other-start", "")
+	challenge, input := f.action(t, f.other, "start_execution", "other-start")
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved takeover = %+v, want approval_required", challenge.Error)
 	}
@@ -201,10 +198,10 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start", ""); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart", ""); restart.Outcome != OutcomeOK {
+	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != OutcomeOK {
 		t.Fatalf("holder restart = %+v, want ok without approval", restart.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.ownerGrant) {
@@ -218,14 +215,14 @@ func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start", ""); first.Outcome != OutcomeOK {
+	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": "/repo-wt", "destination_directory": "/repo"})
 	if err := store.ApplyOperation(context.Background(), f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
-	if handoff, _ := f.action(t, f.other, "start_execution", "other-start", ""); handoff.Outcome != OutcomeOK {
+	if handoff, _ := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != OutcomeOK {
 		t.Fatalf("start after the holder vacated = %+v, want ok without approval", handoff.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.otherGrant) {

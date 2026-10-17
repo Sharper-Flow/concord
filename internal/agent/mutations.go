@@ -927,6 +927,29 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // version of zero is the absence of a contract, not a version: pre-contract
 // retries bind the attempt identity, the attempt epoch, and the work version,
 // and the contract key travels only when a contract is pinned.
+// supersededAttemptBindings reads the attempt a fenced action would
+// supersede and binds it into the approval challenge. A worker dispatch after
+// a failed attempt below the convergence wall binds that failed attempt
+// (CD-0148); the store checks escalated convergence at dispatch. Any other
+// fenced start over an attempt another actor holds binds the held holder and
+// epoch (CD-0013 criterion 25).
+func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.DefinitionRegistry, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowRetryApprovalBinding, *store.WorkflowStartTakeover, error) {
+	if action.ID == "dispatch_worker" {
+		binding, err := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, workID)
+		return binding, nil, err
+	}
+	if !store.WorkflowActionOpensHeldAttempt(action) {
+		return nil, nil, nil
+	}
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	if err != nil || takeover == nil {
+		return nil, nil, err
+	}
+	scope["held_attempt_holder"] = takeover.HolderActorRef
+	versions["held_attempt_epoch"] = takeover.HeldEpoch
+	return nil, takeover, nil
+}
+
 func applyRetryApprovalBinding(scope map[string]any, versions map[string]any, binding *store.WorkflowRetryApprovalBinding) int64 {
 	scope["failed_attempt_id"] = binding.FailedAttemptID
 	versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch
@@ -1101,24 +1124,19 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		contractVersion = version
 		versions["contract"] = contractVersion
 	}
-	retryApproval := false
-	if in.ActionID == "dispatch_worker" {
-		binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, in.WorkID)
-		if bindingErr != nil {
-			return failureEnvelope(base, bindingErr), nil
-		}
-		if binding != nil {
-			// Only failed retries below the convergence wall need an exact
-			// approval. The store checks escalated convergence at dispatch.
-			retryApproval = true
-			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
-		}
+	retryBinding, takeover, err := r.supersededAttemptBindings(ctx, registry, action, in.WorkID, grant, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	retryApproval := retryBinding != nil
+	if retryApproval {
+		contractVersion = applyRetryApprovalBinding(scope, versions, retryBinding)
 	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
 	}
-	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval
+	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval || takeover != nil
 	// Approval admission uses the same execution history as the store's
 	// self-evaluation refusal, including execution before lease rotation.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
@@ -1214,7 +1232,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1256,7 +1274,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval || takeover != nil})
 			if err != nil {
 				return err
 			}
@@ -5220,7 +5238,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

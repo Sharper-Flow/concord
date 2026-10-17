@@ -149,6 +149,7 @@ class RecordingReader:
 def test_harvest_reaches_the_predecessor_only_through_sanctioned_reads() -> None:
     """The harvest invokes the status read and the wisdom read, and nothing else."""
     commands: list[tuple[list[str], Path]] = []
+    surfaces: list[tuple[str, Path]] = []
     readers: list[RecordingReader] = []
 
     def fake_run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -157,6 +158,7 @@ def test_harvest_reaches_the_predecessor_only_through_sanctioned_reads() -> None
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
 
     def fake_reader(command: str, project_dir: Path) -> RecordingReader:
+        surfaces.append((command, project_dir))
         reader = RecordingReader()
         readers.append(reader)
         return reader
@@ -172,6 +174,7 @@ def test_harvest_reaches_the_predecessor_only_through_sanctioned_reads() -> None
         harvest.subprocess.run = original_run
         harvest.McpReader = original_reader
     assert commands == [(["adv", "status", "--json"], project_dir)], commands
+    assert surfaces == [(harvest.MCP_COMMAND, project_dir)], surfaces
     assert len(readers) == 1, readers
     assert readers[0].calls == [("wisdom_list", {"project_only": True})], readers[0].calls
     assert readers[0].closed, "the harvest must close the read surface"

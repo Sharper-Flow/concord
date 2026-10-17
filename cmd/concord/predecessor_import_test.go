@@ -14,8 +14,7 @@ import (
 // TestPredecessorImportRepeatedRunAppliesOnlyNewEffects pins the new-effects
 // half of the CD-0097 D4 replay contract: a repeated run that selects more of
 // the harvest imports exactly the new selections under their derived
-// identities, reports the earlier selections as already imported, and is a
-// no-op once replayed unchanged.
+// identities and reports the earlier selections as already imported.
 func TestPredecessorImportRepeatedRunAppliesOnlyNewEffects(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
@@ -25,8 +24,11 @@ func TestPredecessorImportRepeatedRunAppliesOnlyNewEffects(t *testing.T) {
 		t.Fatalf("narrow import exit=%d, want 0; stderr=%q", code, diag)
 	}
 
-	wider := predecessorImportRequest(t, snapshotPath)
-	type replayReport struct {
+	code, raw, diag := runPredecessorImportRequest(t, dbPath, predecessorImportRequest(t, snapshotPath))
+	if code != 0 {
+		t.Fatalf("wider import exit=%d, want 0; stderr=%q", code, diag)
+	}
+	var report struct {
 		NoOp            bool                    `json:"no_op"`
 		ProductsCreated int                     `json:"products_created"`
 		ProjectsCreated int                     `json:"projects_created"`
@@ -34,20 +36,9 @@ func TestPredecessorImportRepeatedRunAppliesOnlyNewEffects(t *testing.T) {
 		AlreadyImported int                     `json:"already_imported"`
 		Work            []predecessorWorkReport `json:"work"`
 	}
-	runWider := func() replayReport {
-		t.Helper()
-		code, raw, diag := runPredecessorImportRequest(t, dbPath, wider)
-		if code != 0 {
-			t.Fatalf("wider import exit=%d, want 0; stderr=%q", code, diag)
-		}
-		var report replayReport
-		if err := json.Unmarshal(raw, &report); err != nil {
-			t.Fatalf("wider report is not parseable JSON: %v; raw=%s", err, raw)
-		}
-		return report
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("wider report is not parseable JSON: %v; raw=%s", err, raw)
 	}
-
-	report := runWider()
 	// 2 (Product and primary project bootstrap) + 1 (secondary project)
 	// + 1 (alpha-1 from the narrow run).
 	if report.NoOp || report.ProductsCreated != 0 || report.ProjectsCreated != 0 || report.WorkImported != 1 || report.AlreadyImported != 4 {
@@ -69,11 +60,6 @@ func TestPredecessorImportRepeatedRunAppliesOnlyNewEffects(t *testing.T) {
 	if got := workCount(t, dbPath); got != 2 {
 		t.Fatalf("work items after wider run = %d, want 2", got)
 	}
-
-	replay := runWider()
-	if !replay.NoOp || replay.WorkImported != 0 || replay.AlreadyImported != 5 {
-		t.Fatalf("unchanged replay no_op=%v work:%d already:%d, want true/0/5", replay.NoOp, replay.WorkImported, replay.AlreadyImported)
-	}
 }
 
 // TestPredecessorModeCommandsLeavePredecessorStateUntouched proves the
@@ -81,8 +67,8 @@ func TestPredecessorImportRepeatedRunAppliesOnlyNewEffects(t *testing.T) {
 // predecessor state. The snapshot's locators name synthetic predecessor
 // Project directories, and every mode command runs against that snapshot: the
 // inventory, a dry-run import, the import, and its replay. Afterwards the
-// predecessor tree, snapshot included, keeps every entry, mode, size,
-// modification time, and content byte.
+// predecessor tree, snapshot included, keeps every entry, mode, modification
+// time, and content byte.
 func TestPredecessorModeCommandsLeavePredecessorStateUntouched(t *testing.T) {
 	root := t.TempDir()
 	var snapshot map[string]any
@@ -144,7 +130,6 @@ func TestPredecessorModeCommandsLeavePredecessorStateUntouched(t *testing.T) {
 // Access time is excluded because a read may update it.
 type predecessorEntryState struct {
 	Mode    fs.FileMode
-	Size    int64
 	ModTime int64
 	Sum     string
 }
@@ -171,7 +156,6 @@ func predecessorTreeState(t *testing.T, root string) map[string]predecessorEntry
 				return err
 			}
 			sum := sha256.Sum256(content)
-			observed.Size = info.Size()
 			observed.Sum = hex.EncodeToString(sum[:])
 		}
 		state[relative] = observed

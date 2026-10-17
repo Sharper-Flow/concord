@@ -213,6 +213,57 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         findings = telemetry.compare(regressed, baseline_path, 0.0)
         self.assertTrue(findings and "concord_work_define" in findings[0])
 
+    def test_written_baseline_records_measurement_method(self) -> None:
+        document = self.document()
+        self.assertIsInstance(document.get("method_version"), str)
+        self.assertTrue(document["method_version"])
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(document, baseline_path)
+        self.assertEqual(json.loads(baseline_path.read_text())["method_version"], document["method_version"])
+        self.assertEqual(telemetry.compare(document, baseline_path, 0.0), [])
+
+    def test_compare_refuses_unknown_measurement_methods(self) -> None:
+        self.add(*refusal("concord_work_define", "invalid_input"))
+        document = self.document()
+        baseline_path = self.shard / "baseline.json"
+        for method in (None, "older-method", 1, True):
+            with self.subTest(method=method):
+                recorded = dict(document)
+                if method is None:
+                    recorded.pop("method_version", None)
+                else:
+                    recorded["method_version"] = method
+                telemetry.write_baseline(recorded, baseline_path)
+                original = baseline_path.read_bytes()
+                with self.assertRaisesRegex(SystemExit, "incomparable.*--write-baseline"):
+                    telemetry.compare(document, baseline_path, 1.0)
+                self.assertEqual(baseline_path.read_bytes(), original)
+
+    def test_cli_reports_incomparable_baseline_not_regression(self) -> None:
+        self.add(*refusal("concord_work_define", "invalid_input"))
+        recorded = self.document()
+        recorded.pop("method_version", None)
+        recorded["measures"]["invalid_input"]["concord_work_define"]["rate"] = 0.0
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(recorded, baseline_path)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--shard", str(self.shard), "--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomparable", result.stderr)
+        self.assertNotIn("agent-reliability regression:", result.stdout + result.stderr)
+
+    def test_execute_regression_and_tolerance_with_matching_method(self) -> None:
+        self.add(*tool_part("execute", "completed"))
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(self.document(), baseline_path)
+        self.add(*tool_part("execute", "error", "unknown tool"))
+        document = self.document()
+        findings = telemetry.compare(document, baseline_path, 0.0)
+        self.assertEqual(findings, ["execute guess rate 0.5 above baseline 0.0"])
+        self.assertEqual(telemetry.compare(document, baseline_path, 0.5), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,25 +229,91 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 		t.Fatalf("open raw: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version >= 111`); err != nil {
-		t.Fatalf("cannot remove the manifest tail: %v", err)
+	if err := rewindMigrationTail(db, 111, unpoison); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A zero floor selects only the newest manifest row. Poisoned fixtures keep
+// schema objects; clean reapplication requires an explicit entry for every step.
+func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if from == 0 {
+		if err := tx.QueryRow(`SELECT coalesce(max(version),0) FROM schema_migrations`).Scan(&from); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.Query(`SELECT version FROM schema_migrations WHERE version >= ? ORDER BY version DESC`, from)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	var versions []int
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return err
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if unpoison {
-		for _, statement := range []string{
-			`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
-			`ALTER TABLE project_locators DROP COLUMN normalization_version`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`,
-			`DROP TRIGGER native_oracle_plan_pair_insert`,
-			`DROP TRIGGER native_oracle_plan_pair_update`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
-			`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
-			`DROP TABLE outside_repair_reconciliations`,
-			`DROP TABLE outside_repair_dispositions`,
-			// Restore the pre-117 column set and CHECK while retaining every row.
-			// DROP COLUMN alone leaves the widened instance_state constraint.
-			`CREATE TABLE workflow_instances_before_outside_repair (
+		for _, version := range versions {
+			if _, ok := migrationTailReversals[version]; !ok {
+				return fmt.Errorf("missing fixture reversal for migration %d", version)
+			}
+		}
+		for _, version := range versions {
+			for _, statement := range migrationTailReversals[version] {
+				if _, err := tx.Exec(statement); err != nil {
+					return fmt.Errorf("cannot unpoison migration %d with %q: %w", version, statement, err)
+				}
+			}
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE version >= ?`, from); err != nil {
+		return fmt.Errorf("cannot remove the manifest tail: %w", err)
+	}
+	return tx.Commit()
+}
+
+var migrationTailReversals = map[int][]string{
+	// Rebuild-only steps replace their own tables when reapplied.
+	111: nil,
+	119: nil,
+	126: nil,
+	129: {
+		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
+	},
+	128: {
+		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
+	},
+	127: {
+		`ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`,
+	},
+	125: {
+		`DROP TRIGGER native_oracle_plan_pair_insert`,
+		`DROP TRIGGER native_oracle_plan_pair_update`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
+		`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
+	},
+	121: {
+		`DROP TABLE outside_repair_reconciliations`,
+		`DROP TABLE outside_repair_dispositions`,
+		// Restore the pre-121 column set and CHECK while retaining every row.
+		// DROP COLUMN alone leaves the widened instance_state constraint.
+		`CREATE TABLE workflow_instances_before_outside_repair (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,
     definition_version INTEGER NOT NULL,
@@ -277,43 +343,61 @@ CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work
 CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`DROP TABLE product_knowledge_sources`,
-			`DROP TABLE law_cross_source_relations`,
-			`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
-			`DROP TABLE project_handoffs`,
-			`DROP TABLE worker_job_revisions`,
-			`DROP TABLE durability_commits`,
-			`DROP TABLE runtime_state_writers`,
-			// Migration 120 attaches its maintenance triggers to
-			// pre-existing tables, so they drop by name before its tables.
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
-			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
-			`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
-			`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
-			`DROP VIEW IF EXISTS initiative_work_scope`,
-			`DROP TABLE IF EXISTS initiative_entry_violations`,
-			`DROP TABLE IF EXISTS initiative_scope_violations`,
-			// Migration 124's retirement dropped the planning mirror objects
-			// that the re-applied tail reads and drops again: migration 120
-			// attaches its maintenance triggers to initiative_entries, and
-			// migration 124 drops the mirror tables, the products planning
-			// mode, and the phase-0 issue-link shape it rebuilds. Restore
-			// each object's pre-124 shape from the migration that last
-			// created it (8, 76, 102), carrying any current rows forward.
-			`CREATE TABLE initiative_entries (
+	},
+	112: {
+		`DROP TABLE product_knowledge_sources`,
+	},
+	113: {
+		`DROP TABLE law_cross_source_relations`,
+	},
+	114: {
+		`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
+	},
+	115: {
+		`DROP TABLE project_handoffs`,
+	},
+	118: {
+		`DROP TABLE worker_job_revisions`,
+	},
+	116: {
+		`DROP TABLE durability_commits`,
+	},
+	117: {
+		`DROP TABLE runtime_state_writers`,
+	},
+	120: {
+		// Migration 120 attaches its maintenance triggers to
+		// pre-existing tables, so they drop by name before its tables.
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
+		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
+		`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
+		`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
+		`DROP VIEW IF EXISTS initiative_work_scope`,
+		`DROP TABLE IF EXISTS initiative_entry_violations`,
+		`DROP TABLE IF EXISTS initiative_scope_violations`,
+	},
+	124: {
+		// Migration 124's retirement dropped the planning mirror objects
+		// that the re-applied tail reads and drops again: migration 120
+		// attaches its maintenance triggers to initiative_entries, and
+		// migration 124 drops the mirror tables, the products planning
+		// mode, and the phase-0 issue-link shape it rebuilds. Restore
+		// each object's pre-124 shape from the migration that last
+		// created it (8, 76, 102), carrying any current rows forward.
+		`CREATE TABLE initiative_entries (
     initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     position       INTEGER NOT NULL CHECK(position >= 0),
@@ -322,11 +406,11 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
     UNIQUE(initiative_work_id, position),
     CHECK(initiative_work_id <> child_work_id)
 )`,
-			`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
-			`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
+		`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
+		`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
     CHECK (planning_mode IN ('local_only','linear_enabled'))`,
-			`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
-			`CREATE TABLE linear_issue_links (
+		`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
+		`CREATE TABLE linear_issue_links (
     work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
     human_key          TEXT NOT NULL DEFAULT '' CHECK(length(human_key) <= 64),
@@ -337,15 +421,15 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL
 )`,
-			`INSERT INTO linear_issue_links
+		`INSERT INTO linear_issue_links
     (work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
     SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v124_stage`,
-			`DROP TABLE linear_issue_links_v124_stage`,
-			`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
-			`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`DROP TABLE linear_issue_links_v124_stage`,
+		`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
+		`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TABLE linear_project_links (
+		`CREATE TABLE linear_project_links (
     work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_project_uuid TEXT NOT NULL UNIQUE CHECK(length(remote_project_uuid) BETWEEN 2 AND 128),
     name                TEXT NOT NULL DEFAULT '',
@@ -353,8 +437,8 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 )`,
-			`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
-			`CREATE TABLE linear_outbox (
+		`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
+		`CREATE TABLE linear_outbox (
     operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
     work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
     op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','issue_audit_comment','project_create','project_update')),
@@ -367,8 +451,8 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     updated_at       TEXT NOT NULL,
     CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
 )`,
-			`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
-			`CREATE TABLE linear_outbox_dispositions (
+		`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
+		`CREATE TABLE linear_outbox_dispositions (
     operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
     work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
@@ -377,27 +461,26 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
     CHECK(length(operation_id) BETWEEN 2 AND 128),
     CHECK(length(work_id) BETWEEN 2 AND 128)
 )`,
-			`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
-			`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
+		`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_project_links_guard_update BEFORE UPDATE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_project_links_guard_delete BEFORE DELETE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-			// Migration 122's guarded projection is one plain CREATE TABLE:
-			// its guard triggers and index are owned by the table and drop
-			// with it.
-			`DROP TABLE IF EXISTS worktree_ref_outcomes`,
-			`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
-		} {
-			if _, err := db.Exec(statement); err != nil {
-				t.Fatalf("cannot unpoison %q: %v", statement, err)
-			}
-		}
-	}
+	},
+	122: {
+		// Migration 122's guarded projection is one plain CREATE TABLE:
+		// its guard triggers and index are owned by the table and drop
+		// with it.
+		`DROP TABLE IF EXISTS worktree_ref_outcomes`,
+	},
+	123: {
+		`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
+	},
 }
 
 // A refused or failed migration closes the boundary it opened and commits

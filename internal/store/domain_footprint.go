@@ -352,6 +352,9 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	if err != nil {
 		return out, err
 	}
+	// A law found through a path reaches its home Domain. A behavior match
+	// does not: it is a ranked text guess, and reaching its home would add
+	// that Domain's whole law set as context on the strength of the guess.
 	for lawID := range candidates {
 		if law, ok := laws[lawID]; ok && candidates[lawID].basis != FootprintBehaviorMatch {
 			reached[law.HomeDomainID] = true

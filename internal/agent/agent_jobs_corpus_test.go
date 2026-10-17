@@ -1030,8 +1030,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 20 {
-		t.Fatalf("corpus declares %d scenarios, want 20", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 21 {
+		t.Fatalf("corpus declares %d scenarios, want 21", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1396,6 +1396,7 @@ func init() {
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
 	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
+	jobBindings["AJ5-footprint-of-a-change"] = bindAJ5FootprintOfAChange
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback

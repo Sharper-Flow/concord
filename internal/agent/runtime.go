@@ -264,6 +264,13 @@ type domainReadInput struct {
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
 }
+type domainFootprintInput struct {
+	ProductID string    `json:"product_id"`
+	Paths     []string  `json:"paths,omitempty"`
+	Behavior  string    `json:"behavior,omitempty"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
+}
 type knowledgeSearchInput struct {
 	ProductID string   `json:"product_id"`
 	ProjectID string   `json:"project_id"`
@@ -1254,6 +1261,8 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readKnowledgeResolveNote(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
+	case "concord_domain.footprint":
+		return r.readDomainFootprint(ctx, base, input)
 	default:
 		return base, errors.New("unsupported read operation")
 	}

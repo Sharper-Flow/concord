@@ -92,10 +92,11 @@ class ToolDescriptionTests(unittest.TestCase):
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
             "concord_domain.attachments", "concord_domain.overlaps",
+            "concord_domain.footprint",
         ])
         self.assertEqual(tool["description"],
                          "Navigate Product architecture: current Domains, current law, "
-                         "attachments, and unresolved overlap.")
+                         "attachments, unresolved overlap, and the footprint of a change.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [

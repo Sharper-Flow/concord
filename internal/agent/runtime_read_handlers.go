@@ -860,3 +860,30 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		return base, errors.New("unsupported Domain read operation")
 	}
 }
+
+// readDomainFootprint answers concord_domain.footprint. It freshens the
+// Product's knowledge like every Domain read, then fits the law page to the
+// envelope through pagedQuery, so an oversize page shrinks and says so.
+func (r runtime) readDomainFootprint(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+	var in domainFootprintInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	if in.ProductID == "" {
+		in.ProductID = r.Envelope.SelectedProductID
+	}
+	if in.ProductID == "" {
+		return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
+	}
+	if err := r.freshenProductKnowledge(ctx, in.ProductID); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *domainFootprintInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.DomainFootprintRequest {
+			return store.DomainFootprintRequest{Product: in.ProductID, Paths: in.Paths, Behavior: in.Behavior, Limit: limit, Cursor: inner}
+		},
+		r.Store.QueryDomainFootprint,
+		func(base Envelope, result store.DomainFootprintResult) (Envelope, error) {
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainFootprintPayload(result))
+		})
+}

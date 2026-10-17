@@ -1655,6 +1655,289 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "domain_footprint_input": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "paths"
+          ]
+        },
+        {
+          "required": [
+            "behavior"
+          ]
+        }
+      ],
+      "properties": {
+        "behavior": {
+          "description": "A behavior phrase matched against current law through the knowledge search.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "paths": {
+          "description": "Repository paths relative to the root of the Product's designated knowledge home, normalized, without '.' or '..' segments.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "product_id"
+      ],
+      "type": "object"
+    },
+    "domain_footprint_result": {
+      "additionalProperties": false,
+      "properties": {
+        "domains": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "domain_id": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "current",
+                  "deprecated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "domain_id",
+              "name",
+              "status"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "knowledge_commit": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "laws": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "basis": {
+                "enum": [
+                  "is_law_document",
+                  "names_path",
+                  "behavior_match",
+                  "homed_in_domain",
+                  "applies_to_domain"
+                ],
+                "type": "string"
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "adapter_test",
+                        "generated",
+                        "go_test",
+                        "scenario",
+                        "validator"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 32,
+                "type": "array"
+              },
+              "content_hash": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "home_domain_id": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "constitution",
+                  "decision",
+                  "spec"
+                ],
+                "type": "string"
+              },
+              "law_id": {
+                "$ref": "#/$defs/id"
+              },
+              "matched_paths": {
+                "items": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              "path": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "law_id",
+              "kind",
+              "title",
+              "path",
+              "content_hash",
+              "home_domain_id",
+              "basis",
+              "matched_paths",
+              "checks"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "package_checks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "go_package"
+                ],
+                "type": "string"
+              },
+              "package": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "value": {
+                "maxLength": 258,
+                "minLength": 3,
+                "type": "string"
+              }
+            },
+            "required": [
+              "package",
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "package_map_content_hash": {
+          "maxLength": 128,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "domain_ids": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "package": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "unmapped": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "domain_ids",
+              "unmapped"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "registry_content_hash": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "knowledge_commit",
+        "registry_content_hash",
+        "package_map_content_hash",
+        "paths",
+        "domains",
+        "laws",
+        "package_checks"
+      ],
+      "type": "object"
+    },
     "domain_id": {
       "maxLength": 256,
       "minLength": 1,

@@ -57,27 +57,27 @@
   {
    "id": "fc1-session-handoff",
    "condition": "fc1",
-    "title": "Work identity reaches a managed session with core-derived context",
-    "requirement": "A host-started session can enter managed work with the core-derived context packet, without a durable write outside the typed mutation surface.",
-    "state": "satisfied",
-    "evidence": [
-     {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
-     },
-     {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/continuity_hook.test.ts#continuity transform carries only the core packet"
-     },
-     {
-      "kind": "adapter_test",
-      "value": "adapter/opencode/continuity_hook.test.ts#continuity transform re-resolves after a work_start retarget"
-     },
-     {
-      "kind": "go_test",
-      "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
-     }
-    ]
+   "title": "Work identity reaches a managed session with core-derived context",
+   "requirement": "A host-started session can enter managed work with the core-derived context packet, without a durable write outside the typed mutation surface.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "adapter_test",
+     "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
+    },
+    {
+     "kind": "adapter_test",
+     "value": "adapter/opencode/continuity_hook.test.ts#continuity transform carries only the core packet"
+    },
+    {
+     "kind": "adapter_test",
+     "value": "adapter/opencode/continuity_hook.test.ts#continuity transform re-resolves after a work_start retarget"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
+    }
+   ]
   },
   {
    "id": "fc1-operator-work-capture",

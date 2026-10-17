@@ -127,10 +127,7 @@ func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
 
 	// Case 3: completed-late — resolution after the bound is a normal
 	// resolution; the clock never fabricates or forbids it.
-	resolver := lateResolver{conditionID: "cond-overdue"}
-	if err := ResolveWorkflowCondition(ctx, s, "work-await", "cond-overdue", resolver, now); err != nil {
-		t.Fatalf("late resolution refused: %v", err)
-	}
+	applyWorkflowTestConditionResolved(t, s, "work-await", "actor:resolver", "cond-overdue", "evidence:merged-late:cond-overdue")
 	_, byID = readHealth()
 	if _, open := byID["cond-overdue"]; open {
 		t.Fatal("resolved await must leave the open-health projection")
@@ -140,10 +137,4 @@ func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
 	if h, open := byID["cond-nobound"]; !open || h.Overdue {
 		t.Fatalf("elapsed time alone must never create a verdict: %+v", h)
 	}
-}
-
-type lateResolver struct{ conditionID string }
-
-func (l lateResolver) Resolve(_ context.Context, condition ExternalCondition, _ time.Time) (Resolution, error) {
-	return Resolution{ResolutionEvidence: []string{"evidence:merged-late:" + condition.ConditionID}, ResolvedByEvent: "resolved:" + condition.ConditionID, ActorRef: "actor:resolver"}, nil
 }

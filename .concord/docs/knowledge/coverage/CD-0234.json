@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNoRetainedWorkflowVersionDeclaresAConditionAction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
+    }
+  ],
+  "id": "CD-0234",
+  "state": "satisfied"
+}

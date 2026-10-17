@@ -794,7 +794,7 @@ func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, 
 		Payload: request.Payload, Actor: request.Actor, SessionWorktree: request.SessionWorktree,
 	}
 	var result WorkflowActionExecutionResult
-	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		var inner error
 		result, inner = ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
 		return inner

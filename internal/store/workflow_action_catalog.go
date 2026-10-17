@@ -39,7 +39,7 @@ func withRequiredCapability(capability string) workflowActionRevision {
 // a nested worker (CD-0059, CD-0017 D4).
 var (
 	workTransitionAction = withRequiredCapability("work_transition")
-	workerDispatchAction = withRequiredCapability("worker_dispatch")
+	workerDispatchAction = withRequiredCapability(WorkerDispatchCapability)
 )
 
 func withClosedPayload(fields func() []WorkflowPayloadField) workflowActionRevision {

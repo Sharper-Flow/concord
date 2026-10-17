@@ -201,6 +201,11 @@ type WorkflowPayloadCombination struct {
 	Remedy   string   `json:"remedy,omitempty"`
 }
 
+// WorkerDispatchCapability is the capability that marks a worker-lane
+// dispatch: a worker holding only work_transition cannot dispatch a nested
+// worker (CD-0017 D4, CD-0059).
+const WorkerDispatchCapability = "worker_dispatch"
+
 type WorkflowActionDefinition struct {
 	ID            string              `json:"id"`
 	Consequence   ActionConsequence   `json:"consequence"`
@@ -1028,7 +1033,7 @@ func withWorkerActionsForVersion(definition WorkflowDefinition, payloadContracts
 	// D2 requires the lane packet itself as a structural payload field so
 	// the fold can record its canonical digest alongside worker_attempt_id.
 	dispatch := WorkflowActionDefinition{
-		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
+		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: WorkerDispatchCapability,
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "worker_packet", ValueType: PayloadObject, Required: true},
@@ -1151,7 +1156,7 @@ func withLegacyWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 		}},
 	}
 	dispatch := WorkflowActionDefinition{
-		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
+		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: WorkerDispatchCapability,
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "worker_packet", ValueType: PayloadObject, Required: true},

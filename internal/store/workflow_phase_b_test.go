@@ -603,7 +603,7 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 		t.Fatal(err)
 	}
 	called := false
-	err = AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, nil, time.Time{}, func(*Transaction) error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, func(*Transaction) error {
 		called = true
 		return nil
 	}, func(*Transaction) error { return nil })

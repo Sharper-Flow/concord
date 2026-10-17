@@ -416,6 +416,41 @@ test("the watch returns at once, carries one state file across slices, and promp
   expect(body.model).toEqual({ providerID: "zai", modelID: "glm-test" })
 })
 
+// The pinned host prompt payload carries the variant as a top-level field
+// beside its { providerID, modelID } model reference, and the host persists
+// the prompt's variant as the session's next choice, treating "default" as
+// none. A wake or notice that omits a selected variant resets the session.
+const GLM = { providerID: "zai", modelID: "glm-test" }
+for (const { label, model, postedModel, posted } of [
+  { label: "a selected variant", model: { id: "glm-test", providerID: "zai", variant: "high" }, postedModel: GLM, posted: "high" },
+  { label: "no variant", model: { id: "glm-test", providerID: "zai" }, postedModel: GLM, posted: undefined },
+  { label: "the default variant", model: { id: "glm-test", providerID: "zai", variant: "default" }, postedModel: GLM, posted: undefined },
+  { label: "a variant without a usable model", model: { providerID: "zai", variant: "high" }, postedModel: undefined, posted: undefined },
+]) {
+  test(`the wake prompt and the start notice carry the session's model variant for ${label}`, async () => {
+    const fixture = hostFixture({ reply: "parented", session: { id: SESSION, agent: "concord-1", model } })
+    hostControlPlane().bind(fixture.client)
+    bindCiWatchClient(fixture.client)
+    configureCoreBinary("/synthetic/concord")
+    configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+    const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+    configureCiWatch({ spawner })
+    const started = await startWatch(fixture)
+    await ciWatchSettled(String(started.watch_id))
+    const bodies = ["/session/{id}/prompt_async", "/session/{id}/message"].map((url) => {
+      const posts = fixture.posts.filter((post) => post.url === url)
+      expect(posts).toHaveLength(1)
+      return posts[0].body as Record<string, unknown>
+    })
+    for (const body of bodies) {
+      expect(body.agent).toBe("concord-1")
+      expect(body.model).toEqual(postedModel)
+      if (posted === undefined) expect(Object.hasOwn(body, "variant")).toBe(false)
+      else expect(body.variant).toBe(posted)
+    }
+  })
+}
+
 test("an unconfirmed wake queues the report and the next chat.message injects it", async () => {
   const fixture = hostFixture({ messages: [] })
   hostControlPlane().bind(fixture.client)

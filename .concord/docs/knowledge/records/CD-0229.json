@@ -1,0 +1,47 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-17T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0229",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0213"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:39d7412ad83e31d38406a6c6249d154c46587f4c6f869b2f1ade5cdb8e934390",
+  "status": "accepted",
+  "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions and released versions stay frozen. Every sized work item carries small, larger, or crucial from one deterministic, versioned decision model whose inputs are recorded. Only the operator overrides a size; a resize forward-links a successor that takes over the issue identity. Sized workflows record define start and merge-queue entry.",
+  "tags": [
+    "workflow",
+    "workflow-engine",
+    "definition",
+    "composition",
+    "sizing"
+  ],
+  "title": "Workflows are composed from shared parts, and a decision model sets each work item's size"
+}

@@ -366,7 +366,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", singleForm); err != nil {
 		t.Fatalf("single-form verdict against the pinned version refused: %v", err)
 	}
-	batchedForm := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}]}`)
+	batchedForm := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`)
 	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", batchedForm); err == nil {
 		t.Fatal("the pinned version admitted the batched verdicts field; pinned instances would change behavior")
 	}
@@ -405,7 +405,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	// beside the batch refuses through the engine cross-field declaration
 	// the preflight enforces and publication branches from (CON-412);
 	// normalizeWorkflowVerdictEntries only decodes the wire shapes.
-	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one"}]}`)
+	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`)
 	if err := validateWorkflowActionPayload(current, "record_verdict", both); err == nil {
 		t.Fatal("validation admitted predicate_id beside verdicts")
 	}
@@ -413,7 +413,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current, "record_verdict", neither); err == nil {
 		t.Fatal("validation admitted a call with neither form")
 	}
-	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
+	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}],"evaluation_evidence":["evidence:one"]}`)
 	if err := validateWorkflowActionPayload(current, "record_verdict", bothAndEntry); err == nil {
 		t.Fatal("validation admitted an entry-level field beside the batch")
 	}

@@ -1320,10 +1320,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # neither form, and refuses an entry-level field beside the batch.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id"],
+        "required": ["predicate_id", "verdict_kind"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
         },

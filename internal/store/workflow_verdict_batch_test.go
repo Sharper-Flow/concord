@@ -339,15 +339,15 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 		payload string
 		want    FailureKind
 	}{
-		{"both shapes", `{"predicate_id":"predicate:batch-present","verdicts":[{"predicate_id":"predicate:batch-absent"}]}`, KindInvalidPayload},
+		{"both shapes", `{"predicate_id":"predicate:batch-present","verdicts":[{"predicate_id":"predicate:batch-absent","verdict_kind":"ok"}]}`, KindInvalidPayload},
 		{"neither shape", `{"verdict_kind":"ok"}`, KindInvalidPayload},
-		{"entry field beside batch", `{"verdicts":[{"predicate_id":"predicate:batch-present"}],"evaluation_evidence":["evidence:return-route-verification"]}`, KindInvalidPayload},
-		{"duplicate predicate", `{"verdicts":[{"predicate_id":"predicate:batch-present"},{"predicate_id":"predicate:batch-present","verdict_kind":"insufficient_evidence"}]}`, KindInvalidPayload},
-		{"predicate outside contract", `{"verdicts":[{"predicate_id":"predicate:batch-present"},{"predicate_id":"predicate:not-approved"}]}`, KindInvalidPayload},
-		{"unknown entry field", `{"verdicts":[{"predicate_id":"predicate:batch-present","ordinal":0}]}`, KindInvalidPayload},
-		{"unbound entry evidence", `{"verdicts":[{"predicate_id":"predicate:batch-present","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
-		{"malformed last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","verdict_kind":"excellent"}]}`, KindInvalidPayload},
-		{"unbound last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
+		{"entry field beside batch", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"}],"evaluation_evidence":["evidence:return-route-verification"]}`, KindInvalidPayload},
+		{"duplicate predicate", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"},{"predicate_id":"predicate:batch-present","verdict_kind":"insufficient_evidence"}]}`, KindInvalidPayload},
+		{"predicate outside contract", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok"},{"predicate_id":"predicate:not-approved","verdict_kind":"ok"}]}`, KindInvalidPayload},
+		{"unknown entry field", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","ordinal":0}]}`, KindInvalidPayload},
+		{"unbound entry evidence", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
+		{"malformed last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","verdict_kind":"excellent"}]}`, KindInvalidPayload},
+		{"unbound last entry", `{"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]},{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}]}`, KindMissingEvidence},
 	}
 	for _, testCase := range cases {
 		err := runIssue933OperatorAction(t, s, workID, "record_verdict", json.RawMessage(testCase.payload), fixture.owner, fixture.operator)
@@ -760,7 +760,7 @@ func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
 
 	batchPayload, err := json.Marshal(map[string]any{"contract_version": 1, "verdicts": []any{
 		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": []string{artifact}},
-		map[string]any{"predicate_id": "predicate:batch-absent"},
+		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -865,7 +865,7 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 	}
 	mixedBatch := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
 		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": explicitRefs},
-		map[string]any{"predicate_id": "predicate:batch-absent"},
+		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
 	}})
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", mixedBatch, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("mixed batch under a verification and native_run contract refused: %v", err)
@@ -949,8 +949,8 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 	defaulted := seedWorkflowVerdictBatchFixtureRequiring(t, defaultedWork, 0, []string{"verification", "native_run"})
 	defaultedCapture := seedVerifiedNativeRunCapture(t, defaulted.store, defaultedWork)
 	defaultedBatch := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
-		map[string]any{"predicate_id": "predicate:batch-present"},
-		map[string]any{"predicate_id": "predicate:batch-absent"},
+		map[string]any{"predicate_id": "predicate:batch-present", "verdict_kind": "ok"},
+		map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok"},
 	}})
 	if err := runIssue933OperatorAction(t, defaulted.store, defaultedWork, "record_verdict", defaultedBatch, defaulted.owner, defaulted.operator); err != nil {
 		t.Fatalf("defaulted batch under a native_run contract: %v", err)

@@ -11,11 +11,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -168,6 +170,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "worker-read", RequiredFields: requiredFields(field("work_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("ordinal"), field("offset"), field("length")), Optional: "none", Enums: "read-only host capability; original authorized packet only; ordinal and offset nonnegative; length 1-4096 raw bytes; data is base64; no path, ref, command, or workflow mutation"},
+	{Canonical: "worker-control", RequiredFields: requiredFields(field("work_id"), field("project_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("control_id"), field("assertion")), Optional: "none", Enums: "private host ingress; signed actual child execution policy and original packet; recorded native control only; no caller-authored argv, cwd, runner, actor, or workflow mutation"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch"},
@@ -659,6 +662,10 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runWorkerCommand(command, raw, s, service, clock, out, errOut)
 	case "worker-read":
 		return runWorkerRead(raw, s.ReadWorkerReading, out, errOut)
+	case "worker-control":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runWorkerControl(ctx, raw, service.ExecuteWorkerControl, out, errOut)
 	case "work-bootstrap":
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "work-resume":

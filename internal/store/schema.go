@@ -6296,6 +6296,10 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(event_watermark IS NULL OR (typeof(event_watermark)='integer' AND event_watermark>=0));
 `,
 	},
+	{
+		Version: 128, Name: remoteLocatorUpgradeName, Breaking: true, FoldMaintained: "advance",
+		SQL: `ALTER TABLE project_locators ADD COLUMN normalization_version INTEGER NOT NULL DEFAULT 1 CHECK(normalization_version IN (1,2));`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -6696,6 +6700,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 	}
 
+	if scope == migrateForUpgrade {
+		// Last-locator refusal must precede even manifest and schema writes.
+		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot create the schema manifest", true,
 			"check database permissions", err))
@@ -6713,6 +6723,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	}
 
 	var stopped *migration
+	remoteUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -6730,12 +6741,19 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		if err := applyMigration(ctx, tx, m); err != nil {
 			return rollback(err)
 		}
+		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
+		}
+	}
+	if remoteUpgrade {
+		// Event application and invariant checks require the complete head schema.
+		if err := upgradeRemoteLocators(ctx, tx, nowFromClock(firstClock(clock))); err != nil {
+			return rollback(err)
 		}
 	}
 	if err := tx.Commit(); err != nil {

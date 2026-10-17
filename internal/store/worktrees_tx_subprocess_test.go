@@ -36,7 +36,7 @@ func (g *gatedWorktreeGit) Run(ctx context.Context, dir string, args ...string) 
 // the given busy timeout.
 func beginWriteWithin(t *testing.T, path string, timeout time.Duration) error {
 	t.Helper()
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=" + url.QueryEscape(fmt.Sprintf("busy_timeout(%d)", timeout.Milliseconds()))
+	dsn := SQLiteFileURI(path) + "?_txlock=immediate&_pragma=" + url.QueryEscape(fmt.Sprintf("busy_timeout(%d)", timeout.Milliseconds()))
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)

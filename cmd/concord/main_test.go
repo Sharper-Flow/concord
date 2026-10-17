@@ -1961,7 +1961,7 @@ func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
-	reader, err := sql.Open("sqlite", "file:"+dbPath)
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

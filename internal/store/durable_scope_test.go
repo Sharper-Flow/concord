@@ -15,7 +15,7 @@ import (
 // on it.
 func pinReaderSnapshot(t *testing.T, s *Store) {
 	t.Helper()
-	reader, err := sql.Open(driverName, "file:"+s.Path())
+	reader, err := sql.Open(driverName, SQLiteFileURI(s.Path()))
 	if err != nil {
 		t.Fatal(err)
 	}

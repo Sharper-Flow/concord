@@ -4607,7 +4607,8 @@ finally:
     connection.close()
 
 
-# The worker-attempt CHECK rebuild (126) sets the live compatibility floor.
+# Remote locator identity v2 (128) sets the live compatibility floor.
+# The worker-attempt CHECK rebuild (126) also constrains older binaries.
 # Native lease plan-pair triggers (125) also constrain older binaries. The
 # planning retirement (124) also constrains older binaries. The
 # research retirement delete guard (123) constrains older binaries' writes
@@ -4619,10 +4620,10 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-if max(live_breaking, default=0) != 126:
+if max(live_breaking, default=0) != 128:
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
-if not {110, 111, 119, 120, 121, 123, 124, 125, 126}.issubset(live_breaking):
+if not {110, 111, 119, 120, 121, 123, 124, 125, 126, 128}.issubset(live_breaking):
     FAILURES.append(
         f"required migrations left breaking: {live_breaking}")
 

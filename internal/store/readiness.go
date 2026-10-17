@@ -128,7 +128,7 @@ func PlanUpgradeReadiness(ctx context.Context, path string, options ...UpgradeOp
 // appear beside the store, which the plan accepts. Any failure to open or
 // reach the store fails closed.
 func openReadonlyStore(path string) (*sql.DB, error) {
-	dsn := "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=busy_timeout(" + pragmaBusyTimeout + ")"
+	dsn := SQLiteFileURI(path) + "?mode=ro&_pragma=busy_timeout(" + pragmaBusyTimeout + ")"
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, wrapFailure(KindReadinessUnknown, "readiness",

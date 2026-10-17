@@ -167,7 +167,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		if !ok {
 			return newFailure(KindUnavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
 		}
-		operation, err := driverConn.NewBackup("file:" + escapeSQLiteURIPath(destination))
+		operation, err := driverConn.NewBackup(SQLiteFileURI(destination))
 		if err != nil {
 			return wrapFailure(KindUnavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
 		}
@@ -761,7 +761,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 func manifestPath(destination string) string { return destination + ".manifest.json" }
 
 func readOnlyDataSource(path string) string {
-	return "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=foreign_keys(1)"
+	return SQLiteFileURI(path) + "?mode=ro&_pragma=foreign_keys(1)"
 }
 
 func fileSHA256(path string) (string, error) {

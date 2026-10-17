@@ -20,7 +20,7 @@ func holderDataSourceName(path string) string {
 	for _, p := range []string{"busy_timeout(5000)", "journal_mode(wal)", "synchronous(normal)", "foreign_keys(on)"} {
 		query = append(query, "_pragma="+url.QueryEscape(p))
 	}
-	return "file:" + path + "?" + strings.Join(query, "&")
+	return store.SQLiteFileURI(path) + "?" + strings.Join(query, "&")
 }
 
 // Opening an established database must not need the write lock: another

@@ -213,7 +213,7 @@ func TestRunOnlineRestoreEndsSnapshotBeforeStageVerification(t *testing.T) {
 // checkpoint sensitive: an old read view below the new frames reports busy.
 func sourceReaderBlocksCheckpoint(t *testing.T, source string) bool {
 	t.Helper()
-	probe, err := sql.Open(driverName, "file:"+escapeSQLiteURIPath(source)+"?_pragma=busy_timeout(0)")
+	probe, err := sql.Open(driverName, SQLiteFileURI(source)+"?_pragma=busy_timeout(0)")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,7 +193,7 @@ func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	if err := os.WriteFile(manifestPath(corrupt), manifestData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(driverName, "file:"+corrupt+"?_pragma=foreign_keys(0)")
+	db, err := sql.Open(driverName, SQLiteFileURI(corrupt)+"?_pragma=foreign_keys(0)")
 	if err != nil {
 		t.Fatal(err)
 	}

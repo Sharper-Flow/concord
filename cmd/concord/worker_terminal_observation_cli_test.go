@@ -300,7 +300,7 @@ func payloadField(t *testing.T, payload, field string) (string, bool) {
 // spanned the git subprocess would lock the writer out.
 func independentWriteCommits(t *testing.T, dbPath string) bool {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(500)")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath)+"?_pragma=busy_timeout(500)")
 	if err != nil {
 		t.Fatalf("open independent writer: %v", err)
 	}
@@ -710,7 +710,7 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 // lane-actor pin from the dispatch copy.
 func copiedWorkerEvidenceEvents(t *testing.T, dbPath string) []store.Event {
 	t.Helper()
-	from, err := sql.Open("sqlite", "file:"+dbPath)
+	from, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

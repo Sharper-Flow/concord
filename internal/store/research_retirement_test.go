@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // foreign keys, while retaining the canonical projection write guards.
 func synthExecPath(t *testing.T, path string, queries ...string) {
 	t.Helper()
-	db, err := sql.Open(driverName, "file:"+path+"?_pragma=foreign_keys(0)")
+	db, err := sql.Open(driverName, SQLiteFileURI(path)+"?_pragma=foreign_keys(0)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +28,39 @@ func synthExecPath(t *testing.T, path string, queries ...string) {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			t.Fatalf("path synthetic query: %v\n%s", err, q)
 		}
+	}
+}
+
+func TestFixtureDSNsKeepSubtestStoresSeparate(t *testing.T) {
+	root := t.TempDir()
+	neighbor, err := Open(t.Context(), filepath.Join(root, "fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = neighbor.Close() })
+	for _, name := range []string{"#first", "#second"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := Open(t.Context(), filepath.Join(root, "fixture"+name+".db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			synthExecPath(t, s.Path(), `CREATE TABLE fixture_path_probe (id INTEGER PRIMARY KEY)`)
+			var count int
+			if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='fixture_path_probe'`).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Errorf("fixture wrote the truncated neighbor instead of %q", s.Path())
+			}
+		})
+	}
+	var count int
+	if err := neighbor.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='fixture_path_probe'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("fixture wrote the fragment-truncated neighbor")
 	}
 }
 

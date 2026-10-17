@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+from migration_source import migration_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFINITION_SCHEMA = Path("contracts/workflow-definition.schema.json")
@@ -39,15 +41,6 @@ def enum_at(surface: object, path: list[str], findings: list[str]) -> list[str]:
         findings.append(f"schema-enum: {'/'.join(path)}: missing string array")
         return []
     return value
-
-
-def migration_block(source: str) -> str | None:
-    match = re.search(
-        r'Version:\s+54,\s+Name:\s+"rigor_class_vocabulary",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
-        source,
-        re.S,
-    )
-    return match.group("sql") if match else None
 
 
 def trigger_block(sql: str, name: str) -> str | None:
@@ -119,10 +112,11 @@ def check(root: Path) -> list[str]:
     except OSError as exc:
         findings.append(f"migration-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
-    sql = migration_block(source)
-    if sql is None:
+    migration = migration_sql(source, 54, "rigor_class_vocabulary")
+    if migration is None:
         findings.append("migration-coverage: missing migration 54 rigor_class_vocabulary")
         return findings
+    sql = migration.sql
     for name in TRIGGERS:
         actual = sorted(trigger_values(sql, name, findings))
         if actual != expected:

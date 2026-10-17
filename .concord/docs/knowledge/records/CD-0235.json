@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-17T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0235",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:73558673176f303dbe19061a538ca4315ade0444ed0f22962ab45a63d75fb42a",
+  "status": "accepted",
+  "summary": "The verdict actor, distinct from the executor, evaluates outcome strength and records verdict_kind and incomparable_with_approved. Completion refuses with outcome_mismatch unless every approved predicate's latest verdict is ok and comparable. Until a check catalog or surface registry exists, no registry resolves surface and check_ref values; approval checks their grammar and the verdict actor interprets them.",
+  "tags": [
+    "workflow",
+    "outcomes",
+    "evidence"
+  ],
+  "title": "The independent verdict is the outcome strength evaluation"
+}

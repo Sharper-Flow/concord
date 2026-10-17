@@ -11,7 +11,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -1661,23 +1660,16 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }
 
-// publishedWorkflowReadFields derives the published workflow_read field set
+// workflowReadPublishedFields derives the published workflow_read field set
 // from the generated contract's $defs/workflow_read/properties. The contract
 // schema is the declared boundary, so the published read is exactly the set
 // it declares: a projection field the contract names is published, and one it
 // does not name is dropped, without a hand-maintained list that can drift.
-var (
-	publishedWorkflowReadOnce   sync.Once
-	publishedWorkflowReadFields map[string]any
-)
-
 func workflowReadPublishedFields() map[string]any {
-	publishedWorkflowReadOnce.Do(func() {
-		defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-		read, _ := defs["workflow_read"].(map[string]any)
-		publishedWorkflowReadFields, _ = read["properties"].(map[string]any)
-	})
-	return publishedWorkflowReadFields
+	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
+	read, _ := defs["workflow_read"].(map[string]any)
+	properties, _ := read["properties"].(map[string]any)
+	return properties
 }
 
 // publishedWorkflowRead shapes the store projection into the published

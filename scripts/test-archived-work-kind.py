@@ -48,6 +48,31 @@ def test_repository_passes() -> None:
     assert checker.check(ROOT) == []
 
 
+def test_migration_spacing_passes() -> None:
+    temporary, root = repository_copy()
+    try:
+        original = migration_text(root)
+        header = (
+            'Version:  56,\n\t\tName:     "archived_work_kind_vocabulary",\n'
+            '\t\tBreaking: true,\n\t\tSQL: `'
+        )
+        assert original.count(header) == 1
+        before, body = original.split(header)
+        sql, after = body.split("`", 1)
+        after = after.replace(",\n\t},", " ,\t } ,", 1)
+        for replacement in (
+            'Version:56,Name:"archived_work_kind_vocabulary",Breaking:true,SQL:`',
+            'Version \t: 56 , Name \t: "archived_work_kind_vocabulary" , Breaking : true , SQL : `',
+            'Version:\t\t56,\n\t\tName:\t\t"archived_work_kind_vocabulary",\n\t\tBreaking:\ttrue,\n\t\tSQL:\t\t`',
+        ):
+            text = before + replacement + sql + "`" + after
+            (root / checker.SCHEMA_SOURCE).write_text(text, encoding="utf-8")
+            findings = checker.check(root)
+            assert findings == [], (replacement, findings)
+    finally:
+        temporary.cleanup()
+
+
 def test_dropping_a_trigger_kind_fails() -> None:
     temporary, root = repository_copy()
     try:

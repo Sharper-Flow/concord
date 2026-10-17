@@ -236,6 +236,51 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	assertFoldGuardEmpty(t, s)
 }
 
+// An older release meets a newer payload version only through full-log
+// replay, so every registered kind must refuse it there before the first
+// projection change (CD-0008 D6).
+func TestNewerPayloadVersionReplayRefusesBeforeMutation(t *testing.T) {
+	t.Parallel()
+	for kind, registration := range eventKindRegistry {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			s := openTemp(t)
+			seedSchemaEvolutionBase(t, s)
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+				workCreatedEvent("schema-work", "schema-work"),
+				operationEvent("schema-work-membership", "work_project.added", SubjectWorkItem, "schema-work", map[string]any{
+					"work_id": "schema-work", "project_id": "schema-project", "role": "secondary", "reason": "test", "expected_version": 1, "resulting_version": 2,
+				}),
+			}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "schema-work"): 0}}); err != nil {
+				t.Fatal(err)
+			}
+			before := projectionSnapshot(t, s)
+			beforeWorkAndRelations := fullPM4Snapshot(t, s)
+			newer := registration.CurrentVersion + 1
+			if _, err := s.DatabaseForTesting().ExecContext(context.Background(), `
+				INSERT INTO domain_events
+					(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+				VALUES ('newer-version', ?, ?, 'schema-work', 'actor:test', ?, ?, '{}')`,
+				kind, SubjectWorkItem, time.Unix(1, 0).UTC().Format(time.RFC3339Nano), newer); err != nil {
+				t.Fatalf("insert synthetic newer event: %v", err)
+			}
+			err := RebuildFromLog(context.Background(), s)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindUnsupportedPayloadVersion || failure.EventKind != kind || failure.PayloadVersion != newer || failure.Stage != StageUpcast {
+				t.Fatalf("%s payload version %d must refuse replay at stage upcast before any mutation (CD-0008 D6); got %v", kind, newer, err)
+			}
+			if got := projectionSnapshot(t, s); got != before {
+				t.Fatalf("%s refused replay changed projections:\n%s\nwant\n%s", kind, got, before)
+			}
+			if got := fullPM4Snapshot(t, s); got != beforeWorkAndRelations {
+				t.Fatalf("%s refused replay changed work or relation projections:\n%s\nwant\n%s", kind, got, beforeWorkAndRelations)
+			}
+			assertTableCount(t, s, "domain_events", 6)
+			assertFoldGuardEmpty(t, s)
+		})
+	}
+}
+
 func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	t.Parallel()
 	if err := validateEventKindRegistry(eventKindRegistry); err != nil {

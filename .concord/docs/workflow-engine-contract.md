@@ -20,10 +20,11 @@ Only contracts approved through surface `2.2.0` carry the internal persisted
 law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
 checks the accepted Git-derived `law_subjects` and `law_relations` projection;
-an explicit conflict may pass planning only when a conflicting endpoint is in
-`law_modifies`. Completion reruns the check without that exception, so only a
-Git-authorized law delta can resolve the conflict. Earlier contracts retain
- their prior evidence-reference interpretation of `spec_mandate`.
+an explicit conflict may pass planning only when the endpoint whose record
+declares it is in `law_modifies`. Completion reruns the check without that
+exception, so only a Git-authorized law delta can resolve the conflict. Earlier
+contracts retain their prior evidence-reference interpretation of
+`spec_mandate`.
 
 CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a

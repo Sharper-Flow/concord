@@ -147,24 +147,26 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 }
 
 // TestTierAdmittedConflictRecordsTheContractRevisionLine holds the CD-0159
-// clause that a conflict with derived law is revised inside the contract and
-// recorded there as a revision line, at no separate approval. The boundary
-// test proves the tier admits the conflict; this proves the admitted revision
-// reaches the contract the approval writes. Both ends of a conflicts_with
-// relation are mandated: revising the derived end approves in one agent
-// action and records that law as the revision line beside a pin for each
-// mandated law, while leaving the conflict unrevised meets the conflict
-// refusal and writes no contract.
+// clause that a conflict a derived record declares is revised inside the
+// contract and recorded there as a revision line, at no separate approval. The
+// boundary test proves the tier admits the conflict; this proves the admitted
+// revision reaches the contract the approval writes. Both ends of a
+// conflicts_with relation are mandated: revising the derived declaring end
+// approves in one agent action and records that law as the revision line beside
+// a pin for each mandated law, while leaving the conflict unrevised meets the
+// conflict refusal and writes no contract. When the legislated record declares
+// the conflict instead, revising the derived end cannot withdraw it, so the
+// approval refuses rather than strand the work at completion.
 func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:tier-conflict", ClientRef: "client:tier-conflict", AgentRef: "agent:tier-conflict", SessionRef: "session:tier-conflict", ActorClass: ActorAgent}
-	approve := func(t *testing.T, workID, modifies string) (*Store, error) {
+	approve := func(t *testing.T, workID, declarer, modifies string) (*Store, error) {
 		t.Helper()
 		s := openTemp(t)
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test'); DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test',?); DELETE FROM fold_guard`, declarer); err != nil {
 			t.Fatal(err)
 		}
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
@@ -175,7 +177,7 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 	t.Run("revising the derived end records the revision line", func(t *testing.T) {
 		t.Parallel()
 		workID := "tier-conflict-derived"
-		s, err := approve(t, workID, `["spec:one"]`)
+		s, err := approve(t, workID, "spec:one", `["spec:one"]`)
 		if err != nil {
 			t.Fatalf("revising the derived end of a conflict was refused: %v", err)
 		}
@@ -206,7 +208,7 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 	t.Run("leaving the conflict unrevised meets the conflict refusal", func(t *testing.T) {
 		t.Parallel()
 		workID := "tier-conflict-unrevised"
-		s, err := approve(t, workID, `[]`)
+		s, err := approve(t, workID, "spec:one", `[]`)
 		var failure *Failure
 		if !failureAs(err, &failure) || failure.Kind != KindRelationConflict {
 			t.Fatalf("an unrevised conflict did not meet the conflict refusal: %v", err)
@@ -217,6 +219,23 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		}
 		if contracts != 0 {
 			t.Fatalf("a refused conflict wrote %d contracts", contracts)
+		}
+	})
+
+	t.Run("a legislated declarer refuses the derived revision at approval", func(t *testing.T) {
+		t.Parallel()
+		workID := "tier-conflict-legislated-declarer"
+		s, err := approve(t, workID, "spec:legislated", `["spec:one"]`)
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindRelationConflict || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:legislated" {
+			t.Fatalf("a derived revision against a legislated declaration did not refuse at approval naming the declarer: %v", err)
+		}
+		var contracts int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
+			t.Fatal(err)
+		}
+		if contracts != 0 {
+			t.Fatalf("a refused approval wrote %d contracts", contracts)
 		}
 	})
 }

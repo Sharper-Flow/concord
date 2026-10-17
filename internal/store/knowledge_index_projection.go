@@ -49,29 +49,38 @@ type CompactionLinkRequest struct {
 	WithinTx func(*Transaction) error
 }
 
+// compactionLinkPayload is the current (v3) link payload. expected_version
+// records the work version the publish was pinned to. A link changes no
+// work-item version, so the payload claims no resulting version.
 type compactionLinkPayload struct {
-	ID               string   `json:"id"`
-	Type             string   `json:"type"`
-	Title            string   `json:"title"`
-	CompletedAt      string   `json:"completed_at"`
-	OutcomeTag       string   `json:"outcome_tag"`
-	LessonTags       []string `json:"lesson_tags"`
-	TerminalState    string   `json:"terminal_state"`
-	Priority         int64    `json:"priority"`
-	Summary          string   `json:"summary"`
-	SuccessorID      string   `json:"successor_work_id,omitempty"`
-	ProductIDs       []string `json:"product_ids"`
-	ProjectIDs       []string `json:"project_ids"`
-	DomainIDs        []string `json:"domain_ids"`
-	TagIDs           []string `json:"tag_ids"`
-	HomeProjectID    string   `json:"home_project_id"`
-	HomeLocatorID    string   `json:"home_locator_id"`
-	NotePath         string   `json:"note_path"`
-	CommitOID        string   `json:"commit_oid"`
-	ContentHash      string   `json:"content_hash"`
-	Reason           string   `json:"reason"`
-	ExpectedVersion  int64    `json:"expected_version"`
-	ResultingVersion int64    `json:"resulting_version"`
+	ID              string   `json:"id"`
+	Type            string   `json:"type"`
+	Title           string   `json:"title"`
+	CompletedAt     string   `json:"completed_at"`
+	OutcomeTag      string   `json:"outcome_tag"`
+	LessonTags      []string `json:"lesson_tags"`
+	TerminalState   string   `json:"terminal_state"`
+	Priority        int64    `json:"priority"`
+	Summary         string   `json:"summary"`
+	SuccessorID     string   `json:"successor_work_id,omitempty"`
+	ProductIDs      []string `json:"product_ids"`
+	ProjectIDs      []string `json:"project_ids"`
+	DomainIDs       []string `json:"domain_ids"`
+	TagIDs          []string `json:"tag_ids"`
+	HomeProjectID   string   `json:"home_project_id"`
+	HomeLocatorID   string   `json:"home_locator_id"`
+	NotePath        string   `json:"note_path"`
+	CommitOID       string   `json:"commit_oid"`
+	ContentHash     string   `json:"content_hash"`
+	Reason          string   `json:"reason"`
+	ExpectedVersion int64    `json:"expected_version"`
+}
+
+// compactionLinkPayloadV2 is the recorded v2 shape: the current payload plus
+// a resulting_version that must equal expected_version+1.
+type compactionLinkPayloadV2 struct {
+	compactionLinkPayload
+	ResultingVersion int64 `json:"resulting_version"`
 }
 
 // compactionLinkPayloadV1 is kept separate from the current payload so that
@@ -166,14 +175,14 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: scopeDomainIDs,
 		TagIDs: note.TagIDs, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID,
 		NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash,
-		Reason: req.Reason, ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1,
+		Reason: req.Reason, ExpectedVersion: req.ExpectedVersion,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "publish_compaction_link", "cannot encode the bounded compaction payload", false, "repair the note metadata", err)
 	}
 	operation := Operation{
-		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 2, Payload: payloadBytes}},
+		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 3, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -216,7 +225,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if payload.ID == "" || payload.ID != event.SubjectID || payload.Type != "work_note" || payload.Title == "" || payload.CompletedAt == "" || payload.OutcomeTag == "" || payload.Summary == "" || payload.HomeProjectID == "" || payload.HomeLocatorID == "" || payload.NotePath == "" || payload.CommitOID == "" || payload.ContentHash == "" || payload.Reason == "" || payload.ExpectedVersion < 1 || payload.ResultingVersion != payload.ExpectedVersion+1 {
+	if payload.ID == "" || payload.ID != event.SubjectID || payload.Type != "work_note" || payload.Title == "" || payload.CompletedAt == "" || payload.OutcomeTag == "" || payload.Summary == "" || payload.HomeProjectID == "" || payload.HomeLocatorID == "" || payload.NotePath == "" || payload.CommitOID == "" || payload.ContentHash == "" || payload.Reason == "" || payload.ExpectedVersion < 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction_link.published payload is incomplete", false, "supply the complete verified PM6 linkage payload")
 	}
 	if err := validateCompactionScopeArrays(payload); err != nil {
@@ -325,20 +334,41 @@ func upcastCompactionLinkPublishedV1(event Event) (Event, error) {
 	if err := strict.Decode(&legacy); err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "legacy compaction payload contains unknown or malformed fields", false, "repair the stored event payload", err)
 	}
-	current := compactionLinkPayload{
-		ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
-		OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
-		Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
-		ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
-		TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
-		NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
-		Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion, ResultingVersion: legacy.ResultingVersion,
+	v2 := compactionLinkPayloadV2{
+		compactionLinkPayload: compactionLinkPayload{
+			ID: legacy.ID, Type: legacy.Type, Title: legacy.Title, CompletedAt: legacy.CompletedAt,
+			OutcomeTag: legacy.OutcomeTag, LessonTags: legacy.LessonTags, TerminalState: legacy.TerminalState,
+			Priority: legacy.Priority, Summary: legacy.Summary, SuccessorID: legacy.SuccessorID,
+			ProductIDs: legacy.ProductIDs, ProjectIDs: legacy.ProjectIDs, DomainIDs: append([]string{}, legacy.ComponentIDs...),
+			TagIDs: legacy.TagIDs, HomeProjectID: legacy.HomeProjectID, HomeLocatorID: legacy.HomeLocatorID,
+			NotePath: legacy.NotePath, CommitOID: legacy.CommitOID, ContentHash: legacy.ContentHash,
+			Reason: legacy.Reason, ExpectedVersion: legacy.ExpectedVersion,
+		},
+		ResultingVersion: legacy.ResultingVersion,
 	}
-	payload, err := json.Marshal(current)
+	payload, err := json.Marshal(v2)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode v2 compaction payload", false, "repair the stored event payload", err)
+	}
+	event.Payload, event.PayloadVersion = payload, 2
+	return event, nil
+}
+
+// upcastCompactionLinkPublishedV2 keeps the v2 acceptance set: it refuses a
+// pair that is not consecutive and drops resulting_version.
+func upcastCompactionLinkPublishedV2(event Event) (Event, error) {
+	var v2 compactionLinkPayloadV2
+	if err := decodeRegisteredPayload(event, &v2); err != nil {
+		return Event{}, err
+	}
+	if v2.ResultingVersion != v2.ExpectedVersion+1 {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "compaction_link.published resulting_version is not expected_version+1", false, "repair the stored event payload")
+	}
+	payload, err := json.Marshal(v2.compactionLinkPayload)
 	if err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot encode current compaction payload", false, "repair the stored event payload", err)
 	}
-	event.Payload, event.PayloadVersion = payload, 2
+	event.Payload, event.PayloadVersion = payload, 3
 	return event, nil
 }
 
@@ -391,15 +421,13 @@ type indexedLaw struct {
 	body   []byte
 }
 
-func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
+func prepareDomainProjection(ctx context.Context, q queryer, manifest KnowledgeManifest, productID string, designated bool) (domainProjection, error) {
 	// CD-0200: a registered source projects its law Domain references from
 	// the shared home's registry instead of carrying its own. A standalone
 	// home outside every source set keeps the registry-required path it
 	// always had.
-	if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
-		return domainProjection{}, err
-	} else if productID != "" && !designated {
-		return prepareFederatedSourceDomainProjection(ctx, s.db, productID, manifest)
+	if productID != "" && !designated {
+		return prepareFederatedSourceDomainProjection(ctx, q, productID, manifest)
 	}
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
@@ -426,30 +454,10 @@ func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, 
 	if result.ProductKey == "" {
 		return result, newFailure(KindUnknownScope, "rebuild_knowledge_index", "Domain registry does not identify its Product", false, "declare the owning Product in the registry")
 	}
-	var products []string
-	rows, err := s.db.QueryContext(ctx, `SELECT product_id FROM product_knowledge_homes WHERE project_id=? AND locator_id=? ORDER BY product_id`, home.HomeProjectID, home.HomeLocatorID)
-	if err != nil {
-		return result, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the Product knowledge home", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var product string
-		if err := rows.Scan(&product); err != nil {
-			rows.Close()
-			return result, err
-		}
-		products = append(products, product)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return result, err
-	}
-	if err := rows.Close(); err != nil {
-		return result, err
-	}
-	if len(products) != 1 {
+	if productID == "" {
 		return result, newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "Domain registry home must resolve exactly one Product", false, "assign exactly one Product knowledge home before rebuilding")
 	}
-	result.ProductID = products[0]
+	result.ProductID = productID
 	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
 	for _, record := range manifest.Records {
 		if !manifestLawBearingKinds[record.Kind] {
@@ -584,9 +592,13 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			notes = append(notes, note)
 		}
 	}
-	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home)
 	if err != nil {
 		return err
+	}
+	role := manifestSharedHomeRole
+	if productID != "" && !designated {
+		role = manifestRegisteredSourceRole
 	}
 	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
 	if err != nil {
@@ -599,17 +611,9 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	// passing rebuild and vanishing at projection, so conflicts stay
 	// blocking; a source that later declares one leaves its watermark stale,
 	// which the consequential boundaries refuse.
-	if !manifestMissing && role == manifestRegisteredSourceRole {
-		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
+	if !manifestMissing && productID != "" {
+		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest, productID, designated); err != nil {
 			return err
-		}
-	} else if !manifestMissing {
-		if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
-			return err
-		} else if designated && productID != "" {
-			if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
-				return err
-			}
 		}
 	}
 	if !manifestMissing {
@@ -631,19 +635,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			}
 		}
 	}
-	var domainProjectionData domainProjection
-	if !manifestMissing {
-		domainProjectionData, err = prepareDomainProjection(ctx, s, home, manifest)
-		if err != nil {
-			return err
-		}
-	}
-
 	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, domainProjectionData); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, productID, designated); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -670,12 +666,20 @@ var derivedKnowledgeClearOrder = []string{
 	"domain_registries",
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, preparedProductID string, preparedDesignated bool) error {
 	var productID string
 	var designated bool
+	var domainProjectionData domainProjection
 	if !manifestMissing {
 		var err error
 		productID, designated, err = resolveKnowledgeSourceRole(ctx, tx, home)
+		if err != nil {
+			return err
+		}
+		if productID != preparedProductID || designated != preparedDesignated {
+			return newFailure(KindStaleContext, "rebuild_knowledge_index", "knowledge home designation or source registration changed during rebuild preparation", true, "retry the rebuild against the current knowledge home designation and source registration")
+		}
+		domainProjectionData, err = prepareDomainProjection(ctx, tx, manifest, productID, designated)
 		if err != nil {
 			return err
 		}
@@ -827,12 +831,13 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 }
 
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
-// a conflicts_with pair canonically. A cross-source relation (CD-0200) names
-// another home's law, which the same-home foreign keys of law_relations
-// cannot reference: it projects into law_cross_source_relations with the
-// target's source identity. Rebuild-time validation refuses invalid and
-// conflicting edges, and every consequential law boundary revalidates the
-// persisted endpoints over the Product's verified current source set, so a
+// a conflicts_with pair canonically and recording the declaring record beside
+// it, since only that record can withdraw the conflict (CD-0015, CD-0159 D4).
+// A cross-source relation (CD-0200) names another home's law, which the
+// same-home foreign keys of law_relations cannot reference: it projects into
+// law_cross_source_relations with the target's source identity. Rebuild-time
+// validation refuses invalid and conflicting edges, and every consequential law
+// boundary revalidates the persisted endpoints over the Product's verified current source set, so a
 // later source removal or reindex cannot leave an orphaned edge behind a
 // passing check.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
@@ -848,7 +853,7 @@ func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home Knowledge
 			if relation.Kind == "conflicts_with" && source > target {
 				source, target = target, source
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, source, relation.Kind, target, commit, law.record.ID); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law relation", true, "retry once the database is writable", err)
 			}
 		}
@@ -1100,15 +1105,34 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		return err
 	}
 	if watermark.Fresh {
-		// A work can become known without Git drift, so a fresh watermark
-		// proves the projection, not the standing of the law it carries. The
-		// legislated-authority admission reruns before the fresh answer.
-		if err := s.verifyFreshKnowledgeAuthority(ctx, home, current); err != nil {
+		undeclared, err := knowledgeConflictDeclarerMissing(ctx, s.db, home)
+		if err != nil {
 			return err
 		}
-		return nil
+		if !undeclared {
+			// A work can become known without Git drift, so a fresh watermark
+			// proves the projection, not the standing of the law it carries.
+			// The legislated-authority admission reruns before the fresh answer.
+			return s.verifyFreshKnowledgeAuthority(ctx, home, current)
+		}
 	}
 	return s.RebuildKnowledgeIndex(ctx, home)
+}
+
+// knowledgeConflictDeclarerMissing reports whether the home holds a
+// conflicts_with row an older writer projected without its declaring record.
+// The conflict check refuses such a row unless the contract revises both
+// derived ends, so a fresh watermark over one still rebuilds.
+func knowledgeConflictDeclarerMissing(ctx context.Context, q queryer, home KnowledgeHome) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND declarer_law_id IS NULL LIMIT 1`, home.HomeProjectID, home.HomeLocatorID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the declarers of projected law conflicts", true, "retry once the database is readable", err)
+	}
+	return true, nil
 }
 
 // verifyFreshKnowledgeAuthority reruns the legislated-authority resolver over

@@ -442,34 +442,103 @@ func topLevelCommandSection(t *testing.T, topLevel, canonical string) string {
 	return topLevel[start : start+len(line)+end+1]
 }
 
-func TestCommandHelp(t *testing.T) {
+// topLevelVerbLines returns the byte-exact usage lines that the top-level
+// help's verb list gives one verb outside the JSON-stdin command sections.
+func topLevelVerbLines(t *testing.T, topLevel, verb string) string {
+	t.Helper()
+	preamble, _, _ := strings.Cut(topLevel, "\nRequired-field refusals")
+	var lines strings.Builder
+	for _, line := range strings.Split(preamble, "\n") {
+		if strings.HasPrefix(line, "  concord "+verb+" ") {
+			lines.WriteString(line + "\n")
+		}
+	}
+	if lines.Len() == 0 {
+		t.Fatalf("top-level usage lists no line for %s", verb)
+	}
+	return lines.String()
+}
+
+// topLevelGroupSections returns the sections of every command whose two-word
+// form starts with the group word, in top-level order.
+func topLevelGroupSections(t *testing.T, topLevel, group string) string {
+	t.Helper()
+	var sections strings.Builder
+	for _, spec := range commandSpecs {
+		if strings.HasPrefix(spec.TwoWord, group+" ") {
+			sections.WriteString(topLevelCommandSection(t, topLevel, spec.Canonical))
+		}
+	}
+	if sections.Len() == 0 {
+		t.Fatalf("group %s has no commands in commandSpecs", group)
+	}
+	return sections.String()
+}
+
+// TestEveryVerbHasAHelpRoute proves that every verb the top-level usage names,
+// every command form, every group word, and the argv[0] zl launcher answer
+// --help and -h with their own usage on stdout, exit 0, and never read stdin
+// or open the store.
+func TestEveryVerbHasAHelpRoute(t *testing.T) {
 	topLevel := topLevelHelp(t)
+	type verbCase struct {
+		name     string
+		args     []string
+		launcher bool
+		want     string
+	}
+	cases := []verbCase{{name: "concord", want: topLevel}, {name: "launcher zl", launcher: true, want: topLevelVerbLines(t, topLevel, "zl")}}
 	for _, spec := range commandSpecs {
 		for _, form := range []string{spec.Canonical, spec.TwoWord} {
-			if form == "" {
-				continue
+			if form != "" {
+				cases = append(cases, verbCase{name: form, args: strings.Fields(form), want: topLevelCommandSection(t, topLevel, spec.Canonical)})
 			}
-			t.Run(form, func(t *testing.T) {
+		}
+	}
+	for _, group := range commandGroups() {
+		cases = append(cases, verbCase{name: group, args: []string{group}, want: topLevelGroupSections(t, topLevel, group)})
+	}
+	preamble, _, _ := strings.Cut(topLevel, "\nRequired-field refusals")
+	var verbs []string
+	for _, line := range strings.Split(preamble, "\n") {
+		verb, _, _ := strings.Cut(strings.TrimPrefix(line, "  concord "), " ")
+		if !strings.HasPrefix(line, "  concord ") || strings.HasPrefix(verb, "-") || slices.Contains(verbs, verb) || slices.ContainsFunc(commandSpecs, func(spec commandSpec) bool { return spec.Canonical == verb }) {
+			continue
+		}
+		verbs = append(verbs, verb)
+		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
+	}
+	for _, want := range []string{"zl", "session", "continuity-block", "repair", "recover-fold-guard"} {
+		if !slices.Contains(verbs, want) {
+			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
+		}
+	}
+	for _, tc := range cases {
+		for _, flag := range []string{"--help", "-h"} {
+			t.Run(tc.name+" "+flag, func(t *testing.T) {
+				if tc.launcher {
+					original := os.Args[0]
+					defer func() { os.Args[0] = original }()
+					os.Args[0] = filepath.Join(t.TempDir(), "zl")
+				}
 				dbPath := filepath.Join(t.TempDir(), "concord.db")
 				t.Setenv(dbOverrideEnv, dbPath)
 				var out, errOut bytes.Buffer
 				stdin := &countingStdin{}
-				args := append(strings.Fields(form), "--help")
-				if code := runWithInput(args, stdin, &out, &errOut); code != 0 {
-					t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", form, code, errOut.String())
+				if code := runWithInput(append(slices.Clone(tc.args), flag), stdin, &out, &errOut); code != 0 {
+					t.Fatalf("exit code = %d, want 0; stderr=%q", code, errOut.String())
 				}
 				if errOut.Len() != 0 {
-					t.Fatalf("%s --help stderr = %q, want empty", form, errOut.String())
+					t.Fatalf("stderr = %q, want empty", errOut.String())
 				}
 				if stdin.reads != 0 {
-					t.Fatalf("%s --help read stdin %d times, want 0", form, stdin.reads)
+					t.Fatalf("read stdin %d times, want 0", stdin.reads)
 				}
 				if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-					t.Fatalf("%s --help touched the store database at %s", form, dbPath)
+					t.Fatalf("touched the store database at %s", dbPath)
 				}
-				want := topLevelCommandSection(t, topLevel, spec.Canonical)
-				if out.String() != want {
-					t.Fatalf("%s --help output differs from its top-level usage section", form)
+				if out.String() != tc.want {
+					t.Fatalf("stdout = %q, want %q", out.String(), tc.want)
 				}
 			})
 		}
@@ -486,17 +555,7 @@ func TestGroupHelp(t *testing.T) {
 	}
 	for _, group := range groups {
 		t.Run(group, func(t *testing.T) {
-			var sections strings.Builder
-			prefix := group + " "
-			for _, spec := range commandSpecs {
-				if strings.HasPrefix(spec.TwoWord, prefix) {
-					sections.WriteString(topLevelCommandSection(t, topLevel, spec.Canonical))
-				}
-			}
-			wantSections := sections.String()
-			if wantSections == "" {
-				t.Fatalf("group %s has no commands in commandSpecs", group)
-			}
+			wantSections := topLevelGroupSections(t, topLevel, group)
 
 			var out, errOut bytes.Buffer
 			stdin := &countingStdin{}
@@ -516,19 +575,22 @@ func TestGroupHelp(t *testing.T) {
 				t.Fatalf("bare %q read stdin %d times, want 0", group, stdin.reads)
 			}
 
-			out.Reset()
-			errOut.Reset()
-			if code := runWithInput([]string{group, "--help"}, stdin, &out, &errOut); code != 0 {
-				t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", group, code, errOut.String())
-			}
-			if errOut.Len() != 0 {
-				t.Fatalf("%s --help stderr = %q, want empty", group, errOut.String())
-			}
-			if out.String() != wantSections {
-				t.Fatalf("%s --help output differs from the group sections", group)
-			}
-			if stdin.reads != 0 {
-				t.Fatalf("%s --help read stdin %d times, want 0", group, stdin.reads)
+			for _, args := range [][]string{{group, "bogus"}, {group, "bogus", "--help"}} {
+				out.Reset()
+				errOut.Reset()
+				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
+					t.Fatalf("%v exit code = %d, want 2", args, code)
+				}
+				if out.Len() != 0 {
+					t.Fatalf("%v stdout = %q, want empty", args, out.String())
+				}
+				diagnostic := fmt.Sprintf("concord: %s has no command bogus; use 'concord %s --help' to list its commands\n", group, group)
+				if errOut.String() != diagnostic+wantSections {
+					t.Fatalf("%v stderr = %q, want the group diagnostic and its sections", args, errOut.String())
+				}
+				if stdin.reads != 0 {
+					t.Fatalf("%v read stdin %d times, want 0", args, stdin.reads)
+				}
 			}
 		})
 	}
@@ -1010,8 +1072,12 @@ func TestRetiredPlanningCommandsRefuseBeforeStdinOrStore(t *testing.T) {
 				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
 					t.Fatalf("retired command exit code = %d, want 2; stderr=%q", code, errOut.String())
 				}
-				if out.Len() != 0 || !strings.Contains(errOut.String(), "unsupported arguments") {
-					t.Fatalf("retired command stdout=%q stderr=%q, want unsupported usage", out.String(), errOut.String())
+				want := "unsupported arguments"
+				if _, group := groupWord(args[0]); group {
+					want = "concord: " + args[0] + " has no command " + args[1] + ";"
+				}
+				if out.Len() != 0 || !strings.Contains(errOut.String(), want) {
+					t.Fatalf("retired command stdout=%q stderr=%q, want %q", out.String(), errOut.String(), want)
 				}
 				if stdin.reads != 0 {
 					t.Fatalf("retired command read stdin %d times, want 0", stdin.reads)

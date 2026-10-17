@@ -660,7 +660,7 @@
             }
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "properties": {
               "next_valid_intents": {
                 "type": "array",
@@ -682,6 +682,11 @@
                 {
                   "required": [
                     "obligations"
+                  ]
+                },
+                {
+                  "required": [
+                    "outstanding_evidence_kinds"
                   ]
                 }
               ]
@@ -774,6 +779,15 @@
             "maxLength": 64
           },
           "description": "Sorted exact evidence obligation IDs the pinned definition declares across root, step, and rigor declarations; the same collector admission reads."
+        },
+        "outstanding_evidence_kinds": {
+          "type": "array",
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidence_kind"
+          },
+          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including recovery check verification. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots."
         },
         "outside_repair_disposition": {
           "$ref": "#/$defs/outside_repair_disposition"

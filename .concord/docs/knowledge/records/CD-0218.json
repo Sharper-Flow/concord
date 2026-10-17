@@ -7,6 +7,7 @@
   "evidence": [
     ".concord/docs/knowledge/coverage/CD-0218.json",
     "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_diagnosis_derived_start_test.go",
     "internal/store/workflow_historical_journal_replay_test.go",
     "internal/store/workflow_stale_registry_repin_test.go",
     "internal/store/workflow_worker_failure_retry_test.go"
@@ -28,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:386d58049de5563d06e46dde52ce6a1890c1e137776f57f48ffaba26acb9bcbe",
+  "sha256": "sha256:c37996d88a2b4a53b61f8d9f3c9694decb3384497e21f16ff8f58b757d4d08b0",
   "status": "accepted",
   "summary": "Publishes the approved three-family live catalog: implementation, break_fix, and research own new execution; the four retired families refuse new authoring while every released pin, event, and recovery tuple stays readable as exact frozen history. Authorization, correction, ordinary stale recovery, and independent acceptance keep their owners. Publication is the isolated candidate only; live supersession of the candidate set, consumer disposition, and release activation wait for the operator cutover boundary.",
   "tags": [

@@ -47,6 +47,27 @@ class RigorClassFixture(unittest.TestCase):
     def test_clean_fixture_passes(self) -> None:
         self.assertEqual(self.findings(), [])
 
+    def test_migration_spacing_passes(self) -> None:
+        source = self.root / "internal/store/schema.go"
+        original = source.read_text(encoding="utf-8")
+        header = (
+            'Version:  54,\n\t\tName:     "rigor_class_vocabulary",\n'
+            '\t\tBreaking: true,\n\t\tSQL: `'
+        )
+        self.assertEqual(original.count(header), 1)
+        before, body = original.split(header)
+        sql, after = body.split("`", 1)
+        after = after.replace(",\n\t},", " ,\t } ,", 1)
+        for replacement in (
+            'Version:54,Name:"rigor_class_vocabulary",Breaking:true,SQL:`',
+            'Version \t: 54 , Name \t: "rigor_class_vocabulary" , Breaking : true , SQL : `',
+            'Version:\t\t54,\n\t\tName:\t\t"rigor_class_vocabulary",\n\t\tBreaking:\ttrue,\n\t\tSQL:\t\t`',
+        ):
+            with self.subTest(header=replacement):
+                text = before + replacement + sql + "`" + after
+                source.write_text(text, encoding="utf-8")
+                self.assertEqual(self.findings(), [])
+
     def test_dropped_trigger_value_is_reported(self) -> None:
         source = self.root / "internal/store/schema.go"
         text = source.read_text(encoding="utf-8").replace("'critical_safety_critical'", "", 1)

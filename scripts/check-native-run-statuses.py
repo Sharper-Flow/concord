@@ -10,6 +10,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from migration_source import migration_sql
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VOCABULARY = Path("contracts/native-run-statuses.v1.json")
@@ -24,11 +26,6 @@ def load_json(root: Path, relative: Path, findings: list[str]):
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         findings.append(f"json-load: {relative}: invalid JSON: {exc}")
         return None
-
-
-def migration_block(source: str) -> str | None:
-    match = re.search(r'Version:\s+49,\s+Name:\s+"work_kind_and_native_run_vocabularies",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},', source, re.S)
-    return match.group("sql") if match else None
 
 
 def run_generator(root: Path, findings: list[str]) -> None:
@@ -101,10 +98,11 @@ def check(root: Path, load_statuses: NativeStatusLoader | None = None) -> list[s
     except OSError as exc:
         findings.append(f"migration-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
-    sql = migration_block(source)
-    if sql is None:
+    migration = migration_sql(source, 49, "work_kind_and_native_run_vocabularies")
+    if migration is None:
         findings.append("migration-coverage: missing migration 49 work_kind_and_native_run_vocabularies")
         return findings
+    sql = migration.sql
     rows: set[tuple[str, str, int]] = set()
     for match in re.finditer(r"INSERT INTO workflow_native_run_statuses\s*\([^)]*\)\s*VALUES\s*\('([^']+)',\s*'([^']+)',\s*(0|1)\);", sql):
         rows.add((match.group(1), match.group(2), int(match.group(3))))

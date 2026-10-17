@@ -29,7 +29,9 @@ the active ruleset rules for a branch. A `required_status_checks` rule lists
 its contexts. The [branch endpoint](https://docs.github.com/en/rest/branches/branches)
 returns a `protection` summary whose `required_status_checks` lists the
 classic protection contexts. The branch endpoint returns that summary, with
-empty lists, for an unprotected branch too.
+empty lists, for an unprotected branch too: `gh api
+repos/octocat/Hello-World/branches/master` answers `"protected": false` with
+`protection.required_status_checks` present.
 
 ## Decision
 
@@ -86,10 +88,10 @@ D2: it adds no requiredness read.
 ## Consequences
 
 A wait whose token cannot read the rules or branch endpoints now ends every
-checks wait as `error`. Whether every token sees the classic summary was not
-verified. A token that GitHub refuses, or that receives a branch answer
-without `protection.required_status_checks`, fails closed instead of
-reporting a partial success.
+checks wait as `error`. A branch answer without
+`protection.required_status_checks` also fails closed instead of reporting a
+partial success. Whether every token sees the classic contexts was not
+verified: a token that received emptied lists would pass silently.
 
 A required context that another app reports under the same name satisfies the
 requirement here. A ruleset rule can name the integration the status must

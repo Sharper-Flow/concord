@@ -23,6 +23,39 @@ Precedence:
   (in place when compatible, by a superseding record when breaking) before
   work relies on it.
 
+### Agent boost and automatic bookkeeping
+
+Concord must supply the current work context, required files, and approved
+bounded job when an agent starts or resumes work and when that context changes.
+The agent needs no separate call to fetch them.
+
+Concord records every fact it can derive from the worktree, Git, CI, its store,
+or the planning link. An agent never transcribes those facts: `HEAD`, base,
+ancestry, merge and CI results, delivery, lifecycle after merge, request identity,
+and expected versions are derived at their owning boundary. A missing fact that
+Concord can derive is derived at the point of use, not refused back to the agent
+as bookkeeping.
+
+An agent call to Concord is for a decision, such as an approval, a verdict, or a
+choice between routes. Other coordination writes happen as side effects of work
+already performed, with **zero extra bookkeeping calls**. Every refusal names
+the exact supported next call, or Concord takes that call itself.
+
+Automatic bookkeeping preserves required approvals, expected-version and
+idempotency checks ([TS5](./agent-call-context-contract.md) §§5–7), and
+evidence binding to its immutable subject
+([CD-0008](./decisions/CD-0008-concord-mechanism-hardening.md) D2). A derived
+expected version is the version the agent's work read, never the version
+current at the write. Bookkeeping never silently rebases a mutation onto newer
+state, invents missing evidence, or takes over a native system's external
+effects.
+
+Concord records workflow calls, extra bookkeeping calls, and coordinator minutes
+per work item, together with the observation window. Call counts include refused
+and retried calls; unavailable measurements stay unknown, not zero. Targets for
+total workflow calls and coordinator minutes stay open, with no numeric ceiling
+or admission gate until the operator sets one.
+
 ---
 
 ## Operating envelope

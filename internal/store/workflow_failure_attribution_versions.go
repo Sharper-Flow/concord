@@ -14,16 +14,7 @@ import "slices"
 // as workflowDerivedWorkerFailureActive holds the CD-0198 D5 boundary. The
 // four retired families stay outside the gate.
 func workflowFailureAttributionActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 31
-	case "workflow.break_fix":
-		return definition.Version >= 28
-	case "workflow.research":
-		return definition.Version >= 18
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityFailureAttribution)
 }
 
 // workflowFailureAttributionField declares the optional failure_attribution

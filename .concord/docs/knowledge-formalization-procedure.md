@@ -163,8 +163,9 @@ It is not the date its body last changed.
 
 Two path constraints bind authorship directly.
 
-A `research` record cannot live under `.concord/docs/research/`. That directory is
-excluded from the closure walk and is ineligible as a record path. A research
+A `research` record cannot live in the `research` directory under `.concord/docs/`.
+The manifest excludes that directory from the closure walk, and it is ineligible as
+a record path. A research
 document that must hold a record has to live elsewhere under `.concord/docs/`.
 
 A `decision` record's path is bound to the decisions directory and the

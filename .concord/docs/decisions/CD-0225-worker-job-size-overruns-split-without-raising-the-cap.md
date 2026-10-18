@@ -13,7 +13,7 @@ A recorded worker job binds an objective and its acceptance oracle, but no produ
 Text and list bounds constrain transport, not the engineering delta.
 Increasing a limit after an overrun makes the original boundary meaningless.
 
-[The assignment proposal](../research/worker-assignment-proposal.md), lines 112-116, correctly separates transport bounds from decomposition.
+[The assignment proposal](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/worker-assignment-proposal.md), lines 112-116, correctly separates transport bounds from decomposition.
 This decision preserves that distinction and adds a separate production-size contract.
 Size requires a smaller partition when its cap cannot hold the work.
 Size alone does not establish behavioral boundaries, settle interfaces, or justify incomplete acceptance.

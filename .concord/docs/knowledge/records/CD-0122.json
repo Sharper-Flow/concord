@@ -7,7 +7,7 @@
   "date": "2026-09-09T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/docs/development-authority.md",
+    ".concord/docs/managed-development-authority.md",
     "AGENTS.md",
     "scripts/check-agents-md.py",
     "scripts/check-doc-contract.py",
@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d63eb28959613a77916bdf8889def76eff90206c59f1571fb140c419b114ccc6",
+  "sha256": "sha256:f662dba841a8396ee6ac305e632895debf1847d5557cc7db7de2c85e2bbadb33",
   "status": "accepted",
   "summary": "Limits Concord workflow authority to explicitly managed participation, permits outside project work and authorized defect repair, and preserves repository evidence and host-owned roles.",
   "tags": [

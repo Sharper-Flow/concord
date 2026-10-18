@@ -9,7 +9,7 @@
   the public record is
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
 - **Related:** CD-0034, CD-0043 (D1, D2, D3),
-  [`../development-authority.md`](../development-authority.md)
+  [`../managed-development-authority.md`](../managed-development-authority.md)
 - **Preserves:** CD-0043 D1 and D2; the reserved `skills/` boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
   and `agent-lane-report.v1`

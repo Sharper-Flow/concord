@@ -1,5 +1,0 @@
-{
-  "id": "CD-0171",
-  "reason": "Superseded by CD-0213. The CON-801 deletion slices remove the mapping this decision governed, so no runtime obligation remains.",
-  "state": "out_of_scope"
-}

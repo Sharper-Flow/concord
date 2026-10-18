@@ -5,7 +5,6 @@
 - **Scope:** Where planning facts live, how agents read and write them, which
   Linear facts Concord keeps, and how pull requests link to Linear,
   [Concord (CON) issue 801](https://linear.app/sharper-flow/issue/CON-801)
-- **Supersedes:** CD-0121, CD-0155, CD-0167, CD-0171, CD-0188
 - **Amends:** CD-0041 D8 and D9 items 4-5 as a compatible amendment in place
 - **Preserves:** CD-0122 in full, CD-0156 in full, CD-0142 removal handoff,
   CD-0146 external-reference collision refusal, repository review and merge
@@ -103,10 +102,6 @@ Linear.
 
 ## Consequences
 
-- CD-0121, CD-0155, CD-0167, CD-0171, and CD-0188 become superseded. Every
-  active workflow contract that pins one of them becomes stale under CD-0036
-  D3 and recovers through `supersede_contract` or cancellation.
-- `development-authority` is replaced by `managed-development-authority`.
 - Deletion removes the planning-mode, Initiative, outbox, Project-link, import,
   backfill, divergence, and drain surfaces end to end.
 - An agent that needs planning context must reach the Linear MCP server.
@@ -115,8 +110,7 @@ Linear.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` validates the record graph and the
-  supersession relations.
+- `python3 scripts/check-knowledge-index.py` validates the record graph.
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.

@@ -5075,7 +5075,7 @@ CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_o
 `,
 	},
 	{
-		// CD-0171 D2: one Linear Project per Concord Initiative. The drain
+		// One Linear Project per Concord Initiative. The drain
 		// records the remote Project identity when a project_create
 		// completes; project_update and the issue enqueue path address the
 		// Initiative's Project through this row. The queue widens again to
@@ -5145,7 +5145,7 @@ CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_o
 `,
 	},
 	{
-		// CD-0171 removed the repository-to-Linear-Project mapping.
+		// Planning law removed the repository-to-Linear-Project mapping.
 		// Connections recorded while the mapping still existed keep its
 		// retired project_id and project_ids members in stored metadata, and
 		// the update path reaches a document only when an operator edits the

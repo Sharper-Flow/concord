@@ -1758,8 +1758,17 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if jobErr != nil {
 		return jobErr
 	}
+	subject := ""
+	if admittedContext != nil {
+		subject = admittedContext.SubjectCommit
+	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
+		// CD-0225 D1: the size-capable dispatch admission binds the cap,
+		// the correction base, and the measured-path serialization.
+		if err := admitWorkerJobSizeDispatchTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, lane, *job, subject); err != nil {
+			return err
+		}
 	}
 	// Revalidate the sealed pre-transaction preparation with SQL only,
 	// including the accepted implementation subject for a review dispatch.

@@ -1238,9 +1238,9 @@ const GeneratedPayloadSchemaDocument = `{
               "$ref": "#/$defs/workflow_proposal_record"
             },
             "ready_worker_jobs": {
-              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. Absent when no revision is ready.",
+              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. On a size-capable pin a job carries the caller_exclusions its implementation dispatch binds (CD-0227 D1); a dispatcher drops them for every other lane. Absent when no revision is ready.",
               "items": {
-                "$ref": "#/$defs/worker_packet_worker_job"
+                "$ref": "#/$defs/worker_packet4_worker_job"
               },
               "maxItems": 256,
               "type": "array"
@@ -2889,9 +2889,12 @@ const GeneratedPayloadSchemaDocument = `{
             },
             {
               "$ref": "#/$defs/worker_packet3"
+            },
+            {
+              "$ref": "#/$defs/worker_packet4"
             }
           ],
-          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The pinned dispatch admission selects the packet generation the work's pinned definition declares — the retained packet2 closure or the research packet3 closure — and the response returns exactly those admitted bytes; both closures share the 2.0 schema_version and report protocol, so this transport gate invents no second version selection."
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The pinned dispatch admission selects the packet generation the work's pinned definition declares — the retained packet2 closure, the research packet3 closure, or the size-capable packet4 closure — and the response returns exactly those admitted bytes; every closure shares the 2.0 schema_version and report protocol, so this transport gate invents no second version selection."
         },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
@@ -19346,7 +19349,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/worker_job_measured_path"
           },
-          "maxItems": 256,
+          "maxItems": 64,
           "minItems": 1,
           "type": "array"
         }
@@ -20363,7 +20366,7 @@ const GeneratedPayloadSchemaDocument = `{
             "minLength": 1,
             "type": "string"
           },
-          "maxItems": 256,
+          "maxItems": 64,
           "minItems": 0,
           "type": "array",
           "uniqueItems": true

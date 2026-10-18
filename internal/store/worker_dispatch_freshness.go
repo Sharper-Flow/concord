@@ -71,8 +71,13 @@ type workerDispatchProof struct {
 	observation *WorkerObservedDelivery
 	anchor      *reviewDeliveryAnchor
 	ancestry    reviewSubjectAncestry
-	acceptance  bool
-	pinReceipt  *WorktreeVerifyResult
+	// correctionAncestry proves the dispatched capped job's base_commit is
+	// an ancestor of the observed subject, probed beside the review
+	// delivery anchor. The correction dispatch admission revalidates it.
+	correctionBase     string
+	correctionAncestry reviewSubjectAncestry
+	acceptance         bool
+	pinReceipt         *WorktreeVerifyResult
 
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
@@ -127,6 +132,15 @@ type PrepareWorkerDispatchRequest struct {
 	WorkID          string
 	SessionWorktree string
 	Runner          GitRunner
+	// WorkerJob is the dispatched job binding the dispatch payload carried,
+	// resolved by the authenticated mutation boundary before preparation.
+	// When it names a capped job, its recorded base_commit anchors the
+	// correction ancestry probe beside the review delivery anchor.
+	WorkerJob *WorkerJobBinding
+	// WorkerAttemptID is the rejected attempt a combined rejection's derived
+	// retry re-dispatches; its authorization's job binding anchors the same
+	// probe when the retry carries no packet of its own.
+	WorkerAttemptID string
 }
 
 // workerDispatchSample is the SQL-sampled identity set one dispatch
@@ -147,13 +161,18 @@ type workerDispatchSample struct {
 	readings   []dispatchReadingWitness
 	anchors    []reviewDeliveryAnchor
 	pinReceipt *WorktreeVerifyResult
+
+	// correctionBase is the dispatched job's recorded base_commit, sampled
+	// from its latest recorded revision's measurement basis; empty when the
+	// job is uncapped or unnamed.
+	correctionBase string
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
 // caller's sample so the preparation's read snapshot closure stays a single
 // call. It performs SQL only.
-func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, workID string, sample *workerDispatchSample) error {
-	sampled, err := sampleWorkerDispatchState(ctx, q, workID)
+func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, request PrepareWorkerDispatchRequest, sample *workerDispatchSample) error {
+	sampled, err := sampleWorkerDispatchState(ctx, q, request)
 	if err != nil {
 		return err
 	}
@@ -166,7 +185,8 @@ func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, workID string
 // worktree entry list through one queryer so every sampled identity observes
 // one snapshot. It performs SQL only; the caller resolves canonical paths
 // and probes Git only after the snapshot closes.
-func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (workerDispatchSample, error) {
+func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWorkerDispatchRequest) (workerDispatchSample, error) {
+	workID := request.WorkID
 	var sample workerDispatchSample
 	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&sample.version); err != nil {
 		if err == sql.ErrNoRows {
@@ -224,6 +244,23 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (w
 	if err != nil {
 		return sample, err
 	}
+	binding := request.WorkerJob
+	if binding == nil && request.WorkerAttemptID != "" {
+		_, resolved, resolveErr := dispatchCompletionJobForAttempt(ctx, q, request.WorkID, request.WorkerAttemptID)
+		if resolveErr != nil {
+			return sample, resolveErr
+		}
+		binding = resolved
+	}
+	if binding != nil {
+		content, contentErr := readWorkerJobSizeContentTx(ctx, q, request.WorkID)
+		if contentErr != nil {
+			return sample, contentErr
+		}
+		if latest := latestWorkerJobSizeRevision(content, binding.JobID); latest != nil && latest.basis != nil {
+			sample.correctionBase = latest.basis.BaseCommit
+		}
+	}
 	return sample, nil
 }
 
@@ -253,7 +290,7 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 	}
 	var sample workerDispatchSample
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		return sampleWorkerDispatchStateInto(ctx, q, request.WorkID, &sample)
+		return sampleWorkerDispatchStateInto(ctx, q, request, &sample)
 	}); err != nil {
 		return nil, err
 	}
@@ -291,6 +328,7 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		proof.claimPath, proof.claimBranch, proof.claimOpID, proof.projectID, proof.claimState = entry.Path, entry.Branch, entry.ClaimOpID, entry.ProjectID, entry.State
 		proof.probePath = probePath
 	}
+	proof.correctionBase = sample.correctionBase
 	proof.anchor = selectReviewDeliveryAnchor(sample.anchors, proof.sessionIdentity)
 	if acceptance && sample.pinReceipt != nil && (!claimFound || entry.Path != sample.pinReceipt.Path || entry.ProjectID != sample.pinReceipt.ProjectID) {
 		return nil, newFailure(KindStaleRequiresReview, workerDispatchFreshnessOp, "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
@@ -331,12 +369,13 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		// preparation for an editing/recovery lane.
 		anchorCommit, _ = proof.anchor.cleanCommit()
 	}
-	observation, ancestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit)
+	observation, ancestry, correctionAncestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit, proof.correctionBase)
 	if err != nil {
 		return nil, err
 	}
 	proof.observation = observation
 	proof.ancestry = ancestry
+	proof.correctionAncestry = correctionAncestry
 	return &WorkerDispatchPreparation{proof: proof}, nil
 }
 
@@ -370,22 +409,22 @@ func selectDispatchClaimEntry(entries []WorktreeEntry, sessionWorktree string) (
 // observeDispatchSubject runs the read-only Git observation of one claimed
 // worktree under the single fixed probe deadline. A failed command or the
 // deadline produces a typed refusal before any effect.
-func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit string) (*WorkerObservedDelivery, reviewSubjectAncestry, error) {
+func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit, correctionBase string) (*WorkerObservedDelivery, reviewSubjectAncestry, reviewSubjectAncestry, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
 	}
 	head, err := runner.Run(probeCtx, path, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
 	}
 	commit := strings.TrimSpace(string(head))
 	if !worktreeSHAPattern.MatchString(commit) {
-		return nil, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
+		return nil, reviewSubjectAncestry{}, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	var ancestry reviewSubjectAncestry
+	var ancestry, correctionAncestry reviewSubjectAncestry
 	if anchorCommit != "" && anchorCommit != commit && len(status) == 0 {
 		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", anchorCommit, commit)
 		if ancestorErr == nil {
@@ -399,7 +438,20 @@ func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorC
 			}
 		}
 	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, nil
+	if correctionBase != "" && correctionBase != commit && len(status) == 0 {
+		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", correctionBase, commit)
+		if ancestorErr == nil {
+			correctionAncestry.strictDescendant = true
+		} else {
+			var exit *exec.ExitError
+			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
+				// A correction dispatch needs its base ancestry; an outage
+				// refuses the preparation before any effect.
+				correctionAncestry.failure = dispatchSubjectProbeFailure("correction base ancestry", probeCtx, ancestorErr)
+			}
+		}
+	}
+	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, correctionAncestry, nil
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed

@@ -26,7 +26,7 @@ const MaxEnvelopeBytes = 65536
 // the whole-action packet budget plus the operation input fields and the
 // call envelope's host-owned identities. It never bounds a response; the
 // response caps stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
-const MaxRequestBytes = 32 * 1024 * 1024
+const MaxRequestBytes = 64 * 1024 * 1024
 
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200

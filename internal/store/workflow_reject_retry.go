@@ -371,7 +371,18 @@ func retryPacketWorkerJobTx(ctx context.Context, tx *sql.Tx, definition Workflow
 		if view.Binding != *binding {
 			continue
 		}
-		inputs["worker_job"] = packetJobFromView(view)
+		job := packetJobFromView(view)
+		// A size-capable implementation retry carries the same computed
+		// caller exclusions first dispatch would, so the packet binds the
+		// work's other corrections identically.
+		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+			exclusions, exclusionsErr := workerJobCallerExclusionsTx(ctx, tx, workID, view.Binding.JobID)
+			if exclusionsErr != nil {
+				return exclusionsErr
+			}
+			job.CallerExclusions = exclusions
+		}
+		inputs["worker_job"] = job
 		return nil
 	}
 	return newFailure(KindInvalidPayload, "workflow_action", "the rejected attempt's worker-job binding names no recorded revision", false, "record the bounded job with record_worker_job before retrying it")

@@ -78,7 +78,7 @@ func descendantDispatch(t *testing.T, j *candidateJourney, laneID, attempt strin
 	t.Helper()
 	version, digest := registeredLaneIdentity(t, laneID)
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, laneID, version, digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, laneID)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attempt)
 	if err != nil {
 		return err

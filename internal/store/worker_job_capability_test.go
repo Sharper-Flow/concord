@@ -105,7 +105,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if err := dispatchJobPacketForTest(t, s, workID, attemptID, fixture.owner, "unbound-"+workID, packet); err == nil || !strings.Contains(err.Error(), "carries no inputs.worker_job") {
 				t.Fatalf("unbound %s dispatch error = %v, want missing-job refusal", lane.ID, err)
 			}
-			recorded := recordedPacketJobForTest(t, s, workID, *job)
+			recorded := recordedPacketJobForTest(t, s, workID, *job, lane.ID)
 			packet["inputs"].(map[string]any)["worker_job"] = recorded
 			if lane.CapabilityClass == "review" {
 				// The review gate requires an accepted implementation
@@ -156,6 +156,11 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			}
 			if oracleCapablePinForWork(t, s, workID) {
 				unreadyFields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+			}
+			if sizeCapablePinForWork(t, s, workID) {
+				for member, value := range workerJobSizeMembersForTest(t, s, workID, unreadyFields) {
+					unreadyFields[member] = value
+				}
 			}
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, unreadyFields); err != nil {
 				t.Fatal(err)

@@ -19,6 +19,7 @@ import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { jobSizeFields } from "./job-size.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -775,7 +776,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
     expect(prepareResult.oracle.qualification).toBe("ready")
     const preparationRef = prepareResult.oracle.run_ref
-    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
+    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] }, ...jobSizeFields(owner, "oraclekit", head.stdout.trim(), SOURCE_PROJECT) } } }, context)
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")

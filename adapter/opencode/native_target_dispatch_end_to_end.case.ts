@@ -27,6 +27,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { jobSizeFields } from "./job-size.fixture"
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
 
@@ -495,6 +496,7 @@ async function driveToReadyJob(
     ready: true,
     readiness_evidence: [preparationRef],
     acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] },
+    ...jobSizeFields(owner, TARGET_ROOT, subjectCommit),
   })
   expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
   const jobRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord

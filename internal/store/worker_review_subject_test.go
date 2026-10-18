@@ -196,7 +196,7 @@ func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attempt
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -509,7 +509,7 @@ func rawLiveDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attem
 	t.Helper()
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
@@ -673,7 +673,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
 		t.Fatalf("accepted-delivery dispatch refused: %v", err)

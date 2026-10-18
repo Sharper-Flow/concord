@@ -949,7 +949,7 @@
             "paths": {
               "type": "array",
               "minItems": 1,
-              "maxItems": 256,
+              "maxItems": 64,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -1037,7 +1037,7 @@
         "caller_exclusions": {
           "type": "array",
           "minItems": 0,
-          "maxItems": 256,
+          "maxItems": 64,
           "uniqueItems": true,
           "items": {
             "type": "string",

@@ -27,7 +27,33 @@ func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) str
 
 func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) WorkerDiffRequest {
 	t.Helper()
-	job := reviewSubjectReadyRevision(t, j.fixture)
+	// The diff-reading job's scope covers the fixture's committed edit
+	// paths, so the bounded read returns the review delta.
+	fields := map[string]any{
+		"job_id": "diff-read-" + attempt, "objective": "read the bounded review delta",
+		"stopping_condition": "the bounded review delta is read", "path_scope": []string{"internal/store"},
+		"checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
+	}
+	if sizeCapablePinForWork(t, j.s, j.workID) {
+		bootstrapOracleFixtureSubject(t, j.s, j.workID)
+		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
+		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
+			fields[member] = value
+		}
+	}
+	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+		t.Fatalf("record diff-read job: %v", err)
+	}
+	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job WorkerJobBinding
+	for _, view := range views {
+		if view.Binding.JobID == "diff-read-"+attempt {
+			job = view.Binding
+		}
+	}
 	return workerDiffDispatchJob(t, j, attempt, job)
 }
 
@@ -35,7 +61,7 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	t.Helper()
 	version, digest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", version, digest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {
 		t.Fatal(err)
@@ -155,8 +181,10 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 		req := workerDiffDispatchJob(t, j, fmt.Sprintf("scope-review-%d", i), binding)
 		page, err := j.s.ReadWorkerDiff(context.Background(), req)
 		if i == 1 {
-			if !hasFailureKind(err, KindUnauthorizedDispatch) || len(page.Data) != 0 {
-				t.Fatalf("empty scope exposed bytes: %+v %v", page, err)
+			// The per-job scope covers no committed path, so the bounded
+			// read exposes nothing.
+			if err != nil || len(page.Data) != 0 {
+				t.Fatalf("unmatched scope exposed bytes: %+v %v", page, err)
 			}
 		} else if err != nil || !bytes.Contains(page.Data, []byte("+literal star")) || bytes.Contains(page.Data, []byte("must not match")) {
 			t.Fatalf("literal scope widened to a glob: %s %v", page.Data, err)

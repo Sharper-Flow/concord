@@ -35,7 +35,7 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 	inputs := map[string]any{
 		"task":        task,
 		"binding":     binding,
-		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job),
+		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job, "implement"),
 		"constraints": []string{"do-not-modify-product-truth"},
 	}
 	for member, value := range recordedPacketRecords(t, f.store, f.workID) {
@@ -1141,7 +1141,7 @@ func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID strin
 	inputs := map[string]any{
 		"task":        task,
 		"binding":     binding,
-		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job),
+		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job, "implement"),
 		"constraints": []string{"do-not-modify-product-truth"},
 	}
 	for member, value := range recordedPacketRecords(t, f.store, f.workID) {

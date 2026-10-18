@@ -156,7 +156,7 @@ func TestWorkPinAttemptExposesBornFailedAttribution(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", attempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attempt, fixture.owner, "workpin-attribution-born-authorization", packet); err != nil {
 		t.Fatalf("the born-failed authorization refused: %v", err)
 	}

@@ -189,9 +189,11 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	packet4Opt := schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
-			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":       32,
-			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":   32,
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle":                                                                                                                                                 OracleCombinedMaxBytes,
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/measurement_basis/worker_job_measurement_basis/base_commit":                                                                                                        71,
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
+			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":                                                                                                                                                       32,
+			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                                                                   32,
 		},
 		Excludes: map[string]bool{
 			"worker_packet4/inputs/work_context": true,
@@ -204,8 +206,12 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
 	}
-	if packet4Parts+DispatchContextAggregateMaxBytes-1+wrapper > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the packet4 composition needs %d bytes, above the %d-byte whole-action budget", packet4Parts+DispatchContextAggregateMaxBytes-1+wrapper, maxWorkflowActionPayloadBytes)
+	packet4Composed := packet4Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
+	if packet4Composed > maxWorkflowActionPayloadBytes {
+		t.Fatalf("the packet4 composition needs %d bytes, above the %d-byte whole-action budget; derive the budget again", packet4Composed, maxWorkflowActionPayloadBytes)
+	}
+	if schemawire.NextPowerOfTwo(packet4Composed) != maxWorkflowActionPayloadBytes {
+		t.Fatalf("the packet4 composition = %d bytes, whose next power of two is %d; the whole-action budget constant is %d and must stay the derivation's own rounding", packet4Composed, schemawire.NextPowerOfTwo(packet4Composed), maxWorkflowActionPayloadBytes)
 	}
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)

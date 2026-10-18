@@ -196,7 +196,7 @@ func TestWorkerJobBindingBindsRecordedJobCapableVersion(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, worker, job)
 	historicPacket := dispatchWorkerPacket(t, s, workID, "repair", historicAttempt)
 	historicPacket["schema_version"] = WorkerPacketSchemaVersion
-	historicPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	historicPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, historicAttempt, worker, "job-revision-historic", historicPacket); err != nil {
 		t.Fatalf("authorize the historic attempt: %v", err)
 	}

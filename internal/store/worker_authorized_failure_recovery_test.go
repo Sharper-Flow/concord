@@ -94,7 +94,7 @@ func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testin
 	recordWorkerJobRevisionForTest(t, s, workID, worker, corrective)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", abandoned)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *corrective)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *corrective, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, abandoned, worker, "witness-abandoned-dispatch", packet); err != nil {
 		t.Fatalf("authorize the abandoned job: %v", err)
 	}

@@ -126,7 +126,7 @@ func TestWorkerFailureAttributionRequiredOnNewPins(t *testing.T) {
 		recordWorkerJobRevisionForTest(t, fixture.store, workID, fixture.owner, job)
 		packet := dispatchWorkerPacket(t, fixture.store, workID, "repair", attempt)
 		packet["schema_version"] = WorkerPacketSchemaVersion
-		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, fixture.store, workID, *job)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, fixture.store, workID, *job, "implement")
 		if err := dispatchJobPacketForTest(t, fixture.store, workID, attempt, fixture.owner, "attribution-required-born-authorization", packet); err != nil {
 			t.Fatalf("the born-failed authorization refused: %v", err)
 		}
@@ -312,7 +312,7 @@ func TestWorkerFailureAttributionBornFailedDispatch(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", attempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attempt, fixture.owner, "attribution-born-authorization", packet); err != nil {
 		t.Fatalf("the born-failed authorization refused: %v", err)
 	}
@@ -454,7 +454,7 @@ func dispatchJobBoundAttemptWithPredicates(t *testing.T, s *Store, workID, stepI
 		entries = append(entries, attributionTiesPredicateEntry(id, index))
 	}
 	packet["inputs"].(map[string]any)["outcome_predicates"] = entries
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, actor, key, packet); err != nil {
 		t.Fatalf("dispatch job-bound attempt %s: %v", attemptID, err)
 	}
@@ -1425,7 +1425,7 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-coupling-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}
@@ -1485,7 +1485,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-abandonment-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}

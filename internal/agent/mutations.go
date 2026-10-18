@@ -1358,7 +1358,13 @@ func (r runtime) prepareWorkerDispatchContext(ctx context.Context, workID, actio
 		return store.WithWorkerDispatchPreparation(ctx, preparation), nil
 	}
 	if actionID == "dispatch_worker" || (actionID == "reject_worker_result" && store.RejectRetryMemberPresent(payload)) {
-		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree})
+		request := store.PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: r.Envelope.Worktree}
+		if actionID == "dispatch_worker" {
+			request.WorkerJob = store.WorkerJobBindingFromDispatchPayload(payload)
+		} else {
+			request.WorkerAttemptID = store.WorkerAttemptIDFromRejectionPayload(payload)
+		}
+		preparation, err := store.PrepareWorkerDispatchFreshness(ctx, r.Store, request)
 		if err != nil {
 			return ctx, err
 		}

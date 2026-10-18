@@ -1422,6 +1422,20 @@ test("a job-capable step refuses a dispatch without exactly one ready worker job
   expect(several.failure?.message).toContain("job:other@1")
 })
 
+// CD-0227 D1: the continuity job carries the caller exclusions its
+// implementation dispatch binds; the core admits them on no other lane.
+test("only an implementation lane binds the published caller exclusions", async () => {
+  const job = { ...READY_JOB, caller_exclusions: ["internal/store/worker_jobs.go"] }
+  const implement = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [job]) })
+  expect(implement.failure).toBeUndefined()
+  expect(implement.packet!.inputs.worker_job).toEqual(job)
+  for (const laneId of ["verify", "review"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [job]) }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect(built.packet!.inputs.worker_job).toEqual(READY_JOB)
+  }
+})
+
 test("a step without record_worker_job binds no worker job", async () => {
   const legacy = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker"], [READY_JOB]) })
   expect(legacy.failure).toBeUndefined()

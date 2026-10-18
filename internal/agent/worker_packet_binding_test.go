@@ -65,13 +65,19 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 	// A job-executing lane also binds the work's one dispatch-ready worker-job
 	// revision, as the adapter selects it from the continuity projection
 	// (CD-0205). Call it immediately before the dispatch the packet rides.
-	if _, ok := builtinLane(laneID); ok {
+	if lane, ok := builtinLane(laneID); ok {
 		snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(snapshot.ReadyWorkerJobs) == 1 {
-			raw, err := json.Marshal(snapshot.ReadyWorkerJobs[0])
+			job := snapshot.ReadyWorkerJobs[0]
+			// As the adapter does, only an implementation lane keeps the
+			// published caller exclusions (CD-0227 D1).
+			if lane.CapabilityClass != "implementation" {
+				job.CallerExclusions = nil
+			}
+			raw, err := json.Marshal(job)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,6 +156,7 @@ func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, 
 		"checks":            []string{"go vet ./..."},
 		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
 	}
+	addAgentJobSizeMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -178,9 +185,16 @@ func recordReadyRetryJobUnderContract(t *testing.T, s *store.Store, service *Ser
 // one derivation rule the registry owns.
 func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 	t.Helper()
+	return agentPinRecordsJobField(t, s, oracleFixtureWork, "acceptance_oracle")
+}
+
+// agentPinRecordsJobField reports whether the work's pinned definition's
+// record_worker_job payload names the field.
+func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) bool {
+	t.Helper()
 	var ref string
 	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id='work-1'`).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
 		t.Fatal(err)
 	}
 	registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
@@ -192,12 +206,39 @@ func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 			continue
 		}
 		for _, field := range action.Payload.Fields {
-			if field.Name == "acceptance_oracle" {
+			if field.Name == name {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// addAgentJobSizeMembers authors the CD-0225 size members an editing job
+// carries on a size-capable pin: a per-job path scope and inventory, so
+// coexisting jobs never share measured paths, the measurement base at the
+// work's qualified subject, and an allowance inside the oracle owner's
+// Project and Domain. The oracle fields must already be present.
+func addAgentJobSizeMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
+	t.Helper()
+	if !agentPinRecordsJobField(t, s, workID, "production_size_max") {
+		return
+	}
+	owner := fields["acceptance_oracle"].(map[string]any)["owners"].([]any)[0].(map[string]any)
+	project := owner["mechanism"].(map[string]any)["project_id"]
+	inventory := "generated/" + strings.NewReplacer(":", "-", " ", "-").Replace(fmt.Sprint(fields["job_id"]))
+	fields["path_scope"] = []string{inventory}
+	fields["production_size_max"] = 400
+	fields["measurement_basis"] = map[string]any{
+		"base_commit": fixtureOracleSubjectFor(t, s, workID),
+		"paths":       []map[string]any{{"path": inventory, "class": "production"}},
+	}
+	fields["direct_caller_allowance"] = map[string]any{
+		"project_id":   project,
+		"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
+		"domain_ids":   []any{owner["domain_id"]},
+		"law_bindings": []map[string]any{},
+	}
 }
 
 // The oracle fixture constants mirror the store's trusted ledger fixture
@@ -729,6 +770,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		return
 	}
 	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
+	addAgentJobSizeMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,

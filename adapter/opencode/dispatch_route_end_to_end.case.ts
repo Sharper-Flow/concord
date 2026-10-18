@@ -22,6 +22,7 @@ import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { jobSizeFields } from "./job-size.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -439,6 +440,7 @@ async function driveWorkflowToContract(
     ready: true,
     readiness_evidence: ["evidence:route-e2e-ready"],
     acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] },
+    ...jobSizeFields(owner, jobPathScope[0], subjectCommit),
   })
   expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
   const jobRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
@@ -650,7 +652,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...control } = oracle!.controls[0]
         const prepared = await verify(a, `${key}-producer-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle!.owners[0], cases: oracle!.cases, control } } })
         oracle = { ...oracle!, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle! })
+        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle!, ...jobSizeFields(oracle!.owners[0], ".concord/docs/dispatch-marker.txt", (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()) })
       }
       const producer = await dispatch(a, "implement", `${key}-implement`)
       oracle = producer.packet.inputs.worker_job.acceptance_oracle

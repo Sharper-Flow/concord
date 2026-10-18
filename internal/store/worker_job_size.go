@@ -21,7 +21,8 @@ import (
 // content is never truncated to fit.
 const (
 	WorkerJobSizeCapMax             = 2147483647
-	WorkerJobMeasuredPathsMax       = 256
+	WorkerJobMeasuredPathsMax       = 64
+	WorkerJobCallerExclusionsMax    = 64
 	WorkerJobAllowanceMechanismsMax = 8
 	WorkerJobAllowanceDomainsMax    = 8
 )
@@ -179,9 +180,49 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 	if err := validateWorkerJobSizeInheritanceTx(ctx, tx, workID, payload.JobID, sizeCap, basis); err != nil {
 		return err
 	}
+	if err := validateWorkerJobCorrectionBaseTx(ctx, tx, workID, payload.JobID, basis.BaseCommit); err != nil {
+		return err
+	}
 	payload.ProductionSizeMax = &sizeCap
 	payload.MeasurementBasis = basis
 	payload.DirectCallerAllowance = allowance
+	return nil
+}
+
+// validateWorkerJobCorrectionBaseTx holds CD-0225 D1's correction rule: a
+// job in correction keeps its original base, so a new revision recording
+// another base hides the job's unaccepted work behind a later foundation and
+// refuses. The original base is the lowest recorded capped revision's base.
+func validateWorkerJobCorrectionBaseTx(ctx context.Context, tx *sql.Tx, workID, jobID, baseCommit string) error {
+	corrections, err := workerJobCorrectionStatesTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if !corrections[jobID] {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	original := ""
+	originalRevision := int64(0)
+	for binding, entry := range content {
+		if binding.JobID != jobID || entry.basis == nil {
+			continue
+		}
+		if original == "" || entry.revision < originalRevision {
+			original = entry.basis.BaseCommit
+			originalRevision = entry.revision
+		}
+	}
+	if original == "" {
+		return nil
+	}
+	if baseCommit != original {
+		return workerJobSizeAuthorFailure("record_worker_job measurement_basis base_commit "+baseCommit+" hides the correction's original base "+original,
+			"record the correction revision on the original base_commit")
+	}
 	return nil
 }
 
@@ -480,9 +521,24 @@ func workerJobMeasuredPathsTx(ctx context.Context, q queryer, workID, jobID stri
 }
 
 // workerJobCallerExclusionsTx computes the caller_exclusions one job's
-// implementation dispatch carries (CD-0227 D1): the measured paths of the
-// work's OTHER jobs currently in correction, sorted and deduplicated.
+// implementation dispatch carries (CD-0227 D1) and refuses a set above the
+// packet's declared bound.
 func workerJobCallerExclusionsTx(ctx context.Context, q queryer, workID, jobID string) ([]string, error) {
+	exclusions, err := workerJobCorrectionPathsTx(ctx, q, workID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(exclusions) > WorkerJobCallerExclusionsMax {
+		return nil, newFailure(KindInvalidOperation, "workflow_action",
+			fmt.Sprintf("worker job %s's caller exclusions would carry %d paths; the packet declares at most %d", jobID, len(exclusions), WorkerJobCallerExclusionsMax),
+			false, "accept or split an open correction job through accept_worker_result or record_worker_job, then dispatch again")
+	}
+	return exclusions, nil
+}
+
+// workerJobCorrectionPathsTx reads the measured paths of the work's OTHER
+// jobs currently in correction, sorted and deduplicated, with no bound.
+func workerJobCorrectionPathsTx(ctx context.Context, q queryer, workID, jobID string) ([]string, error) {
 	corrections, err := workerJobCorrectionStatesTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
@@ -573,4 +629,162 @@ func refuseUncappedRevisionOfCappedJob(ctx context.Context, tx *sql.Tx, workID, 
 		}
 	}
 	return nil
+}
+
+// admitWorkerJobSizeDispatchTx is the size-capable dispatch admission
+// (CD-0225 D1, CD-0227 D1). On a pin without the declared members every
+// dispatch admits unchanged. An implementation dispatch of an uncapped job
+// refuses: the recorded cap is what makes an editing dispatch admissible. A
+// capped implementation dispatch serializes against the work's corrections —
+// another job's correction holds its measured paths — and binds the base:
+// a first dispatch measures from base_commit, and a correction dispatches
+// only a clean subject that is the recorded base or its sealed descendant.
+func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, lane LaneDefinition, binding WorkerJobBinding, subject string) error {
+	if !workflowJobSizeActive(definition) {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	entry, recorded := content[binding]
+	if !recorded || entry.basis == nil {
+		if lane.CapabilityClass != "implementation" {
+			return nil
+		}
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"dispatch_worker implementation lane requires a capped worker job: the pinned definition version "+fmt.Sprint(definition.Version)+" records production size",
+			false, "record a capped revision with record_worker_job")
+	}
+	if lane.CapabilityClass != "implementation" {
+		return nil
+	}
+	corrections, err := workerJobCorrectionStatesTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	pathScope, err := workerJobPathScopeTx(ctx, tx, workID, binding)
+	if err != nil {
+		return err
+	}
+	for correctionJob := range corrections {
+		if correctionJob == binding.JobID {
+			continue
+		}
+		measured, err := workerJobMeasuredPathsTx(ctx, tx, workID, correctionJob)
+		if err != nil {
+			return err
+		}
+		for _, measuredPath := range measured {
+			if !workerJobPathsIntersect(pathScope, measuredPath) {
+				continue
+			}
+			return newFailure(KindInvalidOperation, "workflow_action",
+				"dispatch_worker implementation job "+binding.JobID+"'s path scope intersects correction job "+correctionJob+"'s measured paths",
+				false, "accept correction job "+correctionJob+"'s result or split it through record_worker_job")
+		}
+	}
+	// The base rules bind the admitted clean subject. A packet without a
+	// work-context subject falls back to the sealed preparation's clean
+	// observation of the claimed worktree; with neither, no foundation can
+	// be compared and the dispatch refuses.
+	proof := workerDispatchPreparationFrom(ctx)
+	if subject == "" && proof != nil && proof.proof.workID == workID && proof.proof.observation != nil && proof.proof.observation.State == "clean" {
+		subject = proof.proof.observation.Commit
+	}
+	if subject == "" {
+		return newFailure(KindProjectionConflict, "workflow_action",
+			"the implementation dispatch of worker job "+binding.JobID+" has no admitted clean subject to compare with its recorded base_commit",
+			true, "prepare the dispatch from the claimed clean worktree through the authenticated mutation boundary, then dispatch again")
+	}
+	if !corrections[binding.JobID] {
+		if subject != entry.basis.BaseCommit {
+			return newFailure(KindInvalidOperation, "workflow_action",
+				"dispatch_worker implementation job "+binding.JobID+"'s recorded base_commit "+entry.basis.BaseCommit+" does not equal the admitted clean subject "+subject,
+				false, "record a fresh revision with the current foundation through record_worker_job")
+		}
+		return nil
+	}
+	if proof == nil || proof.proof.workID != workID {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"the correction dispatch of worker job "+binding.JobID+" reached assembly without its sealed subject preparation",
+			false, "prepare the dispatch through the authenticated mutation boundary")
+	}
+	if proof.proof.observation == nil || proof.proof.observation.State != "clean" || proof.proof.observation.Commit != subject {
+		return newFailure(KindProjectionConflict, "workflow_action",
+			"the correction dispatch of worker job "+binding.JobID+" has no clean admitted subject at the claimed worktree",
+			true, "re-qualify the candidate at the claimed worktree, then prepare and dispatch again")
+	}
+	if proof.proof.correctionAncestry.failure != nil {
+		return proof.proof.correctionAncestry.failure
+	}
+	if subject != entry.basis.BaseCommit && !proof.proof.correctionAncestry.strictDescendant {
+		return newFailure(KindUnauthorizedDispatch, "workflow_action",
+			"the correction dispatch of worker job "+binding.JobID+" is not the recorded base "+entry.basis.BaseCommit+" nor its descendant",
+			false, "dispatch a subject that is the recorded base_commit or descends from it")
+	}
+	return nil
+}
+
+// workerJobPathScopeTx reads the recorded path scope of one revision from
+// the worker-job projection.
+func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) ([]string, error) {
+	var raw string
+	if err := tx.QueryRowContext(ctx, `SELECT path_scope FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return []string{}, nil
+		}
+		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the dispatched job's path scope", true, "retry once the worker-job projection is readable", err)
+	}
+	var pathScope []string
+	if err := json.Unmarshal([]byte(raw), &pathScope); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+	}
+	return pathScope, nil
+}
+
+// workerJobPathsIntersect reports whether one measured path overlaps a
+// recorded path scope: equal to an entry, under one, or containing one.
+func workerJobPathsIntersect(pathScope []string, measuredPath string) bool {
+	for _, scope := range pathScope {
+		if measuredPath == scope || strings.HasPrefix(measuredPath, scope+"/") || strings.HasPrefix(scope, measuredPath+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// WorkerJobBindingFromDispatchPayload extracts the dispatched job binding
+// one dispatch_worker payload carries, for the pre-transaction freshness
+// preparation. It returns nil when the payload names no readable binding;
+// the dispatch admission re-refuses authoritatively in the transaction.
+func WorkerJobBindingFromDispatchPayload(payload json.RawMessage) *WorkerJobBinding {
+	var parsed struct {
+		WorkerPacket struct {
+			Inputs struct {
+				WorkerJob *WorkerJobBinding `json:"worker_job"`
+			} `json:"inputs"`
+		} `json:"worker_packet"`
+	}
+	if json.Unmarshal(payload, &parsed) != nil || parsed.WorkerPacket.Inputs.WorkerJob == nil {
+		return nil
+	}
+	binding := *parsed.WorkerPacket.Inputs.WorkerJob
+	if binding.JobID == "" || binding.Revision < 1 || binding.Digest == "" {
+		return nil
+	}
+	return &binding
+}
+
+// WorkerAttemptIDFromRejectionPayload extracts the rejected attempt one
+// combined rejection payload carries, so its derived retry's preparation
+// anchors at the retried job's recorded base.
+func WorkerAttemptIDFromRejectionPayload(payload json.RawMessage) string {
+	var parsed struct {
+		AttemptID string `json:"attempt_id"`
+	}
+	if json.Unmarshal(payload, &parsed) != nil {
+		return ""
+	}
+	return parsed.AttemptID
 }

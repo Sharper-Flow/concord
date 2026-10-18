@@ -425,12 +425,33 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if packet3Parts != packetParts {
 		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
 	}
+	packet4Opt := schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle":                                                                                                                                                 OracleCombinedMaxBytes,
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/measurement_basis/worker_job_measurement_basis/base_commit":                                                                                                        71,
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
+			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":                                                                                                                                                       32,
+			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                                                                   32,
+		},
+		Excludes: map[string]bool{
+			"worker_packet4/inputs/work_context": true,
+			"worker_packet4/inputs/checkpoint":   true,
+			"worker_packet4/inputs/correction":   true,
+		},
+		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
+	}
+	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
+	if err != nil {
+		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
+	}
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
 			"worker_failure_observation": WorkerFailureAttributionMaxBlockBytes,
 			"worker_packet2":             packetParts + DispatchContextAggregateMaxBytes - 1,
 			"worker_packet3":             packet3Parts + DispatchContextAggregateMaxBytes - 1,
+			"worker_packet4":             packet4Parts + DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
 	}

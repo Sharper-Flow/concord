@@ -30,14 +30,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:df99f1a540022f46666f710d8fe32c226afad9f2eb5a1b6706676ce12777d52e",
+  "sha256": "sha256:024e5cce190b38e4c0f3eecd18073bbf909e0a5f090aeeba1026da13f36e75a0",
   "status": "accepted",
-  "summary": "A dispatched worker lane holds no Concord read or write tool access. Generated denial and the adapter parent boundary hold independently, and the packet is the complete declared context: immutable readings, registry_path, typed prior state, and the one job oracle. No global inventory inserts derived cards, and recorded packets and reading sets stay readable under their recorded formats as history. Missing context uses the report boundary, never worker Concord access.",
+  "summary": "A dispatched worker has no general Concord state-query or mutation access. Its packet remains complete declared context. Explicit capabilities may expose bounded original pinned readings, scoped review diffs, and selection of recorded executable checks, not new context discovery or workflow authority. Review diffs span the first editing dispatch subject under the review contract version to the pinned review subject and remain within the recorded approved job path scope. Bounded reads use immutable Git bytes and revalidate the active attempt. Native-oracle receipt authority stays with the host producer. Utilities retain complete Concord-tool denial, and missing context or executable backing uses the report boundary.",
   "tags": [
     "agent-surface",
     "worker-attempts",
     "law",
     "adapter"
   ],
-  "title": "Worker lanes hold no Concord tool access, and the dispatch packet carries only declared context"
+  "title": "Worker lanes use declared context and bounded host capabilities"
 }

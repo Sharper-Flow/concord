@@ -18,6 +18,7 @@ import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
+import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -155,7 +156,8 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
           if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) }
           return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
         },
-        post: async ({ url, body }: { url: string; body?: unknown }) => {
+        post: async ({ url, path, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
+          if (url === SESSION_MESSAGES_ROUTE) return acknowledgeNativeSubtask({ url, path, body })
           expect(url).toBe(MOVE_SESSION_ROUTE)
           const { sessionID, destination } = body as { sessionID: string; destination: { directory: string } }
           host.sessions[sessionID].directory = destination.directory

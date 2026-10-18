@@ -167,18 +167,7 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		names = insertWorkerEvidenceField(names, 11, "observation_digest")
 		values = insertWorkerEvidenceField(values, 11, a.ObservationDigest)
 	}
-	var b strings.Builder
-	b.WriteString(prefix)
-	for i, name := range names {
-		value := values[i]
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len([]byte(value))))
-		b.WriteByte(':')
-		b.WriteString(value)
-		b.WriteByte('|')
-	}
-	return []byte(b.String())
+	return canonicalClientAssertion(prefix, names, values)
 }
 
 // insertWorkerEvidenceField inserts value into fields at the given position,

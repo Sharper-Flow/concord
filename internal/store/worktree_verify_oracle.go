@@ -251,6 +251,21 @@ func nativeBundleForControl(oracle *AcceptanceOracle, id string) (NativeOracleCo
 // control, or preparation reference refuses typed before any stage. Live
 // claim, core subject, readiness, and receipt evaluation never run here.
 func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVerifyRequest, observedHead, identity string) (NativeOracleControlBundle, int64, nativeOracleAuthorization, error) {
+	b, version, auth, err := readNativeOracleDispatchBundleTx(ctx, q, req, observedHead, identity)
+	if err != nil {
+		return b, version, auth, err
+	}
+	if !slices.Contains(b.Control.ReadinessEvidenceRefs, req.Oracle.PreparationRunRef) {
+		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
+	}
+	return b, version, auth, nil
+}
+
+// readNativeOracleDispatchBundleTx resolves the immutable job/control join
+// before preparation selection. The execute reader additionally requires its
+// exact preparation reference; worker control resolution selects from this
+// same bundle instead of interpreting ordinary job check strings.
+func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req WorktreeVerifyRequest, observedHead, identity string) (NativeOracleControlBundle, int64, nativeOracleAuthorization, error) {
 	var b NativeOracleControlBundle
 	var auth nativeOracleAuthorization
 	var version int64
@@ -261,19 +276,9 @@ func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVeri
 	if !worktreeSHAPattern.MatchString(observedHead) {
 		return refuse()
 	}
-	var payload []byte
-	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
- AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
- WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, req.WorkID, WorkflowActionCompleted, o.AttemptID).Scan(&auth.EventID, &auth.Seq, &payload)
-	if err == sql.ErrNoRows {
-		return refuse()
-	}
+	dispatch, auth, err := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, o.AttemptID)
 	if err != nil {
 		return b, version, auth, err
-	}
-	var dispatch workflowActionCompletedPayload
-	if err := json.Unmarshal(payload, &dispatch); err != nil {
-		return refuse()
 	}
 	if dispatch.WorkerSubjectCommit == "" || dispatch.WorkerSubjectCommit != observedHead || dispatch.AttemptEpoch != o.AttemptEpoch || dispatch.WorkerPacketDigest != o.WorkerPacketDigest || dispatch.WorkerWorktreeIdentity != identity || dispatch.WorkerJob == nil || *dispatch.WorkerJob != *o.WorkerJobBinding {
 		return refuse()
@@ -308,10 +313,23 @@ func readNativeOracleDispatchTx(ctx context.Context, q queryer, req WorktreeVeri
 	if err != nil {
 		return b, version, auth, err
 	}
-	if !slices.Contains(b.Control.ReadinessEvidenceRefs, o.PreparationRunRef) {
-		return refuse()
-	}
 	return b, job.ContractVersion, auth, nil
+}
+
+// readNativeOracleDispatchBindingTx is the shared live-attempt join. A native
+// Task executes while in_flight; terminal readback records worker.dispatched
+// later. Execution never fabricates that terminal evidence or its lane actor.
+func readNativeOracleDispatchBindingTx(ctx context.Context, q queryer, workID, attemptID string) (workflowActionCompletedPayload, nativeOracleAuthorization, error) {
+	var dispatch workflowActionCompletedPayload
+	var auth nativeOracleAuthorization
+	var payload []byte
+	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
+ AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
+ WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
+	if err == sql.ErrNoRows || err == nil && json.Unmarshal(payload, &dispatch) != nil {
+		return dispatch, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
+	}
+	return dispatch, auth, err
 }
 
 // readNativeOracleAuthorizationTx is the exact execute authorization the
@@ -579,6 +597,9 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 	if expected != nil && (expected.SubjectCommit != observed.head || expected.ContractVersion != version || expected.BundleDigest != nativeBundleDigest(b) || expected.Authorization != auth) {
 		return b, version, auth, oracleFailure(KindUnauthorizedDispatch, "native plan applicability changed", "request a new explicitly authorized run")
 	}
+	if err := authorizeNativeExecutionTx(ctx, tx, req, s.Clock, s.Path()); err != nil {
+		return b, version, auth, err
+	}
 	if err := acquireVerifyLeaseTx(ctx, tx, req, entry, req.nativeCommandJSON, req.Now); err != nil {
 		return b, version, auth, err
 	}
@@ -586,6 +607,15 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 		return b, version, auth, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the native verify lease", false, "reconcile_operation", err), nativeLeaseRef(req.LeaseID))
 	}
 	return b, version, auth, nil
+}
+
+func authorizeNativeExecutionTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, clock func() time.Time, path string) error {
+	if req.NativeAuthorization == nil {
+		return nil
+	}
+	transaction := &Transaction{tx: tx, clock: clock, path: path}
+	defer func() { transaction.tx = nil }()
+	return req.NativeAuthorization(ctx, transaction)
 }
 
 func validateNativeBundleAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, version int64, b NativeOracleControlBundle) error {
@@ -660,6 +690,13 @@ func (s *Store) nativeOracleReplay(ctx context.Context, req WorktreeVerifyReques
 	var r WorktreeVerifyResult
 	if json.Unmarshal([]byte(raw), &r) != nil || r.Oracle == nil || r.Oracle.NativePlanSHA256 != digest || r.WorkID != work || r.ProjectID != project || r.LeaseID != req.LeaseID || r.OperationRef != worktreeVerifyOperationRef(req.LeaseID) || !slices.Equal(r.Command, expectedCommand) {
 		return r, true, oracleFailure(KindInvariantViolation, "native replay metadata is corrupt", "reconcile the retained native run")
+	}
+	if req.NativeAuthorization != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			return req.NativeAuthorization(ctx, tx)
+		}); err != nil {
+			return WorktreeVerifyResult{}, true, err
+		}
 	}
 	return r, true, nil
 }

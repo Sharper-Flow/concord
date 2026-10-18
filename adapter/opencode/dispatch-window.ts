@@ -1,11 +1,9 @@
 // CD-0102 D1/D2: the single-use authorization window that binds one typed
 // dispatch to one native Task call.
 //
-// The model issues the Task call, not Concord, so the arguments it composes
-// carry no provenance the core can trust. A window is opened only by an
-// authorized `dispatch_worker` action. The next Task call from the same session
-// has its agent selection and prompt overwritten by the recorded packet, and the
-// window closes. A Task call with no open window fails.
+// An authorized dispatch schedules a native host subtask. Its Task hook binds
+// the recorded agent and packet and consumes the window once. Caller-authored
+// arguments carry no authority, and a lane Task without a window fails.
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -28,6 +26,14 @@ export const TASK_TOOL_ID = "task"
 
 // The lane agent names installed under .opencode/agents/ carry this prefix.
 const LANE_AGENT_PREFIX = "concord-"
+
+export function laneTaskArguments(packet: AgentLanePacket): { subagent_type: string; prompt: string; description: string } {
+  return {
+    subagent_type: LANE_AGENT_PREFIX + packet.lane_id,
+    prompt: serializeLanePacket(packet),
+    description: `${packet.lane_id} lane, attempt ${packet.attempt_id}`,
+  }
+}
 
 export class DispatchWindowError extends Error {}
 
@@ -161,6 +167,14 @@ export class DispatchWindows {
   // most one attempt.
   inFlightAttempt(sessionID: string): DispatchRecord | null {
     return this.#inFlight.get(sessionID) ?? null
+  }
+
+  activeAttempt(sessionID: string): DispatchRecord | null {
+    return this.#settling.has(sessionID) || this.#refused.has(sessionID) ? null : this.inFlightAttempt(sessionID)
+  }
+
+  hasActiveAttempts(): boolean {
+    return [...this.#inFlight.keys()].some((sessionID) => this.activeAttempt(sessionID) !== null)
   }
 
   claimSettlement(sessionID: string, callID?: string): DispatchRecord | null {
@@ -302,9 +316,7 @@ export class DispatchWindows {
     record.callID = callID
     this.#inFlight.set(sessionID, record)
     const packet = record.packet
-    args.subagent_type = LANE_AGENT_PREFIX + packet.lane_id
-    args.prompt = serializeLanePacket(packet)
-    args.description = `${packet.lane_id} lane, attempt ${packet.attempt_id}`
+    Object.assign(args, laneTaskArguments(packet))
     // A resumed worker session would carry a prior attempt's history into this
     // attempt. Lane restart is not reachable, so the resume field never survives.
     delete args.task_id

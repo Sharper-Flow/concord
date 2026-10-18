@@ -28,9 +28,8 @@ func TestMain(m *testing.M) {
 	dir := testenv.ScrubEnv()
 	gittest.DisableBackgroundMaintenance()
 	testDatabaseTemplate.dir = dir
-	// Registration builds the whole builtin workflow registry, about a
-	// second of CPU. A SQLite neighbor child only holds a transaction and
-	// never resolves a workflow pin, and tests start one per case.
+	// A SQLite neighbor child only holds a transaction and never resolves a
+	// workflow pin, so it skips the registry build that registration forces.
 	if !neighbor.ChildRequested() {
 		registerTestWorkflowDefinitions()
 	}

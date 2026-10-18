@@ -1378,12 +1378,12 @@ func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for _, witness := range archivedRefusalWitnesses(definition) {
-					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+					t.Error(witness)
 				}
 				return
 			}
 			for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
-				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				t.Error(witness)
 			}
 		})
 	}
@@ -1451,12 +1451,12 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for _, witness := range archivedRefusalWitnesses(definition) {
-					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+					t.Error(witness)
 				}
 				return
 			}
 			for _, witness := range admissionStrandedWitnesses(definition) {
-				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				t.Error(witness)
 			}
 		})
 	}

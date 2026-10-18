@@ -45,6 +45,11 @@ func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
 // testDatabaseTemplate owns one migrated, empty database image for the package
 // run. openTemp copies the closed image before Open performs its normal startup
 // validation, avoiding a repeated replay of every migration in the hot path.
+//
+// The package TestMain sets dir to its run root, which it removes after the
+// run. A native control compiles no TestMain, so dir stays empty and the
+// template takes a private directory under the producer's TMPDIR, which lies
+// outside the controlled snapshot and which the producer removes.
 var testDatabaseTemplate struct {
 	once sync.Once
 	dir  string
@@ -56,6 +61,14 @@ func copyTestDatabase(t *testing.T) string {
 	t.Helper()
 
 	testDatabaseTemplate.once.Do(func() {
+		if testDatabaseTemplate.dir == "" {
+			dir, err := os.MkdirTemp("", "concord-store-template-")
+			if err != nil {
+				testDatabaseTemplate.err = err
+				return
+			}
+			testDatabaseTemplate.dir = dir
+		}
 		testDatabaseTemplate.path = filepath.Join(testDatabaseTemplate.dir, "template.db")
 		db, err := sql.Open(driverName, dataSourceName(testDatabaseTemplate.path))
 		if err != nil {

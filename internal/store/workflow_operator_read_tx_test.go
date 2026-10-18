@@ -16,10 +16,8 @@ import (
 // transaction through the store handle. This structural check fails when a
 // read is reattached to s.db, because a behavioral test cannot interleave a
 // writer between two reads of one serialized call. It also fails when the
-// reserved projection calls one of the direct operator-question readers by
-// name — ReadWorkflowOperatorQuestion, workflowOperatorQuestionTx, or
-// workflowOperatorQuestionForDefinitionTx — because each would read the
-// question outside the pin's single snapshot.
+// workflow projection reads the question on any queryer but the one its
+// caller's snapshot supplied.
 func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
@@ -55,37 +53,45 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var projectionBody *ast.BlockStmt
+	var projection *ast.FuncDecl
 	for _, decl := range projectionFile.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkflowProjection" {
-			projectionBody = fn.Body
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "readWorkflowProjectionTx" {
+			projection = fn
 			break
 		}
 	}
-	if projectionBody == nil {
-		t.Fatal("ReadWorkflowProjection not found in internal/store/workflow_read.go")
+	if projection == nil {
+		t.Fatal("readWorkflowProjectionTx not found in internal/store/workflow_read.go")
 	}
-	pinCalls, bypassCalls := 0, 0
-	ast.Inspect(projectionBody, func(node ast.Node) bool {
+	// The projection runs inside its caller's snapshot, so the question
+	// must be read on that same queryer and never through a reader that
+	// opens its own snapshot.
+	queryerName := projection.Type.Params.List[1].Names[0].Name
+	questionReads, foreignReads := 0, 0
+	ast.Inspect(projection.Body, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 		if fn, ok := call.Fun.(*ast.Ident); ok {
 			switch fn.Name {
-			case "ReadWorkPin":
-				pinCalls++
-			case "ReadWorkflowOperatorQuestion", "workflowOperatorQuestionTx", "workflowOperatorQuestionForDefinitionTx":
-				bypassCalls++
+			case "workflowOperatorQuestionTx", "workflowOperatorQuestionForDefinitionTx":
+				if arg, ok := call.Args[1].(*ast.Ident); ok && arg.Name == queryerName {
+					questionReads++
+				} else {
+					foreignReads++
+				}
+			case "ReadWorkPin", "ReadWorkflowOperatorQuestion", "beginReadTx":
+				foreignReads++
 			}
 		}
 		return true
 	})
-	if pinCalls < 1 {
-		t.Errorf("ReadWorkflowProjection must read the operator question through its owner ReadWorkPin (CD-0173 D2); found %d ReadWorkPin calls", pinCalls)
+	if questionReads < 1 {
+		t.Errorf("readWorkflowProjectionTx must read the operator question on its own queryer %q (CD-0173 D2); found %d such reads", queryerName, questionReads)
 	}
-	if bypassCalls != 0 {
-		t.Errorf("ReadWorkflowProjection must read the operator question through its owner ReadWorkPin (CD-0173 D2), not through a direct-reader bypass (ReadWorkflowOperatorQuestion, workflowOperatorQuestionTx, workflowOperatorQuestionForDefinitionTx); found %d direct-reader calls", bypassCalls)
+	if foreignReads != 0 {
+		t.Errorf("readWorkflowProjectionTx reads the operator question outside its caller's snapshot %d times (CD-0173 D2)", foreignReads)
 	}
 }
 

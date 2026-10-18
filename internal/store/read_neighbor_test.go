@@ -572,26 +572,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveSessionDirectory", run: func() error {
-			resolution, err := s.ResolveSessionDirectory(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if resolution.CanonicalPath != toolRepo {
-				return fmt.Errorf("resolution=%+v", resolution)
-			}
-			return nil
-		}},
-		{name: "ResolveSessionDirectoryForProject", run: func() error {
-			resolution, err := s.ResolveSessionDirectoryForProject(ctx, "blocker", "proj")
-			if err != nil {
-				return err
-			}
-			if resolution.CanonicalPath != toolRepo {
-				return fmt.Errorf("resolution=%+v", resolution)
-			}
-			return nil
-		}},
 		{name: "ResolveProject", run: func() error {
 			resolution, err := s.ResolveProject(ctx, toolRepo, toolRepo)
 			if err != nil {
@@ -745,15 +725,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 		{name: "Resources", run: func() error { _, err := s.Resources(ctx, ResourcesRequest{ProductID: "prod"}); return err }},
 		{name: "BlockedSessions", run: func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
-		{name: "ResolveLandingProjectProduct", run: func() error { _, err := s.ResolveLandingProjectProduct(ctx, "blocker", "proj", "prod"); return err }},
-		{name: "ResolveLinearIssueProduct", run: func() error {
-			workID, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
-			if err != nil {
-				return err
-			}
-			_, err = s.ResolveLandingProjectProduct(ctx, workID, "proj", "prod")
-			return err
-		}},
 		{name: "ReadSessionClaimedWorktree", run: func() error {
 			_, err := ReadSessionClaimedWorktree(ctx, s, "neighbor-work", "proj")
 			return err
@@ -768,10 +739,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 		{name: "InspectWorkflowDomainOverlap", run: func() error {
 			return InspectWorkflowDomainOverlap(ctx, s, "neighbor-work")
-		}},
-		{name: "ResolveLinearIssueWork", run: func() error {
-			_, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
-			return err
 		}},
 	}
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {

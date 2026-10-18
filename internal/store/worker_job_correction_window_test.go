@@ -587,7 +587,11 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 	if err != nil {
 		return err
 	}
-	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job)
+	var directory string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory); err != nil {
+		return err
+	}
+	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
 }
 

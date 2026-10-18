@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestUnopenedStoreLauncherMethods(t *testing.T) {
+func TestUnopenedStoreTransactDurable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{

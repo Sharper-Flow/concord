@@ -1,135 +1,95 @@
-# CD-0176: The launcher lands in the active worktree
+# CD-0176: The claimed worktree is the managed session directory
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
-- **Scope:** Where a session for selected work runs when the work holds an
-  active worktree in its primary Project; the session landing directory and
-  everything that directory governs
+- **Scope:** Where a managed session for selected work runs; the claimed
+  directory and everything that directory governs
 - **Amends:** CD-0093
-- **Amended:** CD-0182 (2026-09-27) adds the explicit member-Project
-  selector to the landing; this record's primary-Project rule is unchanged.
-  CD-0189 (2026-09-28) configures the host command; this record's landing
-  rules are unchanged. CD-0219 (2026-10-09) retires the interactive launcher
-  TUI; this record's landing rules bind the session entry route unchanged.
-- **Related:** CD-0008, CD-0088, CD-0103
+- **Amended:** CD-0182 (2026-09-27) added the explicit member-Project
+  selector to the launch landing, and CD-0189 (2026-09-28) configured the
+  launch host command. Concord (CON) issue CON-910 (2026-10-13) removes the launch landing and
+  the selector under the Snowball coordinator's operator-delegated
+  approval. The claimed worktree remains the managed session directory
+  through work start's verified move.
+- **Related:** CD-0008, CD-0088, CD-0098
 - **Approval:** The operator approved the objective in the Concord (CON)
   work contract CON-448 (v1). The pull request is the public record.
-- **Preserves:** CD-0093 D2's one-directory binding, CD-0093 D3's fail-closed
-  canonical path, CD-0093 D4's resolved host command (amended by CD-0189)
+- **Preserves:** CD-0093 D2's one-directory binding and D3's fail-closed
+  resolution, CD-0098 D3's verified read-back, and CD-0098 D4's
+  session-prepare directory refusal
 
 ## Context
 
-CD-0093 D1 lands every work-selected session in the Project canonical path.
-That decision predates the native worktree workflow it now serves. When
-Concord claims a worktree for a work item (CD-0008), the work lives in the
-worktree, and the canonical path is the repository's main checkout.
+This record landed work-selected launch sessions in the work's active
+worktree, because the canonical path is the repository's main checkout while
+the work lives in the claimed worktree (CD-0008).
 
-An operator who resumes such a work item through the session entry route
-lands in the main checkout. The session must then reach its worktree through a
-`concord_work_start` resume, which moves the session in a later turn (CD-0088
-owns the worktree bootstrap). The move costs a turn and a directory change
-after the host already started.
-
-The session command reads both facts at start: the selected work and the
-work's active worktree. `worktree_entries` records the folded on-disk state,
-and the unique active claim per work and Project pins one path. Git itself
-treats a linked worktree as a full working tree of the same repository, so the
-path serves as a project root exactly as the canonical path does.
-
-The adapter keeps its own landing guard for sessions it starts. That guard is
-unchanged here. Landing a captured work item on the capture turn itself stays
-out of scope under CD-0103.
+The launch landing and its candidate read are removed. The landing this
+record decided is now established by work start itself: `concord_work_start`
+claims the canonical worktree, moves the calling session into it, and
+refuses success unless the session directory reads back as the claimed
+worktree (CD-0098). There is no launch directory selection and no fallback
+candidate read left to govern.
 
 ## Decision
 
-### D1. The session lands in the active worktree when one is usable
+### D1. Retired: the launch landing
 
-When the selected work holds an active worktree in its primary Project, and
-that worktree is a usable directory on the machine the session starts on,
-`concord session` starts the host in the worktree. `concord zl` forwards to
-the session command, so both surfaces land in the worktree.
+The launch landing, its two-candidate read, and its usable-directory
+fallback are removed with the launch. A host-started session reaches the
+worktree only through `concord_work_start`, which establishes one directory
+through a verified claim and read-back.
 
-The mechanism is the CD-0093 D1 mechanism, unchanged: the child process
-working directory. The session directory read returns two candidates, the
-Project canonical path and the active worktree path, and the session command
-starts in the worktree when the worktree candidate is usable.
+### D2. Retired: the member-Project landing selector
 
-### D2. The Project canonical path stands without a usable worktree
+The explicit member-Project landing selector retired with the launch. A
+different Project in the same repository is reached through an explicit
+`worktree_claim`; a different repository is reached through a host-started
+session there, with the cross-repository claim refused by the store and the
+placement answered by CON-771's typed session placement detail.
 
-The worktree candidate needs three facts: an active entry under a verified
-claim, in the primary Project, at a path that is a usable directory on this
-machine. An absent entry, a reclaimed entry, an active entry under a
-reclaimed claim, an entry in a Project other than the primary one, and a
-path missing on this machine each remove the candidate. The session
-then lands in the Project canonical path exactly as CD-0093 D1 decides.
+### D3. One claimed directory, verified read-back, and fail-closed resolution stand
 
-The fallback is not a failure and carries no diagnostic. The canonical path
-is the landing CD-0093 already admits. A worktree the store records but the
-machine does not hold is a worktree without a landing.
+CD-0093 D2 binds unchanged for session-prepare. The one claimed directory
+governs agent definition resolution, the calling-host registry probe, and
+the context read, and it is established by the verified move before identity
+verification. CD-0093 D3 binds unchanged: a resolution that fails refuses
+with a typed diagnostic before managed action.
 
-CD-0182 adds one exception to the primary-Project limit. With the explicit
-`--project` selector, the session lands in the named member Project's
-active worktree when it is usable, else in that Project's canonical path.
-Without the selector, this clause binds as recorded.
-
-### D3. One directory, resolved host, and fail-closed canonical path stand
-
-CD-0093 D2 binds unchanged. The one landing directory governs agent
-definition resolution, the host registry probe, and host execution, and it
-resolves before identity verification. CD-0093 D3 binds unchanged for the
-canonical path. A canonical path that does not resolve refuses the launch
-with a typed diagnostic. CD-0093 D4 binds as CD-0189 amended it: the host
-command is the operator's configured `host_command` when one is named, and
-the bare host otherwise, resolved in the same landing directory.
-
-The landing choice happens inside the existing resolution, so no launch step
-reads a second directory, a new setting, or the process working directory.
+The verified read-back is the placement proof. A move that lands anywhere
+other than the claimed worktree refuses success (CD-0098 D3).
 
 ## Alternatives considered
 
-- Land in the worktree from the store record alone, without the on-disk
-  check. Rejected: the entry route would start the host in a path the machine
-  does not hold, and the session would refuse after the operator chose the
-  work.
-- Refuse the launch when the active worktree is missing on disk. Rejected:
-  the canonical path is a valid landing under CD-0093, and a missing worktree
-  is a worktree absence, not a resolution failure.
-- Move the host to the worktree after start. Rejected: that is the multi-turn
-  move this record removes, and a directory change after identity
-  verification is the substitution class CD-0093 D2 closes.
-- Resolve the worktree landing in the adapter. Rejected: the adapter's
-  landing guard verifies the directory Concord already sent, and a second
-  resolver would own the same fact twice.
+- Keep the two-candidate landing read for context derivation. Rejected: the
+  continuity read resolves work from the session's active claim and
+  directory (CD-0093 as amended), and a second candidate read would own the
+  same fact twice.
+- Resolve the session directory in the adapter. Rejected: the adapter
+  verifies the directory the core claims, and a second resolver would own
+  the same fact twice.
 - Extend the landing to a captured work item on the capture turn. Out of
   scope under CD-0103 and left to its own record.
 
 ## Consequences
 
-An operator who resumes work that holds an active worktree starts in that
-worktree, and `concord_work_start` resume lands in the first turn with no
-move. Work without a worktree keeps the CD-0093 landing. The session
-directory read returns the two candidates, so a caller that needs the plain
-canonical path can read it directly.
-
-A worktree recorded active but deleted out-of-band lands its session in the
-canonical path silently. The next worktree audit or claim retarget owns that
-state, and the entry route does not repair it here. A worktree in a Project
-other than the primary one never lands a session, because the primary Project
-owns the session directory under CD-0093 D1.
-
-No schema, migration, event, or operator setting changes. The adapter is
-untouched.
+A managed session enters the worktree its claim recorded through the
+verified move and read-back; there is no launch fallback. An active entry
+whose directory is missing on disk is restored or refused by work resume
+under CD-0088, never absorbed by an arbitrary fallback. No schema,
+migration, event, or operator setting changes.
 
 ## Verification
 
-- `go test ./internal/store/ -run TestResolveSessionDirectory` proves the
-  read: the active worktree path travels beside the canonical path, and a
-  reclaimed entry, an active entry under a reclaimed claim, an entry in a
-  foreign Project, and no claim each leave the canonical path alone.
-- `go test ./cmd/concord/ -run TestSession` proves the launch: the host
-  starts in the active worktree when it exists on disk, and in the Project
-  canonical path when it does not, with the registry probe and execution in
-  the one landing directory.
+- `go test ./internal/store/ -run TestResolveContinuityWorkByDirectory`
+  proves the surviving directory binding: the continuity read binds the
+  session's directory to its active claim.
+- `go test ./internal/store/ -run
+  TestClaimWorktreeStillRefusesForeignWorkOccupancy` proves the claim side:
+  foreign-work occupancy still refuses.
+- `bun test adapter/opencode/concord.test.ts -t "work start verifies the
+  session directory after the move"` proves the verified move and read-back
+  that establish the directory (CD-0098).
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/generate-knowledge-index.py --check`,

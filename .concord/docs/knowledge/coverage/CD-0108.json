@@ -2,15 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestZLForwardingStartsASessionThroughTheRealSessionChild"
+      "value": "cmd/concord.TestRemovedLaunchEntriesRefuseWithoutExecuting"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestZLForwardingReadsLeaveAuthorityUnchanged"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestArgv0ZLForwardsToTheZLRoute"
+      "value": "cmd/concord.TestRemovedLaunchArgvZeroDoesNotForward"
     }
   ],
   "id": "CD-0108",

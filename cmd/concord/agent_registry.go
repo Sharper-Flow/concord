@@ -15,12 +15,9 @@ type hostAgentEntry struct {
 }
 
 // hostConfigDocument is the shape Concord reads out of the host's resolved
-// configuration: a map from registered handle to agent record, and the
-// plugin list whose Concord tuple may carry the host_command option
-// (CD-0189).
+// configuration: a map from registered handle to agent record.
 type hostConfigDocument struct {
-	Agent  map[string]hostAgentEntry `json:"agent"`
-	Plugin []json.RawMessage         `json:"plugin"`
+	Agent map[string]hostAgentEntry `json:"agent"`
 }
 
 // hostRegistrationError reports a handle the host cannot start as the session
@@ -50,10 +47,8 @@ func (e *hostRegistrationError) Unwrap() error { return e.Cause }
 
 // verifyHostRegistersHandle establishes that the host will resolve handle to a
 // startable session agent before the session selects it. The registry it
-// reads is the document the host-command resolution carried back: when a
-// host_command is configured, that document is the one the configured
-// command itself resolves, so the verification constrains the registry that
-// governs the session (CD-0093 D2).
+// reads is the document the bare registry probe carried back, so the
+// verification constrains the registry that governs the session.
 //
 // A resolvable definition file is not proof of registration. Frontmatter
 // `name:` renames the handle rather than aliasing it, `disable: true` removes

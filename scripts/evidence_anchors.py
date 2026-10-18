@@ -44,7 +44,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -376,10 +376,20 @@ def generated_symbol_exists(file: str, symbol: str) -> bool:
     cited is that a generator owns the value — a hand-written file with the
     right symbol name carries no such guarantee.
     """
-    target = ROOT / file
-    if not target.is_file():
+    candidate = PurePosixPath(file)
+    if not file or candidate.is_absolute() or ".." in candidate.parts or candidate.as_posix() != file:
         return False
-    text = target.read_text(encoding="utf-8", errors="replace")
+    try:
+        real_root = ROOT.resolve(strict=True)
+        target = (ROOT / file).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    if not target.is_relative_to(real_root) or not target.is_file():
+        return False
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
     if GENERATED_MARKER not in text:
         return False
     return re.search(rf"\b{re.escape(symbol)}\b", text) is not None
@@ -438,3 +448,27 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
             findings.append(f"{prefix}: generated anchor must read <path>#<symbol>: {value!r}")
         elif not generated_symbol_exists(match.group("file"), match.group("symbol")):
             findings.append(f"{prefix}: generated anchor does not resolve to a generated artifact: {value!r}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Execute one generated anchor without invoking other proof tools."""
+    arguments = sys.argv[1:] if argv is None else argv
+    if len(arguments) != 4 or arguments[0] != "--kind" or arguments[2] != "--value":
+        print(
+            "usage: evidence_anchors.py --kind generated --value <relative-path>#<symbol>",
+            file=sys.stderr,
+        )
+        return 2
+    kind, value = arguments[1], arguments[3]
+    if kind != "generated":
+        print(f"unsupported anchor kind: {kind[:80]!r}; only 'generated' has an executable entry", file=sys.stderr)
+        return 2
+    findings: list[str] = []
+    check_anchor({"kind": kind, "value": value}, "generated-anchor", findings)
+    for finding in findings:
+        print(finding, file=sys.stderr)
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

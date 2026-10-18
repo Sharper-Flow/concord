@@ -16,12 +16,12 @@
 
 ## TL;DR
 
-The live workflow catalog retains three execution families for new work, and
-no alias maps a retired family to a retained one (CD-0218 D1; §4). A workflow
-definition is a composition of shared parts, and a programmed decision model
-sets each work item's size (§7; CD-0229). Every released definition stays
-exact frozen history, and live supersession or release activation happens only
-at the operator-owned cutover boundary (CD-0218 D4, D5).
+The live workflow catalog retains three execution families for new work
+(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
+programmed decision model sets each work item's size (§7; CD-0229). Every
+released definition stays exact frozen history, and live supersession or
+release activation happens only at the operator-owned cutover boundary
+(CD-0218 D4, D5).
 
 The primary operator interacts through host-started agent sessions: the
 operator starts each session, and agents enter managed work through
@@ -57,8 +57,8 @@ follows them without restating them.
 
 Concord owns durable progression, branching, retries, evidence, and recovery
 across its workflow families. Native systems still execute git, CI, cloud,
-database, and other external effects. Repeated generic patterns graduate into
-shared parts; arbitrary inline workflow languages are out of scope.
+database, and other external effects. Arbitrary inline workflow languages are
+out of scope.
 
 - **Families:** new execution selects one of three retained families; a
   retired ref refuses before any capture or contract write (CD-0218 D1).
@@ -66,7 +66,7 @@ shared parts; arbitrary inline workflow languages are out of scope.
 - **Frozen history:** every released definition keeps its original ref,
   version, digest, graph, action payloads, and recovery data. No upcaster
   converts a family, and lookup of a historical pin does not make it eligible
-  for new capture (CD-0218 D4).
+  for new capture or dispatch (CD-0218 D4).
 
 ---
 
@@ -81,10 +81,9 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Steps** | The steps the composition includes; the item's size selects among the family's compositions (CD-0229 D5). |
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
-| **Operator kind** | The operator kinds the family serves. Operator kind and family are separate vocabularies (CD-0077 D1); selection follows the capture defaults (§3; CD-0218 D1). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
-| **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
-| **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md). |
+| **Outcome contract** | The premise, required end-state, and candidate set the family requires at approval. See §2.1a. |
+| **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -126,9 +125,9 @@ approved one, never weaker. Work discovered mid-execution that lies outside the
 approved end-state forward-links as successor work under CD-0006 R1; it never
 substitutes.
 
-Every workflow carries an outcome contract; only the verb differs. Research
-may record `no_change` when its approved outcome predicate allows it. The
-retained families' outcome tokens and predicate forms are fixed in
+Every workflow carries an outcome contract. Research may record `no_change`
+when its approved outcome predicate allows it. The retained families' outcome
+tokens and predicate forms are fixed in
 [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md).
 Binding form and per-type verbs:
 [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
@@ -193,7 +192,6 @@ D4) — not one complete purpose-built definition per kind.
 
 A single workflow can spawn another: research may surface a defect, which
 matures into a break-fix workflow, which may become an implementation change.
-Composition across work items stays forward-link only (§7; CD-0006 R1).
 
 ---
 
@@ -202,20 +200,21 @@ Composition across work items stays forward-link only (§7; CD-0006 R1).
 | Family | Captures | Shape |
 |---|---|---|
 | **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5). The outcome contract, independent acceptance, and closure hold at every size. |
-| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair and verification (CD-0218 D2). |
+| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0218 D2; CD-0138 D1). |
 | **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](./decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
 The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
 `generic_one_off` — select no new execution, and no alias maps a retired
-family to a retained one (CD-0218 D1). An architecture decision still
-resolves through a separate reviewed and accepted decision
-([CD-0215 D2](./decisions/CD-0215-retained-research-context.md)); research
-reports do not enact legislation (CD-0218 D1).
+family to a retained one (CD-0218 D1).
+[CD-0215 D2](./decisions/CD-0215-retained-research-context.md) still requires
+an architecture spike to resolve through a separate reviewed and accepted
+decision; CD-0218 leaves that obligation to the cutover owner's approved
+successor set. Research reports do not enact legislation (CD-0218 D1).
 
 External analysis covers architecture-inconsistency detection, AI-slop
 detection, and spec/implementation drift audit, among others. The host
 selects and runs the external tool; a retained family's tracked work records
-the declared scope, report, evidence, and verdict (§5).
+the declared scope, report, and evidence (§5).
 
 ---
 
@@ -223,9 +222,10 @@ the declared scope, report, evidence, and verdict (§5).
 
 Analysis tooling is an external native authority. Concord does not implement
 or ship scanners. Tracked analysis work runs in a retained family and records
-the external run's scope, report, evidence, and verdict in the steps its
-composition declares; the refine pass is one such declared step, not the only
-one. Where a composition declares refine requirements, the proof rule is
+the external run's scope, report, and evidence in the steps its composition
+declares; that output is advisory input, not a verdict (CD-0138 D3).
+Break-fix keeps the mandatory `refine` step (CD-0138 D1), and implementation
+includes it at the sizes CD-0229 D5 names. The refine proof rule is
 [CD-0192](./decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
 which amends
 [CD-0138 D3](./decisions/CD-0138-mandatory-refinement-pass.md).
@@ -241,11 +241,7 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 
 - **Business work categories** (inventory §3.11: ideas / bugs / optimization;
   the taxonomy in §3) describe *what the work is*.
-- **Workflow families** describe *how that work executes*. Operator kinds
-  (task, bug, research, decision, other) and families are two closed
-  vocabularies that CD-0077 D1 holds separate; the capture defaults (§3;
-  CD-0218 D1) map operator kinds to families.
-- Composition across work items stays forward-link only (§7; CD-0006 R1).
+- **Workflow families** describe *how that work executes*; §3 maps operator kinds to families.
 
 ---
 

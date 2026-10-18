@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -512,7 +513,7 @@ func validateArchitectureBindingLawAdditionsTx(ctx context.Context, tx *sql.Tx, 
 		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
 		}
-		if containsString(lawModifies, addition.LawID) {
+		if slices.Contains(lawModifies, addition.LawID) {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition overlaps law_modifies", false, "choose addition or modification for a law ID")
 		}
 		for _, revision := range lawRevisions {
@@ -611,10 +612,10 @@ func validateArchitectureBindingReplayShape(definition WorkflowDefinition, bindi
 		return err
 	}
 	for _, addition := range binding.LawAdditions {
-		if !containsString(specMandate, addition.LawID) {
+		if !slices.Contains(specMandate, addition.LawID) {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical law addition is outside the mandate", false, "repair the historical law mandate")
 		}
-		if containsString(lawModifies, addition.LawID) {
+		if slices.Contains(lawModifies, addition.LawID) {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "historical law addition overlaps law_modifies", false, "repair the historical law fields")
 		}
 		for _, revision := range lawRevisions {

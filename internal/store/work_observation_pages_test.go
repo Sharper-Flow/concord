@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -255,7 +256,7 @@ func TestWorkObservationPageLimitPagePrefixPreservesEnvelope(t *testing.T) {
 	if limited.QueryID != source.QueryID || limited.ContractVersion != source.ContractVersion || limited.SourceVersionWatermark != source.SourceVersionWatermark {
 		t.Fatalf("limited meta drifted: %+v vs %+v", limited.ResultMeta, source.ResultMeta)
 	}
-	if limited.ResolvedScope.WorkID != source.ResolvedScope.WorkID || !equalStringSlices(limited.OrderingKeys, source.OrderingKeys) {
+	if limited.ResolvedScope.WorkID != source.ResolvedScope.WorkID || !slices.Equal(limited.OrderingKeys, source.OrderingKeys) {
 		t.Fatalf("limited scope or ordering keys drifted")
 	}
 	if limited.NextCursor == nil {
@@ -306,16 +307,4 @@ func TestWorkObservationPageRejectsMalformedStoredLists(t *testing.T) {
 	if _, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 10}); !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {
 		t.Fatalf("paged read after tags corruption err=%v want typed %s", err, KindInvariantViolation)
 	}
-}
-
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

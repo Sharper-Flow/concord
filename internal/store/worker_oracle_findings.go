@@ -826,7 +826,7 @@ func validateWorkerOracleReceiptJoins(receipt *WorkerOracleReceipt, controls map
 	for _, caseID := range receipt.CaseIDs {
 		controlCovers := false
 		for _, controlID := range receipt.ControlIDs {
-			if control, exists := controls[controlID]; exists && containsString(control.CaseIDs, caseID) {
+			if control, exists := controls[controlID]; exists && slices.Contains(control.CaseIDs, caseID) {
 				controlCovers = true
 				break
 			}
@@ -986,7 +986,7 @@ func validateWorkerOracleFindingJoins(finding *WorkerOracleFinding, oracle *Acce
 	}
 	hasPredicate, hasLaw, hasControl := false, false, false
 	for _, predicate := range finding.PredicateIDs {
-		if !containsString(owner.PredicateIDs, predicate) {
+		if !slices.Contains(owner.PredicateIDs, predicate) {
 			return oracleFindingFailure(KindInvalidPayload, "a delivery_blocker names predicate "+predicate+" its owner does not cover", "bind the finding to predicates the declared owner covers")
 		}
 		hasPredicate = true
@@ -1182,7 +1182,7 @@ func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *Acce
 		required[id] = true
 	}
 	for _, entry := range oracle.Cases {
-		if containsString(finding.CaseIDs, entry.CaseID) {
+		if slices.Contains(finding.CaseIDs, entry.CaseID) {
 			for _, id := range entry.ControlIDs {
 				required[id] = true
 			}
@@ -1220,7 +1220,7 @@ func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *Acce
 
 func oracleReceiptCoversControl(receipt WorkerOracleReceipt, control OracleControl) bool {
 	for _, id := range control.CaseIDs {
-		if !containsString(receipt.CaseIDs, id) {
+		if !slices.Contains(receipt.CaseIDs, id) {
 			return false
 		}
 	}

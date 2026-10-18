@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestBreakFixV6VerifyEvidenceRouteIsHoldOnly(t *testing.T) {
 			break
 		}
 	}
-	if !containsString(verify.Actions, "bind_evidence") {
+	if !slices.Contains(verify.Actions, "bind_evidence") {
 		t.Fatalf("verify actions = %v, want bind_evidence", verify.Actions)
 	}
 	policies := map[string]WorkflowActionDefinition{}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -158,15 +159,15 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 		t.Fatal("break_fix diagnosis lost the continuity holds")
 	}
 	for _, step := range definition.StepGraph.Steps {
-		if containsString(step.Actions, "start_repair") || containsString(step.Actions, "start_refine") {
+		if slices.Contains(step.Actions, "start_repair") || slices.Contains(step.Actions, "start_refine") {
 			t.Fatalf("break_fix v%d step %q still declares a callable start; CD-0198 D3 derives it", definition.Version, step.ID)
 		}
 	}
-	if !containsString(definition.AvailableActions, "record_diagnosis") {
+	if !slices.Contains(definition.AvailableActions, "record_diagnosis") {
 		t.Fatal("break_fix diagnosis does not advertise record_diagnosis")
 	}
 	for _, retired := range []string{"record_reproduction", "record_alignment", "record_root_cause", "start_repair", "start_refine"} {
-		if containsString(definition.AvailableActions, retired) {
+		if slices.Contains(definition.AvailableActions, retired) {
 			t.Fatalf("break_fix v%d still advertises %s", definition.Version, retired)
 		}
 	}
@@ -185,15 +186,15 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 	if exits := alignmentAdvanceExits(t, implDefinition, "alignment"); len(exits) != 1 || exits[0] != "record_alignment" {
 		t.Fatalf("implementation alignment advance exits are %v, want exactly [record_alignment]", exits)
 	}
-	if containsString(implDefinition.AvailableActions, "start_refine") {
+	if slices.Contains(implDefinition.AvailableActions, "start_refine") {
 		t.Fatalf("implementation v%d still advertises start_refine; CD-0198 D3 derives the refine start", implDefinition.Version)
 	}
 	for _, step := range implDefinition.StepGraph.Steps {
-		if containsString(step.Actions, "start_refine") {
+		if slices.Contains(step.Actions, "start_refine") {
 			t.Fatalf("implementation v%d step %q still declares start_refine", implDefinition.Version, step.ID)
 		}
 	}
-	if !containsString(implDefinition.AvailableActions, "start_execution") {
+	if !slices.Contains(implDefinition.AvailableActions, "start_execution") {
 		t.Fatal("implementation lost start_execution; CD-0198 D3 keeps it callable")
 	}
 }
@@ -354,7 +355,7 @@ func TestReleasedBreakFixPinsKeepCallableStarts(t *testing.T) {
 	if !ok {
 		t.Fatal("workflow.break_fix v24 is not registered")
 	}
-	if !containsString(released.Definition.AvailableActions, "start_repair") || !containsString(released.Definition.AvailableActions, "start_refine") {
+	if !slices.Contains(released.Definition.AvailableActions, "start_repair") || !slices.Contains(released.Definition.AvailableActions, "start_refine") {
 		t.Fatal("break_fix v24 lost its callable starts; released pins are frozen")
 	}
 	for _, want := range []struct{ step, action string }{

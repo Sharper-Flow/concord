@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
 			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
 		}
 		for _, step := range definition.StepGraph.Steps {
-			if !containsString(livenessDeclaredActions(definition, step.ID), "request_correction") {
+			if !slices.Contains(livenessDeclaredActions(definition, step.ID), "request_correction") {
 				t.Errorf("%s/%s never probes engine-owned correction", definition.Ref, step.ID)
 			}
 		}
@@ -90,12 +91,12 @@ func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
 	for _, definition := range builtinWorkflowFrozenHeads() {
 		omissions := livenessOmittedVariants(definition)
 		for _, kind := range definition.OutcomeSchema.AllowedKinds {
-			if kind != definition.OutcomeSchema.DefaultKind && !containsString(omissions, "outcome_kind="+string(kind)) {
+			if kind != definition.OutcomeSchema.DefaultKind && !slices.Contains(omissions, "outcome_kind="+string(kind)) {
 				t.Errorf("%s silently omits outcome kind %s", definition.Ref, kind)
 			}
 		}
 		for i, token := range definition.OutcomeSchema.AllowedOutcomeTokens {
-			if i > 0 && !containsString(omissions, "outcome_token="+token) {
+			if i > 0 && !slices.Contains(omissions, "outcome_token="+token) {
 				t.Errorf("%s silently omits outcome token %s", definition.Ref, token)
 			}
 		}
@@ -119,7 +120,7 @@ func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
 	if _, exists := fields["design_record"]; exists {
 		t.Error("unrequested optional design_record was synthesized")
 	}
-	if !containsString(livenessOmittedVariants(definition.Definition), "optional-presence:supersede_contract.design_record") {
+	if !slices.Contains(livenessOmittedVariants(definition.Definition), "optional-presence:supersede_contract.design_record") {
 		t.Error("engine-owned optional design presence was not reported as unexamined")
 	}
 }
@@ -129,7 +130,7 @@ func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 		omitted := livenessOmittedVariants(definition)
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
-				if !field.Required && !containsString(omitted, "optional-presence:"+action.ID+"."+field.Name) {
+				if !field.Required && !slices.Contains(omitted, "optional-presence:"+action.ID+"."+field.Name) {
 					t.Errorf("%s omits presence coverage for %s.%s", definition.Ref, action.ID, field.Name)
 				}
 			}

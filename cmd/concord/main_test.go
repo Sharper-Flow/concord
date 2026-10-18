@@ -1601,10 +1601,10 @@ func TestPredecessorImportHappyPath(t *testing.T) {
 	if report.ProductsCreated != 1 || report.ProjectsCreated != 2 || report.WorkImported != 2 || report.AlreadyImported != 0 {
 		t.Fatalf("happy report counts = products:%d projects:%d work:%d already:%d, want 1/2/2/0", report.ProductsCreated, report.ProjectsCreated, report.WorkImported, report.AlreadyImported)
 	}
-	if !containsString(report.ImportedProducts, "synth-product") {
+	if !slices.Contains(report.ImportedProducts, "synth-product") {
 		t.Fatalf("imported_products = %v, want synth-product present", report.ImportedProducts)
 	}
-	if !containsString(report.ImportedProjects, "synth-project-alpha") || !containsString(report.ImportedProjects, "synth-project-beta") {
+	if !slices.Contains(report.ImportedProjects, "synth-project-alpha") || !slices.Contains(report.ImportedProjects, "synth-project-beta") {
 		t.Fatalf("imported_projects = %v, want both concord project ids present", report.ImportedProjects)
 	}
 	if len(report.Work) != 2 {
@@ -1890,15 +1890,6 @@ func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("import under a pinned reader exit=%d, want 0; stderr=%q", code, diag)
 	}
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 // TestPredecessorImportSurfacesRefusals pins CD-0097's surface contract at the

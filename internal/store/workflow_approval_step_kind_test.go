@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -96,20 +97,20 @@ func workflowRequiredEvidenceOutsideReach(definition WorkflowDefinition) []Evide
 	producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
 	var missing []EvidenceKind
 	for _, kind := range definition.RequiredEvidenceKinds {
-		if !containsString(producible, string(kind)) {
+		if !slices.Contains(producible, string(kind)) {
 			missing = append(missing, kind)
 		}
 	}
 	for _, step := range definition.StepGraph.Steps {
 		for _, kind := range step.RequiredEvidenceKinds {
-			if !containsString(producible, string(kind)) {
+			if !slices.Contains(producible, string(kind)) {
 				missing = append(missing, kind)
 			}
 		}
 	}
 	for _, rule := range definition.RigorRules {
 		for _, kind := range rule.RequiredEvidenceKinds {
-			if !containsString(producible, string(kind)) {
+			if !slices.Contains(producible, string(kind)) {
 				missing = append(missing, kind)
 			}
 		}

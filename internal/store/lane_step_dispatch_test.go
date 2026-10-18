@@ -192,17 +192,17 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 	derivedFailure := map[string]bool{"workflow.implementation": true, "workflow.break_fix": true, "workflow.research": true}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		derives := derivedFailure[definition.Ref]
-		if !derives && !containsString(definition.AvailableActions, "record_worker_failure") {
+		if !derives && !slices.Contains(definition.AvailableActions, "record_worker_failure") {
 			t.Errorf("%s current definition does not declare record_worker_failure", definition.Ref)
 		}
-		if derives && containsString(definition.AvailableActions, "record_worker_failure") {
+		if derives && slices.Contains(definition.AvailableActions, "record_worker_failure") {
 			t.Errorf("%s still advertises record_worker_failure; CD-0198 D5 derives it", definition.Ref)
 		}
 		for _, step := range definition.StepGraph.Steps {
-			dispatch := containsString(step.Actions, "dispatch_worker")
-			accept := containsString(step.Actions, "accept_worker_result")
-			recordFailure := containsString(step.Actions, "record_worker_failure")
-			acceptEvidence := containsString(step.Actions, "accept_worker_evidence")
+			dispatch := slices.Contains(step.Actions, "dispatch_worker")
+			accept := slices.Contains(step.Actions, "accept_worker_result")
+			recordFailure := slices.Contains(step.Actions, "record_worker_failure")
+			acceptEvidence := slices.Contains(step.Actions, "accept_worker_evidence")
 			// CD-0187: a confirmation step carries the checkpoint pair and
 			// never the advancing accept or the failure record; every other
 			// step carries the worker trio or none of it.
@@ -239,7 +239,7 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 		if !ok {
 			t.Fatalf("%s v%d is not registered", pin.ref, pin.version)
 		}
-		if !containsString(released.Definition.AvailableActions, "record_worker_failure") {
+		if !slices.Contains(released.Definition.AvailableActions, "record_worker_failure") {
 			t.Fatalf("%s v%d lost its callable failure record; released pins keep the trio", pin.ref, pin.version)
 		}
 	}
@@ -247,7 +247,7 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 	if !ok {
 		t.Fatal("workflow.break_fix v4 is not registered")
 	}
-	if containsString(prior.Definition.AvailableActions, "record_worker_failure") {
+	if slices.Contains(prior.Definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("workflow.break_fix v4 changed after record_worker_failure shipped in v5")
 	}
 }

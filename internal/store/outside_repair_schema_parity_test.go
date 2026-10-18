@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -526,7 +527,7 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		// and a subset that omits either is a partial entry both refuse.
 		entryErr := core(entryCarrying(subset))
 		entryVerdict := require("entry-carrying-" + label)
-		if containsString(subset, "predicate_id") && containsString(subset, "verdict_kind") {
+		if slices.Contains(subset, "predicate_id") && slices.Contains(subset, "verdict_kind") {
 			if entryErr != nil {
 				t.Errorf("core payload validation refuses the legal minimal entry {%s}: %v", label, entryErr)
 			}

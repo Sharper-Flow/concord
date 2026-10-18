@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -537,7 +538,7 @@ func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.
 		ids = append(ids, item.ID)
 	}
 	want := []string{"title-match", "tag-match", "domain-match"}
-	if !equalStrings(ids, want) {
+	if !slices.Equal(ids, want) {
 		t.Fatalf("exact-field IDs = %#v, want %#v", ids, want)
 	}
 }
@@ -702,33 +703,24 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 		return ids
 	}
 	firstIDs := queryIDs(firstHome, "product-a", "project-a", "domain-a")
-	if len(firstIDs) != 1 || !containsKnowledgeString(firstIDs, "explicit-first") || containsKnowledgeString(firstIDs, "home-first") || containsKnowledgeString(firstIDs, "home-second") || containsKnowledgeString(firstIDs, "explicit-second") {
+	if len(firstIDs) != 1 || !slices.Contains(firstIDs, "explicit-first") || slices.Contains(firstIDs, "home-first") || slices.Contains(firstIDs, "home-second") || slices.Contains(firstIDs, "explicit-second") {
 		t.Fatalf("first-home routing=%v", firstIDs)
 	}
 	firstHomeIDs := queryIDs(firstHome, "product-a", "project-b", "")
-	if len(firstHomeIDs) != 1 || !containsKnowledgeString(firstHomeIDs, "home-first") || containsKnowledgeString(firstHomeIDs, "home-second") || containsKnowledgeString(firstHomeIDs, "explicit-first") || containsKnowledgeString(firstHomeIDs, "explicit-second") {
+	if len(firstHomeIDs) != 1 || !slices.Contains(firstHomeIDs, "home-first") || slices.Contains(firstHomeIDs, "home-second") || slices.Contains(firstHomeIDs, "explicit-first") || slices.Contains(firstHomeIDs, "explicit-second") {
 		t.Fatalf("first home scope visibility=%v", firstHomeIDs)
 	}
 	secondIDs := queryIDs(secondHome, "product-b", "project-b", "domain-b")
-	if len(secondIDs) != 1 || !containsKnowledgeString(secondIDs, "explicit-second") || containsKnowledgeString(secondIDs, "home-second") || containsKnowledgeString(secondIDs, "home-first") || containsKnowledgeString(secondIDs, "explicit-first") {
+	if len(secondIDs) != 1 || !slices.Contains(secondIDs, "explicit-second") || slices.Contains(secondIDs, "home-second") || slices.Contains(secondIDs, "home-first") || slices.Contains(secondIDs, "explicit-first") {
 		t.Fatalf("second-home routing=%v", secondIDs)
 	}
 	secondHomeIDs := queryIDs(secondHome, "product-b", "project-a", "")
-	if len(secondHomeIDs) != 1 || !containsKnowledgeString(secondHomeIDs, "home-second") || containsKnowledgeString(secondHomeIDs, "home-first") || containsKnowledgeString(secondHomeIDs, "explicit-first") || containsKnowledgeString(secondHomeIDs, "explicit-second") {
+	if len(secondHomeIDs) != 1 || !slices.Contains(secondHomeIDs, "home-second") || slices.Contains(secondHomeIDs, "home-first") || slices.Contains(secondHomeIDs, "explicit-first") || slices.Contains(secondHomeIDs, "explicit-second") {
 		t.Fatalf("second home scope visibility=%v", secondHomeIDs)
 	}
 	if got := queryIDs(firstHome, "product-a", "project-b", "domain-b"); len(got) != 0 {
 		t.Fatalf("cross-scope explicit records leaked into first home: %v", got)
 	}
-}
-
-func containsKnowledgeString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) {

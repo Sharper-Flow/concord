@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -223,7 +224,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if currentStep == "" {
 		return false, nil
 	}
-	if !containsString(definition.AvailableActions, "record_worker_failure") {
+	if !slices.Contains(definition.AvailableActions, "record_worker_failure") {
 		return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
 	}
 	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
@@ -523,7 +524,7 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		return fieldsErr
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(g.entry.Definition, g.currentStep)
-	declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+	declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
 	if declaresRoute && !atCompleteStep {
 		return newFailure(KindInvalidPayload, "workflow_action", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 	}
@@ -547,16 +548,16 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 		// shared predicate evaluates the same conditions.
 		return true
 	}
-	if containsString(definition.StepGraph.TerminalSteps, currentStep) {
+	if slices.Contains(definition.StepGraph.TerminalSteps, currentStep) {
 		return false
 	}
 	if workflowUnhealthyVerdictRouteTarget(definition, currentStep) != "" {
 		return true
 	}
 	if step.Kind == WorkflowStepHumanCheckpoint {
-		return containsString(step.Actions, "confirm_premise")
+		return slices.Contains(step.Actions, "confirm_premise")
 	}
-	return containsString(step.Actions, "dispatch_worker")
+	return slices.Contains(step.Actions, "dispatch_worker")
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete
@@ -1037,7 +1038,7 @@ func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID st
 		if err := rows.Scan(&ref); err != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
 		}
-		if !contains(refs, ref) {
+		if !slices.Contains(refs, ref) {
 			refs = append(refs, ref)
 		}
 	}
@@ -1803,7 +1804,7 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		}
 		for _, verdict := range verdicts {
 			for _, ref := range verdict.EvaluationEvidence {
-				if !contains(refs, ref) {
+				if !slices.Contains(refs, ref) {
 					refs = append(refs, ref)
 				}
 			}

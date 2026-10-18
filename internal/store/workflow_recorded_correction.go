@@ -1,6 +1,9 @@
 package store
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 type recordedCorrectionPin struct {
 	ref     string
@@ -65,7 +68,7 @@ func workflowRecordedCorrectionReturnTarget(entry RegisteredDefinition, step str
 		return "", err
 	}
 	pin := recordedCorrectionPin{definition.Ref, definition.Version, entry.Digest}
-	if route, ok := recordedCorrectionRoutes[pin]; ok && containsString(route.steps, step) {
+	if route, ok := recordedCorrectionRoutes[pin]; ok && slices.Contains(route.steps, step) {
 		return route.target, nil
 	}
 	return workflowCorrectionReturnTarget(definition, step), nil

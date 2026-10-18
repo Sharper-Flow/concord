@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -540,7 +541,7 @@ func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID 
 func workflowEvidenceRequirementDefinitions(required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
 	needed := append([]string(nil), required...)
 	for _, kind := range definition.RequiredEvidenceKinds {
-		if !contains(needed, string(kind)) {
+		if !slices.Contains(needed, string(kind)) {
 			needed = append(needed, string(kind))
 		}
 	}
@@ -645,7 +646,7 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, required []string, definitionRequired []EvidenceKind, cutoff int64) error {
 	needed := append([]string(nil), required...)
 	for _, kind := range definitionRequired {
-		if !contains(needed, string(kind)) {
+		if !slices.Contains(needed, string(kind)) {
 			needed = append(needed, string(kind))
 		}
 	}
@@ -804,7 +805,7 @@ func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, def
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect staleness evidence", true, "retry once the database is readable", err)
 		}
-		if count == 0 && !contains(required, rule.InputRef) {
+		if count == 0 && !slices.Contains(required, rule.InputRef) {
 			return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness rule has drifted", false, "refresh_context")
 		}
 	}
@@ -831,7 +832,7 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect warning staleness evidence", true, "retry once the database is readable", err)
 		}
-		if count == 0 && !contains(required, rule.InputRef) {
+		if count == 0 && !slices.Contains(required, rule.InputRef) {
 			warnings = append(warnings, rule.ID)
 		}
 	}
@@ -1089,7 +1090,7 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 	}
 	verified := false
 	for _, step := range definition.StepGraph.Steps {
-		if containsString(step.Actions, "record_verdict") && workflowStepFollows(definition, step.ID, currentStep) {
+		if slices.Contains(step.Actions, "record_verdict") && workflowStepFollows(definition, step.ID, currentStep) {
 			verified = true
 			break
 		}

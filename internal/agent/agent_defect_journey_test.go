@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -87,7 +88,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		}
 		details.Scope, details.Versions = summary.Scope, summary.Versions
 		wantWork := "work:" + strconv.FormatInt(input["expected_version"].(int64), 10)
-		if details.Digest != mutationDigest(request.Tool, request.Operation, actorEnv, raw) || !contains(details.Versions, wantWork) {
+		if details.Digest != mutationDigest(request.Tool, request.Operation, actorEnv, raw) || !slices.Contains(details.Versions, wantWork) {
 			t.Fatalf("%s challenge does not bind the exact intent: %+v", input["action_id"], details)
 		}
 		approved := cloneWithApproval(t, input, details.Ref)

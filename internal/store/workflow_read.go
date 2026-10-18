@@ -383,41 +383,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	return out, nil
 }
 
-// WorkflowResumeBoundary is the production read of the last committed
-// checkpoint. The boundary is event-log-derived: the checkpoint projection is
-// joined back to its persisted checkpoint event before it is returned.
-type WorkflowResumeBoundary struct {
-	StepID       string `json:"step_id"`
-	CheckpointID string `json:"checkpoint_id"`
-	Source       string `json:"source"`
-}
-
-func ResumeWorkflow(ctx context.Context, s *Store, workID string) (WorkflowResumeBoundary, error) {
-	var boundary WorkflowResumeBoundary
-	var resumeCursor, eventID string
-	if s == nil || s.db == nil {
-		return boundary, newFailure(KindUnavailable, "workflow_resume", "store is not open", false, "open the authority database")
-	}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT c.resume_cursor,c.checkpoint_id,e.event_id
-		FROM workflow_checkpoints c
-		JOIN domain_events e ON e.subject_type=? AND e.subject_id=c.work_id AND e.kind=? AND json_extract(e.payload,'$.checkpoint_id')=c.checkpoint_id
-		WHERE c.work_id=? AND e.kind=?
-		ORDER BY e.seq DESC LIMIT 1`, SubjectWorkItem, WorkflowActionCheckpointed, workID, WorkflowActionCheckpointed).Scan(&resumeCursor, &boundary.CheckpointID, &eventID)
-	if err == sql.ErrNoRows {
-		return boundary, newFailure(KindProjectionNotFound, "workflow_resume", "workflow has no committed checkpoint", false, "reread_entities")
-	}
-	if err != nil {
-		return boundary, wrapFailure(KindUnavailable, "workflow_resume", "cannot read committed checkpoint", true, "retry once the database is readable", err)
-	}
-	if eventID == "" || resumeCursor == "" {
-		return boundary, newFailure(KindInvariantViolation, "workflow_resume", "checkpoint event has no resume boundary", false, "rebuild projections from the event log")
-	}
-	boundary.StepID = resumeCursor
-	boundary.Source = "event_log"
-	return boundary, nil
-}
-
 // parkedDeliveryRead derives the CD-0166 parked-delivery observation for a
 // work item whose current step is the delivery gate. ParkedSeconds is a
 // read-time display age taken from the work item's last update; elapsed time

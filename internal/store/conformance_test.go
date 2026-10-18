@@ -438,10 +438,10 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	if _, err := ClaimStepAuthorized(ctx, s, staleClaim, nil); err != nil {
 		t.Fatal(err)
 	}
-	takeover := testClaim("conformance-stale", "stale-takeover")
-	takeover.PrincipalRef = "operator"
-	takeover.RequestID = "stale-takeover-request"
-	if _, err := OperatorTakeover(ctx, s, takeover, "conformance-approval"); err != nil {
+	secondClaim := testClaim("conformance-stale", "stale-second-claim")
+	secondClaim.PrincipalRef = "operator"
+	secondClaim.RequestID = "stale-second-claim-request"
+	if _, err := ClaimStepAuthorized(ctx, s, secondClaim, nil); err != nil {
 		t.Fatal(err)
 	}
 	results = run("stale_completion")

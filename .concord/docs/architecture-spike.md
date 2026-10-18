@@ -16,9 +16,8 @@
 
 The model below describes **Architecture Spike**, a family retired for new
 execution. It frames a question, researches it, optionally proves it with a
-throwaway POC, and
-produces a **decision record that binds downstream work until superseded**. It
-has tasks, no sub-spikes, no timebox, and its POC code never merges.
+throwaway POC, and produces a **decision record that binds downstream work until
+superseded**. It has tasks, no sub-spikes, no timebox, and its POC code never merges.
 
 The three retained execution families are listed in
 [`workflows.md` §4](./workflows.md#4-example-workflow-types).
@@ -29,7 +28,7 @@ no successor route, and research reports do not enact legislation.
 
 ---
 
-## 1. Why this type was shaped
+## 1. Why this type exists
 
 Concord's taxonomy ([`workflows.md`](./workflows.md) §3) covers *options
 research* and *evidence research*. The shaped model contrasted research with a
@@ -153,7 +152,6 @@ machinery as [`specs-as-laws.md`](./specs-as-laws.md), not an advisory warning.
 The escape hatch is **formal supersession, not divergence**:
 
 - You do not argue with an accepted decision from inside an implementation change.
-- You open a **new spike that supersedes** the old decision.
 - This keeps the architectural argument in the venue built for it — with research,
   a reviewer, and user acceptance — instead of relitigating it inside unrelated
   implementation work.
@@ -240,24 +238,22 @@ filed — is what keeps it from decaying into an ignorable report.
 
 ## 6. Composition
 
+These are the shaped model's directions; new execution captures no spike
+(CD-0218 D1).
+
 | Direction | Allowed | Example |
 |---|---|---|
 | Spike → implementation change | Yes | Storage spike decides the engine; implementation changes build against it. |
-| Spike → break-fix / ops runbook | Yes | Spike reveals a live defect or an operational precondition. |
+| Spike → break-fix | Yes | Spike reveals a live defect. |
 | Spike → superseding spike | Yes | New evidence invalidates the prior decision. |
 | Spike → sub-spike | **No** | Use tasks. |
-| Change → spike | Yes | A change hits an architectural question larger than itself; it surfaces a conflict and a spike is opened. |
-
-The last row matters: it is the pressure-release valve that prevents implementation
-changes from silently absorbing architectural decisions again.
 
 ---
 
 ## 7. Open questions
 
 1. **Relation to external ADR conventions** — is a Concord decision record the
-   same artifact, a superset, or a separate track? **Deferred to research** — this
-   is the first question the first spike frames, not a design assumption made now.
+   same artifact, a superset, or a separate track? **Deferred to research.**
 2. **Registration mechanics** — current retained families use the shared-part
    definitions in [`workflows.md` §2](./workflows.md#2-the-workflow-type-model)
    and [§7](./workflows.md#7-composition-and-size). This shaped model registers

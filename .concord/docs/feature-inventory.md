@@ -141,9 +141,8 @@ the old catalog only so evidence remains traceable.
 - Repair/maintenance: `adv_doctor`, `adv_change_workflow_terminate`,
   `adv_snapshot_health`, `adv_store_cleanup`, `adv_store_consolidate`,
   `adv_launcher_projection_rebuild`.
-- **Why transfer:** unchanged. (Note: standalone *ops runbooks* are a separate
-  Refactor item in §2 — the *repair* tools stay; the *operational runbook
-  hosting* extends.)
+- **Why transfer:** unchanged. The *repair* outcomes stay; standalone *ops
+  runbook* hosting does not (§2.4).
 
 ### 1.10 Session, project, introspection
 - `adv_session_list`, `adv_session_show`.
@@ -306,9 +305,9 @@ descriptions because they are referenced from elsewhere in the docset.
   retires `architecture_spike` for new execution, without an alias to research
   or another retained family. Released pins remain exact frozen history (D4).
 - [CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work)
-  still requires a separate reviewed and accepted decision. The cutover owner's
-  approved successor set must preserve that obligation; this inventory chooses
-  no successor route. Research reports do not enact legislation.
+  still requires a separate reviewed and accepted decision. CD-0218 leaves
+  resolution to the cutover owner through an approved successor set; this
+  inventory chooses no successor route. Research reports do not enact legislation.
 - [`architecture-spike.md`](./architecture-spike.md) describes the historical
   shaped model, not an eligible new-execution family.
 

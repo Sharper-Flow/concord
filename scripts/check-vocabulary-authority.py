@@ -18,7 +18,6 @@ VOCABULARY_RE = re.compile(
     r"(?:^|_)(?:kind|type|class|role|status|state|stage|family|mode|severity|phase|consequence)(?:_|$)",
     re.IGNORECASE,
 )
-IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MAX_FINDINGS = 1000
 
 

@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -276,7 +277,7 @@ func TestEveryRecoveryEnumCopyMatchesTheContract(t *testing.T) {
 				}
 			}
 			for want := range kinds {
-				if !containsString(keys, want) {
+				if !slices.Contains(keys, want) {
 					t.Errorf("%s: recovery enum copy omits contractual action %q", fset.Position(lit.Pos()), want)
 				}
 			}
@@ -321,15 +322,6 @@ func stringKeyedBoolSet(lit *ast.CompositeLit) ([]string, bool) {
 		keys = append(keys, value)
 	}
 	return keys, len(keys) > 0
-}
-
-func containsString(list []string, want string) bool {
-	for _, item := range list {
-		if item == want {
-			return true
-		}
-	}
-	return false
 }
 
 // contractRecoveryKindList returns the contract's recovery actions in a stable

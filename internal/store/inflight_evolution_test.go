@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -104,17 +105,17 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 	// the resolution the engine performs before every action — rather than
 	// inferring the pin from an action rejection that a step guard could equally
 	// explain.
-	if containsString(v1.Definition.AvailableActions, "accept_worker_result") {
+	if slices.Contains(v1.Definition.AvailableActions, "accept_worker_result") {
 		t.Fatal("v1 already declares accept_worker_result; the supersession no longer differs")
 	}
-	if !containsString(latest.Definition.AvailableActions, "accept_worker_result") {
+	if !slices.Contains(latest.Definition.AvailableActions, "accept_worker_result") {
 		t.Fatal("the superseding version does not declare accept_worker_result")
 	}
 	resolved, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Version: pinnedVersion, Digest: pinnedDigest})
 	if err != nil {
 		t.Fatalf("in-flight pin no longer resolves after supersession: %v", err)
 	}
-	if resolved.Definition.Version != v1.Definition.Version || containsString(resolved.Definition.AvailableActions, "accept_worker_result") {
+	if resolved.Definition.Version != v1.Definition.Version || slices.Contains(resolved.Definition.AvailableActions, "accept_worker_result") {
 		t.Fatalf("engine resolved v%d for an item pinned to v%d", resolved.Definition.Version, v1.Definition.Version)
 	}
 

@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -107,11 +108,11 @@ func workflowAssertRouteInvariants(t *testing.T, definition WorkflowDefinition, 
 	}
 	switch route.Trigger {
 	case WorkflowRecoveryTriggerUnhealthyVerdict:
-		if !containsString(routeStep.Actions, "record_verdict") && !containsString(routeStep.Actions, "confirm_premise") && !containsString(definition.StepGraph.TerminalSteps, route.Step) {
+		if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !slices.Contains(definition.StepGraph.TerminalSteps, route.Step) {
 			t.Fatalf("%s v%d unhealthy_verdict route sits on step %q, which declares neither record_verdict nor confirm_premise and hosts no late-verdict context", definition.Ref, definition.Version, route.Step)
 		}
 	case WorkflowRecoveryTriggerDisprovedPremiseAtComplete:
-		if !containsString(routeStep.Actions, "complete") {
+		if !slices.Contains(routeStep.Actions, "complete") {
 			t.Fatalf("%s v%d complete-trigger route sits on step %q, which declares no complete action", definition.Ref, definition.Version, route.Step)
 		}
 	default:
@@ -127,10 +128,10 @@ func workflowAssertRouteInvariants(t *testing.T, definition WorkflowDefinition, 
 	if route.Target == route.Step {
 		t.Fatalf("%s v%d route target %q is the route step itself", definition.Ref, definition.Version, route.Target)
 	}
-	if containsString(definition.StepGraph.TerminalSteps, route.Target) {
+	if slices.Contains(definition.StepGraph.TerminalSteps, route.Target) {
 		t.Fatalf("%s v%d route target %q is terminal", definition.Ref, definition.Version, route.Target)
 	}
-	if containsString(target.Actions, "approve_contract") {
+	if slices.Contains(target.Actions, "approve_contract") {
 		t.Fatalf("%s v%d route target %q declares approve_contract", definition.Ref, definition.Version, route.Target)
 	}
 	if !workflowStepReachesByForwardEdges(definition.StepGraph, route.Target, route.Step) {
@@ -268,7 +269,7 @@ func TestCompleteStepCorrectionRoutesCoverOnlyTheSupportedFamilies(t *testing.T)
 			t.Errorf("%s v%d complete-step route targets %q, want %q", definition.Ref, definition.Version, route.Target, wantTarget)
 		}
 		step, ok := steps[route.Step]
-		if !ok || !containsString(step.Actions, "complete") {
+		if !ok || !slices.Contains(step.Actions, "complete") {
 			t.Errorf("%s v%d complete-step route sits on %q, which is not a complete action step of that version", definition.Ref, definition.Version, route.Step)
 		}
 	}

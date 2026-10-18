@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,12 +58,12 @@ func TestSyntheticDefinitionEvidenceGapIsDetected(t *testing.T) {
 	definition := workflowEvidenceGapDefinition()
 	producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
 	for _, kind := range []string{"verification", "review", "artifact"} {
-		if !containsString(producible, kind) {
+		if !slices.Contains(producible, kind) {
 			t.Fatalf("accept_worker_result makes %q producible; producible=%v", kind, producible)
 		}
 	}
 	for _, kind := range []string{"commit", "approval", "durable_note", "native_run"} {
-		if containsString(producible, kind) {
+		if slices.Contains(producible, kind) {
 			t.Fatalf("no reachable action of the synthetic definition produces %q; producible=%v", kind, producible)
 		}
 	}

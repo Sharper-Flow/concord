@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -611,7 +612,7 @@ func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string
 	if err != nil {
 		return workflowProjectionError(err, "cannot read workflow decision record")
 	}
-	if !containsString(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
+	if !slices.Contains(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
 		return newFailure(KindDecisionRecordRequired, "fold_event", "decision record token "+decision+" is outside the approved outcome set", false, "record a decision the pinned definition allows")
 	}
 	return nil

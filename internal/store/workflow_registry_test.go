@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -176,7 +177,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 		}
 		found := false
 		for _, step := range registered.Definition.StepGraph.Steps {
-			if step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "approve_contract") {
+			if step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "approve_contract") {
 				found = true
 			}
 		}

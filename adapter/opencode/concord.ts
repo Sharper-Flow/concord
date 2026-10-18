@@ -59,7 +59,6 @@ const MAX_STDERR = 8192
 // cmd/concord's inputRefusalExit names a refusal before dispatch, not a
 // generic process failure. A previous mutation call can still have an effect.
 const CLI_INPUT_REFUSAL_EXIT = 64
-const MAX_WORK_START_OUTPUT_BYTES = 16_384
 const MAX_SALVAGE_BYTES = 16_384
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }

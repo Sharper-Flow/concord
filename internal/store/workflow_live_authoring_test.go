@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -285,11 +286,11 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		if candidate.ID == "discovery" {
 			t.Fatal("the discovery marker step is still on the canonical implementation head")
 		}
-		if containsString(candidate.Actions, "record_discovery") {
+		if slices.Contains(candidate.Actions, "record_discovery") {
 			t.Fatalf("step %s still carries the record_discovery marker", candidate.ID)
 		}
 	}
-	if containsString(definition.AvailableActions, "record_discovery") {
+	if slices.Contains(definition.AvailableActions, "record_discovery") {
 		t.Fatal("record_discovery is still advertised on the canonical head")
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -540,7 +541,7 @@ func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 	if want := builtinWorkflowCurrentVersions["workflow.research"]; definition.Version != want {
 		t.Fatalf("canonical research head = v%d, want v%d", definition.Version, want)
 	}
-	if containsString(definition.AvailableActions, "record_worker_failure") {
+	if slices.Contains(definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("record_worker_failure is still advertised on the canonical research head")
 	}
 	for _, action := range definition.ActionDefinitions {

@@ -141,9 +141,8 @@ the old catalog only so evidence remains traceable.
 - Repair/maintenance: `adv_doctor`, `adv_change_workflow_terminate`,
   `adv_snapshot_health`, `adv_store_cleanup`, `adv_store_consolidate`,
   `adv_launcher_projection_rebuild`.
-- **Why transfer:** unchanged. (Note: standalone *ops runbooks* are a separate
-  Refactor item in §2 — the *repair* tools stay; the *operational runbook
-  hosting* extends.)
+- **Why transfer:** unchanged. The *repair* outcomes stay; standalone *ops
+  runbook* hosting does not (§2.4).
 
 ### 1.10 Session, project, introspection
 - `adv_session_list`, `adv_session_show`.
@@ -201,23 +200,20 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 - **Today:** `adv_ops_run_upsert`, `adv_ops_run_evidence_add`,
   `adv_ops_evidence_add`, `adv_ops_followup_resolution_upsert`,
   `adv_followup_promote` — all scoped to a *change's* ops_followup profile.
-- **Concord:** host standalone runbooks ("switch off azure job for DB edit")
-  without inventing a fake change. Reuse the runbook *shape* (steps:
-  plan/approval/execute/health_check/rollback/cleanup; evidence; approval
-  gates) on a new host.
-- **Bucket call:** Refactor — the runbook primitives are reused; the host
-  binding is reworked. Smallest, highest-value structural gap.
+- **Concord:** operational work selects a retained execution family;
+  `ops_runbook` is retired for new execution, with no compatibility alias.
+  [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+  adds no provider executor, health observer, rollback claim, or timer service.
+- **Bucket call:** predecessor operational evidence, not a standalone runbook
+  host or a transfer plan for its choreography.
 
 ### 2.5 Backlog → research trackable
 - **Today:** `adv_backlog_add`, `adv_backlog_list`, `adv_backlog_show`,
   `adv_backlog_archive`, `adv_backlog_promote` — promotable future-work items
   with `context_packet`.
-- **Concord (Option A, preferred):** reframe as "investigations" that may
-  resolve to "no change" — small change to framing/typing.
-- **Concord (Option B, fallback):** a new research trackable peer to
-  "implementation change" — considered and rejected by CD-0215.
-- **Accepted by CD-0215:** Option A. Independent research uses ordinary work items;
-  embedded research stays with its owner; neither creates a new trackable.
+- **Concord:** [CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work)
+  keeps independent research in ordinary work items and embedded research with
+  its owner. Research packs are owned context, not another trackable.
 - **Bucket call:** Refactor.
 
 ### 2.6 Predecessor read surface
@@ -271,16 +267,16 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.2 | Fast read-path / portfolio dashboard | Sub-100ms cross-Product read layer (Go) over the materialised state + external signals. | [`core-architecture.md`](./core-architecture.md) §1 |
 | 3.3 | External-signal ingestion | Pull azure/cron/health/MCP outputs into Product view as **opaque read-only signals** (not ADV-authored state). | [`product-data-model.md`](./product-data-model.md) §3.3 |
 | 3.4 | Cross-Product scoped read | Reads one global local authority through explicit Product/Project scope; no per-repo fan-out or identity reconciliation. | [`product-memory-authority-scope.md`](./product-memory-authority-scope.md), [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) |
-| 3.5 | Standalone ops runbook host | Container for ops runs not tied to a change. (Runbook *shape* is Refactor; the *host* is New.) | [`workflows.md`](./workflows.md) §4 |
-| 3.6 | Research trackable (Option B only) | **Rejected by CD-0215:** active packs are outputs/context owned by ordinary work, not a peer entity. | [`workflows.md`](./workflows.md) §4 |
+| 3.5 | Operational work | `ops_runbook` is retired for new execution; retained families add no provider executor or runbook host. | [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution) |
+| 3.6 | Research context owned by ordinary work | Independent research uses ordinary work; embedded research stays with its owner. Packs are context, not a peer entity. | [CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work) |
 | 3.7 | Portfolio-review tooling + cadence | "What should I work on across everything" with a periodic portfolio-review cadence, Product-scoped (per-repo `/adv-triage` and `/adv-cleanup` Transfer). | — |
 | 3.8 | Product wishlist | Planning backlog lives in Linear through the Linear MCP server, not in a repository or a Concord planning projection. | [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) |
 | 3.9 | Infra status tracking | Tracked surface over §3.3 signal ingestion; presents azure/cron/health/ops status within a Product. | [`product-data-model.md`](./product-data-model.md) |
 | 3.10 | Admin panel (lightweight grid/table projection) | Optional human-facing projection over the fast read-path; **not** the primary operator surface (the session entry is). The CD-0108 replacement owns the session bootstrap role through the entry route. | [`design-constraints.md`](./design-constraints.md) §5 |
-| 3.11 | Work-type taxonomy / phase-spanning work | First-class handling of idea/bug/optimization/research/ops work spanning phases; each may mature into the 7-gate lifecycle when ready. | [`workflows.md`](./workflows.md) |
+| 3.11 | Work-type taxonomy / phase-spanning work | Business work categories and operator kinds stay separate from execution families; the size decision model selects the shared-part composition. | [`workflows.md`](./workflows.md) §3, §7 |
 | 3.12 | Spec & document browse surface (self-documentation) | Navigable Product → Domain browse surface over current Product law, evidence, and durable workflow docs. | [`self-documentation.md`](./self-documentation.md) |
-| 3.13 | Workflow-type system (plurality of workflows) | Registry of purpose-built workflow types — implementation change, research/investigation, static-analysis variants, ops runbooks, break-fix, db/config/infra. | [`workflows.md`](./workflows.md) |
-| 3.13a | Architecture spike workflow type | Decide-rather-than-ship managed work unit that **binds downstream until superseded** via a typed decision record and `supersedes`/`superseded_by` chain. | [`architecture-spike.md`](./architecture-spike.md) |
+| 3.13 | Workflow-family system | Three retained execution families composed from shared parts, with size set by the decision model. | [`workflows.md`](./workflows.md) §4, §7 |
+| 3.13a | Architecture decision obligation | `architecture_spike` is retired for new execution; the separate reviewed and accepted decision obligation remains with the cutover owner's approved successor set. | [`workflows.md`](./workflows.md) §4; [CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work) |
 | 3.14 | Capability-placement rubric (optimal shape) | Rubric for placing each capability by shape; **kept dynamic** as tooling evolves. | [`capability-placement.md`](./capability-placement.md) |
 | 3.15 | Cross-project GitHub-issue integration | Native cross-project GH-issue create/update — bugs canonical in GH, not in `target_path` ADV backlog. | [`design-constraints.md`](./design-constraints.md) §13 |
 | 3.16 | One-sentence value statement invariant | Every managed work item carries `If this succeeds, what concrete product capability or risk is changed?` | [`workflows.md`](./workflows.md) §2.1 |
@@ -304,20 +300,16 @@ descriptions because they are referenced from elsewhere in the docset.
 - **Builds on:** Product/Project scope evidence, not predecessor hierarchy or
   cross-project ambient-path mutation.
 
-### 3.13a Architecture spike workflow type
-- A registered workflow type, peer to the implementation change, for managed work units
-  that **decide rather than ship**: frame question → research → options with
-  evidence → optional throwaway proof of concept (PoC) → decision record → reviewer → user
-  acceptance. Flat (has tasks, no sub-spikes), no timebox, and its proof-of-concept (PoC) code never
-  merges to a product repo.
-- The output is a **binding decision record** that constrains downstream work
-  **until superseded** — contradiction surfaces as a conflict (reusing the
-  §2.8 spec-conflict flow), not as silent divergence. Decisions form a
-  `supersedes`/`superseded_by` chain that is the Product's architectural history.
-- **Distinct from research/investigation (§2.5/§3.6):** research *may* resolve to
-  "no change"; a spike *must* resolve to a decision, and that decision gates
-  dependent work.
-- Full model in [`architecture-spike.md`](./architecture-spike.md).
+### 3.13a Architecture decision obligation
+- [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+  retires `architecture_spike` for new execution, without an alias to research
+  or another retained family. Released pins remain exact frozen history (D4).
+- [CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work)
+  still requires a separate reviewed and accepted decision. CD-0218 leaves
+  resolution to the cutover owner through an approved successor set; this
+  inventory chooses no successor route. Research reports do not enact legislation.
+- [`architecture-spike.md`](./architecture-spike.md) describes the historical
+  shaped model, not an eligible new-execution family.
 
 ### 3.18 Managed-resource inventory with cross-Product linking
 - An inventory of **managed infrastructure and SaaS solutions** that Products
@@ -349,7 +341,7 @@ descriptions because they are referenced from elsewhere in the docset.
 | Bucket | What this inventory establishes | Agent-tool implication |
 |---|---|---|
 | **Retained predecessor outcomes** | Quality, safety, worktree, contract, spec, lifecycle, and knowledge needs remain evidence-backed. | **None by identity.** TS1/TS2 may satisfy many outcomes with a much smaller surface. |
-| **Refactor/Extend** | Status, Product scope, cross-repo reads, runbooks, and conflict handling need a different domain shape. | Derived from accepted jobs, never from old tool names. |
+| **Refactor/Extend** | Status, Product scope, cross-repo reads, research context, and conflict handling need a different domain shape. | Derived from accepted jobs, never from old tool names. |
 | **New** | Product memory, lifecycle/ownership semantics, workflow plurality, and self-documentation have no complete Advance precedent. | New outcomes still do not automatically earn tools. |
 
 **Headline:** this is a **capability-evidence map, not a port or tool plan**. The
@@ -359,7 +351,7 @@ themes: (a) the Product concept + fast read-path (§3.1–§3.4, §3.7); (b) the
 (§3.8–§3.10); (c) the **all-phase work model** — a work-type taxonomy for
 sprawling idea/bug/optimization work (§3.11); (d) **self-documentation** —
 browsable specs + durable workflow docs (§3.12); (e) **workflow plurality +
-shape discipline** — purpose-built workflow types (§3.13), the
+shape discipline** — shared-part workflow compositions (§3.13), the
 capability-placement rubric (§3.14), and the value-statement invariant (§3.16);
 (f) **ownership semantics** — lifecycle stage governing proportional rigor
 (§3.17), and a shareable managed-resource inventory (§3.18); and (g)
@@ -377,9 +369,9 @@ workflow-evolution, agent-buildable UI) live in
 |---|---|---|
 | Business grouping in Linear (§2.3) | External planning | CD-0213 leaves grouping to Linear MCP; Concord retains managed execution, not a planning mirror. |
 | Product aggregation extension in §2.1 | Refactor (shades New) | Reuses the aggregator; the Product pivot is the New-flavored part. Kept in Refactor to avoid double-counting with §3.1. |
-| Ops runbook shape vs host (§2.4 / §3.5) | Split | Shape = Refactor (reuse primitives); host = New (no precedent). Deliberate split. |
-| Research trackable (§2.5 / §3.6) | Refactor | CD-0215 keeps Option A: ordinary work item plus active pack output; no peer entity. |
-| Architecture spike (§3.13a) | New | Adjacent to research trackable but not the same call: research is advisory and may end in "no change"; a spike must decide, is accepted by the user, and binds downstream until superseded. Kept separate deliberately so the §2.5 Option A/B decision does not absorb it. |
+| Operational work (§2.4 / §3.5) | Predecessor evidence | CD-0218 retires the ops-runbook family; external effects keep their native owners. No standalone host transfers. |
+| Research context (§2.5 / §3.6) | Refactor | CD-0215 keeps ordinary work plus owned pack context, not a peer entity. |
+| Architecture decision (§3.13a) | Retained obligation | Retirement of the spike family does not discharge CD-0215 D2's separate reviewed and accepted decision requirement or turn research into legislation. |
 | Portfolio-review tooling (§3.7) | New | The per-repo `/adv-triage`/`adv-cleanup` skills Transfer; the Product-scoped, cadence-aware layer does not exist. |
 
 ---
@@ -390,7 +382,7 @@ workflow-evolution, agent-buildable UI) live in
    Concord offers no grouping authoring or membership surface.
 2. **Is the fast read-path inside ADV or a separate tool?** (§3.2, [`clarifications.md`](./clarifications.md) C1 and [`rollout-plan.md`](./rollout-plan.md)) Inside-ADV keeps one source of truth + agent-native mutations;
    separate keeps the orchestrator untouched. Phase 2 design.
-3. **Research trackable — resolved by CD-0215:** Option A.
+3. **Research context — resolved by CD-0215 D2:** ordinary work owns research packs; no peer trackable.
 4. **Does signal ingestion (§3.3) need a durable signal cache, or is live-fetch
    at read time enough?** Depends on read-latency targets (§3.2 measurement).
 

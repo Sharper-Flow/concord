@@ -280,7 +280,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, fieldsErr
 		}
 		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
-		declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+		declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
 		if declaresRoute && !atCompleteStep {
 			return RegisteredDefinition{}, newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 		}
@@ -902,10 +902,10 @@ func validateWorkflowPayloadValueWithReference(document map[string]any, field Wo
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
 			return false
 		}
-		if field.NonBlank && strings.TrimSpace(text) == "" || containsString(field.Forbidden, text) {
+		if field.NonBlank && strings.TrimSpace(text) == "" || slices.Contains(field.Forbidden, text) {
 			return false
 		}
-		if len(field.Enum) != 0 && !containsString(field.Enum, text) {
+		if len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
 			return false
 		}
 		// String bounds count UTF-8 bytes, not runes: every enforcing
@@ -930,7 +930,7 @@ func validateWorkflowPayloadValueWithReference(document map[string]any, field Wo
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !validWorkflowPayloadListItemWithReference(document, field.ItemRef, text, validReference) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
+			if !ok || !validWorkflowPayloadListItemWithReference(document, field.ItemRef, text, validReference) || len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {
@@ -1006,7 +1006,7 @@ func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string
 	}
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
-			return containsString(step.Actions, actionID)
+			return slices.Contains(step.Actions, actionID)
 		}
 	}
 	return false

@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // CD-0229 D4: a versioned decision model sets each work item's size from
 // recorded inputs. The same inputs and version always give the same size, an
@@ -108,9 +111,9 @@ func validateWorkSizeInputs(in WorkSizeInputs) error {
 	switch {
 	case !WorkKindStored(in.Kind):
 		return invalid("size inputs name an unstored work kind")
-	case !contains([]string{"prototype", "alpha", "beta", "production", "deprecated"}, in.Maturity):
+	case !slices.Contains([]string{"prototype", "alpha", "beta", "production", "deprecated"}, in.Maturity):
 		return invalid("size inputs name an unknown maturity")
-	case !contains([]string{"operator_only", "limited", "public"}, in.Audience):
+	case !slices.Contains([]string{"operator_only", "limited", "public"}, in.Audience):
 		return invalid("size inputs name an unknown audience")
 	case in.PathCount < 0 || in.DomainCount < 0 || in.PackageCount < 0 || in.UnmappedPathCount < 0:
 		return invalid("size input counts must not be negative")
@@ -127,7 +130,7 @@ func validateWorkSizeDeclared(d WorkSizeDeclared) error {
 		return newFailure(KindInvalidInput, "work_size", message, false, "supply size inputs inside the model's bounds")
 	}
 	switch {
-	case !contains([]string{BlastRadiusContained, BlastRadiusPackage, BlastRadiusCrossPackage, BlastRadiusExternal}, d.BlastRadius):
+	case !slices.Contains([]string{BlastRadiusContained, BlastRadiusPackage, BlastRadiusCrossPackage, BlastRadiusExternal}, d.BlastRadius):
 		return invalid("size inputs name an unknown blast radius")
 	case d.EstimatedProductionLines < 1 || d.EstimatedProductionLines > workSizeMaxProductionLines:
 		return invalid("estimated production lines must be between 1 and 100000")

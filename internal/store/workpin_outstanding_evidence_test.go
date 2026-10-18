@@ -257,7 +257,7 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testi
 				workID := "workpin-debt-" + ref + "-" + strconv.FormatInt(version, 10)
 				var completionStep string
 				for _, step := range registered.Definition.StepGraph.Steps {
-					if containsString(step.Actions, "complete") {
+					if slices.Contains(step.Actions, "complete") {
 						completionStep = step.ID
 					}
 				}

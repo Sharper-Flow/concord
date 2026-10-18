@@ -53,7 +53,6 @@ CI_WORKFLOW_RELPATH = ".github/workflows/ci.yml"
 FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 JOB_RESULTS = frozenset({"success", "failure", "cancelled", "skipped"})
-MODES = frozenset({"reuse", "full"})
 MERGE_GROUP = "merge_group"
 
 

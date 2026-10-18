@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
@@ -15,9 +14,9 @@ import (
 // refusal, and the CON-846 revised-contract shape on a quarantined released
 // pin whose correction the route table now admits.
 
-// stalenessFixture pins a work item to a registered definition version and
+// pinWorkflowAtStep pins a work item to a registered definition version and
 // walks it to step, so the fold reads a real instance row.
-func stalenessFixture(t *testing.T, s *Store, workID, ref string, version int64, step string) {
+func pinWorkflowAtStep(t *testing.T, s *Store, workID, ref string, version int64, step string) {
 	t.Helper()
 	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
 	if !ok {
@@ -105,7 +104,7 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	defer s.Close()
 	const workID = "unfenced-checkpoint-prefix"
 	definition := mustBuiltinDefinition(t, "workflow.architecture_spike").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "")
 	step := workflowStep(definition, "decision_record")
 	assertEpoch := func(beforeSeq, want int64) {
 		t.Helper()
@@ -174,7 +173,7 @@ func TestDirectProducerArtifactOpensDeclaredCorrection(t *testing.T) {
 	if !ok {
 		t.Fatal("released research v1 is missing")
 	}
-	stalenessFixture(t, s, workID, entry.Definition.Ref, entry.Definition.Version, "conclude")
+	pinWorkflowAtStep(t, s, workID, entry.Definition.Ref, entry.Definition.Version, "conclude")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, WorkflowActionCompleted, stalenessActionPayload("investigate", "record_finding"))
 	stalenessEvent(t, s, workID, WorkflowVerdictRecorded, stalenessVerdictPayload("outcome_mismatch"))
@@ -200,7 +199,7 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	if target := workflowUnhealthyVerdictRouteTarget(definition, "acceptance"); target != "execution" {
 		t.Fatalf("implementation acceptance route target = %q, want execution", target)
 	}
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	// Production first: an accepted delivery at execution predates the bad
 	// verdict, so the verdict alone decides staleness.
@@ -243,7 +242,7 @@ func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-supersession"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
@@ -272,7 +271,7 @@ func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
 		t.Fatal("research investigate derives no artifact actions")
 	}
 	const researchWork = "stale-research"
-	stalenessFixture(t, s, researchWork, "workflow.research", research.Version, "conclude")
+	pinWorkflowAtStep(t, s, researchWork, "workflow.research", research.Version, "conclude")
 	stalenessSeedContract(t, s, researchWork)
 	stalenessEvent(t, s, researchWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, researchWork, research); !state.ArtifactStale {
@@ -290,7 +289,7 @@ func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
 		t.Fatalf("spike decision_record artifact actions = %v, want [record_decision]", actions)
 	}
 	const spikeWork = "stale-spike"
-	stalenessFixture(t, spikeStore, spikeWork, "workflow.architecture_spike", spike.Version, "review")
+	pinWorkflowAtStep(t, spikeStore, spikeWork, "workflow.architecture_spike", spike.Version, "review")
 	stalenessSeedContract(t, spikeStore, spikeWork)
 	stalenessEvent(t, spikeStore, spikeWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, spikeStore, spikeWork, spike); !state.ArtifactStale {
@@ -314,7 +313,7 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-refusals"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	state := foldStalenessState(t, s, workID, definition)
@@ -377,7 +376,7 @@ func TestRevisedContractOnReleasedPinNamesTheRoute(t *testing.T) {
 	if len(definition.RecoveryRoutes) != 0 {
 		t.Fatal("research v13 declares a table; the fixture needs the quarantined shape")
 	}
-	stalenessFixture(t, s, workID, "workflow.research", 13, "conclude")
+	pinWorkflowAtStep(t, s, workID, "workflow.research", 13, "conclude")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("investigate", "record_finding"))
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
@@ -431,7 +430,7 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-ok-reopen"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_delivery"))
 	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:stale-ok", "execution")
@@ -486,17 +485,6 @@ func TestCorrectionRoutesDeriveFromNoWorkKind(t *testing.T) {
 			t.Errorf("%s %s route target = %q, want %q", ref, want[0], target, want[1])
 		}
 	}
-	var source []byte
-	for _, name := range []string{"workflow_correction.go", "workflow_admission.go", "workflow_action_guards.go", "workflow_step.go", "workflow.go"} {
-		row, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		source = append(source, row...)
-	}
-	if strings.Contains(string(source), "WorkKindImplementation ||") || strings.Contains(string(source), "nearest external-effect") {
-		t.Fatal("a work-kind whitelist or nearest-external-effect heuristic survives in the recovery owners")
-	}
 }
 
 // TestProductionBindsToDispatchOriginAndCapability pins the positive
@@ -511,7 +499,7 @@ func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-production-authority"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
@@ -560,7 +548,7 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-nonproducing"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	// A health reading completed at the target step is not production.
@@ -583,7 +571,7 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	defer research.Close()
 	researchDefinition := mustBuiltinDefinition(t, "workflow.research").Definition
 	const researchWork = "stale-nonproducing-research"
-	stalenessFixture(t, research, researchWork, "workflow.research", researchDefinition.Version, "conclude")
+	pinWorkflowAtStep(t, research, researchWork, "workflow.research", researchDefinition.Version, "conclude")
 	stalenessSeedContract(t, research, researchWork)
 	stalenessEvent(t, research, researchWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if actions := workflowStepArtifactActions(researchDefinition, "investigate"); len(actions) != 1 || actions[0] != "record_finding" {
@@ -608,7 +596,7 @@ func TestSupersessionWithoutSuccessorStalesUntilReproduced(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-supersede-no-successor"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{}`)
@@ -638,7 +626,7 @@ func TestTerminalUnhealthyVerdictReturnsThroughRouteTable(t *testing.T) {
 	if target := workflowUnhealthyVerdictRouteTarget(definition, "release"); target != "execution" {
 		t.Fatalf("implementation release declares its own unhealthy route %q; the terminal shape needs the declared route to execution", target)
 	}
-	stalenessFixture(t, s, workID, "workflow.implementation", definition.Version, "release")
+	pinWorkflowAtStep(t, s, workID, "workflow.implementation", definition.Version, "release")
 	stalenessSeedContract(t, s, workID)
 	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:terminal", "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))

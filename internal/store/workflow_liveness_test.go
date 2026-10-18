@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1104,7 +1105,7 @@ func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []str
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
 			for _, action := range step.Actions {
-				if !containsString(actions, action) {
+				if !slices.Contains(actions, action) {
 					actions = append(actions, action)
 				}
 			}

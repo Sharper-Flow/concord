@@ -205,15 +205,6 @@ def go_slice(values: list[str]) -> str:
     return "[]string{" + ", ".join(go_string(value) for value in values) + "}"
 
 
-def current_schema_version(schema: dict) -> str:
-    """The current identity of a versioned packet/report schema: the last
-    entry of schema_version's enum. Earlier entries are released historical
-    identities a stored payload may still carry; new packets and reports
-    record the current one."""
-    versions = schema["properties"]["schema_version"]["enum"]
-    return versions[-1]
-
-
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]

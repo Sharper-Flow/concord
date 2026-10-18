@@ -13,7 +13,9 @@ import (
 // verified the status. CD-0040 D11 adds the shared capture component, pinned
 // here to the operator-approved native-run report policy until a reviewed
 // policy registry exists.
-const WorkflowNativeRunRecorded = "workflow.native_run_recorded"
+const (
+	WorkflowNativeRunRecorded = "workflow.native_run_recorded"
+)
 
 // nativeRunPolicyRefs returns the derived freshness/divergence references for
 // the native-run kind. CD-0040 D7: a same-ID policy edit changes the hash and

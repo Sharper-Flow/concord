@@ -13,6 +13,35 @@ import (
 	"testing"
 )
 
+// This file uses only production code. A native control pins it as its
+// sole test file, and the producer compiles exactly the pinned files.
+
+// openTemp opens a store backed by a throwaway database file.
+func openTemp(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(context.Background(), copyTestDatabase(t))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+	return s
+}
+
+func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
+	var version sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
+		return 0, err
+	}
+	if !version.Valid {
+		return 0, nil
+	}
+	return int(version.Int64), nil
+}
+
 // testDatabaseTemplate owns one migrated, empty database image for the package
 // run. openTemp copies the closed image before Open performs its normal startup
 // validation, avoiding a repeated replay of every migration in the hot path.

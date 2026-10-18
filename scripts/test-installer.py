@@ -61,9 +61,9 @@ for _name, _directory in (
     _path.mkdir()
     os.environ[_name] = str(_path)
 
-# A ResourceWarning raised by a finalizer is unraisable: Python prints it and
-# the run still passes. The test runner resets the warning filters when it
-# starts, so the guard is armed in setUpModule, which runs after that reset.
+# Under an "error" filter, a ResourceWarning raised in a finalizer is
+# unraisable: Python prints it and the run still passes. unittest's runner
+# installs its own "default" filter, so setUpModule arms the guard after it.
 _LEAKS: list[str] = []
 _DEFAULT_UNRAISABLEHOOK = sys.unraisablehook
 

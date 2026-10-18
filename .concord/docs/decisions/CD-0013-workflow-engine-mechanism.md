@@ -11,6 +11,9 @@ workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
 CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
 CD-0009 D1/D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
+**Amended:** 2026-10-18. [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
+amends D4's strength comparison paragraph: the independent verdict is the outcome
+strength evaluation.
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.

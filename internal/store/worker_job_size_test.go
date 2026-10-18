@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -159,11 +160,9 @@ func TestWorkerJobSizeAuthoringAdmitsEditingAndReadOnlyJobs(t *testing.T) {
 	}
 }
 
-// A pin without the declared members refuses every size member. The refusal
-// is the pinned-definition preflight refusal, the observed style of the
-// oracle member on a legacy pin: an undeclared member is not one the pinned
-// definition admits, and the authoring guard beneath it carries the same
-// rule for every route that reaches it.
+// A pin without the declared members refuses every size member through the
+// pinned-definition preflight: an undeclared member is not one the pinned
+// definition admits.
 func TestWorkerJobSizeGateInactivePinRefusesMembers(t *testing.T) {
 	const workID = "worker-job-size-inactive-pin"
 	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 30, "repair")
@@ -220,6 +219,23 @@ func TestWorkerJobSizeUncontainedInventoryPathRefuses(t *testing.T) {
 	err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
 	if err == nil || !strings.Contains(err.Error(), "outside the job's declared path_scope") {
 		t.Fatalf("uncontained inventory path error = %v, want the containment refusal", err)
+	}
+}
+
+// An inventory path that is not a normalized relative path refuses on the
+// author route with an author recovery, not a worker-event repair.
+func TestWorkerJobSizeUnnormalizedInventoryPathRefusesAtAuthor(t *testing.T) {
+	const workID = "worker-job-size-unnormalized"
+	fixture := workerJobSizeFixture(t, workID)
+	fields := workerJobSizeEditingFields(t, workID, fixture)
+	fields["job_id"] = "job:unnormalized"
+	fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+		{"path": "internal/store/../store/worker_jobs.go", "class": "production"},
+	}
+	err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "must be normalized relative paths") || failure.RecoveryAction != "supply a normalized relative repository path" {
+		t.Fatalf("unnormalized inventory path error = %v, want the author-route normalization refusal", err)
 	}
 }
 
@@ -287,9 +303,12 @@ func TestWorkerJobSizeAllowanceJoins(t *testing.T) {
 		{"project mismatch", func(fields map[string]any) {
 			fields["direct_caller_allowance"].(map[string]any)["project_id"] = "project-other"
 		}, "does not equal the recorded project_scope"},
+		{"mechanism in another Project", func(fields map[string]any) {
+			fields["direct_caller_allowance"].(map[string]any)["mechanisms"].([]map[string]any)[0]["project_id"] = "project-other"
+		}, "is not the allowance's permitted Project"},
 		{"domain outside the contract", func(fields map[string]any) {
 			fields["direct_caller_allowance"].(map[string]any)["domain_ids"] = []string{"edge"}
-		}, "outside the approved affected Domain scope"},
+		}, "direct-caller allowance Domain edge is outside the approved affected Domain scope"},
 		{"unpinned law", func(fields map[string]any) {
 			fields["direct_caller_allowance"].(map[string]any)["law_bindings"].([]map[string]any)[0]["source"].(map[string]any)["law_id"] = "spec:never-pinned"
 		}, "did not pin"},
@@ -333,7 +352,7 @@ func TestWorkerJobSizeCapInheritance(t *testing.T) {
 		}
 		return recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
 	}
-	if err := next(500, nil); err == nil || !strings.Contains(err.Error(), "raises the job's earliest recorded cap 400") {
+	if err := next(500, nil); err == nil || !strings.Contains(err.Error(), "raises the job's lowest recorded cap 400") {
 		t.Fatalf("cap raise error = %v, want the raise refusal", err)
 	}
 	if err := next(400, func(fields map[string]any) {
@@ -352,7 +371,10 @@ func TestWorkerJobSizeCapInheritance(t *testing.T) {
 	if err := next(300, nil); err != nil {
 		t.Fatalf("lower cap refused: %v", err)
 	}
-	if err := next(400, nil); err != nil {
+	if err := next(400, nil); err == nil || !strings.Contains(err.Error(), "raises the job's lowest recorded cap 300") {
+		t.Fatalf("raise back above the lowest cap error = %v, want the raise refusal", err)
+	}
+	if err := next(300, nil); err != nil {
 		t.Fatalf("equal cap refused: %v", err)
 	}
 }

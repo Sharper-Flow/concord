@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -56,7 +57,7 @@ type WorkerJobCallerAllowance struct {
 	ProjectID   string             `json:"project_id"`
 	Mechanisms  []OracleMechanism  `json:"mechanisms"`
 	DomainIDs   []string           `json:"domain_ids"`
-	LawBindings []OracleLawBinding `json:"law_bindings"`
+	LawBindings []OracleLawBinding `json:"law_bindings,omitempty"`
 }
 
 // workflowJobSizeActive reports whether a pinned definition carries the
@@ -119,13 +120,16 @@ func decodeClosedWorkerJobObject[T any](raw json.RawMessage, refusal string) (*T
 }
 
 // authorWorkerJobSizeTx authors the size members of one record_worker_job
-// call. On a pin without the declared members every member refuses, exactly
-// like the oracle member refusal. On a size-capable pin the members are
+// call. A pin without the declared members never reaches here with one: the
+// action preflight refuses an undeclared payload member. On a size-capable
+// pin the members are
 // present together or absent together; a full trio is parsed, shape-checked,
 // joined against the active contract's Domain and law boundaries, and held
 // to the job's earlier recorded caps, all before the digest is derived.
 func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, definition WorkflowDefinition, fields map[string]json.RawMessage, payload *WorkerJobRecordedPayload) error {
-	sizeCapable := workflowJobSizeActive(definition)
+	if !workflowJobSizeActive(definition) {
+		return nil
+	}
 	members := []struct {
 		name    string
 		present bool
@@ -133,16 +137,6 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 		{"production_size_max", workerJobSizeFieldPresent(fields, "production_size_max")},
 		{"measurement_basis", workerJobSizeFieldPresent(fields, "measurement_basis")},
 		{"direct_caller_allowance", workerJobSizeFieldPresent(fields, "direct_caller_allowance")},
-	}
-	if !sizeCapable {
-		for _, member := range members {
-			if member.present {
-				return newFailure(KindInvalidPayload, "workflow_action",
-					"record_worker_job "+member.name+" is not admitted by the pinned workflow definition version "+fmt.Sprint(definition.Version),
-					false, "record the job under a size-capable definition version or drop the member")
-			}
-		}
-		return nil
 	}
 	present := 0
 	for _, member := range members {
@@ -175,16 +169,14 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 	if err := validateWorkerJobSizeShape(payload.ProjectScope, &sizeCap, basis, allowance, workerJobSizeAuthorFailure); err != nil {
 		return err
 	}
-	if err := validateWorkerJobSizeInventoryContainmentTx(payload.PathScope, basis, workerJobSizeAuthorFailure); err != nil {
-		return err
-	}
-	for _, domainID := range allowance.DomainIDs {
-		if err := validateOracleDomainTx(ctx, tx, workID, contractVersion, domainID); err != nil {
-			return err
+	for _, measured := range basis.Paths {
+		if !slices.ContainsFunc(payload.PathScope, func(scope string) bool { return measured.Path == scope || strings.HasPrefix(measured.Path, scope+"/") }) {
+			return workerJobSizeAuthorFailure("record_worker_job measurement_basis path "+measured.Path+" is outside the job's declared path_scope",
+				"inventory only paths path_scope contains: equal to an entry or under an entry with a trailing slash")
 		}
 	}
-	for _, mechanism := range allowance.Mechanisms {
-		if err := validateOracleProjectMemberTx(ctx, tx, workID, "direct-caller allowance", mechanism.ProjectID); err != nil {
+	for _, domainID := range allowance.DomainIDs {
+		if err := validateOracleDomainTx(ctx, tx, workID, contractVersion, "direct-caller allowance", domainID); err != nil {
 			return err
 		}
 	}
@@ -239,8 +231,8 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 	}
 	seen := map[string]bool{}
 	for _, measured := range basis.Paths {
-		if err := validateNormalizedRelativeRepoPath("worker.job_recorded measurement_basis paths", measured.Path); err != nil {
-			return err
+		if problem := normalizedRelativeRepoPathProblem("worker.job_recorded measurement_basis paths", measured.Path); problem != "" {
+			return fail(problem, "supply a normalized relative repository path")
 		}
 		if seen[measured.Path] {
 			return fail("worker.job_recorded measurement_basis carries path "+measured.Path+" twice", "inventory each measured path once")
@@ -257,8 +249,8 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 			return fail("worker.job_recorded measurement_basis path "+measured.Path+" carries generator_ref outside the generated classification", "drop generator_ref or classify the path generated")
 		}
 		if measured.GeneratorRef != "" {
-			if err := validateNormalizedRelativeRepoPath("worker.job_recorded measurement_basis generator_ref", measured.GeneratorRef); err != nil {
-				return err
+			if problem := normalizedRelativeRepoPathProblem("worker.job_recorded measurement_basis generator_ref", measured.GeneratorRef); problem != "" {
+				return fail(problem, "supply a normalized relative repository path")
 			}
 		}
 	}
@@ -273,8 +265,8 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 			"name the changed owner mechanisms, at most "+fmt.Sprint(WorkerJobAllowanceMechanismsMax))
 	}
 	for _, mechanism := range allowance.Mechanisms {
-		if len(mechanism.ProjectID) < 2 || len(mechanism.ProjectID) > oracleProjectIDMaxBytes {
-			return fail("worker.job_recorded direct_caller_allowance mechanism project_id must be between 2 and 128 bytes", "name the Project that owns the mechanism's repository")
+		if mechanism.ProjectID != allowance.ProjectID {
+			return fail("worker.job_recorded direct_caller_allowance mechanism project_id "+mechanism.ProjectID+" is not the allowance's permitted Project", "name only mechanisms of the allowance's one permitted Project")
 		}
 		if err := validateWorkContextRepoPath(mechanism.Path); err != nil {
 			return fail("worker.job_recorded direct_caller_allowance mechanism path must be a contained repository path", "supply a normalized relative source path")
@@ -308,31 +300,6 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 		}
 	}
 	return nil
-}
-
-// validateWorkerJobSizeInventoryContainmentTx proves every measured
-// inventory path is contained by the job's declared path scope: equal to a
-// scope entry or under one with a trailing slash. Author-time only: the
-// scope containment joins live registry-free content, but it runs beside the
-// other author joins inside the caller's transaction.
-func validateWorkerJobSizeInventoryContainmentTx(pathScope []string, basis *WorkerJobMeasurementBasis, fail workerJobSizeFailure) error {
-	for _, measured := range basis.Paths {
-		if workerJobInventoryPathContained(pathScope, measured.Path) {
-			continue
-		}
-		return fail("record_worker_job measurement_basis path "+measured.Path+" is outside the job's declared path_scope",
-			"inventory only paths path_scope contains: equal to an entry or under an entry with a trailing slash")
-	}
-	return nil
-}
-
-func workerJobInventoryPathContained(pathScope []string, path string) bool {
-	for _, scope := range pathScope {
-		if path == scope || strings.HasPrefix(path, scope+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 // workerJobSizeRevision is one earlier recorded revision's size content,
@@ -393,18 +360,19 @@ func validateWorkerJobSizeInheritanceTx(ctx context.Context, tx *sql.Tx, workID,
 	if len(earlier) == 0 {
 		return nil
 	}
-	original := earlier[0].sizeCap
+	lowest := earlier[0].sizeCap
 	production := map[string]bool{}
 	for _, revision := range earlier {
+		lowest = min(lowest, revision.sizeCap)
 		for _, measured := range revision.basis.Paths {
 			if measured.Class == "production" {
 				production[measured.Path] = true
 			}
 		}
 	}
-	if sizeCap > original {
-		return workerJobSizeAuthorFailure(fmt.Sprintf("record_worker_job production_size_max %d raises the job's earliest recorded cap %d", sizeCap, original),
-			"record a cap at or below the earliest capped revision of the job")
+	if sizeCap > lowest {
+		return workerJobSizeAuthorFailure(fmt.Sprintf("record_worker_job production_size_max %d raises the job's lowest recorded cap %d", sizeCap, lowest),
+			"record a cap at or below the lowest capped revision of the job")
 	}
 	classified := map[string]string{}
 	for _, measured := range basis.Paths {

@@ -158,8 +158,8 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 		return invalidWorkerPayload("worker.job_recorded carries too many scope, predicate, check, prerequisite, or unresolved entries")
 	}
 	for i, path := range payload.PathScope {
-		if err := validateNormalizedRelativeRepoPath("worker.job_recorded path_scope", path); err != nil {
-			return err
+		if problem := normalizedRelativeRepoPathProblem("worker.job_recorded path_scope", path); problem != "" {
+			return invalidWorkerPayload(problem)
 		}
 		for j, other := range payload.PathScope {
 			if j < i && other == path {
@@ -200,8 +200,7 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 		}
 	}
 	// The size members re-prove their closed shape from the payload's own
-	// retained content, like the oracle graph: presence, bounds, and the
-	// containment rules decide, never a registry read.
+	// retained content, like the oracle graph: presence and bounds decide, never a registry read.
 	if err := validateWorkerJobSizeShape(payload.ProjectScope, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance, workerJobSizeFoldFailure); err != nil {
 		return err
 	}
@@ -214,27 +213,27 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	return nil
 }
 
-// validateNormalizedRelativeRepoPath enforces one normalized relative
-// repository path: bounded, control-character free, and free of absolute,
-// traversal, and relative self segments. Path scope entries, measured
-// inventory paths, and generator references share the rule; the caller owns
-// entry uniqueness.
-func validateNormalizedRelativeRepoPath(label, path string) error {
+// normalizedRelativeRepoPathProblem states why a path is not one normalized
+// relative repository path (bounded, control-character free, no absolute,
+// traversal, or self segment), or returns "" when it is. Path scope entries,
+// measured inventory paths, and generator references share the rule; each
+// caller owns its failure route and entry uniqueness.
+func normalizedRelativeRepoPathProblem(label, path string) string {
 	if len(path) < 1 || len(path) > 512 {
-		return invalidWorkerPayload(label + " entries must be between 1 and 512 bytes")
+		return label + " entries must be between 1 and 512 bytes"
 	}
 	if strings.ContainsFunc(path, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-		return invalidWorkerPayload(label + " entries must not contain control characters")
+		return label + " entries must not contain control characters"
 	}
 	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./") || strings.HasSuffix(path, "/") {
-		return invalidWorkerPayload(label + " entries must be normalized relative paths")
+		return label + " entries must be normalized relative paths"
 	}
 	for _, segment := range strings.Split(path, "/") {
 		if segment == "" || segment == "." || segment == ".." {
-			return invalidWorkerPayload(label + " entries must be normalized relative paths")
+			return label + " entries must be normalized relative paths"
 		}
 	}
-	return nil
+	return ""
 }
 
 // foldWorkerJobRecorded projects one immutable worker-job revision under the

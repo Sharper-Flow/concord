@@ -183,8 +183,6 @@ func workerJobSizeActionFields() []WorkflowPayloadField {
 	}
 }
 
-var workerJobSizeMembersRevision = withAppendedPayloadFields(workerJobSizeActionFields)
-
 // workflowActionCatalogV2 revises record_worker_job alone: the v1 contract
 // set with the three optional size members appended beside the
 // acceptance_oracle member. Every other action's contract is v1's.
@@ -194,6 +192,6 @@ func workflowActionCatalogV2() workflowActionCatalog {
 	for actionID, actionRevisions := range v1.revisions {
 		revisions[actionID] = actionRevisions
 	}
-	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), workerJobSizeMembersRevision)
+	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields))
 	return workflowActionCatalog{Version: 2, revisions: revisions}
 }

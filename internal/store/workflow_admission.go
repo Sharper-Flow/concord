@@ -554,14 +554,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
 		return decision
 	}
-	if state.SizeRerunRequired && actionID != "reject_worker_result" && actionID != "record_worker_failure" {
-		// Every attempt still open was dispatched before the proof: the
-		// stop refuses dispatch_worker, so no later attempt exists.
-		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action",
-			"a second review proved this larger change bigger (CD-0229 D5); its size must be decided again before the work continues", false,
-			RecoveryWorkSizeRerun)
-		return decision
-	}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision
@@ -573,6 +565,16 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
+		return decision
+	}
+	if state.SizeRerunRequired && actionID != "reject_worker_result" && actionID != "record_worker_failure" {
+		// The stop follows the terminal and archived answers, which no
+		// rerun can change. Every attempt still open was dispatched before
+		// the proof: the stop refuses dispatch_worker, so no later attempt
+		// exists.
+		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action",
+			"a second review proved this larger change bigger (CD-0229 D5); its size must be decided again before the work continues", false,
+			RecoveryWorkSizeRerun)
 		return decision
 	}
 	consequence := workflowActionConsequence(definition, actionID)

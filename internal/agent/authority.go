@@ -467,7 +467,10 @@ func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, erro
 		return Authority{}, authorityRefusal("project host prober and matcher are required")
 	}
 	client, key, err := s.Store.TrustedClientWithKey(ctx, in.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err)
+	}
+	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
 	host, err := s.ProbeProjectHost(ctx, in.Directory, in.Worktree)
@@ -504,10 +507,24 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 		return Authority{}, authorityRefusal("project host matcher is required")
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, in.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err)
+	}
+	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
 	return s.authorizeResolved(ctx, tx, host, in, client)
+}
+
+// trustedClientRefusalFor renders the one store outcome that means the
+// client or key itself is not active as the refusal message names. Every
+// other error is a store fault and keeps its own classification.
+func trustedClientRefusalFor(err error) error {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+		return authorityRefusal("client or key is not active")
+	}
+	return err
 }
 
 func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, client store.TrustedClientRecord) (Authority, error) {

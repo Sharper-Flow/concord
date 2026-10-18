@@ -31,7 +31,6 @@ KNOWLEDGE_ROOT = ".concord/docs/knowledge"
 HEAD_PATH = ".concord/docs/knowledge/manifest.json"
 DOMAIN_REGISTRY_PATH = ".concord/docs/knowledge/domain-registry.json"
 RECORD_DIR = ".concord/docs/knowledge/records"
-COVERAGE_DIR = ".concord/docs/knowledge/coverage"
 # Layout tiers for reading history. A ref composes from the newest layout it
 # carries; each tier is the shape that commit has, not a fallback around it.
 # - current:  shards under .concord/docs/knowledge (CD-0194 placement law)
@@ -40,7 +39,6 @@ COVERAGE_DIR = ".concord/docs/knowledge/coverage"
 PRE_MIGRATION_KNOWLEDGE_ROOT = "docs/knowledge"
 PRE_MIGRATION_HEAD_PATH = "docs/knowledge/manifest.json"
 LEGACY_MANIFEST_PATH = "docs/concord-knowledge-index.v1.json"
-LEGACY_COVERAGE_PATH = "docs/law-coverage.v1.json"
 
 
 class ComposeError(ValueError):

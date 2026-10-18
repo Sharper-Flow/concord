@@ -342,18 +342,6 @@ def test_package_listing_failure_is_a_finding_and_skip_avoids_it() -> None:
             assert code == 0 and "skipped by request" in output, output
 
 
-def with_snapshot(mutate, env_extra: dict[str, str] | None = None):
-    """Run the checker against a mutated issue-state snapshot, then restore it."""
-    original = SNAPSHOT.read_text(encoding="utf-8")
-    try:
-        document = json.loads(original)
-        mutate(document)
-        SNAPSHOT.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-        return run_cli(env_extra)
-    finally:
-        SNAPSHOT.write_text(original, encoding="utf-8")
-
-
 SYNTHETIC_OUTSTANDING_ISSUE = 999001
 
 

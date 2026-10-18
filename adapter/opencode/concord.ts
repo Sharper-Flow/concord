@@ -2282,6 +2282,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   // The landing is confirmed, so this session's active claimed worktree is
   // armed for the dispatch check.
   armClaimedWorktree(context.sessionID, path)
+  clearWorkStartContinuation(context.sessionID)
   if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
   // The confirmed move is a fact the agent must act on, so the result this
   // call encodes carries the notice: the new path, the paths-under-it rule,

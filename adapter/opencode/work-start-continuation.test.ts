@@ -7,6 +7,7 @@ import { configureConcordAdapter } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
+import { manifestDigest } from "./generated-contracts"
 import { armedClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane, MOVE_SESSION_ROUTE } from "./move-session"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
@@ -27,6 +28,7 @@ let directory: string
 let status: string
 let posts: Array<{ url: string; body?: any }>
 let bootstrapKeys: string[]
+let landingCalls: string[]
 let messages: any[]
 let promptStatus: number
 let logs: string[]
@@ -38,6 +40,7 @@ beforeEach(async () => {
   status = "busy"
   posts = []
   bootstrapKeys = []
+  landingCalls = []
   promptStatus = 204
   logs = []
   messages = [
@@ -95,6 +98,17 @@ beforeEach(async () => {
         case "session-prepare":
           answer = { schema_version: "1.0", agent: request.agent, directory: claimed, product_id: "product-1", work_id: "work-1", title: "Work", prompt: "Do work" }
           break
+        case "invoke":
+          expect(request.operation).toBe("worktree_claim")
+          answer = { schema_version: "1.0", request_id: `${sessionID}-message-claim`, origin: "core", tool: "concord_work_transition", operation: request.operation,
+            outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, manifest_digest: manifestDigest,
+            source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+            result: { path: claimed, changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] }
+          break
+        case "claim-landing":
+          landingCalls.push(argv[1])
+          answer = { work_id: request.work_id, already_recorded: false }
+          break
         default:
           throw new Error(`unexpected core command: ${argv.join(" ")}`)
       }
@@ -144,6 +158,22 @@ test("a landed replay uses the original request and work identity", async () => 
   expect(bootstrapKeys).toEqual([args.idempotency_key, args.idempotency_key])
   expect(unlandedClaimedWorktree(sessionID)).toBeNull()
   expect(armedClaimedWorktree(sessionID)).toBe(claimed)
+})
+
+test("a worktree_claim landing retires the pending continuation", async () => {
+  expect((await start()).error.kind).toBe("session_directory_mismatch")
+  const next = { ...args, idempotency_key: "next-start" }
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(false)
+  const result = await plugin.tool.concord_work_transition.execute({ request: { operation: "worktree_claim", input: {
+    work_id: "work-1", project_id: "project-1", base_sha: "a".repeat(40), expected_version: 1, idempotency_key: "claim-continuation",
+  } } }, context(claimed, "message-claim"))
+  const output = typeof result === "string" ? result : result.output
+  expect(JSON.parse(output.split("\n")[0]).outcome, output).toBe("ok")
+  expect(landingCalls).toEqual(["claim-landing"])
+  expect(unlandedClaimedWorktree(sessionID)).toBeNull()
+  expect(armedClaimedWorktree(sessionID)).toBe(claimed)
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(true)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
 })
 
 test("an unlanded start wakes its session after idle without an operator message", async () => {

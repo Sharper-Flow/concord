@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -699,7 +700,10 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
 	}
-	if err := store.ValidateWorkflowOperatorSelection(ctx, s, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
+	if err := store.ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
+		WorkID: in.WorkID, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest,
+		ExpectedVersion: in.ExpectedVersion,
+	}); err != nil {
 		return err
 	}
 	// An approval carries an architecture binding that the mutation verifies
@@ -930,31 +934,21 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 	}
 }
 
-// supersededAttemptBindings reads the attempt a fenced action would
-// supersede and binds it into the approval challenge. A worker dispatch after
-// a failed attempt below the convergence wall binds that failed attempt
-// (CD-0148); the store checks escalated convergence at dispatch. A fenced
-// start, a worker dispatch among them, over an unfinished attempt another
-// actor holds binds the held holder and epoch (CD-0013 criterion 25).
-func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.DefinitionRegistry, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowRetryApprovalBinding, *store.WorkflowStartTakeover, error) {
-	var retry *store.WorkflowRetryApprovalBinding
-	if action.ID == "dispatch_worker" {
-		binding, err := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, workID)
-		if err != nil {
-			return nil, nil, err
-		}
-		retry = binding
-	}
+// supersededAttemptBindings reads the unfinished attempt a fenced action
+// would take over and binds the held holder and epoch into the approval
+// challenge (CD-0013 criterion 25); the takeover stays a separate mandatory
+// exact approval beside the classified consent.
+func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
 	if !store.WorkflowActionOpensHeldAttempt(action) {
-		return retry, nil, nil
+		return nil, nil
 	}
 	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
 	if err != nil || takeover == nil {
-		return retry, nil, err
+		return nil, err
 	}
 	scope["held_attempt_holder"] = takeover.HolderActorRef
 	versions["held_attempt_epoch"] = takeover.HeldEpoch
-	return retry, takeover, nil
+	return takeover, nil
 }
 
 // applyRetryApprovalBinding installs the retry-approval scope bindings a
@@ -1005,6 +999,25 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 		return newRuntimeFailure("approval_invalid", "failed worker attempt or contract changed after approval challenge", "request_approval", false)
 	}
 	return nil
+}
+
+// workflowApprovalBoundaryChanged reports whether one verified approval
+// boundary snapshot moved between the request-time read and the action
+// transaction. It compares only snapshot facts, never work attributes.
+func workflowApprovalBoundaryChanged(before, after store.WorkflowApprovalBoundaryState) bool {
+	if before.Definition.Digest != after.Definition.Digest || before.Definition.Definition.Ref != after.Definition.Definition.Ref || before.Definition.Definition.Version != after.Definition.Definition.Version {
+		return true
+	}
+	if before.WorkVersion != after.WorkVersion || before.ContractVersion != after.ContractVersion || before.DecisionDomainsPresent != after.DecisionDomainsPresent || before.EvaluatorAuthority != after.EvaluatorAuthority || before.Policy != after.Policy {
+		return true
+	}
+	if !slices.Equal(before.ActiveContractVersions, after.ActiveContractVersions) || !slices.Equal(before.DecisionDomains, after.DecisionDomains) {
+		return true
+	}
+	if (before.RetryBinding == nil) != (after.RetryBinding == nil) {
+		return true
+	}
+	return before.RetryBinding != nil && *before.RetryBinding != *after.RetryBinding
 }
 
 // knowledgeSourceProofForAction prepares the federated law source set the
@@ -1102,69 +1115,56 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
 	versions := map[string]any{"work": in.ExpectedVersion}
 	approvalConsequence := string(op.Consequence)
-	contractVersion := int64(0)
-	if in.ActionID == "confirm_premise" {
-		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		contractVersion = version
+	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree}
+	// One boundary read answers consent: verified pin, contract snapshots,
+	// evaluator authority, retry binding, and classified policy. The
+	// takeover read stays separate because the boundary carries none.
+	boundary, err := store.ReadWorkflowApprovalBoundary(ctx, r.Store, registry, preflight)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	contractVersion := boundary.ContractVersion
+	switch in.ActionID {
+	case "confirm_premise":
 		if contractVersion == 0 {
 			return coreError(base, "invalid_input", "confirm_premise requires an approved workflow contract", "reread_entities", false), nil
 		}
 		versions["contract"] = contractVersion
-	}
-	if in.ActionID == "supersede_contract" {
-		contractVersions, err := r.Store.ActiveWorkflowContractVersions(ctx, in.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		if len(contractVersions) == 0 {
+	case "supersede_contract":
+		if len(boundary.ActiveContractVersions) == 0 {
 			return coreError(base, "invalid_input", "supersede_contract requires an active workflow contract", "reread_entities", false), nil
 		}
 		// The request digest binds the complete predecessor list. The
 		// highest active version remains the scalar contract snapshot used
 		// by the existing approval schema without selecting authority.
-		contractVersion = contractVersions[len(contractVersions)-1]
+		versions["contract"] = contractVersion
+	case "request_correction":
 		versions["contract"] = contractVersion
 	}
-	if in.ActionID == "request_correction" {
-		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		contractVersion = version
-		versions["contract"] = contractVersion
-	}
-	retryBinding, takeover, err := r.supersededAttemptBindings(ctx, registry, action, in.WorkID, grant, scope, versions)
+	takeover, err := r.supersededAttemptBindings(ctx, action, in.WorkID, grant, scope, versions)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	retryApproval := retryBinding != nil
+	retryApproval := boundary.RetryBinding != nil
 	if retryApproval {
-		contractVersion = applyRetryApprovalBinding(scope, versions, retryBinding)
+		contractVersion = applyRetryApprovalBinding(scope, versions, boundary.RetryBinding)
 	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
 	}
-	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval || takeover != nil
-	// Approval admission uses the same execution history as the store's
-	// self-evaluation refusal, including execution before lease rotation.
+	// The classified consent is the one approval answer: legacy metadata,
+	// failed-retry, and operator upgrades survive only inside the legacy
+	// classification, and a takeover stays a separate mandatory approval.
+	// Approval admission keeps the store's execution-history refusal,
+	// including execution before lease rotation.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
 	if operatorVerdict || in.ActionID == "confirm_premise" {
-		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
-		evaluation, err := r.Store.WorkflowEvaluationAuthority(ctx, in.WorkID, actorRef)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		switch evaluation {
-		case store.WorkflowWorkerEvaluator:
+		if boundary.EvaluatorAuthority == store.WorkflowWorkerEvaluator {
 			return coreError(base, "unauthorized", "worker actors cannot submit operator decisions or complete work", "contact_operator", false), nil
-		case store.WorkflowOperatorRequired:
-			requiresApproval = true
 		}
 	}
+	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -1178,7 +1178,10 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if r.Budget.CeilingRefused {
 		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
-	if err := store.ValidateWorkflowOperatorSelection(ctx, r.Store, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
+	if err := store.ValidateWorkflowOperatorSelectionForRegistry(ctx, r.Store, r.Registry, store.WorkflowActionPreflightRequest{
+		WorkID: in.WorkID, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest,
+		ExpectedVersion: in.ExpectedVersion,
+	}); err != nil {
 		return failureEnvelope(base, err), nil
 	}
 
@@ -1276,7 +1279,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
+		// Changed boundary facts, classification, or verified pin refuse
+		// before any approval consumption or idempotency write; the store's
+		// preflight, version, state, and retry fences below stay authoritative.
+		rechecked, recheckErr := store.ReadWorkflowApprovalBoundaryTx(ctx, tx, registry, preflight)
+		if recheckErr != nil {
+			return recheckErr
+		}
+		if workflowApprovalBoundaryChanged(boundary, rechecked) {
+			return newRuntimeFailure("version_conflict", "workflow approval boundary facts changed before the action", "reread_entities", false)
+		}
 		if in.ActionID == "dispatch_worker" {
 			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {
 				return err
@@ -1285,7 +1298,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings, selectedPacks); err != nil {
 			return err
 		}
-		if requiresApproval || (operatorVerdict && approval != "") {
+		if requiresApproval || (boundary.Policy.Class == store.WorkflowApprovalClassLegacy && operatorVerdict && approval != "") {
 			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval || takeover != nil})
 			if err != nil {
 				return err
@@ -1573,7 +1586,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return nil, nil, nil, err
 		}
 		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
+		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
 			return nil, nil, nil, err
 		}
 		eventIDs := result.EventIDs
@@ -1644,12 +1657,12 @@ func (r runtime) planReviseIntent(_ context.Context, base Envelope, raw []byte, 
 		changedVersion := in.ExpectedVersion + 1
 		switch {
 		case in.WorkflowTypeRef != "" && !definitionFound:
-			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
+			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
 				return nil, nil, nil, err
 			}
 			changedVersion += 2
 		case switchingFamily || carryingForward:
-			if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
+			if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
 				return nil, nil, nil, err
 			}
 			changedVersion++
@@ -4241,7 +4254,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	var resultPayload json.RawMessage
 	var result Envelope
 	captureResult := func(tx *store.Transaction) error {
-		pin, available, pinErr := store.ReadMutationWorkPinTx(ctx, tx, workID, nil)
+		pin, available, pinErr := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, workID, nil)
 		if pinErr != nil {
 			return pinErr
 		}
@@ -4610,7 +4623,7 @@ func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transact
 	pins := make([]store.WorkPin, 0, len(refs))
 	var pinless []string
 	for _, ref := range refs {
-		pin, available, err := store.ReadMutationWorkPinTx(ctx, tx, ref.ID, ownEventIDs)
+		pin, available, err := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, ref.ID, ownEventIDs)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -4652,7 +4665,7 @@ func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMess
 	if len(pinless) > 0 {
 		if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			for _, id := range pinless {
-				_, available, err := store.ReadMutationWorkPinTx(ctx, tx, id, nil)
+				_, available, err := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, id, nil)
 				if err != nil {
 					return err
 				}

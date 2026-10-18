@@ -384,4 +384,343 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("the store stopped serving after the balanced transaction read: %v", err)
 		}
 	})
+
+	// The caller registry reaches the raw owners end to end: the public
+	// initialization and repin facades verify the pinned entry through the
+	// caller's registry and bind the same registry to the fold scope, the
+	// selection facade and the opaque-Tx mutation pin verify through it, and
+	// every missing, wrong, or drifted source refuses closed with the item
+	// untouched. The nil default keeps the builtin convention on both
+	// generations of the API.
+	t.Run("caller registry reaches initialization, repin, selection, and the opaque work pin", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		definition := approvalRouteDefinition(t)
+		registry, registered := newResolutionRegistry(t, definition)
+		higher := definition
+		higher.Version = definition.Version + 1
+		higherRegistered, err := registry.Register(higher)
+		if err != nil {
+			t.Fatalf("the higher local definition refused registration: %v", err)
+		}
+
+		foldGuardRows := func(t *testing.T, s *Store) int {
+			t.Helper()
+			var rows int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&rows); err != nil {
+				t.Fatal(err)
+			}
+			return rows
+		}
+		ownerFor := func(workID string) WorkflowActor {
+			return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+		}
+		initialize := func(t *testing.T, s *Store, workID string, entry RegisteredDefinition, reg DefinitionRegistry) error {
+			t.Helper()
+			return s.Transact(ctx, func(tx *Transaction) error {
+				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: entry, Actor: ownerFor(workID), Now: time.Unix(5, 0).UTC(), Registry: reg})
+			})
+		}
+
+		// Fail-closed controls first: the same probe item refuses the
+		// builtin (missing) registry, an empty (wrong) registry, and a
+		// drifted digest, then initializes through the correct registry —
+		// which proves every refusal left the item untouched.
+		const probe = "approval-registry-probe"
+		s := openTemp(t)
+		seedWork(t, s, probe)
+		seedWorkflowLaw(t, s)
+		probeVersion := verdictItemVersion(t, s, probe)
+		probeEvents := approvalEventCount(t, s, probe)
+		expectPinRefusal := func(name string, err error) {
+			t.Helper()
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
+				t.Fatalf("%s initialization = %v, want the typed pin refusal", name, err)
+			}
+			if verdictItemVersion(t, s, probe) != probeVersion || approvalEventCount(t, s, probe) != probeEvents {
+				t.Fatalf("%s refusal moved the probe item", name)
+			}
+			if rows := foldGuardRows(t, s); rows != 0 {
+				t.Fatalf("%s refusal left %d fold_guard rows", name, rows)
+			}
+		}
+		expectPinRefusal("missing (builtin)", initialize(t, s, probe, registered, nil))
+		expectPinRefusal("wrong (empty)", initialize(t, s, probe, registered, NewWorkflowDefinitionRegistry()))
+		drifted := registered
+		drifted.Digest = "sha256:" + strings.Repeat("0", 64)
+		expectPinRefusal("drifted digest", initialize(t, s, probe, drifted, registry))
+		if err := initialize(t, s, probe, registered, registry); err != nil {
+			t.Fatalf("caller-registry initialization refused after the fail-closed controls: %v", err)
+		}
+		var probeRef, probeStep string
+		var probeDefinitionVersion int64
+		var probeDigest string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, probe).Scan(&probeRef, &probeDefinitionVersion, &probeDigest, &probeStep); err != nil {
+			t.Fatal(err)
+		}
+		if probeRef != registered.Definition.Ref || probeDefinitionVersion != registered.Definition.Version || probeDigest != registered.Digest {
+			t.Fatalf("probe pin = %s v%d %s, want the verified registered entry", probeRef, probeDefinitionVersion, probeDigest)
+		}
+		if rows := foldGuardRows(t, s); rows != 0 {
+			t.Fatalf("caller-registry initialization left %d fold_guard rows", rows)
+		}
+
+		// Repin carries the instance forward onto the higher same-ref
+		// version through the same registry, keeping the current step; the
+		// builtin (missing) registry refuses the same repin closed.
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			return RepinWorkflowTx(ctx, tx, WorkflowRepinRequest{WorkID: probe, EventID: "approval-registry-repin:" + probe, Definition: higherRegistered, Actor: ownerFor(probe), Now: time.Unix(6, 0).UTC(), Registry: registry})
+		}); err != nil {
+			t.Fatalf("caller-registry repin refused: %v", err)
+		}
+		var repinVersion int64
+		var repinRef, repinStep, repinDigest string
+		var repinDefinitionVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, probe).Scan(&repinRef, &repinDefinitionVersion, &repinDigest, &repinStep, &repinVersion); err != nil {
+			t.Fatal(err)
+		}
+		if repinRef != higherRegistered.Definition.Ref || repinDefinitionVersion != higherRegistered.Definition.Version || repinDigest != higherRegistered.Digest {
+			t.Fatalf("repinned pin = %s v%d %s, want the higher registered entry", repinRef, repinDefinitionVersion, repinDigest)
+		}
+		if repinStep != probeStep {
+			t.Fatalf("carry-forward repin moved the step from %s to %s", probeStep, repinStep)
+		}
+		repinVersionBefore := repinVersion
+		repinEvents := approvalEventCount(t, s, probe)
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			return RepinWorkflowTx(ctx, tx, WorkflowRepinRequest{WorkID: probe, EventID: "approval-registry-repin-missing:" + probe, Definition: higherRegistered, Actor: ownerFor(probe), Now: time.Unix(7, 0).UTC(), Registry: nil})
+		}); err == nil {
+			t.Fatal("missing-registry repin was accepted")
+		} else {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
+				t.Fatalf("missing-registry repin = %v, want the typed pin refusal", err)
+			}
+		}
+		if verdictItemVersion(t, s, probe) != repinVersionBefore || approvalEventCount(t, s, probe) != repinEvents || foldGuardRows(t, s) != 0 {
+			t.Fatal("the refused repin moved the probe item")
+		}
+
+		// The route item drives the local pin to the acceptance step through
+		// the genuine registry-threaded folds, then the selection facade and
+		// the opaque-Tx mutation pin answer through the caller registry.
+		const route = "approval-registry-route"
+		seedWork(t, s, route)
+		if err := initialize(t, s, route, registered, registry); err != nil {
+			t.Fatalf("route initialization refused: %v", err)
+		}
+		recordResolutionActors(t, s, route)
+		advanceResolutionToExecution(t, s, registry, route, ownerFor(route), []string{})
+		advanceResolutionDelivery(t, s, registry, route, ownerFor(route))
+		seedResolutionInvestigation(t, s, route)
+		routeVersion := verdictItemVersion(t, s, route)
+		routeEvents := approvalEventCount(t, s, route)
+		selection := WorkflowActionPreflightRequest{WorkID: route, ActionID: "confirm_premise", SelectedChoice: "confirm", ExpectedVersion: routeVersion}
+		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, selection); err != nil {
+			t.Fatalf("engineering confirm selection refused under the caller registry: %v", err)
+		}
+		var selectionFailure *Failure
+		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, NewWorkflowDefinitionRegistry(), selection); err == nil || !failureAs(err, &selectionFailure) || selectionFailure.Kind != KindInvariantViolation {
+			t.Fatalf("wrong-registry selection = %v, want the typed pin refusal", err)
+		}
+		var wrapperRefusal *Failure
+		if err := ValidateWorkflowOperatorSelection(ctx, s, route, routeVersion, selection.ActionID, selection.SelectedChoice, selection.DecisionContextDigest); err == nil || !failureAs(err, &wrapperRefusal) || wrapperRefusal.Kind != KindInvariantViolation {
+			t.Fatalf("the builtin-convenience selection wrapper = %v, want the typed pin refusal", err)
+		}
+		if verdictItemVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {
+			t.Fatal("the selection reads moved the route item")
+		}
+
+		readRoutePin := func(reg DefinitionRegistry) (WorkPin, bool, error) {
+			var pin WorkPin
+			var available bool
+			txErr := s.Transact(ctx, func(tx *Transaction) error {
+				var err error
+				pin, available, err = ReadMutationWorkPinTxForRegistry(ctx, tx, reg, route, nil)
+				return err
+			})
+			return pin, available, txErr
+		}
+		pin, available, err := readRoutePin(registry)
+		if err != nil || !available {
+			t.Fatalf("caller-registry mutation pin = available %v, %v, want the readable pin", available, err)
+		}
+		if pin.WorkflowType != registered.Definition.Ref || pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != registered.Definition.Version || pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
+			t.Fatalf("caller-registry pin identity = %s v%v %v, want the verified registered entry", pin.WorkflowType, pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest)
+		}
+		parity, _, err := readRoutePin(registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(pin, parity) {
+			t.Fatalf("second mutation pin = %+v, want %+v", parity, pin)
+		}
+		var wrongPinRefusal *Failure
+		_, _, wrongPinErr := readRoutePin(NewWorkflowDefinitionRegistry())
+		if wrongPinErr == nil || !failureAs(wrongPinErr, &wrongPinRefusal) || wrongPinRefusal.Kind != KindInvariantViolation {
+			t.Fatalf("wrong-registry mutation pin = %v, want the typed pin refusal", wrongPinErr)
+		}
+		var builtinConvention *Failure
+		builtinConventionErr := s.Transact(ctx, func(tx *Transaction) error {
+			_, _, err := ReadMutationWorkPinTx(ctx, tx, route, nil)
+			return err
+		})
+		if builtinConventionErr == nil || !failureAs(builtinConventionErr, &builtinConvention) || builtinConvention.Kind != KindDefinitionDigestMismatch {
+			t.Fatalf("builtin-convenience mutation pin = %v, want the typed unregistered refusal", builtinConventionErr)
+		}
+
+		// The nil default keeps the builtin convention: the same facade
+		// initializes a builtin pin exactly as production capture does, and
+		// the old public mutation pin reads it.
+		const builtin = "approval-registry-builtin"
+		seedWork(t, s, builtin)
+		builtinEntry, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+		if err != nil {
+			t.Fatalf("the builtin implementation definition refused resolution: %v", err)
+		}
+		if err := initialize(t, s, builtin, builtinEntry, nil); err != nil {
+			t.Fatalf("nil-registry builtin initialization refused: %v", err)
+		}
+		builtinPin, available, err := func() (WorkPin, bool, error) {
+			var pin WorkPin
+			var ready bool
+			txErr := s.Transact(ctx, func(tx *Transaction) error {
+				var err error
+				pin, ready, err = ReadMutationWorkPinTx(ctx, tx, builtin, nil)
+				return err
+			})
+			return pin, ready, txErr
+		}()
+		if err != nil || !available {
+			t.Fatalf("builtin mutation pin = available %v, %v, want the readable pin", available, err)
+		}
+		if builtinPin.WorkflowDefinitionDigest == nil || *builtinPin.WorkflowDefinitionDigest != builtinEntry.Digest {
+			t.Fatalf("builtin pin digest = %v, want the builtin entry %s", builtinPin.WorkflowDefinitionDigest, builtinEntry.Digest)
+		}
+	})
+
+	// The duplicate-active state is real only when the fold created it: a
+	// recorded approval rides the historical log and RebuildFromLog replays
+	// it, exactly as the contract-authority recipe does. The boundary stays
+	// typed on both read forms — the supersede recovery reads the ordered
+	// plural set, an ordinary action keeps the singular refusal, and the
+	// work pin stays readable with the one recovery route — and every read
+	// leaves the item unchanged.
+	t.Run("duplicate-active historical replay keeps the boundary and the pin typed", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		const workID = "approval-boundary-duplicate-active"
+		s, owner, reviewer := seedItemAtAcceptance(t, workID, false)
+		defer s.Close()
+		ownerRef, err := WorkflowActorRef(owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		version := verdictItemVersion(t, s, workID)
+		legacyApproval, marshalErr := json.Marshal(map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"contract_version": 2, "premise": "recorded duplicate approval", "outcome_kind": "check",
+			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+			"approval-boundary-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, legacyApproval); err != nil {
+			t.Fatal(err)
+		}
+		if err := RebuildFromLog(ctx, s); err != nil {
+			t.Fatalf("rebuild the duplicate-active history: %v", err)
+		}
+		activeVersions, err := s.ActiveWorkflowContractVersions(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(activeVersions, []int64{1, 2}) {
+			t.Fatalf("active contract versions = %v, want [1 2] with highest 2", activeVersions)
+		}
+		replayedVersion := verdictItemVersion(t, s, workID)
+		eventsBefore := approvalEventCount(t, s, workID)
+
+		request := WorkflowActionPreflightRequest{WorkID: workID, ActionID: "supersede_contract", Actor: owner}
+		supersede, err := ReadWorkflowApprovalBoundary(ctx, s, nil, request)
+		if err != nil {
+			t.Fatalf("supersede boundary read refused: %v", err)
+		}
+		if supersede.ContractVersion != 2 || !reflect.DeepEqual(supersede.ActiveContractVersions, []int64{1, 2}) {
+			t.Fatalf("supersede boundary contract %d active %v, want 2 over [1 2]", supersede.ContractVersion, supersede.ActiveContractVersions)
+		}
+		if supersede.Policy.Consent != WorkflowConsentRequired {
+			t.Fatalf("supersede recovery consent = %q, want required", supersede.Policy.Consent)
+		}
+		var txSupersede WorkflowApprovalBoundaryState
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			var txErr error
+			txSupersede, txErr = ReadWorkflowApprovalBoundaryTx(ctx, tx, nil, request)
+			return txErr
+		}); err != nil {
+			t.Fatalf("supersede transaction boundary read refused: %v", err)
+		}
+		if !reflect.DeepEqual(supersede, txSupersede) {
+			t.Fatalf("transaction boundary state = %+v, want the pool state %+v", txSupersede, supersede)
+		}
+
+		refusalKind := func(err error) FailureKind {
+			var failure *Failure
+			if failureAs(err, &failure) {
+				return failure.Kind
+			}
+			return ""
+		}
+		verdict := WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Actor: reviewer}
+		var ambiguity *Failure
+		if _, err := ReadWorkflowApprovalBoundary(ctx, s, nil, verdict); err == nil || !failureAs(err, &ambiguity) || ambiguity.Kind != KindInvariantViolation || !strings.Contains(ambiguity.Detail, "multiple active contracts") {
+			t.Fatalf("ordinary boundary read = %v, want the typed duplicate-active refusal", err)
+		}
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, txErr := ReadWorkflowApprovalBoundaryTx(ctx, tx, nil, verdict)
+			return txErr
+		}); refusalKind(err) != KindInvariantViolation {
+			t.Fatalf("ordinary transaction boundary read = %v, want the typed duplicate-active refusal", err)
+		}
+
+		readPin := func() (WorkPin, bool, error) {
+			var pin WorkPin
+			var available bool
+			txErr := s.Transact(ctx, func(tx *Transaction) error {
+				var err error
+				pin, available, err = ReadMutationWorkPinTx(ctx, tx, workID, nil)
+				return err
+			})
+			return pin, available, txErr
+		}
+		pin, available, err := readPin()
+		if err != nil || !available {
+			t.Fatalf("duplicate-active mutation pin = available %v, %v, want the readable pin", available, err)
+		}
+		if len(pin.NextValidIntents) != 1 || pin.NextValidIntents[0].ActionID != "supersede_contract" || pin.NextValidIntents[0].ReasonCode != "operator_contract_correction" {
+			t.Fatalf("duplicate-active intents = %+v, want only the operator_contract_correction recovery", pin.NextValidIntents)
+		}
+		poolPin, err := ReadWorkPin(ctx, s, workID)
+		if err != nil {
+			t.Fatalf("duplicate-active pool pin read refused: %v", err)
+		}
+		if !reflect.DeepEqual(pin, poolPin) {
+			t.Fatalf("pool pin = %+v, want the opaque-Tx pin %+v", poolPin, pin)
+		}
+		parity, _, err := readPin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(pin, parity) {
+			t.Fatalf("second mutation pin = %+v, want %+v", parity, pin)
+		}
+		if approvalEventCount(t, s, workID) != eventsBefore || verdictItemVersion(t, s, workID) != replayedVersion {
+			t.Fatal("the duplicate-active reads moved the unchanged item")
+		}
+	})
 }

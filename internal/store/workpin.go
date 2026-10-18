@@ -141,7 +141,8 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 // ReadMutationWorkPinTx distinguishes a pin from a known absent post-state.
 // An absent instance without an outside-repair hold, or an own committed
 // removal, has no pin. The returned identity still carries its version;
-// every other unreadable pin is an error.
+// every other unreadable pin is an error. It is the builtin convenience:
+// the instance's stored pin verifies against the builtin registry.
 func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
@@ -150,7 +151,24 @@ func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID
 	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
 }
 
+// ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
+// caller registry verifies the stored pin through itself with no builtin
+// fallback, and a nil registry keeps the builtin convenience default. The
+// absent/present distinction precedes the definition verification, so it
+// answers identically under either registry.
+func ReadMutationWorkPinTxForRegistry(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+	tx, err := transactionSQL(transaction, "work_pin")
+	if err != nil {
+		return WorkPin{}, false, err
+	}
+	return readMutationWorkPinForRegistryTx(ctx, tx, registry, workID, ownEventIDs)
+}
+
 func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+	return readMutationWorkPinForRegistryTx(ctx, tx, nil, workID, ownEventIDs)
+}
+
+func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	identity := WorkPin{WorkID: workID}
 	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&identity.Version)
 	var instance bool
@@ -189,7 +207,7 @@ func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEv
 			return identity, false, nil
 		}
 	}
-	pin, err := ReadWorkPinTx(ctx, tx, workID)
+	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
 	return pin, true, err
 }
 

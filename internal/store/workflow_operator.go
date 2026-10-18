@@ -303,17 +303,31 @@ func boundedQuestionText(value string, upper int) string {
 }
 
 // ValidateWorkflowOperatorSelection verifies the semantic answer before any
-// grant, approval challenge, or mutation authority is consumed.
+// grant, approval challenge, or mutation authority is consumed. It is the
+// builtin convenience: the instance's stored pin verifies against the builtin
+// registry.
 func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID string, expectedVersion int64, actionID, selectedChoice, decisionDigest string) error {
+	return ValidateWorkflowOperatorSelectionForRegistry(ctx, s, nil, WorkflowActionPreflightRequest{
+		WorkID: workID, ActionID: actionID, SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
+		ExpectedVersion: expectedVersion,
+	})
+}
+
+// ValidateWorkflowOperatorSelectionForRegistry is the registry-threaded
+// selection facade: a caller registry verifies the stored pin through itself
+// with no builtin fallback, and a nil registry keeps the builtin convention.
+// The preflight request carries the same fields the convenience wrapper
+// names; the read opens and closes one read transaction either way.
+func ValidateWorkflowOperatorSelectionForRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open the selection read transaction", true, "retry once the database is readable", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	return validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: actionID, SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
-		ExpectedVersion: expectedVersion,
-	})
+	return validateWorkflowOperatorSelectionTx(ctx, tx, registry, request)
 }
 
 // validateWorkflowOperatorSelectionTx is the stateless compatibility half of

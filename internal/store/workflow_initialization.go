@@ -14,7 +14,11 @@ type WorkflowInitializationRequest struct {
 	WorkID     string
 	Definition RegisteredDefinition
 	Actor      WorkflowActor
-	Now        time.Time
+	// Registry is the caller's definition registry. Nil keeps the builtin
+	// convention; a caller registry verifies the pinned entry through itself
+	// and is the same registry the fold binds before any write.
+	Registry DefinitionRegistry
+	Now      time.Time
 }
 
 // InitializeWorkflowTx records the initial actor tuple and immutable
@@ -52,7 +56,10 @@ type WorkflowRepinRequest struct {
 	EventID    string
 	Definition RegisteredDefinition
 	Actor      WorkflowActor
-	Now        time.Time
+	// Registry is the caller's definition registry, with the same nil
+	// convention as WorkflowInitializationRequest.
+	Registry DefinitionRegistry
+	Now      time.Time
 }
 
 // RepinWorkflowTx replaces the definition pinned to an existing workflow
@@ -84,7 +91,11 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	if request.Now.IsZero() {
 		request.Now = nowFromClock(nil)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
+	registry := request.Registry
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
 		return err
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -107,12 +118,16 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
+	scope := newFoldScope(tx)
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return err
+	}
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: request.EventID, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
-	}, newFoldScope(tx))
+	}, scope)
 	return err
 }
 
@@ -137,7 +152,11 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	if request.Now.IsZero() {
 		request.Now = nowFromClock(nil)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
+	registry := request.Registry
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
 		return err
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -166,12 +185,16 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
+	scope := newFoldScope(tx)
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return err
+	}
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: "workflow-init:" + request.WorkID + ":actor:" + actorRef, Kind: WorkflowActorRecorded, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: actorPayload},
 			{EventID: "workflow-init:" + request.WorkID + ":definition:" + request.Definition.Definition.Ref, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
-	}, newFoldScope(tx))
+	}, scope)
 	return err
 }

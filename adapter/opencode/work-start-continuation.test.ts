@@ -99,13 +99,15 @@ beforeEach(async () => {
           answer = { schema_version: "1.0", agent: request.agent, directory: claimed, product_id: "product-1", work_id: "work-1", title: "Work", prompt: "Do work" }
           break
         case "invoke":
-          expect(request.operation).toBe("worktree_claim")
-          answer = { schema_version: "1.0", request_id: `${sessionID}-message-claim`, origin: "core", tool: "concord_work_transition", operation: request.operation,
+          expect(["worktree_claim", "session_vacate"]).toContain(request.operation)
+          answer = { schema_version: "1.0", request_id: `${sessionID}-message-${request.operation === "worktree_claim" ? "claim" : "vacate"}`, origin: "core", tool: "concord_work_transition", operation: request.operation,
             outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, manifest_digest: manifestDigest,
             source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
-            result: { path: claimed, changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] }
+            result: { changed_refs: [], next_valid_intents: [], ...(request.operation === "worktree_claim" ? { path: claimed }
+              : { work_id: "work-1", project_id: "project-1", source_directory: claimed, destination_directory: origin }) }, changed_refs: [], next_valid_intents: [] }
           break
         case "claim-landing":
+        case "vacate-landing":
           landingCalls.push(argv[1])
           answer = { work_id: request.work_id, already_recorded: false }
           break
@@ -176,6 +178,27 @@ test("a worktree_claim landing retires the pending continuation", async () => {
   expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
 })
 
+test("the real vacate route retires the pending continuation without a wake", async () => {
+  expect((await start()).error.kind).toBe("session_directory_mismatch")
+  const next = { ...args, idempotency_key: "next-start" }
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(false)
+  const result = await plugin.tool.concord_work_transition.execute({ request: {
+    operation: "session_vacate", input: { idempotency_key: "vacate-continuation" },
+  } }, context(claimed, "message-vacate"))
+  const output = typeof result === "string" ? result : result.output
+  expect(JSON.parse(output.split("\n")[0]).outcome, output).toBe("ok")
+  expect(landingCalls).toEqual(["vacate-landing"])
+  expect(directory).toBe(origin)
+  expect(unlandedClaimedWorktree(sessionID)).toBeNull()
+  expect(armedClaimedWorktree(sessionID)).toBeNull()
+  status = "idle"
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(queueWorkStartContinuation(next, context(), claimed, "work-1")).toBe(true)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+  expect(logs).toEqual([])
+})
+
 test("an unlanded start wakes its session after idle without an operator message", async () => {
   const refused = await start()
   expect(refused.error.kind).toBe("session_directory_mismatch")
@@ -242,12 +265,12 @@ test.each(["originating", "later"])("a persisted %s assistant cancellation suppr
   expect(armedClaimedWorktree(sessionID)).toBeNull()
 })
 
-test.each(["operator", "error", "cancelled", "deleted", "wrong-session", "vacated"])("suppresses the wake when %s supersedes the pending move", async mode => {
+test.each(["operator", "error", "cancelled", "deleted", "wrong-session", "restarted"])("suppresses the wake when %s supersedes the pending move", async mode => {
   expect((await start()).error.kind).toBe("session_directory_mismatch")
   if (mode === "operator") await plugin["chat.message"]({ sessionID, messageID: "user-new" }, { parts: [{ type: "text", text: "Stop" }] })
   if (mode === "error" || mode === "cancelled") await plugin.event({ event: { type: "session.error", properties: { sessionID, error: { name: mode === "cancelled" ? "MessageAbortedError" : "UnknownError" } } } })
   if (mode === "deleted") await plugin.event({ event: { type: "session.deleted", properties: { info: { id: sessionID } } } })
-  if (mode === "vacated") resetClaimedWorktrees()
+  if (mode === "restarted") resetClaimedWorktrees()
   status = "idle"
   await plugin.event({ event: { type: "session.idle", properties: { sessionID: mode === "wrong-session" ? "other-session" : sessionID } } })
   await new Promise<void>(resolve => setImmediate(resolve))

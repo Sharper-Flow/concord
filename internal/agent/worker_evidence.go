@@ -309,7 +309,11 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	now := s.now()
 	if err := store.PruneAndRecordNonceTx(ctx, tx, assertion.ClientRef, assertion.Nonce, now.Format(time.RFC3339Nano), now.Add(s.skew()).Format(time.RFC3339Nano), now.Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {
-		return "", errors.New("worker evidence assertion nonce replayed")
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionConflict {
+			return "", errors.New("worker evidence assertion nonce replayed")
+		}
+		return "", err
 	}
 	return client.PrincipalRef, nil
 }

@@ -720,8 +720,12 @@ type WorkflowDomainOverlapResolutionRequest struct {
 	ApprovalScopeJSON       string
 	ApprovalVersionsJSON    string
 	ApprovalConsequence     string
-	Actor                   string
-	OccurredAt              time.Time
+	// RequestedBudgetSeconds is the caller's actual parsed effect budget;
+	// 0 means absent under this input contract. It is request metadata,
+	// not authorization, and never supplies Product context.
+	RequestedBudgetSeconds int
+	Actor                  string
+	OccurredAt             time.Time
 }
 
 // ResolveWorkflowDomainOverlapTx appends the immutable resolution event. The
@@ -743,6 +747,9 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	binding := workflowApprovalBinding{ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest, ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON, Consequence: request.ApprovalConsequence}
 	if workflowOverlapResolutionRequiresApproval(request.ResolutionKind) {
 		if _, err := workflowOperatorFromConsumedApprovalTx(ctx, sqlTx, binding, "workflow_domain_overlap"); err != nil {
+			return ApplyOperationResult{}, err
+		}
+		if err := workflowOverlapDigestBinding(request); err != nil {
 			return ApplyOperationResult{}, err
 		}
 	} else if binding.ApprovalRef != "" || binding.OperationDigest != "" || binding.ScopeJSON != "" || binding.VersionsJSON != "" || binding.Consequence != "" {
@@ -802,6 +809,72 @@ type workflowOverlapApprovalVersions struct {
 
 func workflowOverlapApprovalUnauthorized(mismatches string) error {
 	return newFailure(KindUnauthorized, "workflow_domain_overlap", "the consumed operator approval is not bound to this overlap resolution: "+mismatches, false, "request approval for the exact destructive resolution")
+}
+
+// workflowOverlapDigestContext recovers the canonical Product and Project
+// from the request's approval scope, trusted because the consumed-row check
+// just proved it identical to the durable approval row. An absent or empty
+// product_id is meaningful and passes through as ""; project_ids must carry
+// exactly the operation's one ambient Project. Ambiguous scope refuses
+// rather than choosing arbitrarily.
+func workflowOverlapDigestContext(scopeJSON string) (string, string, error) {
+	var scope map[string]any
+	if err := json.Unmarshal([]byte(scopeJSON), &scope); err != nil || scope == nil {
+		return "", "", overlapResolutionFailure("destructive overlap approval scope is malformed")
+	}
+	productID := ""
+	if raw, present := scope["product_id"]; present && raw != nil {
+		typed, ok := raw.(string)
+		if !ok {
+			return "", "", overlapResolutionFailure("destructive overlap approval scope product_id is malformed")
+		}
+		productID = typed
+	}
+	projects, ok := scope["project_ids"].([]any)
+	if !ok || len(projects) != 1 {
+		return "", "", overlapResolutionFailure("destructive overlap approval scope does not carry exactly one ambient Project")
+	}
+	projectID, ok := projects[0].(string)
+	if !ok {
+		return "", "", overlapResolutionFailure("destructive overlap approval scope project_ids is malformed")
+	}
+	return productID, projectID, nil
+}
+
+// workflowOverlapDigestBinding recomputes the consumed approval's canonical
+// digest from the actual resolved request — the eight exact domain fields
+// plus an explicit positive effect budget — under the recovered canonical
+// context, so a changed reason, kind, direction, version pin, or effect
+// budget cannot retain a consumed binding.
+func workflowOverlapDigestBinding(request WorkflowDomainOverlapResolutionRequest) error {
+	if request.RequestedBudgetSeconds < 0 {
+		return workflowOverlapApprovalUnauthorized("budget")
+	}
+	productID, projectID, err := workflowOverlapDigestContext(request.ApprovalScopeJSON)
+	if err != nil {
+		return err
+	}
+	input := map[string]any{
+		"from_work_id":          request.FromWorkID,
+		"to_work_id":            request.ToWorkID,
+		"from_expected_version": request.FromExpectedVersion,
+		"to_expected_version":   request.ToExpectedVersion,
+		"from_contract_version": request.FromContractVersion,
+		"to_contract_version":   request.ToContractVersion,
+		"resolution_kind":       request.ResolutionKind,
+		"reason":                request.Reason,
+	}
+	if request.RequestedBudgetSeconds > 0 {
+		input["requested_budget_seconds"] = request.RequestedBudgetSeconds
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return overlapResolutionFailure("destructive overlap resolution input is malformed")
+	}
+	if AgentMutationDigest("concord_work_relate", "resolve_overlap", productID, projectID, raw) != request.ApprovalOperationDigest {
+		return workflowOverlapApprovalUnauthorized("digest")
+	}
+	return nil
 }
 
 // workflowOverlapResolutionBindingAdmission re-derives one v2 payload's

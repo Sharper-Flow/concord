@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
@@ -344,6 +346,28 @@ func ActiveWorkIDsTx(ctx context.Context, transaction *Transaction, productID st
 		return nil, wrapFailure(KindUnavailable, "active_work", "cannot scan bounded in-progress work", true, "retry once the database is readable", err)
 	}
 	return out, nil
+}
+
+// AgentMutationDigest is the one canonical mutation-digest implementation the
+// agent adapter's request digests and the store's live destructive-overlap
+// effect binding share: {Tool,Operation,Product,Project,Input} over the raw
+// input's decoded JSON, marshaled with sorted map keys, SHA-256 hex-encoded.
+func AgentMutationDigest(tool, operation, selectedProduct, ambientProject string, raw []byte) string {
+	var input any
+	_ = json.Unmarshal(raw, &input)
+	if object, ok := input.(map[string]any); ok {
+		// Approval references are core-issued authorization handles, not domain
+		// intent. Excluding them lets a persisted challenge authorize the exact
+		// original intent when it is resubmitted with its opaque reference.
+		delete(object, "approval")
+		delete(object, "idempotency_key")
+	}
+	canonical, _ := json.Marshal(struct {
+		Tool, Operation, Product, Project string
+		Input                             any
+	}{tool, operation, selectedProduct, ambientProject, input})
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // ValidateMutationBoundaryRecords keeps JSON-bearing fields bounded at the

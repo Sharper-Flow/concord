@@ -3962,6 +3962,7 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 			request.ApprovalScopeJSON = string(approvalScopeJSON)
 			request.ApprovalVersionsJSON = string(approvalVersionsJSON)
 			request.ApprovalConsequence = plan.consequence
+			request.RequestedBudgetSeconds = r.Budget.RequestedSeconds
 		}
 		result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, request)
 		if err != nil {
@@ -4538,21 +4539,7 @@ type storeMembership struct {
 }
 
 func mutationDigest(tool, operation string, env CallEnvelope, raw []byte) string {
-	var input any
-	_ = json.Unmarshal(raw, &input)
-	if object, ok := input.(map[string]any); ok {
-		// Approval references are core-issued authorization handles, not domain
-		// intent. Excluding them lets a persisted challenge authorize the exact
-		// original intent when it is resubmitted with its opaque reference.
-		delete(object, "approval")
-		delete(object, "idempotency_key")
-	}
-	canonical, _ := json.Marshal(struct {
-		Tool, Operation, Product, Project string
-		Input                             any
-	}{tool, operation, env.SelectedProductID, env.AmbientProjectID, input})
-	sum := sha256.Sum256(canonical)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return store.AgentMutationDigest(tool, operation, env.SelectedProductID, env.AmbientProjectID, raw)
 }
 
 func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage {

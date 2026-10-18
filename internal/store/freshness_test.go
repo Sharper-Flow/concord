@@ -15,18 +15,6 @@ import (
 	"time"
 )
 
-// runFreshnessGit runs one fixture git command with a synthetic committer.
-func runFreshnessGit(t *testing.T, repo string, args ...string) string {
-	t.Helper()
-	command := exec.Command("git", append([]string{"-C", repo}, args...)...)
-	command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	out, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // initFreshnessOriginRepo builds a working repository whose origin is a real
 // local bare remote, so the bounded preflight fetch exercises real Git. The
 // returned advance function commits and pushes one new default-branch commit
@@ -37,30 +25,30 @@ func initFreshnessOriginRepo(t *testing.T) (string, func(string) string) {
 	parent := t.TempDir()
 	origin := filepath.Join(parent, "origin.git")
 	repo := filepath.Join(parent, "repo")
-	runFreshnessGit(t, parent, "init", "-q", "--bare", "-b", "main", "origin.git")
-	runFreshnessGit(t, parent, "init", "-q", "-b", "main", "repo")
+	runTestGit(t, parent, "init", "-q", "--bare", "-b", "main", "origin.git")
+	runTestGit(t, parent, "init", "-q", "-b", "main", "repo")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("freshness\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runFreshnessGit(t, repo, "add", "README.md")
-	runFreshnessGit(t, repo, "commit", "-q", "-m", "base")
-	runFreshnessGit(t, repo, "remote", "add", "origin", "https://freshness.invalid/repository.git")
-	runFreshnessGit(t, repo, "config", "url."+origin+".insteadOf", "https://freshness.invalid/repository.git")
-	runFreshnessGit(t, repo, "push", "-q", "origin", "main")
-	runFreshnessGit(t, repo, "fetch", "-q", "origin")
-	runFreshnessGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	runTestGit(t, repo, "add", "README.md")
+	runTestGit(t, repo, "commit", "-q", "-m", "base")
+	runTestGit(t, repo, "remote", "add", "origin", "https://freshness.invalid/repository.git")
+	runTestGit(t, repo, "config", "url."+origin+".insteadOf", "https://freshness.invalid/repository.git")
+	runTestGit(t, repo, "push", "-q", "origin", "main")
+	runTestGit(t, repo, "fetch", "-q", "origin")
+	runTestGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	advances := 0
 	advance := func(message string) string {
 		advances++
 		seed := filepath.Join(parent, "seed-"+strconv.Itoa(advances))
-		runFreshnessGit(t, parent, "clone", "-q", origin, "seed-"+strconv.Itoa(advances))
+		runTestGit(t, parent, "clone", "-q", origin, "seed-"+strconv.Itoa(advances))
 		if err := os.WriteFile(filepath.Join(seed, "commit-"+strconv.Itoa(advances)), []byte(message+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		runFreshnessGit(t, seed, "add", ".")
-		runFreshnessGit(t, seed, "commit", "-q", "-m", message)
-		runFreshnessGit(t, seed, "push", "-q", "origin", "main")
-		head := runFreshnessGit(t, seed, "rev-parse", "HEAD")
+		runTestGit(t, seed, "add", ".")
+		runTestGit(t, seed, "commit", "-q", "-m", message)
+		runTestGit(t, seed, "push", "-q", "origin", "main")
+		head := runTestGit(t, seed, "rev-parse", "HEAD")
 		if err := os.RemoveAll(seed); err != nil {
 			t.Fatal(err)
 		}
@@ -74,13 +62,13 @@ func initFreshnessOriginRepo(t *testing.T) (string, func(string) string) {
 // dependency.
 func goOfflineOrigin(t *testing.T, repo string) {
 	t.Helper()
-	mapped := runFreshnessGit(t, repo, "config", "--get-regexp", `^url\..*\.insteadOf$`)
+	mapped := runTestGit(t, repo, "config", "--get-regexp", `^url\..*\.insteadOf$`)
 	fields := strings.Fields(mapped)
 	if len(fields) != 2 {
 		t.Fatalf("fixture origin mapping missing: %q", mapped)
 	}
-	runFreshnessGit(t, repo, "config", "--unset", fields[0])
-	runFreshnessGit(t, repo, "config", "url."+filepath.Join(t.TempDir(), "gone.git")+".insteadOf", fields[1])
+	runTestGit(t, repo, "config", "--unset", fields[0])
+	runTestGit(t, repo, "config", "url."+filepath.Join(t.TempDir(), "gone.git")+".insteadOf", fields[1])
 }
 
 // The capture's default-based base must be the fetched default head, not the
@@ -90,9 +78,9 @@ func TestWorkBootstrapCaptureCreatesFromRefreshedDefaultHead(t *testing.T) {
 	repo, advanceDefault := initFreshnessOriginRepo(t)
 	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	stale := runFreshnessGit(t, repo, "rev-parse", "HEAD")
+	stale := runTestGit(t, repo, "rev-parse", "HEAD")
 	advanced := advanceDefault("second commit on origin")
-	if cached := runFreshnessGit(t, repo, "rev-parse", "refs/remotes/origin/main"); cached != stale {
+	if cached := runTestGit(t, repo, "rev-parse", "refs/remotes/origin/main"); cached != stale {
 		t.Fatalf("tracking cache=%s want the stale head %s", cached, stale)
 	}
 	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
@@ -102,7 +90,7 @@ func TestWorkBootstrapCaptureCreatesFromRefreshedDefaultHead(t *testing.T) {
 	if result.Entry.BaseSHA != advanced {
 		t.Fatalf("capture base=%s want the fetched default head %s", result.Entry.BaseSHA, advanced)
 	}
-	if head := runFreshnessGit(t, result.Entry.Path, "rev-parse", "HEAD"); head != advanced {
+	if head := runTestGit(t, result.Entry.Path, "rev-parse", "HEAD"); head != advanced {
 		t.Fatalf("worktree head=%s want %s", head, advanced)
 	}
 }
@@ -128,10 +116,10 @@ func TestWorkBootstrapCaptureRefusesWhenRefreshFails(t *testing.T) {
 			t.Fatalf("%s holds %d rows after the refresh refusal", table.table, count)
 		}
 	}
-	if branches := runFreshnessGit(t, repo, "branch", "--format=%(refname:short)"); strings.Contains(branches, "work/") {
+	if branches := runTestGit(t, repo, "branch", "--format=%(refname:short)"); strings.Contains(branches, "work/") {
 		t.Fatalf("refresh refusal left a work branch behind: %q", branches)
 	}
-	if listing := runFreshnessGit(t, repo, "worktree", "list", "--porcelain"); strings.Count(listing, "\nworktree ")+boolToInt(strings.HasPrefix(listing, "worktree ")) != 1 {
+	if listing := runTestGit(t, repo, "worktree", "list", "--porcelain"); strings.Count(listing, "\nworktree ")+boolToInt(strings.HasPrefix(listing, "worktree ")) != 1 {
 		t.Fatalf("refresh refusal left a linked worktree behind:\n%s", listing)
 	}
 }
@@ -151,7 +139,7 @@ func TestWorkBootstrapCaptureExplicitRefPreflightsAndPinsBase(t *testing.T) {
 	repo, advanceDefault := initFreshnessOriginRepo(t)
 	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	pinned := runFreshnessGit(t, repo, "rev-parse", "HEAD")
+	pinned := runTestGit(t, repo, "rev-parse", "HEAD")
 	advanceDefault("origin moved past the pinned commit")
 	req := bootstrapStoreRequest()
 	req.Ref = pinned
@@ -243,13 +231,13 @@ func TestSampleWorktreeFreshnessReportsExactLagWithoutWorktreeChanges(t *testing
 	if freshness.DefaultRef != "origin/main" || freshness.DefaultSHA != third {
 		t.Fatalf("default ref=%q sha=%s want origin/main at %s", freshness.DefaultRef, freshness.DefaultSHA, third)
 	}
-	if head := runFreshnessGit(t, capture.Entry.Path, "rev-parse", "HEAD"); freshness.HeadSHA != head {
+	if head := runTestGit(t, capture.Entry.Path, "rev-parse", "HEAD"); freshness.HeadSHA != head {
 		t.Fatalf("sampled head=%s want the worktree HEAD %s", freshness.HeadSHA, head)
 	}
-	if status := runFreshnessGit(t, capture.Entry.Path, "status", "--porcelain"); status != "" {
+	if status := runTestGit(t, capture.Entry.Path, "status", "--porcelain"); status != "" {
 		t.Fatalf("freshness sampling dirtied the worktree: %q", status)
 	}
-	if tip := runFreshnessGit(t, repo, "rev-parse", "refs/heads/"+capture.Entry.Branch); tip != capture.Entry.BaseSHA || tip == second {
+	if tip := runTestGit(t, repo, "rev-parse", "refs/heads/"+capture.Entry.Branch); tip != capture.Entry.BaseSHA || tip == second {
 		t.Fatalf("branch tip=%s want the untouched base %s", tip, capture.Entry.BaseSHA)
 	}
 }
@@ -450,16 +438,16 @@ func TestCrossProjectCreationRunsExactlyOnePreflight(t *testing.T) {
 // the selected remote-tracking ref.
 func TestFreshnessPreflightLeavesConfiguredMappingsUnapplied(t *testing.T) {
 	repo, advanceDefault := initFreshnessOriginRepo(t)
-	parked := runFreshnessGit(t, repo, "rev-parse", "HEAD")
-	runFreshnessGit(t, repo, "branch", "parked", parked)
-	runFreshnessGit(t, repo, "config", "--add", "remote.origin.fetch", "+refs/heads/main:refs/heads/parked")
+	parked := runTestGit(t, repo, "rev-parse", "HEAD")
+	runTestGit(t, repo, "branch", "parked", parked)
+	runTestGit(t, repo, "config", "--add", "remote.origin.fetch", "+refs/heads/main:refs/heads/parked")
 	advanceDefault("advance origin")
 	preflight, err := startCreationPreflight(context.Background(), ExecGitRunner{}, repo)
 	preflight.close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if moved := runFreshnessGit(t, repo, "rev-parse", "refs/heads/parked"); moved != parked {
+	if moved := runTestGit(t, repo, "rev-parse", "refs/heads/parked"); moved != parked {
 		t.Fatalf("preflight moved local branch parked from %s to %s", parked, moved)
 	}
 }
@@ -470,11 +458,11 @@ func TestFreshnessPreflightLeavesConfiguredMappingsUnapplied(t *testing.T) {
 func TestFreshnessPreflightIgnoresSubmoduleOrigins(t *testing.T) {
 	repo, _ := initFreshnessOriginRepo(t)
 	subSource, _ := initFreshnessOriginRepo(t)
-	runFreshnessGit(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", subSource, "sub")
-	runFreshnessGit(t, repo, "commit", "-qm", "add submodule")
-	runFreshnessGit(t, repo, "push", "-q", "origin", "main")
-	runFreshnessGit(t, filepath.Join(repo, "sub"), "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing-sub-origin.git"))
-	runFreshnessGit(t, repo, "config", "fetch.recurseSubmodules", "true")
+	runTestGit(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", subSource, "sub")
+	runTestGit(t, repo, "commit", "-qm", "add submodule")
+	runTestGit(t, repo, "push", "-q", "origin", "main")
+	runTestGit(t, filepath.Join(repo, "sub"), "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing-sub-origin.git"))
+	runTestGit(t, repo, "config", "fetch.recurseSubmodules", "true")
 	preflight, err := startCreationPreflight(context.Background(), ExecGitRunner{}, repo)
 	preflight.close()
 	if err != nil {
@@ -487,18 +475,18 @@ func TestFreshnessPreflightIgnoresSubmoduleOrigins(t *testing.T) {
 // cannot prune the Project's local tags as a side effect.
 func TestFreshnessPreflightKeepsLocalTagsUnderConfiguredPrune(t *testing.T) {
 	repo, _ := initFreshnessOriginRepo(t)
-	runFreshnessGit(t, repo, "tag", "local-only")
-	runFreshnessGit(t, repo, "tag", "remote-only")
-	runFreshnessGit(t, repo, "push", "-q", "origin", "refs/tags/remote-only")
-	runFreshnessGit(t, repo, "tag", "-d", "remote-only")
-	runFreshnessGit(t, repo, "config", "fetch.prune", "true")
-	runFreshnessGit(t, repo, "config", "fetch.pruneTags", "true")
+	runTestGit(t, repo, "tag", "local-only")
+	runTestGit(t, repo, "tag", "remote-only")
+	runTestGit(t, repo, "push", "-q", "origin", "refs/tags/remote-only")
+	runTestGit(t, repo, "tag", "-d", "remote-only")
+	runTestGit(t, repo, "config", "fetch.prune", "true")
+	runTestGit(t, repo, "config", "fetch.pruneTags", "true")
 	preflight, err := startCreationPreflight(context.Background(), ExecGitRunner{}, repo)
 	preflight.close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tags := runFreshnessGit(t, repo, "tag", "--list"); tags != "local-only" {
+	if tags := runTestGit(t, repo, "tag", "--list"); tags != "local-only" {
 		t.Fatalf("preflight applied the configured prune: tags=%q want local-only", tags)
 	}
 }
@@ -589,7 +577,7 @@ func TestWorkBootstrapCaptureExplicitHEADStaysExactPin(t *testing.T) {
 	repo, advanceDefault := initFreshnessOriginRepo(t)
 	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	head := runFreshnessGit(t, repo, "rev-parse", "HEAD")
+	head := runTestGit(t, repo, "rev-parse", "HEAD")
 	advanceDefault("origin moved past explicit HEAD")
 	req := bootstrapStoreRequest()
 	req.Ref = "HEAD"
@@ -803,7 +791,7 @@ func TestCaptureCreationBaseProbeSharesPreflightDeadline(t *testing.T) {
 			t.Fatalf("%s holds %d rows after the probe refusal", table, count)
 		}
 	}
-	if listing := runFreshnessGit(t, repo, "worktree", "list", "--porcelain"); strings.Count(listing, "\nworktree ")+boolToInt(strings.HasPrefix(listing, "worktree ")) != 1 {
+	if listing := runTestGit(t, repo, "worktree", "list", "--porcelain"); strings.Count(listing, "\nworktree ")+boolToInt(strings.HasPrefix(listing, "worktree ")) != 1 {
 		t.Fatalf("the probe refusal left a linked worktree behind:\n%s", listing)
 	}
 }
@@ -849,7 +837,7 @@ func TestCrossProjectClaimBaseProbeSharesPreflightDeadline(t *testing.T) {
 	if claims != 0 {
 		t.Fatalf("the refused cross-Project claim left %d claim rows", claims)
 	}
-	if branches := runFreshnessGit(t, repoB, "branch", "--format=%(refname:short)"); strings.Contains(branches, "work/") {
+	if branches := runTestGit(t, repoB, "branch", "--format=%(refname:short)"); strings.Contains(branches, "work/") {
 		t.Fatalf("the refused cross-Project claim left a branch behind: %q", branches)
 	}
 }
@@ -859,13 +847,13 @@ func TestCrossProjectClaimBaseProbeSharesPreflightDeadline(t *testing.T) {
 // remote-tracking update only, and the parked branch keeps its tip.
 func TestFreshnessPreflightNeverMovesLocalTipThroughSymref(t *testing.T) {
 	repo, advanceDefault := initFreshnessOriginRepo(t)
-	before := runFreshnessGit(t, repo, "rev-parse", "HEAD")
-	runFreshnessGit(t, repo, "branch", "parked", before)
-	runFreshnessGit(t, repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/parked")
+	before := runTestGit(t, repo, "rev-parse", "HEAD")
+	runTestGit(t, repo, "branch", "parked", before)
+	runTestGit(t, repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/parked")
 	advanceDefault("remote advanced")
 	preflight, err := startCreationPreflight(context.Background(), ExecGitRunner{}, repo)
 	preflight.close()
-	after := runFreshnessGit(t, repo, "rev-parse", "refs/heads/parked")
+	after := runTestGit(t, repo, "rev-parse", "refs/heads/parked")
 	if after != before {
 		t.Fatalf("freshness moved local branch tip: before=%s after=%s refresh_error=%v", before, after, err)
 	}

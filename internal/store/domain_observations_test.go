@@ -21,7 +21,7 @@ func domainObservationFixture(t *testing.T) *Store {
 	return s
 }
 
-func foldDomainEvent(t *testing.T, s *Store, event Event) error {
+func foldTestEvent(t *testing.T, s *Store, event Event) error {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -60,7 +60,7 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "the scanner has no failure path", at)); err != nil {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "the scanner has no failure path", at)); err != nil {
 		t.Fatalf("record error = %v", err)
 	}
 	rows, err := observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
@@ -81,7 +81,7 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 		t.Fatalf("observations after rebuild = %+v", rows)
 	}
 	// A duplicate id is a projection conflict, not a silent overwrite.
-	err = foldDomainEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "second", at.Add(time.Second)))
+	err = foldTestEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "second", at.Add(time.Second)))
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate id error = %v", err)
 	}
@@ -91,13 +91,13 @@ func TestDomainObservationRefusesBadShapesAndUnknownDomain(t *testing.T) {
 	t.Parallel()
 	s := domainObservationFixture(t)
 	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(2), "obs-domain", strings.Repeat("x", 513), at)); err == nil || !strings.Contains(err.Error(), "bounded") {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(2), "obs-domain", strings.Repeat("x", 513), at)); err == nil || !strings.Contains(err.Error(), "bounded") {
 		t.Fatalf("oversized statement error = %v", err)
 	}
-	if err := foldDomainEvent(t, s, domainObservationEvent("obs:0000000000000003", "obs-domain", "wrong prefix", at)); err == nil || !strings.Contains(err.Error(), "dob:") {
+	if err := foldTestEvent(t, s, domainObservationEvent("obs:0000000000000003", "obs-domain", "wrong prefix", at)); err == nil || !strings.Contains(err.Error(), "dob:") {
 		t.Fatalf("work-anchored id error = %v", err)
 	}
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(4), "no-such-domain", "absent anchor", at)); err == nil || !strings.Contains(err.Error(), "Domain does not exist") {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(4), "no-such-domain", "absent anchor", at)); err == nil || !strings.Contains(err.Error(), "Domain does not exist") {
 		t.Fatalf("unknown Domain error = %v", err)
 	}
 }
@@ -109,11 +109,11 @@ func TestDomainObservationWindowRefusesWhenFullAndNeverEvicts(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	for i := 1; i <= DomainObservationOpenWindow; i++ {
-		if err := foldDomainEvent(t, s, domainObservationEvent(observationID(i), "obs-domain", fmt.Sprintf("observation %d", i), base.Add(time.Duration(i)*time.Second))); err != nil {
+		if err := foldTestEvent(t, s, domainObservationEvent(observationID(i), "obs-domain", fmt.Sprintf("observation %d", i), base.Add(time.Duration(i)*time.Second))); err != nil {
 			t.Fatalf("record %d error = %v", i, err)
 		}
 	}
-	overflow := foldDomainEvent(t, s, domainObservationEvent(observationID(999), "obs-domain", "one too many", base.Add(time.Hour)))
+	overflow := foldTestEvent(t, s, domainObservationEvent(observationID(999), "obs-domain", "one too many", base.Add(time.Hour)))
 	if overflow == nil {
 		t.Fatal("a full window must refuse")
 	}
@@ -155,11 +155,11 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	for i := 1; i <= DomainObservationOpenWindow; i++ {
-		if err := foldDomainEvent(t, s, domainObservationEvent(observationID(i), "obs-domain", fmt.Sprintf("observation %d", i), base.Add(time.Duration(i)*time.Second))); err != nil {
+		if err := foldTestEvent(t, s, domainObservationEvent(observationID(i), "obs-domain", fmt.Sprintf("observation %d", i), base.Add(time.Duration(i)*time.Second))); err != nil {
 			t.Fatalf("record %d error = %v", i, err)
 		}
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(1), base.Add(time.Hour))); err != nil {
+	if err := foldTestEvent(t, s, domainDismissEvent(observationID(1), base.Add(time.Hour))); err != nil {
 		t.Fatalf("dismiss error = %v", err)
 	}
 	var state, dismissedAt string
@@ -177,15 +177,15 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 		t.Fatalf("open observations = %d, want %d", len(rows), DomainObservationOpenWindow-1)
 	}
 	// Only open rows count against D2, so the freed slot admits a new one.
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(998), "obs-domain", "admitted after dismissal", base.Add(2*time.Hour))); err != nil {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(998), "obs-domain", "admitted after dismissal", base.Add(2*time.Hour))); err != nil {
 		t.Fatalf("record after dismissal error = %v", err)
 	}
 	// A second dismissal of the same row refuses rather than rewriting audit.
-	err = foldDomainEvent(t, s, domainDismissEvent(observationID(1), base.Add(3*time.Hour)))
+	err = foldTestEvent(t, s, domainDismissEvent(observationID(1), base.Add(3*time.Hour)))
 	if err == nil || !strings.Contains(err.Error(), "no open observation") {
 		t.Fatalf("repeat dismissal error = %v", err)
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(997), base.Add(4*time.Hour))); err == nil {
+	if err := foldTestEvent(t, s, domainDismissEvent(observationID(997), base.Add(4*time.Hour))); err == nil {
 		t.Fatal("dismissing an unrecorded observation must refuse")
 	}
 }
@@ -197,13 +197,13 @@ func TestDomainDetailCarriesOpenObservations(t *testing.T) {
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(11), "obs-domain", "kept", base)); err != nil {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(11), "obs-domain", "kept", base)); err != nil {
 		t.Fatal(err)
 	}
-	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(12), "obs-domain", "dismissed later", base.Add(time.Second))); err != nil {
+	if err := foldTestEvent(t, s, domainObservationEvent(observationID(12), "obs-domain", "dismissed later", base.Add(time.Second))); err != nil {
 		t.Fatal(err)
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(12), base.Add(time.Minute))); err != nil {
+	if err := foldTestEvent(t, s, domainDismissEvent(observationID(12), base.Add(time.Minute))); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := s.QueryDomainDetail(ctx, DomainDetailRequest{Product: "obs-product", Domain: "obs-domain"})

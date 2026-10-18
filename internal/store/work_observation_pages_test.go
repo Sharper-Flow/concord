@@ -49,7 +49,7 @@ func seedObservationCorpus(t *testing.T, s *Store, base time.Time) []observation
 			t.Fatal(err)
 		}
 		event := Event{EventID: fmt.Sprintf("%s-obs-%d", workID, i), Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "principal/agent", OccurredAt: at, PayloadVersion: 1, Payload: payload}
-		if err := recordObservation(t, s, event); err != nil {
+		if err := foldTestEvent(t, s, event); err != nil {
 			t.Fatalf("seed observation %d: %v", i, err)
 		}
 		entries = append(entries, observationCorpusEntry{ID: id, RecordedAt: at})

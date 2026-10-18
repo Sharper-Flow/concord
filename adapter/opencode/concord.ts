@@ -622,11 +622,12 @@ export async function readBoundWorkerDiff(request: WorkerDiffRequest, signal: Ab
 }
 
 async function readBoundWorkerPage(verb: "worker-read" | "worker-diff", request: WorkerReadingRequest | WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  const label = verb === "worker-diff" ? "diff" : "source"
   const leaseFault = hostLeaseFault()
-  if (leaseFault) throw new Error(`${leaseFault}; no source read ran`)
+  if (leaseFault) throw new Error(`${leaseFault}; no ${label} read ran`)
   const result = await runner.run([concordBinaryPath(), verb], JSON.stringify(request), signal, { cwd: directory })
-  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || "the core refused the pinned source read")
-  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error("pinned source page exceeded its transport bound")
+  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || `the core refused the pinned ${label} read`)
+  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error(`pinned ${label} page exceeded its transport bound`)
   return singleJSON(result.stdout)
 }
 

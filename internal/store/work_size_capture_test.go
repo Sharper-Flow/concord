@@ -215,18 +215,27 @@ func TestRecordWorkSizeRefusesAMovedKnowledgeCommit(t *testing.T) {
 }
 
 // A first creation that carries size_inputs never records unsized work:
-// without a size plan it refuses, retryable, and writes nothing.
+// without a size plan it refuses, retryable, and writes nothing. The seeded
+// Product and Project let the creation succeed, so only the guard refuses.
 func TestCreateBootstrapWorkRefusesSizeInputsWithoutAPlan(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
+	seedBootstrapStoreAuthority(t, s, initBootstrapStoreRepo(t))
 	req := bootstrapStoreRequest()
 	req.SizeInputs = workSizeCaptureFixture()
 	err := s.Transact(ctx, func(tx *Transaction) error {
 		return createBootstrapWorkTx(ctx, tx, req, "op-unplanned", "work-unplanned", nil, time.Unix(5, 0).UTC())
 	})
-	assertFailureKind(t, err, KindUnavailable)
 	if count := bootstrapWorkItems(t, s, "work-unplanned"); count != 0 {
-		t.Fatalf("an unplanned sized creation left %d work items", count)
+		t.Fatalf("an unplanned sized creation left %d unsized work items (err=%v)", count, err)
+	}
+	assertFailureKind(t, err, KindUnavailable)
+	var failure *Failure
+	if !errors.As(err, &failure) || !failure.RetrySafe {
+		t.Fatalf("refusal = %+v, want retry-safe", failure)
 	}
 }

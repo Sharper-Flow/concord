@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -15,6 +15,8 @@ const binary = process.env.OPENCODE_BIN ?? Bun.which("opencode")
 assert(binary, "the installed native host is required")
 const version = execFileSync(binary, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim()
 assert.equal(version, "1.18.35")
+const loopback = Object.values(networkInterfaces()).flat().find(address => address?.internal && address.family === "IPv4")?.address
+assert(loopback, "the native fixture requires an IPv4 loopback interface")
 const { testProviderConfig } = await import(pathToFileURL(join(source, "packages/opencode/test/lib/test-provider.ts")).href)
 const scratch = mkdtempSync(join(tmpdir(), "concord-native-start-"))
 const origin = join(scratch, "main")
@@ -80,7 +82,7 @@ export default async input => {
 `)
 
 let sequence = 0
-const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(incoming) {
+const provider = Bun.serve({ hostname: loopback, port: 0, async fetch(incoming) {
   const body = await incoming.json() as { messages: Array<{ role: string; content?: unknown }> }
   const last = body.messages.at(-1)
   let delta: Record<string, unknown> = { content: "Waiting for the native continuation." }
@@ -111,7 +113,7 @@ try {
   git(["init", "--quiet", "--initial-branch=main"])
   git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "fixture"])
   git(["worktree", "add", "--quiet", "--detach", target])
-  host = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", "0"], { cwd: origin, env, stdout: "pipe", stderr: "pipe", stdin: "ignore" })
+  host = Bun.spawn([binary, "serve", "--hostname", loopback, "--port", "0"], { cwd: origin, env, stdout: "pipe", stderr: "pipe", stdin: "ignore" })
   const server = host
   const ready = new Promise<string>((resolve, reject) => {
     void (async () => {

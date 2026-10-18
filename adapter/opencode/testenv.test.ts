@@ -171,6 +171,8 @@ test("the cache query keeps startup HOME and receives armed telemetry", () => {
     Object.assign(env, {
       TMPDIR: runTmp,
       HOME: startupHome,
+      // Bun can cache imported sources before the preload isolates HOME.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       TEST_TELEMETRY_DIR: poisonedTelemetry,
       TEST_EXPECTED_STARTUP_HOME: startupHome,
       TEST_EXPECTED_STARTUP_TELEMETRY: poisonedTelemetry,

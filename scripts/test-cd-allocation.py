@@ -58,13 +58,16 @@ class RepoFixture(unittest.TestCase):
         self.tempdir.cleanup()
 
     def write_manifest(
-        self, identifiers: list[str], paths: dict[str, str] | None = None
+        self,
+        identifiers: list[str],
+        paths: dict[str, str] | None = None,
+        fields: dict[str, dict[str, str]] | None = None,
     ) -> None:
         shard_dir = self.root / ".concord/docs/knowledge/records"
         for stale in shard_dir.glob("*.json"):
             stale.unlink()
         for identifier in identifiers:
-            record = {"id": identifier}
+            record = {"id": identifier, **((fields or {}).get(identifier, {}))}
             if paths is not None and identifier in paths:
                 record["path"] = paths[identifier]
             (shard_dir / f"{identifier}.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
@@ -118,6 +121,27 @@ class CDAllocationTests(RepoFixture):
         self.assertIn("removed-records", findings[0])
         self.assertIn("CD-0002", findings[0])
         self.assertIn("explicit superseding record", findings[0])
+
+    def test_superseded_record_with_a_kept_successor_may_be_removed(self) -> None:
+        superseded = {"CD-0002": {"status": "superseded", "successor": "CD-0003"}}
+        self.write_manifest(["CD-0001", "CD-0002", "CD-0003"], fields=superseded)
+        self.commit("supersede the second record")
+        self.write_manifest(["CD-0001", "CD-0003"])
+
+        self.assertEqual(checker.check(root=self.root, against="main", no_fetch=True), [])
+
+    def test_superseded_record_removed_with_its_successor_is_reported(self) -> None:
+        superseded = {"CD-0002": {"status": "superseded", "successor": "CD-0003"}}
+        self.write_manifest(["CD-0001", "CD-0002", "CD-0003"], fields=superseded)
+        self.commit("supersede the second record")
+        self.write_manifest(["CD-0001"])
+
+        findings = checker.check(root=self.root, against="main", no_fetch=True)
+
+        self.assertEqual([finding.split(" was ")[0] for finding in findings], [
+            "removed-records: comparison manifest: CD id CD-0002",
+            "removed-records: comparison manifest: CD id CD-0003",
+        ])
 
     def test_missing_ref_in_offline_mode_fails(self) -> None:
         findings = checker.check(root=self.root, against="missing", no_fetch=True)

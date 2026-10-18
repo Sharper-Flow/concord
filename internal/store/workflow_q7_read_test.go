@@ -146,4 +146,16 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	if stale == nil || stale.OldLawID != "spec:one" || stale.AcceptedSuccessorLawID != "spec:next" || stale.AcceptedSuccessorContentHash != successorHash {
 		t.Fatalf("Q7 stale law revision = %+v, want spec:one superseded by spec:next at %s", stale, successorHash)
 	}
+	// The stale-law check belongs to the active contract: a selected
+	// contract version, even the active one, omits it.
+	if out.Result.Workflow.Contract == nil {
+		t.Fatal("Q7 omitted the active contract")
+	}
+	selected, err := s.QueryQ7(ctx, Q7Request{Work: workID, ContractVersion: out.Result.Workflow.Contract.Version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Result == nil || selected.Result.Workflow == nil || selected.Result.Workflow.Contract == nil || selected.Result.Workflow.StaleLawRevision != nil {
+		t.Fatalf("selected Q7 workflow = %+v, want the contract without a stale law revision", selected.Result)
+	}
 }

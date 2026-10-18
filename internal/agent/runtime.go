@@ -225,11 +225,12 @@ type researchReadInput struct {
 }
 
 type historyInput struct {
-	WorkID     string    `json:"work_id"`
-	Direction  string    `json:"direction"`
-	EventKinds []string  `json:"event_kinds"`
-	Page       pageInput `json:"page"`
-	Limit      int       `json:"limit,omitempty"`
+	WorkID          string    `json:"work_id"`
+	Direction       string    `json:"direction"`
+	EventKinds      []string  `json:"event_kinds"`
+	ContractVersion int64     `json:"contract_version,omitempty"`
+	Page            pageInput `json:"page"`
+	Limit           int       `json:"limit,omitempty"`
 }
 type observationReadInput struct {
 	WorkID string    `json:"work_id"`
@@ -261,6 +262,13 @@ type workIDInput struct {
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`
 	DomainID  string    `json:"domain_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
+}
+type domainFootprintInput struct {
+	ProductID string    `json:"product_id"`
+	Paths     []string  `json:"paths,omitempty"`
+	Behavior  string    `json:"behavior,omitempty"`
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
 }
@@ -1254,6 +1262,8 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readKnowledgeResolveNote(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
+	case "concord_domain.footprint":
+		return r.readDomainFootprint(ctx, base, input)
 	default:
 		return base, errors.New("unsupported read operation")
 	}
@@ -1646,6 +1656,12 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		}
 		if e.Reason != "" {
 			event["reason"] = e.Reason
+		}
+		if e.ContractVersion != nil {
+			event["contract_version"] = *e.ContractVersion
+		}
+		if e.PreviousContractVersion != nil {
+			event["previous_contract_version"] = *e.PreviousContractVersion
 		}
 		events = append(events, event)
 	}

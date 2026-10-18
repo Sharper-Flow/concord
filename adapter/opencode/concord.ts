@@ -1156,7 +1156,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings]), context)
 }
 
-// CD-0017 D4, extended by CD-0196: a dispatched worker lane runs under a
+// CD-0017 D4, extended by CD-0223: a dispatched worker lane runs under a
 // managed parent and holds no Concord tool access — the dispatch packet is
 // its complete Concord context. The guard consults the host parent boundary,
 // which does not trust the selected agent or its prompt, and refuses before
@@ -1170,7 +1170,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
 // passes unchanged. A caller-cancelled signal is not a scope answer: the
 // boundary stands down for it, so the transport keeps the typed cancelled
 // envelope and the reconciliation retry paths stay reachable.
-const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0196): the dispatch packet is the lane's complete Concord context"
+const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0223): the dispatch packet is the lane's complete Concord context"
 async function laneConcordRefusalReason(context: ToolContext): Promise<string | null> {
   if (context.abort.aborted) return null
   // Without a bound control plane the parent boundary cannot answer, so the

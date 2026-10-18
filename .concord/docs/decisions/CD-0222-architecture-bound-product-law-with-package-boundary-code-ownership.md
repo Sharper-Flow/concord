@@ -7,10 +7,8 @@
   retirement, registry participation, and code-ownership guidance.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
-- **Supersedes:** [CD-0041](CD-0041-architecture-bound-product-law.md) and
-  [CD-0214](CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md).
-- **Related:** [CD-0158](CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md)
-  (superseded chain), [CD-0060](CD-0060-domain-registry-enactment.md),
+- **Supersedes:** [CD-0041](CD-0041-architecture-bound-product-law.md).
+- **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
   [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md).

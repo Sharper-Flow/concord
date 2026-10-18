@@ -174,7 +174,7 @@ Copied historical status on membership edges is rejected because terminal state 
 
 This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative replay source.
 Deployment must follow CD-0036: enumerate active PM7 consumers, then recover to this successor or cancel or supersede their work.
-The same obligation applies to CD-0009, CD-0025, and CD-0066 through their successors.
+The same obligation applies to CD-0009 through its successor.
 This offline edit provides no live consumer enumeration or completed re-contracting evidence.
 
 Reconsider this policy if retained events drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.

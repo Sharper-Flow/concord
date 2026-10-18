@@ -111,7 +111,7 @@ re-litigate them silently.
   **Product → Domain**. Workflows and changes are architecture-bound history from
   the Domain view, not the
   top-level browse path.
-- **Consumer boundary:** CD-0214 keeps repository navigation and exact
+- **Consumer boundary:** CD-0222 keeps repository navigation and exact
   Domain-detail reads. The graph grants no execution authority or behavioral
   proof. The launcher display subject is vacated under CD-0219.
 - **Why:** enforces locality of behavior (P04) and makes architecture, law, and
@@ -143,10 +143,10 @@ re-litigate them silently.
 
 ### R7. episode is removed; lesson owns the knowledge ladder
 
-- **Decision (2026-09-03):** CD-0106 supersedes CD-0086 in full. Concord does
+- **Decision (2026-09-03):** CD-0106 governs. Concord does
   not integrate, configure, or promote from episode. The tool count falls by
   one.
-- **Ladder:** an observation (CD-0030, CD-0068) holds an unproven notice. A
+- **Ladder:** an observation (CD-0030) holds an unproven notice. A
   `lesson` (CD-0026) holds a proven Product-scoped learning, published at work
   completion. A `decision` or `spec` holds accepted law. No new kind, store, or
   global home is added. A procedure that applies to every Product belongs to
@@ -281,7 +281,7 @@ re-litigate them silently.
 - **Surviving owners:** CD-0108 D4 keeps the store-write-free managed-entry
   boundary; CD-0031's core-derived packet reaches sessions through work-start
   preparation and the per-turn hook. The store query contracts retain their
-  bounded reads. CD-0214 keeps repository navigation and exact Domain-detail
+  bounded reads. CD-0222 keeps repository navigation and exact Domain-detail
   reads without a launcher display consumer.
 - **Coverage:** The launcher-rendered floor items are `out_of_scope` in
   [`floor-readiness.v1.json`](./floor-readiness.v1.json).

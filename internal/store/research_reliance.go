@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CD-0025: research reliance is declared at the workflow boundary where a
+// CD-0216: research reliance is declared at the workflow boundary where a
 // consumer starts relying on a pack, and the engine proves it inside the same
 // transaction as the action. CD-0009 D6's consequential-boundary query is this
 // check, not a PM4 blocker and never a heuristic.

@@ -14,12 +14,6 @@
   "home_domain_id": "product-memory",
   "id": "CD-0217",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "supersedes",
-      "target_id": "CD-0066"
-    }
-  ],
   "path": ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md",
   "scopes": {
     "domain_ids": [],
@@ -28,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:abeceff52fbbda182f87c3f565e986c5a7a16dbe2d4b37d6821ec006e44cdc49",
+  "sha256": "sha256:9ef93f4619c20350ac6cd7bb951b24768f3d4f9718a1203967d8f300a6b7df6f",
   "status": "accepted",
   "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
   "tags": [

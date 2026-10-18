@@ -2412,7 +2412,7 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
 AGENT_CUSTOMIZATION_GUIDANCE = (
     "; keep model defaults in global OpenCode config, project agent settings in "
     ".opencode/opencode.json[c], and extra instructions "
-    "to user-owned files listed in instructions[]; restore the shipped agent before retrying"
+    "in user-owned files listed in instructions[]; restore the shipped agent before retrying"
 )
 
 

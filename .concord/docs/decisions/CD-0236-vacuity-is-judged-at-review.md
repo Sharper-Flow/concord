@@ -66,12 +66,13 @@ not caught mechanically.
 
 ## Verification
 
-- `internal/store.TestApprovalDecisionIgnoresGroundTruthLabels` states both
+- `internal/store.TestApprovalDecisionIgnoresGroundTruthLabels` proves both
   witnesses. On a current `workflow.implementation` pin, the action schema
   refuses a `ground_truth` member in an outcome payload and in the action
   payload. On a pin older than the payload schema (`workflow.implementation`
-  v2), `approve_contract` decides an `exists` or `absent` predicate carrying a
-  `-present` or `-absent` label the same way as the same request without one.
+  v2), `approve_contract` decides a request whose action payload carries a
+  `-present` or `-absent` label beside an `exists` or `absent` predicate the
+  same way as the same request without one.
 - `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`
   runs the corpus with no vacuity scenario and with numbers 3 and 52 retired;
   `WF02-planning-requires-outcome` keeps the Omission refusal.

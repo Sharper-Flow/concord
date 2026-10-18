@@ -122,6 +122,9 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 		}
 		unlabelled := approveWithGroundTruthLabel(t, s, historical, "work-vacuity-v2-unlabelled-"+tc.kind, tc.kind, "", false)
 		withLabel := approveWithGroundTruthLabel(t, s, historical, "work-vacuity-v2-labelled-"+tc.kind, tc.kind, tc.label, false)
+		if unlabelled != nil {
+			t.Fatalf("v2 approve_contract without a label = %v, want it admitted", unlabelled)
+		}
 		if failureKindOf(withLabel) != failureKindOf(unlabelled) {
 			t.Errorf("v2 approve_contract decided a %s predicate differently on label %q: labelled = %v, unlabelled = %v", tc.kind, tc.label, withLabel, unlabelled)
 		}

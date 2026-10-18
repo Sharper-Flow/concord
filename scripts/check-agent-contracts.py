@@ -564,7 +564,8 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        # Numbers run 1..57; a retired number is never reused.
+        # Numbers run 1..57; a retired number is never reused. 3 and 52 were
+        # retired with CD-0236.
         retired_numbers = {3, 52}
         expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
         if len(scenarios) != len(expected_numbers):
@@ -574,7 +575,7 @@ def check_workflow_contracts() -> list[str]:
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
             findings.append(".concord/scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
         if numbers != expected_numbers:
-            findings.append(".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57 without the retired 3 and 52")
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57 without the retired {sorted(retired_numbers)}")
         for item in scenarios:
             number = item.get("scenario_number")
             if not isinstance(number, int) or not str(item.get("id", "")).startswith(f"WF{number:02d}-"):

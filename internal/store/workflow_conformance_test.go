@@ -437,10 +437,8 @@ func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
 			t.Fatalf("scenario %q carries number %d, which is not a live WF number matching its ID", scenario.ID, scenario.Number)
 		}
 	}
-	for _, id := range want {
-		if !seen[id] {
-			t.Fatalf("canonical scenario %q is missing from corpus", id)
-		}
+	if len(want) != len(corpus.Scenarios) {
+		t.Fatalf("corpus carries %d scenarios, want the %d canonical IDs", len(corpus.Scenarios), len(want))
 	}
 	for index, scenario := range corpus.Scenarios {
 		if scenario.ID != want[index] {
@@ -720,6 +718,8 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 // a scenario ID keeps its number for the life of the corpus.
 const workflowScenarioNumberCeiling = 57
 
+// WF03 and WF52 asserted the label-only vacuity refusal and were retired with
+// CD-0236.
 var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 52: true}
 
 func workflowScenarioIDs() []string {

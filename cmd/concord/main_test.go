@@ -157,34 +157,6 @@ func durableCounts(t *testing.T, s *store.Store) map[string]int {
 	return counts
 }
 
-// eventLogState serializes every column of every event in log order. It reads
-// the raw handle outside any transaction, so it never contends with the store's
-// single pooled connection.
-func eventLogState(t *testing.T, s *store.Store) string {
-	t.Helper()
-	rows, err := s.DatabaseForTesting().QueryContext(context.Background(),
-		`SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
-	if err != nil {
-		t.Fatalf("read event log: %v", err)
-	}
-	defer rows.Close()
-	var log strings.Builder
-	for rows.Next() {
-		var seq int64
-		var payloadVersion int
-		var eventID, kind, subjectType, subjectID, actor, occurredAt, payload string
-		if err := rows.Scan(&seq, &eventID, &kind, &subjectType, &subjectID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
-			t.Fatalf("scan event log: %v", err)
-		}
-		fmt.Fprintf(&log, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
-			seq, eventID, kind, subjectType, subjectID, actor, occurredAt, payloadVersion, payload)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate event log: %v", err)
-	}
-	return log.String()
-}
-
 func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--help"}, &out, &errOut); code != 0 {

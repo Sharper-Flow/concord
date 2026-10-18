@@ -1371,8 +1371,8 @@ func TestCiWaitPRExpectedHeadTimeoutCarriesNoReplacedMergeState(t *testing.T) {
 	state.DeadlineAt = time.Now().Add(-time.Minute)
 	ciWaitSaveState(state, statePath)
 	code, report := runCiWaitStdin(t, request)
-	if code != 1 || report.Status != "timeout" || report.SHA != pushed || report.HeadSHA != "" || report.MergeState != "" {
-		t.Fatalf("a timeout before the pull request reaches the pushed commit must carry no replaced-head merge state, got code=%d report=%+v", code, report)
+	if code != 1 || report.Status != "timeout" || report.SHA != pushed || report.HeadSHA != "" || report.MergeState != "" || !strings.Contains(report.Reason, "reached the expected head") {
+		t.Fatalf("a timeout before the pull request reaches the pushed commit must say so and carry no replaced-head merge state, got code=%d report=%+v", code, report)
 	}
 }
 

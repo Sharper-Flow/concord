@@ -668,10 +668,13 @@ test("a pushed head_sha is validated, reaches every verb slice, and keys its own
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCoreBinary("/synthetic/concord")
-  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
   const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
   const calls: string[] = []
   configureCiWatch({
+    stateDir: STATE_DIR,
+    confirmPollMs: 2,
+    confirmWindowMs: 20,
+    idlePollMs: 2,
     spawner: async (_argv, stdin) => {
       calls.push(stdin)
       return held.promise
@@ -1846,6 +1849,29 @@ test("success reports without a usable sha project unavailable evidence, never e
   const malformedObservation = receiptFor(snapshot, String(malformed.watch_id))!.terminal_observation as Record<string, any>
   expect(malformedObservation.evidence).toBe("unavailable")
   expect(malformedObservation.evidence).not.toBe("exact_head")
+})
+
+test("a pr watch that names head_sha projects exact_head only for a report about that commit", async () => {
+  const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+  const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: pushed, head_sha: pushed, iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: replaced, head_sha: replaced, iterations: 1 }) },
+  ])
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40, spawner })
+  const named = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "12" }, head_sha: pushed })
+  const other = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "13" }, head_sha: pushed })
+  await ciWatchSettled(String(named.watch_id))
+  await ciWatchSettled(String(other.watch_id))
+  const snapshot = ciWatchSnapshot(SESSION)
+  expect((receiptFor(snapshot, String(named.watch_id))!.terminal_observation as Record<string, any>).evidence).toBe("exact_head")
+  const mismatched = receiptFor(snapshot, String(other.watch_id))!.terminal_observation as Record<string, any>
+  expect(mismatched.evidence).toBe("unavailable")
+  expect(mismatched.gaps).toContain("subject_mismatch")
 })
 
 test("an adapter-generated error keeps unavailable terminal evidence separate from the earlier observation", async () => {

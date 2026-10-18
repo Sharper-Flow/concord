@@ -402,7 +402,6 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	if err := ciWaitDecode(headBody, &head); err != nil {
 		return ciWaitReport{}, false, err
 	}
-	state.LastMergeState = head.MergeStateStatus
 	if head.HeadRefOid == "" {
 		return ciWaitReport{}, false, fmt.Errorf("gh pr view returned no head SHA")
 	}
@@ -410,7 +409,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	// the pull request head reaches it, the observed head is the one the
 	// push replaces, so its checks and merge state are no verdict. A pull
 	// request merged or closed at another head never reaches the commit.
-	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" && !strings.EqualFold(head.HeadRefOid, state.ExpectedHeadSHA) {
+	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" && head.HeadRefOid != state.ExpectedHeadSHA {
 		report := ciWaitReport{
 			Status:     "pending",
 			Reason:     "the pull request head is not the expected head yet",
@@ -426,6 +425,9 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		}
 		return report, false, nil
 	}
+	// Only the watched commit's merge state reaches a later stall, error, or
+	// timeout report.
+	state.LastMergeState = head.MergeStateStatus
 	// Head-SHA policy: the wait watches one commit. A pushed correction means
 	// the checks now observed belong to a different subject than the one the
 	// caller asked about, so the wait stops with superseded instead of
@@ -1208,6 +1210,9 @@ func ciWaitFinishTimeout(state *ciWaitState, out io.Writer) int {
 		SHA:        state.LastSHA,
 		HeadSHA:    state.HeadSHA,
 		MergeState: state.LastMergeState,
+	}
+	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" {
+		report.Reason = "the wall-time deadline expired before the pull request head reached the expected head"
 	}
 	return ciWaitEmit(out, report, 1)
 }

@@ -130,19 +130,19 @@ own registrations are added or removed from a shared configuration file.
 The host's native merge rules determine the effective agent. Global JSON agent
 settings supply fields omitted by the shipped definition, such as model routing.
 The markdown body replaces a same-name global JSON prompt, and its permission
-rules can override global permission settings. Machine-wide overrides live in
-`opencode.json[c]` in a distinct host-owned directory selected through
-`OPENCODE_CONFIG_DIR`. The host loads that directory after the generated
-markdown and project configuration, so a release that adds a competing model,
-tool setting, or permission cannot replace the user's same-key machine override.
-The host launcher supplies that setting on every session that needs the layer;
-the directory contains configuration and instructions, not copied agent definitions.
+rules can override global permission settings. Machine-wide agent overrides
+live in the host's home-level `~/.opencode/opencode.json[c]`, which the host loads
+after the generated markdown and project configuration. A release that adds a
+competing model, tool setting, or permission value cannot replace the user's
+same-key machine value. That file holds agent settings only; extra instructions
+stay in files listed in the global configuration's `instructions[]`, and no
+agent markdown is copied into the home-level directory.
 
 Project `.opencode/opencode.json[c]` agent settings provide a project-only layer
 after the global definitions and before the machine overrides. `instructions[]`
 composes user instruction files alongside the shipped prompt rather than
 replacing it. Concord adds no separate overlay store or merge algorithm, and
-never writes or removes the machine override directory.
+never writes or removes anything under `~/.opencode/`.
 
 The installer never adopts, rewrites, or prunes an unmanaged agent file. If a
 release introduces a name already used by a host-owned file, installation

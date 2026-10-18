@@ -2828,17 +2828,15 @@ esac''',
         self.config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         global_bytes = self.config.read_bytes()
 
-        machine_dir = self.root / "machine-opencode"
-        machine_dir.mkdir()
-        machine_instructions = machine_dir / "instructions.md"
-        machine_instructions.write_text("Machine instruction sentinel.\n", encoding="utf-8")
+        machine_dir = self.root / "home" / ".opencode"
+        machine_dir.mkdir(parents=True)
         machine_agent = {
             "model": "openai/machine-model",
             "tools": {"read": False},
             "permission": {"read": "deny", "bash": {"git status *": "deny", "custom-command *": "allow"}},
         }
         machine_config = machine_dir / "opencode.jsonc"
-        machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}, "instructions": [str(machine_instructions)]}, indent=2) + "\n", encoding="utf-8")
+        machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}}, indent=2) + "\n", encoding="utf-8")
         machine_bytes = machine_config.read_bytes()
 
         project = self.root / "consumer"
@@ -2858,7 +2856,6 @@ esac''',
             self.assertEqual(installer.jsonc_data(project_config.read_text(encoding="utf-8"))["agent"]["concord-explore"], project_agent)
             self.assertEqual(host_agent.read_bytes(), host_bytes)
             self.assertEqual(machine_config.read_bytes(), machine_bytes)
-            self.assertEqual(machine_instructions.read_text(encoding="utf-8"), "Machine instruction sentinel.\n")
             binary = os.environ.get("CONCORD_INSTALLER_HOST_PROBE")
             if not binary:
                 return
@@ -2874,7 +2871,7 @@ esac''',
             }), encoding="utf-8")
             # Whitelist the environment: no live host config, plugins, account,
             # or inherited OPENCODE_* variables can affect the resolved agent.
-            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home"), "OPENCODE_CONFIG_DIR": str(machine_dir)}
+            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home")}
             host_env.update({f"XDG_{key}_HOME": str(self.root / directory) for key, directory in (
                 ("CONFIG", "probe-config"), ("DATA", "probe-data"), ("CACHE", "probe-cache"), ("STATE", "probe-state"),
             )})
@@ -2892,7 +2889,6 @@ esac''',
                     self.assertIn("# concord-explore", value["prompt"])
                 else:
                     self.assertIn(str(instructions), value["instructions"])
-                    self.assertIn(str(machine_instructions), value["instructions"])
 
         assert_user_layers()
         linked = self.run_installer("link", "--project", str(project))
@@ -2922,7 +2918,6 @@ esac''',
         self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
         self.assertEqual(host_agent.read_bytes(), host_bytes)
         self.assertEqual(machine_config.read_bytes(), machine_bytes)
-        self.assertEqual(machine_instructions.read_text(encoding="utf-8"), "Machine instruction sentinel.\n")
         self.assertFalse(target.exists())
 
     def test_agent_files_equal_every_generated_definition(self) -> None:
@@ -3412,7 +3407,7 @@ esac''',
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
         self.assertIn("instructions[]", again.stderr)
         self.assertIn(".opencode/opencode.json", again.stderr)
-        self.assertIn("OPENCODE_CONFIG_DIR", again.stderr)
+        self.assertIn("~/.opencode/opencode.json", again.stderr)
 
 
     def test_install_without_version_picks_highest_artifact_dir_release(self) -> None:

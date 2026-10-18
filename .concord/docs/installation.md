@@ -128,9 +128,9 @@ repair rather than losing your edits. Other agent files in that directory stay
 host-owned. If a new release ships a name you already use for a host-authored
 agent, installation refuses; it does not merge, adopt, or delete your file.
 
-Keep machine-wide model choices, tool settings, permissions, and instructions
-in a separate host-owned directory, for example `$HOME/.config/opencode-machine/`.
-Put the overrides in that directory's `opencode.jsonc`:
+Keep machine-wide agent overrides in `~/.opencode/opencode.jsonc` (or an
+existing `~/.opencode/opencode.json`), and extra instructions in a separate file
+listed in your global `opencode.jsonc`:
 
 ```json
 {
@@ -146,30 +146,28 @@ Put the overrides in that directory's `opencode.jsonc`:
         }
       }
     }
-  },
+  }
+}
+```
+
+```json
+{
   "instructions": ["~/my-agent-instructions.md"]
 }
 ```
 
-Select that directory when starting OpenCode, or set the same environment
-variable in your host launcher:
+OpenCode loads `~/.opencode/opencode.jsonc` after Concord's generated agents and
+after project configuration, with no launcher setting. A same-key value there
+replaces a release's model, tool key, or permission value, so an upgrade that
+adds a competing default does not change your choice. A replaced permission
+key keeps the shipped key's position, and OpenCode applies the last matching
+rule, so a later shipped pattern that also matches still wins; check the result
+as shown below. Move existing machine-specific `agent.<name>` keys from the
+global JSON to this file when they must override shipped settings.
 
-```sh
-OPENCODE_CONFIG_DIR="$HOME/.config/opencode-machine" opencode
-```
-
-Use a directory distinct from the normal global OpenCode config root. OpenCode
-still loads its normal config and Concord's generated agents, then loads this
-additional directory's JSON after the global markdown and project configuration.
-Machine overrides therefore win even when a new release adds the same model,
-tool key, or permission. Do not copy agent markdown into the override directory;
-that would load after its JSON and reintroduce the collision.
-
-Move existing machine-specific `agent.<name>` keys from the normal global JSON
-to this file when you need them to override shipped settings. Leave Concord's
-plugin and skills registrations in the normal config. Concord never writes,
-prunes, or unregisters the machine directory. If your launcher omits
-`OPENCODE_CONFIG_DIR`, its overrides do not load.
+Keep only `agent` settings in that file. Do not put agent markdown in
+`~/.opencode/agents/`: it loads after the shipped definition and replaces it.
+Concord never writes or removes anything under `~/.opencode/`.
 
 OpenCode loads the listed instructions for every agent, alongside its agent
 prompt. Use an instruction such as “For concord-explore, …” when a rule applies
@@ -184,8 +182,8 @@ assume a global permission addition overrides a shipped deny.
 
 For project-specific settings, add an `agent` entry to the project's
 `.opencode/opencode.jsonc` (or its existing `.opencode/opencode.json`), which
-loads after the global agent definition but before the machine override
-directory. Machine policy can therefore constrain project settings too.
+loads after the global agent definition and before `~/.opencode/opencode.jsonc`.
+Machine settings therefore also win over project settings for the same key.
 
 Do not duplicate the agent markdown to customize it. Linking, upgrading,
 repairing, unlinking, and uninstalling preserve these user keys. Host permission

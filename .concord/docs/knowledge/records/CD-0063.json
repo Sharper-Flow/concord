@@ -20,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ecc64cfce8d5d218f20ff45bbb26bee1bea31fcb69ee5c993b74013f063f7237",
+  "sha256": "sha256:cc0809180c0073323590167920697149b734f66636cd3d75a2fd34e49dac9d94",
   "status": "accepted",
-  "summary": "Concord installs its agent definitions, skills, and an authored tool-agnostic conduct corpus once under the versioned data root, and a consuming project holds a pointer rather than a copy. The always-on instruction surface is registered per project so non-Concord projects receive nothing, while agents live in the central OpenCode agents directory because no per-project pointer exists and an agent is inert until invoked. Installer ownership covers manifest-listed files and Concord registrations, never user agent configuration, instruction files, or unmanaged agents. Machine overrides live in a distinct host-owned OPENCODE_CONFIG_DIR loaded after generated markdown and project settings; native instruction lists compose extra user instruction. skills/ stays reserved so CD-0043 D3 is preserved, methodology stays host-owned under CD-0043 D1, and a loaded corpus file binds by content hash in the CD-0034 provenance manifest.",
+  "summary": "Concord installs its agent definitions, skills, and an authored tool-agnostic conduct corpus once under the versioned data root, and a consuming project holds a pointer rather than a copy. The always-on instruction surface is registered per project so non-Concord projects receive nothing, while agents live in the central OpenCode agents directory because no per-project pointer exists and an agent is inert until invoked. Installer ownership covers manifest-listed files and Concord registrations, never user agent configuration, instruction files, or unmanaged agents. Machine agent overrides live in the host's home-level ~/.opencode/opencode.json[c], loaded after generated markdown and project settings; native instruction lists compose extra user instruction. skills/ stays reserved so CD-0043 D3 is preserved, methodology stays host-owned under CD-0043 D1, and a loaded corpus file binds by content hash in the CD-0034 provenance manifest.",
   "tags": [
     "conduct",
     "prompt-authority",

@@ -794,7 +794,8 @@ class AdapterHostPinTests(unittest.TestCase):
             "typescript": "5.9.3",
             "compiler_options": {
                 "target": "es2022", "module": "esnext", "moduleResolution": "bundler",
-                "lib": ["es2022"], "types": ["runtime-types"], "strict": True, "noEmit": True,
+                "lib": ["es2022"], "types": ["runtime-types"], "strict": True,
+                "noUnusedLocals": True, "noUnusedParameters": True, "noEmit": True,
                 "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
                 "allowJs": True,
             },
@@ -859,6 +860,13 @@ class AdapterHostPinTests(unittest.TestCase):
         def mutate(value):
             value["compiler_options"]["strict"] = False
         self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_unused_code_checks_cannot_be_disabled(self):
+        for option in ("noUnusedLocals", "noUnusedParameters"):
+            with self.subTest(option=option):
+                def mutate(value, option=option):
+                    value["compiler_options"][option] = False
+                self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
 
     def test_allowance_states_match_the_contract_vocabulary(self):
         declared = set(self.schema["properties"]["allowances"]["items"]["properties"]["state"]["enum"])

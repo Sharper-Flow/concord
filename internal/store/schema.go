@@ -6395,7 +6395,40 @@ CREATE TRIGGER work_size_assessments_guard_delete BEFORE DELETE ON work_size_ass
 `,
 	},
 	{
-		Version:  132,
+		Version: 132,
+		Name:    "work_size_overrides_and_resize_lineage",
+		SQL: `
+-- CD-0229 D6: the operator's size, kept beside the model decision it was
+-- recorded against. One row per work item; a later override replaces it.
+-- Fold-only; the work.size_overridden fold owns every write.
+CREATE TABLE work_size_overrides (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    model_sequence INTEGER NOT NULL CHECK(typeof(model_sequence)='integer' AND model_sequence >= 1),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY(work_id, model_sequence) REFERENCES work_size_assessments(work_id, sequence) ON DELETE RESTRICT
+);
+CREATE TRIGGER work_size_overrides_guard_insert BEFORE INSERT ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_overrides_guard_update BEFORE UPDATE ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_overrides_guard_delete BEFORE DELETE ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+-- CD-0229 D6: each resize successor and the lineage root it descends from.
+-- Fold-only; the work.resized fold owns every write.
+CREATE TABLE work_resize_lineage (
+    predecessor_work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    successor_work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id) ON DELETE RESTRICT,
+    event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    root_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    root_define_start_event_id TEXT REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    CHECK(predecessor_work_id <> successor_work_id)
+);
+CREATE TRIGGER work_resize_lineage_guard_insert BEFORE INSERT ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_resize_lineage_guard_update BEFORE UPDATE ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_resize_lineage_guard_delete BEFORE DELETE ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  133,
 		Name:     "workflow_contract_decision_domains",
 		Breaking: false,
 		// The contract fold writes this column once per contract INSERT and
@@ -6421,7 +6454,7 @@ ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_d
 		// supersedes keep demanding a reference. The rebuild copies
 		// migration 91's shape, and every existing row satisfies the new
 		// check unchanged.
-		Version:  133,
+		Version:  134,
 		Name:     "overlap_routine_resolution_carries_own_authority",
 		Breaking: true,
 		SQL: `

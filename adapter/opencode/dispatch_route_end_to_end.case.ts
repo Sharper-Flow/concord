@@ -416,7 +416,6 @@ async function dispatchRouteTask(
   callID: string,
   context: any,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
-  runner: DispatchRunner,
   setReadback: (packet: JSONRecord, agent: string) => void,
 ): Promise<RouteTaskDispatch> {
   const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: expectedVersion, action_id: "dispatch_worker", idempotency_key: idempotencyKey, fields: { lane_id: lane.id } } })
@@ -536,7 +535,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     const dispatch = async (context: any, laneID: string, key: string) => {
       const typedLane = agentLanes.find((item) => item.id === laneID)!
       context.workerSessionID = `${key}-worker`
-      return dispatchRouteTask(typedLane, workID, worktree, version(), key, `${key}-task`, context, invoke, runner, (packet, agent) => host.opening(context, packet, agent))
+      return dispatchRouteTask(typedLane, workID, worktree, version(), key, `${key}-task`, context, invoke, (packet, agent) => host.opening(context, packet, agent))
     }
     const epoch = (task: RouteTaskDispatch) => dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.worker_attempt_id')='${task.packet.attempt_id}' AND json_extract(payload,'$.action_id')='dispatch_worker'`).n
     const accept = (context: any, task: RouteTaskDispatch, key: string, name = "accept_worker_result") => action(context, name, key, { attempt_id: task.packet.attempt_id, attempt_epoch: epoch(task) })
@@ -781,7 +780,7 @@ routeDeclaration("composes implementation and independent review through one ord
 
     let response: JSONRecord
     for (const reportFailure of ["missing", "malformed"] as const) {
-      const failedDispatch = await dispatchRouteTask(lane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, `e2e-${reportFailure}-report-dispatch`, `e2e-${reportFailure}-report-call`, context, invoke, realRunner,
+      const failedDispatch = await dispatchRouteTask(lane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, `e2e-${reportFailure}-report-dispatch`, `e2e-${reportFailure}-report-call`, context, invoke,
         (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
       let report: JSONRecord | string
       report = reportFailure === "missing"
@@ -806,9 +805,8 @@ routeDeclaration("composes implementation and independent review through one ord
         if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
         return result
       },
-      realRunner,
       (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
-    const { dispatchResult, windows, windowWasOpen, taskArgs, packet } = implementation
+    const { dispatchResult, windowWasOpen, taskArgs, packet } = implementation
     expect(dispatchResult.outcome).toBe("ok")
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
     expect(await hostControlPlane().taskScope(SESSION_ID)).toBe("managed")
@@ -931,7 +929,7 @@ routeDeclaration("composes implementation and independent review through one ord
       acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke, realRunner,
+    const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const failedReviewReport = { ...routeWorkerReport(reviewLane, failedReviewDispatch.packet, subjectCommit, { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "The synthetic review report records a worker failure." }] }), status: "failed" }
     const failedReviewReceipt = await completeRouteTask(failedReviewDispatch, failedReviewReport, realRunner, binary)
@@ -941,7 +939,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(failedReviewAttempt.failure_kind).toBe("worker_error")
     expect(failedReviewAttempt.failure_detail).toContain("worker reported failure")
     const noShipDispatchVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const noShipReview = await dispatchRouteTask(reviewLane, workID, worktree, noShipDispatchVersion, "e2e-no-ship-review-dispatch", "e2e-no-ship-review-call", context, invoke, realRunner,
+    const noShipReview = await dispatchRouteTask(reviewLane, workID, worktree, noShipDispatchVersion, "e2e-no-ship-review-dispatch", "e2e-no-ship-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const noShipReceipt = await completeRouteTask(noShipReview, routeWorkerReport(reviewLane, noShipReview.packet, subjectCommit, {
       verdict: "no_ship",
@@ -992,7 +990,7 @@ routeDeclaration("composes implementation and independent review through one ord
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const settlingReviewVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const settlingReview = await dispatchRouteTask(reviewLane, workID, worktree, settlingReviewVersion, "e2e-settling-review-dispatch", "e2e-settling-review-call", context, invoke, realRunner,
+    const settlingReview = await dispatchRouteTask(reviewLane, workID, worktree, settlingReviewVersion, "e2e-settling-review-dispatch", "e2e-settling-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const settlingJob = settlingReview.packet.inputs.worker_job
     const settlingControl = settlingJob.acceptance_oracle.controls[0]
@@ -1312,7 +1310,7 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     expect(overRefused.error.effect_state).toBe("none")
     expect(snapshot()).toEqual(beforeOverBound)
     b.workerSessionID = "g07-implement-worker"
-    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, runner, (packet, agent) => host.opening(b, packet, agent))
+    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, (packet, agent) => host.opening(b, packet, agent))
     expect(worker.taskArgs.subagent_type).toBe("concord-implement")
     expect(worker.packet.work_id).toBe(workID)
     // The selected research rides the shared work context the packet copies

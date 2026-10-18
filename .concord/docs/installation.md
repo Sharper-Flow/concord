@@ -160,8 +160,8 @@ keeps the prepared record. Run the recorded activation command first.
 When breaking migrations are pending, the migration command takes and verifies
 a database snapshot after session admission closes and the final session checks
 pass, before applying any migration. The snapshot uses the backup command's
-Online Backup API and verification rules and remains under the data root's
-`backups/` directory. Success reports its path as `backup` in the upgrade JSON
+Online Backup API and verification rules and remains in the data root's
+backups directory. Success reports its path as `backup` in the upgrade JSON
 report. A snapshot or verification failure names the cause and path, applies no
 migration, and closes only the boundary that this run opened. An adopted boundary
 stays unchanged. A read-only upgrade plan reports `snapshot_required` without

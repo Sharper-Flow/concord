@@ -104,8 +104,10 @@ retired: contract supersession goes through the operator-approved
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
-together. Reopening superseded work has no operation; superseded work items
-and their events stay historical and replayable.
+together. A size revision that changes a work item's size supersedes it with a
+forward-linked successor in one transaction (CD-0229 D6, CD-0237). Reopening
+superseded work has no operation; superseded work items and their events stay
+historical and replayable.
 
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow

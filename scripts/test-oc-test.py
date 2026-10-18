@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -50,7 +51,51 @@ with open(os.environ["COMMAND_RECORD"], "a") as record:
     }}) + "\\n")
 if os.environ.get("FAIL_COMMAND") == name:
     sys.exit(7)
+if name == "go" and sys.argv[1:2] == ["list"]:
+    print(os.environ["GO_LIST_OUTPUT"])
 """
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+MODULE = "github.com/sharper-flow/concord"
+# What the fake `go list ./...` reports: the two packages CI tests in shard
+# jobs, and two it tests in one run.
+GO_LIST_OUTPUT = "\n".join(f"{MODULE}/{package}" for package in (
+    "cmd/concord", "internal/agent", "internal/store", "scripts/support",
+))
+UNSHARDED_PACKAGES = [f"{MODULE}/internal/agent", f"{MODULE}/scripts/support"]
+CI_UNSHARDED_STEP = "Test every package without its own shard job"
+
+
+def workflow_step_run(workflow: str, step_name: str) -> str:
+    """The single-line `run:` of the workflow step with this exact `name:`."""
+    lines = workflow.splitlines()
+    starts = [index for index, line in enumerate(lines)
+              if re.fullmatch(r"\s*- name: " + re.escape(step_name), line)]
+    if len(starts) != 1:
+        raise AssertionError(f"expected one step named {step_name!r}, found {len(starts)}")
+    start = starts[0]
+    step_indent = len(lines[start]) - len(lines[start].lstrip())
+    for line in lines[start + 1:]:
+        indent = len(line) - len(line.lstrip())
+        if line.strip() and indent <= step_indent:
+            break
+        if indent == step_indent + 2 and line.lstrip().startswith("run:"):
+            command = line.split("run:", 1)[1].strip()
+            if command in ("", "|", ">"):
+                raise AssertionError(f"step {step_name!r} has a multi-line run; the smoke parity needs one command")
+            return command
+    raise AssertionError(f"step {step_name!r} has no run")
+
+
+def smoke_go_command(wrapper: str) -> str:
+    """The Go line of the smoke tier's script in bin/oc-test."""
+    block = re.search(r"^  smoke\)\n(.*?)^    ;;$", wrapper, re.MULTILINE | re.DOTALL)
+    if block is None:
+        raise AssertionError("bin/oc-test has no smoke tier")
+    commands = [line.strip() for line in block.group(1).splitlines() if line.strip().startswith("go ")]
+    if len(commands) != 1:
+        raise AssertionError(f"expected one Go command in the smoke tier, found {commands}")
+    return commands[0]
 
 
 class PhaseReportingTest(unittest.TestCase):
@@ -120,6 +165,7 @@ class TierRoutingTest(unittest.TestCase):
                        FAIL_COMMAND=failure,
                        GATE_CLASS_RECORD=str(gate_record),
                        COMMAND_RECORD=str(command_record),
+                       GO_LIST_OUTPUT=GO_LIST_OUTPUT,
                        CONCORD_SELECTED_PRODUCT_ID="poison-product")
             for key in ("CONCORD_REQUIRE_BUN", "CONCORD_CONFORMANCE_LONG"):
                 env.pop(key, None)
@@ -136,7 +182,8 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.gate_class, "smoke")
         self.assertEqual([(call["command"], call["args"]) for call in result.calls], [
-            ("go", ["test", "-timeout=15m", "./..."]),
+            ("go", ["list", "./..."]),
+            ("go", ["test", "-timeout=15m", *UNSHARDED_PACKAGES]),
             ("bun", ["test", "adapter/opencode/"]),
             ("python3", ["scripts/check-json.py", "--adapter-tests-external"]),
         ])
@@ -145,21 +192,29 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("WAIT admission: smoke", result.stdout)
         self.assertIn("PASS smoke", result.stdout)
 
+    def test_smoke_go_step_is_the_ci_step_for_unsharded_packages(self):
+        # CI owns which packages run as shard jobs. Smoke runs CI's own
+        # command for the rest, so a package CI moves into shards leaves
+        # smoke in the same change, and smoke cannot time out on it.
+        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
+        wrapper = (REPOSITORY / "bin/oc-test").read_text()
+        self.assertEqual(smoke_go_command(wrapper), workflow_step_run(workflow, CI_UNSHARDED_STEP))
+
     def test_smoke_isolates_product_selection_for_adapter_and_json(self):
         result = self.run_wrapper("smoke")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([call["selected_product"] for call in result.calls],
-                         ["poison-product", None, None])
+                         ["poison-product", "poison-product", None, None])
         self.assertEqual([call["require_bun"] for call in result.calls],
-                         [None, None, "1"])
+                         [None, None, None, "1"])
 
     def test_smoke_stops_at_each_failed_stage_and_preserves_exit_code(self):
-        for index, name in enumerate(("go", "bun", "python3")):
+        sequence = ["go", "go", "bun", "python3"]
+        for name, ran in (("go", 2), ("bun", 3), ("python3", 4)):
             with self.subTest(command=name):
                 result = self.run_wrapper("smoke", failure=name)
                 self.assertEqual(result.returncode, 7, result.stderr)
-                self.assertEqual([call["command"] for call in result.calls],
-                                 ["go", "bun", "python3"][:index + 1])
+                self.assertEqual([call["command"] for call in result.calls], sequence[:ran])
                 self.assertIn("FAIL smoke (exit 7)", result.stderr)
                 self.assertNotIn("PASS smoke", result.stdout)
 
@@ -167,7 +222,7 @@ class TierRoutingTest(unittest.TestCase):
         result = self.run_wrapper("smoke", with_gate=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.gate_class, "")
-        self.assertEqual([call["command"] for call in result.calls], ["go", "bun", "python3"])
+        self.assertEqual([call["command"] for call in result.calls], ["go", "go", "bun", "python3"])
         self.assertIn("oc-test-gate not found", result.stderr)
         self.assertNotIn("WAIT admission", result.stdout)
         self.assertIn("PASS smoke", result.stdout)

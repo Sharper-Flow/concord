@@ -13,7 +13,7 @@ The typed review finding carries severity, confidence, detail, and an oracle tie
 A reviewer can identify a local repair without receiving permission to edit repository sources.
 Keeping that repair with its finding avoids a separate reconstruction from prose.
 
-[R6](../research/R6-typed-workers-and-model-routing.md), lines 59-62, records the historical absence of worker and model law.
+[R6](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R6-typed-workers-and-model-routing.md), lines 59-62, records the historical absence of worker and model law.
 CD-0017 supplied that law. CD-0058 then removed Concord model routing.
 Neither record requires different model families for a reviewer-authored fix.
 R6 section 5 also records that the synthetic same-model versus cross-model measurement did not exist.

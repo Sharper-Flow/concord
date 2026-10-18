@@ -145,7 +145,7 @@ execution; no parent waiting on child completion. Bounded parent/child is a
 future extension only if a named scenario proves forward-linking is insufficient
 and measured evidence justifies the complexity.
 
-Research: [`research/R1-workflow-composition.md`](../research/R1-workflow-composition.md).
+Research: [`research/R1-workflow-composition.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R1-workflow-composition.md).
 
 ### R2. Concrete C16 obligation bands — independent bands with high-water-mark combine
 
@@ -160,7 +160,7 @@ proportional review), public (full threat model + security review). Products may
 strengthen but never weaken the floor. Prototype/operator_only/limited are
 medium-confidence pending calibration against real work.
 
-Research: [`research/R2-obligation-bands.md`](../research/R2-obligation-bands.md).
+Research: [`research/R2-obligation-bands.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R2-obligation-bands.md).
 
 ### R3. Cross-workflow impact propagation — declared edges + breaking verdict + boundary checks
 
@@ -174,7 +174,7 @@ blocking edges. The completion verdict classifies the delivered change; the edge
 class records whether each dependent treats that change as hard or soft. No
 polling, timers, or automatic downstream rewrites.
 
-Research: [`research/R3-impact-propagation.md`](../research/R3-impact-propagation.md).
+Research: [`research/R3-impact-propagation.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R3-impact-propagation.md).
 
 ## Consequences
 

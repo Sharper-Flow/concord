@@ -121,6 +121,5 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 | [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
-| [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |
 
 *Each phase earns the next through public evidence, not calendar pressure.*

@@ -14,7 +14,7 @@ attempt fencing, external conditions, worktree topology, schema evolution, and t
 SQLite confirmation and alternative-engine trigger.
 **Amends:** PM4 §5.3 external blockers by adding closed typed condition fields while
 retaining the canonical work-item/`blocks` relation model.
-**Research:** [`R4-competitive-mechanism-hardening.md`](../research/R4-competitive-mechanism-hardening.md)
+**Research:** [`R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 
 ## Context
 
@@ -333,7 +333,7 @@ such as network filesystems or multi-machine writes that this local test cannot 
 
 ## Sources
 
-- Competitive synthesis: [`R4`](../research/R4-competitive-mechanism-hardening.md)
+- Competitive synthesis: [`R4`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 - PostgreSQL three-valued logic: <https://www.postgresql.org/docs/18/functions-logical.html>
 - Elasticsearch partial results: <https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-search>
 - Kafka poison-record handling: <https://cwiki.apache.org/confluence/display/KAFKA/KIP-161%3A+streams+deserialization+exception+handlers>

@@ -34,9 +34,28 @@ func Tables() []string {
 }
 
 // Columns returns one projection table's physical column order, discovered
-// from the authority database.
+// from the authority database through the bound pragma metadata query.
 func Columns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
-	return projectionColumns(ctx, db, table)
+	rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
+	if err != nil {
+		return nil, fmt.Errorf("projection hash: cannot inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("projection hash: cannot inspect %s: %w", table, err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("projection hash: cannot inspect %s: %w", table, err)
+	}
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("projection hash: workflow projection table %s is missing", table)
+	}
+	return columns, nil
 }
 
 // Layout is one hashed projection table with its column order. A discovered
@@ -103,7 +122,7 @@ func Hash(ctx context.Context, db *sql.DB) (string, error) {
 	}
 	layouts := make([]Layout, 0, len(workflowProjectionTables))
 	for _, table := range workflowProjectionTables {
-		columns, err := projectionColumns(ctx, db, table)
+		columns, err := Columns(ctx, db, table)
 		if err != nil {
 			return "", err
 		}
@@ -114,32 +133,6 @@ func Hash(ctx context.Context, db *sql.DB) (string, error) {
 
 func quoteSQLiteIdentifier(identifier string) string {
 	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
-}
-
-func projectionColumns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
-	if err != nil {
-		return nil, fmt.Errorf("projection hash: cannot inspect %s: %w", table, err)
-	}
-	defer rows.Close()
-	var columns []string
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return nil, err
-		}
-		columns = append(columns, name)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(columns) == 0 {
-		return nil, fmt.Errorf("projection hash: workflow projection table %s is missing", table)
-	}
-	return columns, nil
 }
 
 func writeHashValue(h hash.Hash, value any) {

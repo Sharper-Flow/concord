@@ -507,10 +507,10 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 	t.Run("public selection keeps its no-op fast path without an instance", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
-		if err := ValidateWorkflowOperatorSelection(context.Background(), s, "approval-fastpath-public-absent", 1, "record_proposal", "", ""); err != nil {
+		if err := ValidateWorkflowOperatorSelectionForRegistry(context.Background(), s, nil, WorkflowActionPreflightRequest{WorkID: "approval-fastpath-public-absent", ExpectedVersion: 1, ActionID: "record_proposal", SelectedChoice: ""}); err != nil {
 			t.Fatalf("the public non-confirm selection without fields refused on absent work: %v", err)
 		}
-		publicInvalidErr := ValidateWorkflowOperatorSelection(context.Background(), s, "approval-fastpath-public-absent", 1, "record_proposal", "confirm", "")
+		publicInvalidErr := ValidateWorkflowOperatorSelectionForRegistry(context.Background(), s, nil, WorkflowActionPreflightRequest{WorkID: "approval-fastpath-public-absent", ExpectedVersion: 1, ActionID: "record_proposal", SelectedChoice: "confirm"})
 		var publicInvalidFailure *Failure
 		if publicInvalidErr == nil || !failureAs(publicInvalidErr, &publicInvalidFailure) || publicInvalidFailure.Kind != KindInvalidPayload {
 			t.Fatalf("the public non-confirm selection with question fields folded %v, want the invalid-payload refusal", publicInvalidErr)

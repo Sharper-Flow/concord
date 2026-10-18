@@ -535,8 +535,8 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("wrong-registry selection = %v, want the typed pin refusal", err)
 		}
 		var wrapperRefusal *Failure
-		if err := ValidateWorkflowOperatorSelection(ctx, s, route, routeVersion, selection.ActionID, selection.SelectedChoice, selection.DecisionContextDigest); err == nil || !failureAs(err, &wrapperRefusal) || wrapperRefusal.Kind != KindInvariantViolation {
-			t.Fatalf("the builtin-convenience selection wrapper = %v, want the typed pin refusal", err)
+		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, nil, selection); err == nil || !failureAs(err, &wrapperRefusal) || wrapperRefusal.Kind != KindInvariantViolation {
+			t.Fatalf("the nil-registry builtin selection = %v, want the typed pin refusal", err)
 		}
 		if readWorkVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {
 			t.Fatal("the selection reads moved the route item")
@@ -573,7 +573,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 		var builtinConvention *Failure
 		builtinConventionErr := s.Transact(ctx, func(tx *Transaction) error {
-			_, _, err := ReadMutationWorkPinTx(ctx, tx, route, nil)
+			_, _, err := ReadMutationWorkPinTxForRegistry(ctx, tx, nil, route, nil)
 			return err
 		})
 		if builtinConventionErr == nil || !failureAs(builtinConventionErr, &builtinConvention) || builtinConvention.Kind != KindDefinitionDigestMismatch {
@@ -597,7 +597,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			var ready bool
 			txErr := s.Transact(ctx, func(tx *Transaction) error {
 				var err error
-				pin, ready, err = ReadMutationWorkPinTx(ctx, tx, builtin, nil)
+				pin, ready, err = ReadMutationWorkPinTxForRegistry(ctx, tx, nil, builtin, nil)
 				return err
 			})
 			return pin, ready, txErr
@@ -707,7 +707,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			var available bool
 			txErr := s.Transact(ctx, func(tx *Transaction) error {
 				var err error
-				pin, available, err = ReadMutationWorkPinTx(ctx, tx, workID, nil)
+				pin, available, err = ReadMutationWorkPinTxForRegistry(ctx, tx, nil, workID, nil)
 				return err
 			})
 			return pin, available, txErr

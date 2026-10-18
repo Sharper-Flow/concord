@@ -5034,14 +5034,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 	return err
 }
 
-func mutationApprovalFailure(base Envelope, err error) Envelope {
-	var refusal *runtimeFailure
-	if !errors.As(err, &refusal) {
-		err = newRuntimeFailure("approval_invalid", err.Error(), "request_approval", false)
-	}
-	return failureEnvelope(base, err)
-}
-
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, plannedInitialDurability *bool, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool

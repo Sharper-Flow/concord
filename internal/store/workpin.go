@@ -138,19 +138,6 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadMutationWorkPinTx distinguishes a pin from a known absent post-state.
-// An absent instance without an outside-repair hold, or an own committed
-// removal, has no pin. The returned identity still carries its version;
-// every other unreadable pin is an error. It is the builtin convenience:
-// the instance's stored pin verifies against the builtin registry.
-func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
-	tx, err := transactionSQL(transaction, "work_pin")
-	if err != nil {
-		return WorkPin{}, false, err
-	}
-	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
-}
-
 // ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
 // caller registry verifies the stored pin through itself with no builtin
 // fallback, and a nil registry keeps the builtin convenience default. The

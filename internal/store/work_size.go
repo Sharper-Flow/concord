@@ -90,7 +90,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if p.ModelVersion >= 2 {
-		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID)
+		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID, event.Seq)
 		if err != nil {
 			return err
 		}

@@ -276,7 +276,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if active || state.InstanceState == "outside_repair" {
 		return state, nil, nil, nil
 	}
-	proofs, err := deriveWorkSizeProofsTx(ctx, q, workID)
+	proofs, err := deriveWorkSizeProofsTx(ctx, q, workID, 0)
 	if err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
 	}

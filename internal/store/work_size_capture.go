@@ -170,7 +170,7 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 	} else if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_size", "cannot read the sized work item's stage", true, "retry once the database is readable", err)
 	}
-	basis, err := workSizeReviewBasisTx(ctx, q, workID)
+	basis, err := workSizeReviewBasisTx(ctx, q, workID, 0)
 	if err != nil {
 		return out, err
 	}

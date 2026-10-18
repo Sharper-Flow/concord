@@ -85,7 +85,7 @@ func largerWork(t *testing.T, s *Store, workID string) *proofLog {
 
 func workSizeProofsForTest(t *testing.T, s *Store, workID string) []string {
 	t.Helper()
-	proofs, err := deriveWorkSizeProofsTx(context.Background(), s.DatabaseForTesting(), workID)
+	proofs, err := deriveWorkSizeProofsTx(context.Background(), s.DatabaseForTesting(), workID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,5 +323,49 @@ func TestWorkSizeProofStopsTheWorkflowUntilARerun(t *testing.T) {
 		if stoppedBySize(decision) {
 			t.Fatalf("after the rerun %s is still stopped", action)
 		}
+	}
+}
+
+// A replayed size record derives its basis from the log before it, as the
+// live fold did; a review accepted after it cannot change that basis.
+func TestWorkSizeReplayDerivesTheBasisFromTheLogBeforeTheRecord(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	log := largerWork(t, s, "replayed")
+	inScope := shipReview(oracleFinding("P1", OracleClassificationDeliveryBlocker))
+	log.pass("review-1", "accept_worker_evidence", shipReview())
+	log.refine()
+	proof := log.pass("review-2", "accept_worker_evidence", inScope)
+	sized := operationEvent("replayed-sized-2", WorkSized, SubjectWorkItem, "replayed", workSizedPayload{ModelVersion: WorkSizeModelVersion, Size: WorkSizeCrucial, Inputs: largerWorkSizeInputs(), Footprint: workSizeFootprintFixture(), ReviewBasis: []string{proof}})
+	if err := applyWorkEvent(t, s, sized, nil); err != nil {
+		t.Fatal(err)
+	}
+	log.refine()
+	log.pass("review-3", "accept_worker_evidence", inScope)
+
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rebuild the projection as it stood before the record, then refold it.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM work_size_assessments WHERE event_id=?`, sized.EventID); err != nil {
+		t.Fatal(err)
+	}
+	recorded := Event{EventID: sized.EventID}
+	var occurredAt string
+	if err := tx.QueryRowContext(ctx, `SELECT seq, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload FROM domain_events WHERE event_id=?`, sized.EventID).
+		Scan(&recorded.Seq, &recorded.Kind, &recorded.SubjectType, &recorded.SubjectID, &recorded.Actor, &occurredAt, &recorded.PayloadVersion, &recorded.Payload); err != nil {
+		t.Fatal(err)
+	}
+	if recorded.OccurredAt, err = time.Parse(time.RFC3339Nano, occurredAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := foldRecordedEvent(workflowReplayContext(ctx), tx, recorded, scope); err != nil {
+		t.Fatalf("replayed size record refused: %v", err)
 	}
 }

@@ -407,7 +407,7 @@ func resizeWorkTx(ctx context.Context, transaction *Transaction, request workRes
 	if err := json.Unmarshal([]byte(sourceModelPayload), &model); err != nil {
 		return "", wrapFailure(KindInvariantViolation, op, "the size record is malformed", false, "rebuild the size projection", err)
 	}
-	model.ReviewBasis, err = workSizeReviewBasisTx(ctx, tx, successor)
+	model.ReviewBasis, err = workSizeReviewBasisTx(ctx, tx, successor, 0)
 	if err != nil {
 		return "", err
 	}

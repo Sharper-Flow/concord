@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -353,4 +354,116 @@ func ValidateMutationBoundaryRecords(input MutationIdempotencyInsert) error {
 		}
 	}
 	return nil
+}
+
+// WorkflowApprovalBoundaryState is one read of the consent boundary facts for
+// one workflow action request. It runs no admission guard and authorizes nothing.
+type WorkflowApprovalBoundaryState struct {
+	Definition             RegisteredDefinition
+	WorkVersion            int64
+	ContractVersion        int64
+	ActiveContractVersions []int64
+	DecisionDomainsPresent bool
+	DecisionDomains        []string
+	EvaluatorAuthority     WorkflowEvaluationAuthority
+	RetryBinding           *WorkflowRetryApprovalBinding
+	Policy                 WorkflowApprovalPolicyResult
+}
+
+func ReadWorkflowApprovalBoundary(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
+	if s == nil || s.db == nil {
+		return WorkflowApprovalBoundaryState{}, newFailure(KindUnavailable, "workflow_approval_boundary", "store is not open", false, "open the authority database")
+	}
+	readTx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return WorkflowApprovalBoundaryState{}, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot open the approval boundary read transaction", true, "retry once the store is readable", err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	return workflowApprovalBoundaryCore(ctx, readTx, registry, request)
+}
+
+// ReadWorkflowApprovalBoundaryTx unwraps only through transactionSQL and runs
+// the same core in the caller's transaction.
+func ReadWorkflowApprovalBoundaryTx(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
+	q, err := transactionSQL(transaction, "workflow_approval_boundary")
+	if err != nil {
+		return WorkflowApprovalBoundaryState{}, err
+	}
+	return workflowApprovalBoundaryCore(ctx, q, registry, request)
+}
+
+func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
+	if registry == nil {
+		registry = BuiltinWorkflowRegistry()
+	}
+	var state WorkflowApprovalBoundaryState
+	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, q, registry, request.WorkID)
+	if err != nil {
+		return state, err
+	}
+	state.Definition = definition
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&state.WorkVersion); err != nil {
+		if err == sql.ErrNoRows {
+			return state, newFailure(KindProjectionNotFound, "workflow_approval_boundary", "work item does not exist", false, "reread the work item")
+		}
+		return state, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot read the work version", true, "retry once the database is readable", err)
+	}
+	if state.ActiveContractVersions, err = activeWorkflowContractVersions(ctx, q, request.WorkID); err != nil {
+		return state, err
+	}
+	if request.ActionID == "supersede_contract" {
+		// The duplicate-active recovery reads the ordered list's highest
+		// member; the singular reader refuses the duplicate projection it retires.
+		if len(state.ActiveContractVersions) > 0 {
+			state.ContractVersion = maxInt64(state.ActiveContractVersions)
+		}
+	} else if state.ContractVersion, err = latestWorkflowContractVersion(ctx, q, request.WorkID); err != nil {
+		return state, err
+	}
+	if state.ContractVersion > 0 {
+		var stored sql.NullString
+		if err := q.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, request.WorkID, state.ContractVersion).Scan(&stored); err != nil {
+			if err == sql.ErrNoRows {
+				return state, newFailure(KindInvariantViolation, "workflow_approval_boundary", "active workflow contract is missing", false, "reread_entities")
+			}
+			return state, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot read the active workflow contract", true, "retry once the database is readable", err)
+		}
+		domains, present, decodeErr := workflowStoredDecisionDomains(stored)
+		if decodeErr != nil {
+			return state, newFailure(KindInvalidInput, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+		}
+		state.DecisionDomainsPresent, state.DecisionDomains = present, domains
+	}
+	actorRef, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return state, err
+	}
+	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
+		return state, err
+	}
+	if request.ActionID == "dispatch_worker" {
+		if state.RetryBinding, err = workflowFailedWorkerRetryBinding(ctx, q, registry, request.WorkID); err != nil {
+			return state, err
+		}
+	}
+	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains, FailedRetryBelowWall: state.RetryBinding != nil}
+	if workflowOperatorVerdictActions[request.ActionID] {
+		// The existing legacy fact: an independent evaluator never becomes consent.
+		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired
+	}
+	if request.ActionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(state.Definition.Definition) {
+		var fields map[string]json.RawMessage
+		if len(request.Payload) != 0 {
+			if err := decodeWorkflowActionPayloadStrict(request.Payload, &fields); err != nil {
+				return state, newFailure(KindInvalidPayload, "workflow_approval_boundary", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
+			}
+		}
+		if facts.ProposedDecisionDomains, err = workflowSubmittedDecisionDomains(state.Definition.Definition, "approval", fields); err != nil {
+			return state, err
+		}
+	}
+	if state.Policy, err = ClassifyWorkflowApproval(state.Definition.Definition, request.ActionID, facts); err != nil {
+		return state, err
+	}
+	return state, nil
 }

@@ -713,12 +713,12 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 			}
 			return nil, err
 		}
-		if !stored.Valid {
-			return nil, newFailure(KindInvalidInput, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
-		}
-		var domains []string
-		if json.Unmarshal([]byte(stored.String), &domains) != nil {
+		domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(stored)
+		if domainsErr != nil {
 			return nil, newFailure(KindInvalidInput, "workflow_action", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+		}
+		if !domainsPresent {
+			return nil, newFailure(KindInvalidInput, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
 		}
 		decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
 		if decisionErr != nil {

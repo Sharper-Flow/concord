@@ -94,9 +94,10 @@ var workflowOperatorVerdictActions = map[string]bool{
 // ClassifyWorkflowApproval answers one action instance's approval class and
 // consent from the definition's own discriminator, the action's declared
 // metadata, and the typed facts. It is pure: no store, clock, caller identity,
-// or effect. An undeclared action, an unknown policy value, an unknown
-// destructive fact, or a new-policy contract instance without its declared
-// decision-domain fact refuses.
+// or effect. An action neither the definition declares nor the engine's
+// recovery owner owns, an unknown policy value, an unknown destructive fact,
+// or a new-policy contract instance without its declared decision-domain fact
+// refuses.
 func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, facts WorkflowApprovalFacts) (WorkflowApprovalPolicyResult, error) {
 	if actionID == "" {
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", "approval classification requires an action", false, "classify a declared workflow action")
@@ -106,6 +107,13 @@ func ClassifyWorkflowApproval(definition WorkflowDefinition, actionID string, fa
 		if definition.ActionDefinitions[index].ID == actionID {
 			declared = &definition.ActionDefinitions[index]
 			break
+		}
+	}
+	if declared == nil {
+		// The pin does not own every action the engine does: recovery
+		// discovery holds the canonical declaration for its own actions.
+		if recovered, owned := workflowRecoveryActionDefinition(actionID); owned {
+			declared = &recovered
 		}
 	}
 	if declared == nil {

@@ -511,12 +511,11 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 	if predicateErr != nil || len(result.Predicates) == 0 {
 		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
 	}
-	if decisionDomains.Valid {
-		result.DecisionDomainsPresent = true
-		if json.Unmarshal([]byte(decisionDomains.String), &result.DecisionDomains) != nil {
-			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
-		}
+	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(decisionDomains)
+	if domainsErr != nil {
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
 	}
+	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
 	result.OutcomePayload = result.Predicates[0].OutcomePayload
 	var bindingErr error
@@ -544,6 +543,20 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 		return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verification obligations", true, "retry once the database is readable", err)
 	}
 	return result, nil
+}
+
+// workflowStoredDecisionDomains decodes the stored contract decision-domain
+// column: SQL NULL is the absent fact, a JSON array the present one; each
+// enclosing reader keeps its own refusal wording.
+func workflowStoredDecisionDomains(stored sql.NullString) ([]string, bool, error) {
+	if !stored.Valid {
+		return nil, false, nil
+	}
+	var domains []string
+	if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
+		return nil, false, err
+	}
+	return domains, true, nil
 }
 
 func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {

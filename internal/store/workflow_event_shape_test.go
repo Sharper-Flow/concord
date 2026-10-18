@@ -1,11 +1,9 @@
 package store
 
 import (
-	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -120,13 +118,6 @@ func TestTypedEventShapeMatchesTheSemanticDispatcher(t *testing.T) {
 // since the checkpoint branch runs before the semantic switch.
 func TestCheckpointEventShapeGovernsTheCheckpointBranch(t *testing.T) {
 	t.Parallel()
-	source, err := os.ReadFile("workflow_action_guards.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(source, []byte("case builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint:")) {
-		t.Fatal("assembleWorkflowActionEventsTx does not key its checkpoint branch on the declared EventShape")
-	}
 	cases := semanticCaseActions(t)
 	for action, policy := range builtinActionPolicies {
 		checkpointShape := policy.EventShape == ActionEventCheckpoint

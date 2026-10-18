@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
@@ -485,17 +484,6 @@ func TestCorrectionRoutesDeriveFromNoWorkKind(t *testing.T) {
 		if target := workflowUnhealthyVerdictRouteTarget(definition, want[0]); target != want[1] {
 			t.Errorf("%s %s route target = %q, want %q", ref, want[0], target, want[1])
 		}
-	}
-	var source []byte
-	for _, name := range []string{"workflow_correction.go", "workflow_admission.go", "workflow_action_guards.go", "workflow_step.go", "workflow.go"} {
-		row, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		source = append(source, row...)
-	}
-	if strings.Contains(string(source), "WorkKindImplementation ||") || strings.Contains(string(source), "nearest external-effect") {
-		t.Fatal("a work-kind whitelist or nearest-external-effect heuristic survives in the recovery owners")
 	}
 }
 

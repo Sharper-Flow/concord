@@ -925,24 +925,28 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // supersededAttemptBindings reads the attempt a fenced action would
 // supersede and binds it into the approval challenge. A worker dispatch after
 // a failed attempt below the convergence wall binds that failed attempt
-// (CD-0148); the store checks escalated convergence at dispatch. Any other
-// fenced start over an attempt another actor holds binds the held holder and
-// epoch (CD-0013 criterion 25).
+// (CD-0148); the store checks escalated convergence at dispatch. A fenced
+// start, a worker dispatch among them, over an unfinished attempt another
+// actor holds binds the held holder and epoch (CD-0013 criterion 25).
 func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.DefinitionRegistry, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowRetryApprovalBinding, *store.WorkflowStartTakeover, error) {
+	var retry *store.WorkflowRetryApprovalBinding
 	if action.ID == "dispatch_worker" {
 		binding, err := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, workID)
-		return binding, nil, err
+		if err != nil {
+			return nil, nil, err
+		}
+		retry = binding
 	}
 	if !store.WorkflowActionOpensHeldAttempt(action) {
-		return nil, nil, nil
+		return retry, nil, nil
 	}
-	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
 	if err != nil || takeover == nil {
-		return nil, nil, err
+		return retry, nil, err
 	}
 	scope["held_attempt_holder"] = takeover.HolderActorRef
 	versions["held_attempt_epoch"] = takeover.HeldEpoch
-	return nil, takeover, nil
+	return retry, takeover, nil
 }
 
 // applyRetryApprovalBinding installs the retry-approval scope bindings a

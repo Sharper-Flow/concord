@@ -1172,8 +1172,10 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 // opens the backend authorization and its native worker runs; the adapter
 // records worker-dispatch only after the worker finishes, so the completion
 // itself binds the attempt durably in flight. Coordinator B then opens a
-// second authorization at the same step — same-step concurrent dispatch
-// stays admissible — records its own worker's evidence, and tries to accept
+// second authorization at the same step. That dispatch takes completion away
+// from A's unfinished attempt, so it is a takeover (CD-0013 criterion 25):
+// unapproved it refuses, and an approval bound to A's held epoch and A as
+// holder admits it. B records its own worker's evidence and tries to accept
 // it. That accept waits: another authorized attempt at the shared step is
 // live. A's late evidence then lands through the gate fenced to A's own
 // window — digest, worktree, and single-use intact — exactly once, even
@@ -1211,13 +1213,26 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	}
 	assertWorkerAttemptState(t, s, workID, backendAttempt, "in_flight")
 
-	// Coordinator B opens a second authorization at the same step. The core
-	// admits it: same-step concurrent dispatch stays admissible, and the
-	// live backend binding does not refuse it.
+	// Coordinator B's dispatch at the same step would take completion away
+	// from A's unfinished attempt. Unapproved, it refuses and opens no
+	// window; approved against A's held epoch and A as holder, it opens B's.
 	frontendAttempt := "attempt-781-frontend"
 	frontendDigest := cd781DispatchPacketDigest(t, s, workID, frontendAttempt)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")); err != nil {
-		t.Fatalf("coordinator B dispatch_worker was refused: %v", err)
+	ownerRef, err := WorkflowActorRef(seed.ownerActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend-unapproved")); !hasFailureKind(err, KindApprovalRequired) {
+		t.Fatalf("coordinator B dispatch over A's unfinished attempt = %v, want approval_required", err)
+	}
+	var frontendRows int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, frontendAttempt).Scan(&frontendRows); err != nil || frontendRows != 0 {
+		t.Fatalf("refused takeover bound %d frontend attempt rows (err %v), want none", frontendRows, err)
+	}
+	approvedFrontend := cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")
+	approvedFrontend.ApprovedTakeover = &WorkflowStartTakeover{HeldEpoch: cd781WindowEpoch(t, s, workID, backendAttempt), HolderActorRef: ownerRef}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, approvedFrontend); err != nil {
+		t.Fatalf("coordinator B approved dispatch_worker was refused: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, frontendAttempt, "in_flight")
 
@@ -1690,4 +1705,67 @@ func dispatchSessionWorktree(t *testing.T, s *Store, workID string) string {
 	path := t.TempDir()
 	insertWorkerWorktreeEntry(t, s, workID, path)
 	return path
+}
+
+// A born-failed dispatch is its attempt's terminal record: no worker.failed
+// follows it and no derived failure record names it. The attempt is
+// finished, so another session's next dispatch takes nothing over.
+func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "takeover-born-failed"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	job := &WorkerJobBinding{JobID: "job:" + workID}
+	attempt := "attempt:" + workID + ":born"
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
+	packet := dispatchWorkerPacket(t, s, workID, "repair", attempt)
+	packet["schema_version"] = WorkerPacketSchemaVersion
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	if err := dispatchJobPacketForTest(t, s, workID, attempt, fixture.owner, "takeover-born-authorization", packet); err != nil {
+		t.Fatalf("authorize the born-failed attempt: %v", err)
+	}
+	window := attributionDispatchWindow(t, s, workID, attempt)
+	observation := &WorkerFailureObservation{
+		Observer: WorkerFailureObserverHostAdapter,
+		Phase:    WorkerFailurePhaseDispatch,
+		Cause:    WorkerFailureCauseIdentityProvenance,
+		Basis:    WorkerFailureBasisHypothesis,
+		Sources: []WorkerFailureSource{{
+			Kind: WorkerFailureSourceHostEvent, Locator: "evt-readback-1", Digest: testDigestC,
+			Message: "the executing model did not match the declared identity",
+			Host: &WorkerFailureHostObservation{
+				Tag: WorkerFailureHostTagTerminal, EventType: "session.error",
+				SessionID: "ses-born-failed", MessageID: "msg-born-failed",
+				ErrorName: "undeclared_model", ErrorCode: "identity_mismatch",
+			},
+		}},
+	}
+	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+		AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
+		ReadbackModel: "provider/executing-model", Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
+		WorkerJob: job, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: observation},
+	})}
+	if err := s.Transact(ctx, func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(ctx, transaction, dispatch, "principal/operator", "client/concord-1")
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(ctx, transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("record the born-failed dispatch: %v", err)
+	}
+	otherRef, err := WorkflowActorRef(diagnosisS1Actor(workID, "other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchAction := WorkflowActionDefinition{ID: "dispatch_worker", ExecutionMode: ActionFenced, RequiredCapability: WorkerDispatchCapability}
+	takeover, err := workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef)
+	if err != nil || takeover != nil {
+		t.Fatalf("another session's dispatch over the born-failed attempt = takeover %+v err %v, want none", takeover, err)
+	}
 }

@@ -11,7 +11,7 @@ import (
 // size is ever an input. The size never lowers a CD-0006 obligation band.
 
 // WorkSizeModelVersion is the version a new size record is decided under.
-const WorkSizeModelVersion = 1
+const WorkSizeModelVersion = 2
 
 // Blast radius: the widest thing a defect in the change could break.
 const (
@@ -48,20 +48,35 @@ type WorkSizeInputs struct {
 	Declared          WorkSizeDeclared `json:"declared"`
 }
 
-var workSizeModels = map[int]func(WorkSizeInputs) WorkSize{
-	1: decideWorkSizeV1,
+var workSizeModels = map[int]func(WorkSizeInputs, []string) WorkSize{
+	1: func(in WorkSizeInputs, _ []string) WorkSize { return decideWorkSizeV1(in) },
+	2: decideWorkSizeV2,
 }
 
-// DecideWorkSize runs the named model version over validated inputs.
-func DecideWorkSize(version int, inputs WorkSizeInputs) (WorkSize, error) {
+// DecideWorkSize runs the named model version over validated inputs and the
+// review basis: the proof events (CD-0229 D5) the record rests on. Version 1
+// predates the basis and refuses one.
+func DecideWorkSize(version int, inputs WorkSizeInputs, reviewBasis []string) (WorkSize, error) {
 	model, ok := workSizeModels[version]
 	if !ok {
 		return "", newFailure(KindInvalidInput, "work_size", fmt.Sprintf("work-size model version %d is not defined", version), false, "decide the size under a defined model version")
 	}
+	if version == 1 && len(reviewBasis) != 0 {
+		return "", newFailure(KindInvalidInput, "work_size", "work-size model version 1 takes no review basis", false, "decide a reviewed size under a later model version")
+	}
 	if err := validateWorkSizeInputs(inputs); err != nil {
 		return "", err
 	}
-	return model(inputs), nil
+	return model(inputs, reviewBasis), nil
+}
+
+// decideWorkSizeV2 is version 1 plus CD-0229 D5: a change whose review
+// proved it bigger is crucial, and stays crucial once proved.
+func decideWorkSizeV2(in WorkSizeInputs, reviewBasis []string) WorkSize {
+	if len(reviewBasis) != 0 {
+		return WorkSizeCrucial
+	}
+	return decideWorkSizeV1(in)
 }
 
 // decideWorkSizeV1: the first rule that matches wins. No named path means

@@ -57,7 +57,7 @@ func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
 			t.Fatalf("upcast result changed on repeat:\n got %#v\nwant %#v", got, first)
 		}
 	}
-	if first.PayloadVersion != 3 || string(first.Payload) != `{"work_kind":"task","title":"migrate","priority":2}` {
+	if first.PayloadVersion != workCreatedCurrentVersion() || string(first.Payload) != `{"work_kind":"task","title":"migrate","priority":2}` {
 		t.Fatalf("upcast result = version %d payload %s", first.PayloadVersion, first.Payload)
 	}
 	if string(event.Payload) != `{"kind":"task","title":"migrate","priority":2}` || event.PayloadVersion != 1 {
@@ -126,8 +126,8 @@ func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
 func TestApplyRejectsNewerPayloadBeforeMutation(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	event := workCreatedEvent("work-v4", "event-v4")
-	event.PayloadVersion = 4
+	event := workCreatedEvent("work-newer", "event-newer")
+	event.PayloadVersion = workCreatedCurrentVersion() + 1
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	assertFailureKind(t, err, KindUnsupportedPayloadVersion)
 	assertTableCount(t, s, "domain_events", 0)
@@ -195,7 +195,7 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	before := projectionSnapshot(t, s)
 	beforeWorkAndRelations := fullPM4Snapshot(t, s)
 	poison := workCreatedEvent("work-poison", "event-poison")
-	poison.PayloadVersion = 4
+	poison.PayloadVersion = workCreatedCurrentVersion() + 1
 	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
 		INSERT INTO domain_events
 			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
@@ -214,12 +214,12 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	if !errors.As(err, &failure) {
 		t.Fatalf("RebuildFromLog() error = %v, want *Failure", err)
 	}
-	if failure.Kind != KindUnsupportedPayloadVersion || failure.EventID != poison.EventID || failure.EventKind != poison.Kind || failure.PayloadVersion != 4 || failure.SubjectType != poison.SubjectType || failure.SubjectID != poison.SubjectID || failure.Sequence != poisonSeq || failure.Stage != "upcast" {
+	if failure.Kind != KindUnsupportedPayloadVersion || failure.EventID != poison.EventID || failure.EventKind != poison.Kind || failure.PayloadVersion != poison.PayloadVersion || failure.SubjectType != poison.SubjectType || failure.SubjectID != poison.SubjectID || failure.Sequence != poisonSeq || failure.Stage != "upcast" {
 		t.Fatalf("failure context = %+v", failure)
 	}
 	for _, field := range []string{
 		fmt.Sprintf("event_id=%q", poison.EventID), fmt.Sprintf("sequence=%d", poisonSeq),
-		fmt.Sprintf("event_kind=%q", poison.Kind), "payload_version=4",
+		fmt.Sprintf("event_kind=%q", poison.Kind), fmt.Sprintf("payload_version=%d", poison.PayloadVersion),
 		fmt.Sprintf("subject_type=%q", poison.SubjectType), fmt.Sprintf("subject_id=%q", poison.SubjectID), `stage="upcast"`,
 	} {
 		if !strings.Contains(err.Error(), field) {

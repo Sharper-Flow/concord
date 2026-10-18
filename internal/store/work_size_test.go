@@ -34,17 +34,17 @@ func workSizedEventWith(eventID, workID string, version int, size WorkSize, inpu
 
 func TestWorkSizeModelGivesTheSameSizeForTheSameInputsAndVersion(t *testing.T) {
 	inputs := workSizeInputsFixture()
-	first, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+	first, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
-		again, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+		again, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 		if err != nil || again != first {
 			t.Fatalf("model gave %q, %v; want %q", again, err, first)
 		}
 	}
-	if _, err := DecideWorkSize(WorkSizeModelVersion+1, inputs); err == nil {
+	if _, err := DecideWorkSize(WorkSizeModelVersion+1, inputs, nil); err == nil {
 		t.Fatal("an unknown model version must refuse, not fall back")
 	}
 }
@@ -54,7 +54,7 @@ func TestWorkSizeRecordKeepsSizeModelVersionAndInputs(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "sized")
 	inputs := workSizeInputsFixture()
-	want, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+	want, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestWorkSizeEventCarryingASizeTheModelDidNotGiveIsRefused(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "proposed")
 	inputs := workSizeInputsFixture()
-	model, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+	model, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +175,35 @@ func TestWorkSizeEventSizesABehaviorOnlyFootprintAtLeastLarger(t *testing.T) {
 	assertFailureKind(t, err, KindInvariantViolation)
 	if err := applyWorkEvent(t, s, workSizedEventWith("behavior-2", "behavior", WorkSizeModelVersion, WorkSizeLarger, inputs, footprint), nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A record without checks_complete says nothing about laws or package checks;
+// a complete one names only packages its paths resolve to.
+func TestWorkSizeEventHoldsTheCompleteFootprintToItsPaths(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "complete")
+	inputs := workSizeInputsFixture()
+	partial := workSizeFootprintFixture()
+	partial.Laws = []FootprintLaw{{LawID: "CD-0229"}}
+	err := applyWorkEvent(t, s, workSizedEventWith("complete-1", "complete", WorkSizeModelVersion, WorkSizeSmall, inputs, partial), nil)
+	assertFailureKind(t, err, KindInvariantViolation)
+
+	stray := workSizeFootprintFixture()
+	stray.ChecksComplete = true
+	stray.PackageChecks = []FootprintPackageCheck{{Package: "internal/agent", Kind: "go_package", Value: "./internal/agent"}}
+	err = applyWorkEvent(t, s, workSizedEventWith("complete-2", "complete", WorkSizeModelVersion, WorkSizeSmall, inputs, stray), nil)
+	assertFailureKind(t, err, KindInvariantViolation)
+
+	complete := workSizeFootprintFixture()
+	complete.ChecksComplete = true
+	complete.Laws = []FootprintLaw{{LawID: "CD-0229", Checks: []FootprintCheck{}}}
+	complete.PackageChecks = []FootprintPackageCheck{{Package: "internal/store", Kind: "go_package", Value: "./internal/store"}}
+	if err := applyWorkEvent(t, s, workSizedEventWith("complete-3", "complete", WorkSizeModelVersion, WorkSizeSmall, inputs, complete), nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := readWorkSize(context.Background(), s.DatabaseForTesting(), "complete")
+	if err != nil || !reflect.DeepEqual(got.Footprint, complete) {
+		t.Fatalf("recorded footprint %+v, err %v", got.Footprint, err)
 	}
 }

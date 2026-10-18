@@ -503,6 +503,15 @@ type workflowSuccessorLinkedPayload struct {
 	RelationKind    string `json:"relation_kind"`
 	SuccessorKind   string `json:"successor_kind"`
 	DefinitionRef   string `json:"definition_ref"`
+	// Resize marks the same-family link a resize records (v3); it holds
+	// only beside the lineage row of that resize.
+	Resize bool `json:"resize,omitempty"`
+}
+
+// upcastWorkflowSuccessorLinkedV2 reads an ordinary link: no resize.
+func upcastWorkflowSuccessorLinkedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
+	return event, nil
 }
 
 func upcastWorkflowSuccessorLinkedV1(event Event) (Event, error) {
@@ -3574,7 +3583,15 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {
+	if p.Resize {
+		var lineage bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_resize_lineage WHERE predecessor_work_id=? AND successor_work_id=?)`, event.SubjectID, p.SuccessorWorkID).Scan(&lineage); err != nil {
+			return workflowProjectionError(err, "cannot read the resize lineage")
+		}
+		if !lineage || successorFamily != source.Definition.WorkKind {
+			return newFailure(KindInvalidRelation, "fold_event", "a resize link joins a resized item to its own same-family successor", false, "link a resize successor through the resize")
+		}
+	} else if !slices.Contains(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {
 		return newFailure(KindInvalidRelation, "fold_event", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {

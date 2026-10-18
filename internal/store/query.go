@@ -203,11 +203,14 @@ type WorkItem struct {
 	Size *WorkSizeSummary `json:"size,omitempty"`
 }
 
-// WorkSizeSummary is the read projection of a work item's current size.
+// WorkSizeSummary is the read projection of a work item's current size: Size
+// is the effective size, the operator's when one is recorded.
 type WorkSizeSummary struct {
-	Size         WorkSize `json:"size"`
-	ModelVersion int      `json:"model_version"`
-	RecordedAt   string   `json:"recorded_at"`
+	Size         WorkSize  `json:"size"`
+	ModelSize    WorkSize  `json:"model_size"`
+	OperatorSize *WorkSize `json:"operator_size,omitempty"`
+	ModelVersion int       `json:"model_version"`
+	RecordedAt   string    `json:"recorded_at"`
 }
 
 type Q4Result struct {
@@ -869,11 +872,11 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 
 // attachWorkSize copies the item's current size record, when it has one.
 func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
-	record, ok, err := readWorkSize(ctx, q, item.ID)
+	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
 	if err != nil || !ok {
 		return err
 	}
-	item.Size = &WorkSizeSummary{Size: record.Size, ModelVersion: record.ModelVersion, RecordedAt: record.RecordedAt}
+	item.Size = &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}
 	return nil
 }
 

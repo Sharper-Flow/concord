@@ -38,6 +38,11 @@ type WorkflowAdmissionState struct {
 	// OutsideRepairActive suspends every managed action, including continuity
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
+	// SizeRerunRequired is the CD-0229 D6 stop: a review proved the larger
+	// change bigger after its latest size record (CD-0229 D5). Only the
+	// pre-proof attempts' rejection and failure routes stay admitted, and
+	// only a newer size record releases it.
+	SizeRerunRequired bool
 	// RefinementWorkflow reports whether the pinned definition declares the
 	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
@@ -271,6 +276,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if active || state.InstanceState == "outside_repair" {
 		return state, nil, nil, nil
 	}
+	proofs, err := deriveWorkSizeProofsTx(ctx, q, workID, 0)
+	if err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
+	state.SizeRerunRequired = len(proofs) != 0
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
 	// singular active-contract reader refuses duplicates. The conditional
@@ -555,6 +565,16 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
+		return decision
+	}
+	if state.SizeRerunRequired && actionID != "reject_worker_result" && actionID != "record_worker_failure" {
+		// The stop follows the terminal and archived answers, which no
+		// rerun can change. Every attempt still open was dispatched before
+		// the proof: the stop refuses dispatch_worker, so no later attempt
+		// exists.
+		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action",
+			"a second review proved this larger change bigger (CD-0229 D5); its size must be decided again before the work continues", false,
+			RecoveryWorkSizeRerun)
 		return decision
 	}
 	consequence := workflowActionConsequence(definition, actionID)

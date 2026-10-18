@@ -99,12 +99,13 @@ func ciWaitQueueRemovalReport(ctx context.Context, state *ciWaitState, report ci
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	body, err := ciWaitGH(readCtx, "run", "list", "--repo", state.Repo,
-		"--commit", removal.BeforeCommit.Oid, "--json", "databaseId,name,status,conclusion,url")
+		"--commit", removal.BeforeCommit.Oid, "--json", ciWaitRunListFields)
 	cancel()
 	var runs []ghRunSummary
 	if err != nil || json.Unmarshal(body, &runs) != nil {
 		return report
 	}
+	ciWaitSortRuns(runs)
 	for _, run := range runs {
 		if ciWaitRunBucket(run) == "fail" {
 			report.Failures = append(report.Failures, ciWaitRunFailure(run))

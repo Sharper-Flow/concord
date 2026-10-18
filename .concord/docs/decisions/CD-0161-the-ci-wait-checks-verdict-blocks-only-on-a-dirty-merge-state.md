@@ -2,6 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-20
+- **Amended:** 2026-10-18. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 1145](https://linear.app/sharper-flow/issue/CON-1145).
+  In checks mode, D2 judges the watched head's checks after the pull request
+  merges or closes.
 - **Scope:** The `concord ci-wait` PR selector classification; the report's
   `merge_state` field; the `ci-wait` utility registry entry and purpose
 - **Approval:** The operator reviewed live dispatch evidence of green pull
@@ -63,9 +67,14 @@ a fresh merge-queue removal that is not a merge ends an open merge wait as
 Without an observed failure or removal, every open merge wait stays pending,
 including `CLEAN` and `HAS_HOOKS`.
 In both modes the selector reads `state` and `mergedAt` on the `gh pr view`
-call it already makes. A merged pull request reports `merged`, and a closed
-one reports `closed`. Those outcomes and head supersession retain precedence
-over check failures.
+call it already makes. In merge mode a merged pull request reports `merged`,
+and a closed one reports `closed`; those outcomes take precedence over check
+failures. In checks mode, merging or closing the pull request does not judge
+its checks. The selector reports the watched head's check verdict and totals
+through the same completeness rules as an open pull request: no checks or
+pending checks stay pending, and a complete failed set reports `failure`.
+A complete passing set reports `success` unless D1's `DIRTY` rule holds it
+pending. Head supersession retains precedence in both modes.
 
 CheckRun identity is `(name, workflowName)` because the existing rollup export
 omits event. StatusContext identity is its context, in a separate namespace.
@@ -108,7 +117,11 @@ unchanged.
 - `cmd/concord.TestCiWaitPRMergeModeNewestAttempts` proves newest-attempt
   selection and separate check identities.
 - `cmd/concord.TestCiWaitPRMergeModeFailurePrecedence` proves merged, closed,
-  and superseded outcomes take precedence over check failures.
+  and superseded outcomes take precedence over check failures in merge mode.
+- `cmd/concord.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads` proves that
+  merged and closed pull requests in checks mode still report the watched
+  head's passing, failing, pending, and empty check populations, without
+  treating the pull request's terminal state as CI proof.
 - `python3 scripts/generate-agent-lanes.py --check` proves every generated
   projection matches the manifest and templates.
 - `go test ./cmd/concord/` proves the verb inside the full command package

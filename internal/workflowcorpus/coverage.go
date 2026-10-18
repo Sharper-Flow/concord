@@ -9,12 +9,3 @@ var AgentBoundaryScenarioIDs = []string{
 	"WF46-event-version-fail-closed",
 	"WF56-session-vacate-then-reclaim-passes-gate",
 }
-
-func AgentBoundaryOwns(id string) bool {
-	for _, candidate := range AgentBoundaryScenarioIDs {
-		if candidate == id {
-			return true
-		}
-	}
-	return false
-}

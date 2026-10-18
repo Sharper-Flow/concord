@@ -41,14 +41,6 @@ func (s SubjectType) valid() bool {
 	return ok
 }
 
-func knownSubjectTypes() []SubjectType {
-	out := make([]SubjectType, 0, len(subjectTypes))
-	for s := range subjectTypes {
-		out = append(out, s)
-	}
-	return out
-}
-
 // Event is one row of the append-only log.
 type Event struct {
 	// Seq is populated when an event is read from the log. It is not caller

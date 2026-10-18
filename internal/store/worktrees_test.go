@@ -15,11 +15,6 @@ import (
 	"time"
 )
 
-// fakeWorktreeOriginURL is the remote URL the fixture repositories report
-// for remote.origin.url: the bounded preflight fetches that URL directly, so
-// the fake's fetch case matches on it.
-const fakeWorktreeOriginURL = "https://freshness.invalid/repository.git"
-
 // fakeWorktreeGit models one primary repository plus any further roots a test
 // registers: branches with heads, existing linked worktrees keyed by path,
 // ancestry, durability, dirtiness, and the default ref. It records every

@@ -958,7 +958,8 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		if len(p.LawModifies) != 0 && !isWorkflowReplay(ctx) {
 			// Live writes enforce CD-0222 D5 against the current Git tiers.
 			// Replay retains admitted revision lines without re-reading that
-			// mutable projection; their law pins are still checked below.
+			// mutable projection. The contract's law pins, when present,
+			// are still shape-checked below.
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
 				return err
 			}

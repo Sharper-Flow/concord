@@ -125,7 +125,7 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}
-	return WorkSizeRevisionResult{EventIDs: applied.EventIDs, SuccessorWorkID: successor}, nil
+	return workSizeRevisionResultTx(ctx, tx, request.WorkID, successor, applied.EventIDs)
 }
 
 func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error {

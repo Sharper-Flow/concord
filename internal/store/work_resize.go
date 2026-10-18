@@ -248,8 +248,26 @@ func foldWorkResized(ctx context.Context, tx *sql.Tx, event Event) error {
 // WorkSizeRevisionResult reports a size revision's events and, when the
 // effective size changed, the successor that now carries the work.
 type WorkSizeRevisionResult struct {
-	EventIDs        []string
+	EventIDs []string
+	// WorkVersion is the revised item's version after the revision.
+	WorkVersion     int64
 	SuccessorWorkID string
+	// SuccessorVersion is the successor's version when a resize created one.
+	SuccessorVersion int64
+}
+
+// workSizeRevisionResultTx reads the versions a settled revision left.
+func workSizeRevisionResultTx(ctx context.Context, q queryer, workID, successor string, eventIDs []string) (WorkSizeRevisionResult, error) {
+	result := WorkSizeRevisionResult{EventIDs: eventIDs, SuccessorWorkID: successor}
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&result.WorkVersion); err != nil {
+		return WorkSizeRevisionResult{}, wrapFailure(KindUnavailable, "work_size", "cannot read the revised work item's version", true, "retry once the database is readable", err)
+	}
+	if successor != "" {
+		if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, successor).Scan(&result.SuccessorVersion); err != nil {
+			return WorkSizeRevisionResult{}, wrapFailure(KindUnavailable, "work_size", "cannot read the successor's version", true, "retry once the database is readable", err)
+		}
+	}
+	return result, nil
 }
 
 // workResizeRequest names the item a revision resized, the revision's event

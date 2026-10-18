@@ -78,6 +78,24 @@ def check_payload_schema(root: Path, declared: list[str], findings: list[str]) -
         findings.append(f"schema-closure: work_size_summary.size expected {declared}, got {size['enum']}")
     if defs.get("work_summary", {}).get("properties", {}).get("size") != {"$ref": "#/$defs/work_size_summary"}:
         findings.append("schema-coverage: work_summary.size does not reference $defs/work_size_summary")
+    size_class = defs.get("work_size_class", {})
+    if size_class.get("enum") != declared:
+        findings.append(f"schema-closure: work_size_class expected {declared}, got {size_class.get('enum')}")
+    revise = defs.get("work_define_revise_input", {}).get("properties", {})
+    references = {
+        "work_size_summary.model_size": defs.get("work_size_summary", {}).get("properties", {}).get("model_size"),
+        "work_size_summary.operator_size": defs.get("work_size_summary", {}).get("properties", {}).get("operator_size"),
+        "work_define_revise_input.operator_size": revise.get("operator_size"),
+    }
+    for where, node in references.items():
+        if not isinstance(node, dict) or node.get("$ref") != "#/$defs/work_size_class":
+            findings.append(f"schema-coverage: {where} does not reference $defs/work_size_class")
+    # A rerun declares inputs exactly as a capture does, so it shares the
+    # capture's closed object and can propose no size either.
+    for operation in ("work_define_capture_input", "work_define_revise_input"):
+        node = defs.get(operation, {}).get("properties", {}).get("size_inputs")
+        if not isinstance(node, dict) or node.get("$ref") != "#/$defs/work_size_inputs":
+            findings.append(f"schema-coverage: {operation}.size_inputs does not reference $defs/work_size_inputs")
     check_no_proposed_size(defs.get("work_size_inputs"), f"{PAYLOAD_SCHEMA}#/$defs/work_size_inputs", findings)
 
 

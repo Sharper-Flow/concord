@@ -144,7 +144,7 @@ func RerunWorkSizeTx(ctx context.Context, transaction *Transaction, request Work
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}
-	return WorkSizeRevisionResult{EventIDs: ids, SuccessorWorkID: successor}, nil
+	return workSizeRevisionResultTx(ctx, tx, request.WorkID, successor, ids)
 }
 
 func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, workID string) (workSizedPayload, error) {

@@ -1,4 +1,5 @@
 """Synthetic inputs and expected observations, never generated agent answers."""
+import copy
 
 WORK = "synthetic-work"
 TRACE = "concord_work_trace"
@@ -27,8 +28,6 @@ SESSION = "synthetic-session"
 BASE_SHA = "0123456789abcdef0123456789abcdef01234567"
 SAME_REPO_PROJECT = "synthetic-same-repo-project"
 CROSS_REPO_PROJECT = "synthetic-cross-repo-project"
-LAUNCH_ARGV = ["concord", "zl", WORK, "--project", CROSS_REPO_PROJECT]
-LAUNCH_COMMAND = " ".join(LAUNCH_ARGV)
 
 # These shapes mirror adapter/opencode/concord.ts and move-notice.ts. A change
 # to a production envelope or notice must change its double here.
@@ -65,6 +64,18 @@ def start_error(kind, message, recovery, retry_safe, identity=None, extra=None):
         "error": {"kind": kind, "retry_safe": retry_safe, "recovery_action": {"kind": recovery},
                   "effect_state": "none", "message": message},
     }
+
+
+def unlanded_message(recovery):
+    return (
+        f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
+        "session's tool context still resolves in \"/synthetic/repo\", so the move has not "
+        "landed: Concord reports no success, arms no claimed worktree, and this refusal "
+        f"arms no turn-move boundary. {recovery} A continuation or new message is not "
+        "placement proof: confirm from the new turn's actual tool context, for example "
+        "the shell working directory, that it actually resolves in "
+        f"\"{WORKTREE}\"; only then replay this same work_start request."
+    )
 
 
 def claim_ok(worktree, project_id):
@@ -287,27 +298,28 @@ implement worker once you arrive; follow what the tool results permit.""",
     },
     "cross-repository-second-session": {
         "responses": {TRACE: continuity_ok()},
-        "prompt": f"""This coordinator session runs in {WORKTREE}. The operator asks to
-continue {WORK} in its member Project {CROSS_REPO_PROJECT}, whose canonical
-repository is another repository at {OTHER_REPO}. Route the work there and report
-the disposition, including any action the operator must take.""",
+        "prompt": f"""This coordinator session runs in {WORKTREE}. The work {WORK} is
+also a member of {CROSS_REPO_PROJECT}, whose canonical repository is another
+repository at {OTHER_REPO}. The operator asks to continue the work's bounded
+job in that repository. Route the work there and report the disposition,
+including any action the operator must take.""",
         "required": [START],
-        "start": {"admit": {"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
+        # The resume shape names no Project, so this session cannot
+        # route the work into the other repository. The fixture serves the
+        # placement refusal class a resume whose Project the invocation does
+        # not resolve carries (cmd/concord/work_resume.go), and the bounded
+        # job in the other repository belongs to a host-started session
+        # there, resumed by work_id alone.
+        "start": {"admit": {"work_id": WORK},
                   "result": start_error(
-                      "session_opener_unregistered",
-                      "No session opener is registered on this host, so Concord cannot open the "
-                      f"second session itself. Run the launch command yourself in {OTHER_REPO}: {LAUNCH_COMMAND}",
-                      "contact_operator", False,
-                      identity={"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
-                      extra={"launch": {"argv": LAUNCH_ARGV, "directory": OTHER_REPO, "runnable": LAUNCH_COMMAND}})},
-        # The boundary is the identifier the typed refusal names: its error
-        # kind. The launch command, not a boundary assertion, is the operator
-        # action the refusal carries.
+                      "resume_failure",
+                      "concord work-resume: invocation must resolve to the requested Project",
+                      "contact_operator", False)},
         "expected": report("needs_operator", work_id=WORK,
-                           boundary="session_opener_unregistered",
-                           cause="session_opener_unregistered", effect="none",
+                           boundary="resume_failure",
+                           cause="resume_failure", effect="none",
                            owner="operator", action="open_session",
-                           target=LAUNCH_COMMAND, why="host_owns_session_placement"),
+                           target=OTHER_REPO, why="host_owns_session_placement"),
     },
     "stale-context-turn-boundary": {
         "responses": {TRACE: continuity_ok()},
@@ -318,15 +330,7 @@ the item, follow what the tool results permit, and report the disposition.""",
         "start": {"admit": {"work_id": WORK},
                   "result": start_error(
                       "session_directory_mismatch",
-                      f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
-                      "session's tool context still resolves in \"/synthetic/repo\", so the move has not "
-                      "landed: Concord reports no success, arms no claimed worktree, and this refusal "
-                      "arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the "
-                      "operator to send the next message, because the next turn's tool context can "
-                      "resolve in the claimed worktree. That message alone is not placement proof: "
-                      "before replaying, confirm from the new turn's tool context, for example the "
-                      "shell working directory, that it actually resolves in "
-                      f"\"{WORKTREE}\"; only then replay this same work_start request.",
+                       unlanded_message("The automatic continuation for this move is unavailable or already spent; no automatic retry cycle will run."),
                       "retry_same_request", True,
                       identity={"product_id": PRODUCT, "project_id": PROJECT, "work_id": WORK,
                                 "worktree_path": WORKTREE})},
@@ -363,3 +367,10 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
                            why="operator_owns_worktree_state"),
     },
 }
+
+SCENARIOS["stale-context-continuation-scheduled"] = copy.deepcopy(SCENARIOS["stale-context-turn-boundary"])
+SCENARIOS["stale-context-continuation-scheduled"]["start"]["result"]["error"]["message"] = unlanded_message(
+    "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message.")
+SCENARIOS["stale-context-continuation-scheduled"]["expected"] = report(
+    "awaiting_continuation", work_id=WORK, boundary="session_directory_mismatch",
+    cause="session_directory_mismatch", effect="none", owner="agent", action="none", why="context_lands_next_turn")

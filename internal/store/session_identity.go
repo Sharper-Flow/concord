@@ -1,4 +1,4 @@
-// CD-0061 D4: a launcher-started session records the orchestrator identity
+// CD-0061 D4: session preparation records the orchestrator identity
 // it asserted as a domain event with subject_type='session'. The event is
 // evidence, not configuration — no projection consumes it, so its fold is
 // the no-op projectionMutation. Anything that tries to authorize behaviour
@@ -16,12 +16,12 @@ import (
 )
 
 // EventSessionOrchestratorIdentityAsserted names the kind Concord records at
-// session start once it has asserted the orchestrator identity the host
+// session preparation once it has asserted the orchestrator identity the host
 // resolved. CD-0061 D4 fixes this as a domain event subject_type='session'.
 const EventSessionOrchestratorIdentityAsserted = "session.orchestrator_identity_asserted"
 
 // orchestratorIdentityAssertedPayload is the closed payload shape recorded
-// once per session start. It carries the asserted type and version (both
+// during session preparation. It carries the asserted type and version (both
 // Concord-owned constants) and the SHA-256 over the resolved-artifact
 // manifest the digest derives from. The sources list is the evidence the
 // digest was computed over; a reader recomputes the digest from it and
@@ -51,8 +51,7 @@ type OrchestratorIdentityAssertion struct {
 	RulesetDigest string
 	Sources       []OrchestratorArtifactSource
 	// ProductID and WorkID name the session the assertion is for. ProductID
-	// is the launcher-provided product scope; WorkID is the optional work
-	// scope and is empty for product-only sessions.
+	// is the caller's Product scope; WorkID is the optional work scope.
 	ProductID string
 	WorkID    string
 	// Actor identity fields, formatted the same way a worker attempt
@@ -86,8 +85,8 @@ func (a OrchestratorIdentityAssertion) SubjectID() string {
 }
 
 // ActorRef derives the canonical session actor the assertion is attributed
-// to. The actor ref is derived from the launcher-provided identity so a
-// session run later can identify the originating context.
+// to. The actor ref derives from the caller's identity so a reader can
+// identify the originating context.
 func (a OrchestratorIdentityAssertion) ActorRef() string {
 	return DeriveWorkflowActorRef(a.PrincipalRef, a.ClientRef, a.AgentRef, a.SessionRef)
 }
@@ -111,7 +110,7 @@ func foldSessionOrchestratorIdentityAsserted(ctx context.Context, tx *sql.Tx, ev
 
 // RecordOrchestratorIdentityAssertion appends the assertion as a domain
 // event with subject_type='session'. The event_id is supplied by the caller
-// (the session command derives it from the launcher-provided product and
+// (session preparation derives it from the caller's Product and
 // work identity so concurrent sessions do not collide). OccurredAt is the
 // wall-clock instant Concord asserts the identity.
 //

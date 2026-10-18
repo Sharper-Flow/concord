@@ -138,18 +138,17 @@ func seedDispatchCorrectionFixture(t *testing.T, workID string, version int64) c
 		t.Fatalf("workflow.research v%d is not registered", version)
 	}
 	f := crossAttemptFixture{
-		fixture:            seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "investigate", []string{}, []string{}),
-		workID:             workID,
-		step:               "investigate",
-		definition:         registered.Definition,
-		researchLane:       reviewGateLane(t, "research"),
-		reviewLane:         reviewGateLane(t, "review"),
-		researchDispatcher: diagnosisS1Actor(workID, "research-dispatcher"),
-		reviewDispatcher:   diagnosisS1Actor(workID, "review-dispatcher"),
-		attemptR:           "attempt:" + workID + ":1",
-		attemptV:           "attempt:" + workID + ":2",
+		fixture:      seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "investigate", []string{}, []string{}),
+		workID:       workID,
+		step:         "investigate",
+		definition:   registered.Definition,
+		researchLane: reviewGateLane(t, "research"),
+		reviewLane:   reviewGateLane(t, "review"),
+		attemptR:     "attempt:" + workID + ":1",
+		attemptV:     "attempt:" + workID + ":2",
 	}
 	f.s = f.fixture.store
+	f.dispatcher = f.fixture.owner
 	return f
 }
 
@@ -176,21 +175,21 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			name: "authorization without materialization", workID: "dispatch-correction-authorized-only",
 			available: false, modelApplies: false,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.authorizeDispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.authorizeDispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 			},
 		},
 		{
 			name: "live materialized worker", workID: "dispatch-correction-live-worker",
 			available: false, model: admissionModelState{contracts: 1, dispatched: true}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 			},
 		},
 		{
 			name: "unaccepted completed result", workID: "dispatch-correction-completed-result",
 			available: false, model: admissionModelState{contracts: 1, dispatched: true, attempt: "completed"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 				f.completeReport(t, f.attemptR, f.researchLane, 21)
 			},
 		},
@@ -198,7 +197,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			name: "unrecorded failed attempt", workID: "dispatch-correction-failed-attempt", version: 16,
 			available: false, model: admissionModelState{contracts: 1, dispatched: true, attempt: "failed"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 				failAbandonedWorkerAttempt(t, f.s, f.workID, f.attemptR)
 			},
 		},
@@ -206,7 +205,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			name: "recorded failure", workID: "dispatch-correction-recorded-failure", version: 16,
 			available: true, model: admissionModelState{contracts: 1, dispatched: true, attempt: "failure_recorded"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 				failAbandonedWorkerAttempt(t, f.s, f.workID, f.attemptR)
 				applyRecordWorkerFailureForTest(t, f.s, f.workID, f.fixture.owner, f.attemptR,
 					crossAttemptDispatchEpoch(t, f.s, f.workID, f.attemptR),
@@ -217,7 +216,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			name: "rejected completed result", workID: "dispatch-correction-rejected-result",
 			available: true, model: admissionModelState{contracts: 1, dispatched: true, attempt: "rejected"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
-				f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 				f.completeReport(t, f.attemptR, f.researchLane, 21)
 				if _, err := f.invokeReject(t, readWorkVersion(t, f.s, f.workID), f.attemptR,
 					crossAttemptDispatchEpoch(t, f.s, f.workID, f.attemptR), "", 30); err != nil {
@@ -307,12 +306,12 @@ func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixtu
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), f.attemptR, crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR), "", 30); err != nil {
 		t.Fatalf("reject the first research result: %v", err)
 	}
-	if err := dispatchCorrectionAuthorize(t, f, attemptR2, f.researchLane, f.researchDispatcher); err != nil {
+	if err := dispatchCorrectionAuthorize(t, f, attemptR2, f.researchLane, f.dispatcher); err != nil {
 		t.Fatalf("authorize the corrected research retry: %v", err)
 	}
-	f.materializeDispatch(t, attemptR2, f.researchLane, f.researchDispatcher)
+	f.materializeDispatch(t, attemptR2, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptR2, f.researchLane, 31)
-	f.dispatch(t, attemptV2, f.reviewLane, f.reviewDispatcher)
+	f.dispatch(t, attemptV2, f.reviewLane, f.dispatcher)
 	f.completeReviewNoShip(t, attemptV2, 32)
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR2, crossAttemptDispatchEpoch(t, f.s, workID, attemptR2), "r2", 33); err != nil {
 		t.Fatalf("reject the corrected research result: %v", err)
@@ -508,7 +507,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	// The changed approach buys exactly one fresh corrected research
 	// authorization, and its recorded basis names the actual supersession at
 	// the next fenced epoch.
-	if err := dispatchCorrectionAuthorize(t, f, attemptW, f.researchLane, f.researchDispatcher); err != nil {
+	if err := dispatchCorrectionAuthorize(t, f, attemptW, f.researchLane, f.dispatcher); err != nil {
 		t.Fatalf("authorize the fresh corrected research dispatch behind the wall: %v", err)
 	}
 	if epochW := crossAttemptDispatchEpoch(t, f.s, workID, attemptW); epochW != crossAttemptDispatchEpoch(t, f.s, workID, attemptV2)+1 {
@@ -540,17 +539,17 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	// research dispatch refuses at the wall before any worker evidence
 	// exists, and the refusal records nothing.
 	refusedCounters := walledResearchReadCounters(t, f)
-	walledResearchAssertRefused(t, f, dispatchCorrectionAuthorize(t, f, refusedResearch, f.researchLane, f.researchDispatcher), refusedCounters, "the pre-materialization research dispatch")
+	walledResearchAssertRefused(t, f, dispatchCorrectionAuthorize(t, f, refusedResearch, f.researchLane, f.dispatcher), refusedCounters, "the pre-materialization research dispatch")
 
 	// Full path: the authorized attempt materializes, consumes the standing
 	// correction, and the wall re-arms — the next review dispatch refuses
 	// without any effect either.
-	f.materializeDispatch(t, attemptW, f.researchLane, f.researchDispatcher)
+	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
 	if issue1013Pin(t, f.s, workID).Correction != nil {
 		t.Fatal("the materialized dispatch left the rejection correction standing")
 	}
 	refusedCounters = walledResearchReadCounters(t, f)
-	_, reviewErr := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.reviewDispatcher, joinPacketFor(t, f.s, workID, f.step, refusedReview, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest))
+	_, reviewErr := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, refusedReview, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest))
 	walledResearchAssertRefused(t, f, reviewErr, refusedCounters, "the post-materialization review dispatch")
 
 	final := walledResearchCapture(t, f, settled, []string{attemptW}, rejected)
@@ -610,13 +609,13 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	if anchor, err := workflowNonProgressWindowAnchor(ctx, f.s.DatabaseForTesting(), workID, "test", 0); err != nil || anchor != 0 {
 		t.Fatalf("non-progress anchor after the supersession = %d, %v, want 0 — the supersession renews no window", anchor, err)
 	}
-	if err := dispatchCorrectionAuthorize(t, f, attemptR3, f.researchLane, f.researchDispatcher); err != nil {
+	if err := dispatchCorrectionAuthorize(t, f, attemptR3, f.researchLane, f.dispatcher); err != nil {
 		t.Fatalf("authorize the fresh corrected research dispatch: %v", err)
 	}
 	if epochR3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptR3); epochR3 != epochV2+1 {
 		t.Fatalf("the fresh authorization's epoch = %d, want the next epoch after the review %d", epochR3, epochV2+1)
 	}
-	f.materializeDispatch(t, attemptR3, f.researchLane, f.researchDispatcher)
+	f.materializeDispatch(t, attemptR3, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptR3, f.researchLane, 41)
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptR3, crossAttemptDispatchEpoch(t, f.s, workID, attemptR3), "walled-eval", 42)); err != nil {
 		t.Fatalf("accept the corrected research result: %v", err)
@@ -676,14 +675,14 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	}
 	reviewPacket := joinPacketFor(t, f.s, workID, w.step, attemptV3, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest)
 	reviewPacket["inputs"].(map[string]any)["outcome_predicates"] = predicates
-	if _, dispatchErr := dispatchJoinAttempt(ctx, t, f.s, workID, readWorkVersion(t, f.s, workID), f.reviewDispatcher, reviewPacket); dispatchErr != nil {
+	if _, dispatchErr := dispatchJoinAttempt(ctx, t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, reviewPacket); dispatchErr != nil {
 		t.Fatalf("authorize the conclude review dispatch: %v", dispatchErr)
 	}
-	w.materializeDispatch(t, attemptV3, f.reviewLane, f.reviewDispatcher)
+	w.materializeDispatch(t, attemptV3, f.reviewLane, f.dispatcher)
 	if epochV3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptV3); epochV3 != lastConcludeEpoch+1 {
 		t.Fatalf("the conclude review's dispatch epoch = %d, want the next epoch conclude's own start history opens (%d)", epochV3, lastConcludeEpoch+1)
 	}
-	reviewEvent := reviewLaneVerdictCompleteEvent(workID, "walled-eval-review-completed-"+attemptV3, attemptV3, f.reviewLane, reviewVerdict, time.Unix(43, 0).UTC())
+	reviewEvent := reviewLaneVerdictCompleteEvent(workID, "walled-eval-review-completed-"+attemptV3, attemptV3, f.reviewLane, reviewVerdict, time.Unix(43, 0).UTC(), workerFixtureDirectory(t, f.s, workID))
 	var reviewPayload WorkerCompletedPayload
 	if err := json.Unmarshal(reviewEvent.Payload, &reviewPayload); err != nil {
 		t.Fatal(err)
@@ -851,12 +850,12 @@ func TestResearchWalledRecoveryCheckpointEvaluation(t *testing.T) {
 		// rejected. The latest correction is then an ordinary rejected-result
 		// correction — the state a supersession is admitted on.
 		attemptR4, attemptV4 := "attempt:"+workID+":7", "attempt:"+workID+":8"
-		if err := dispatchCorrectionAuthorize(t, f, attemptR4, f.researchLane, f.researchDispatcher); err != nil {
+		if err := dispatchCorrectionAuthorize(t, f, attemptR4, f.researchLane, f.dispatcher); err != nil {
 			t.Fatalf("authorize the corrected research cycle on the returned step: %v", err)
 		}
-		f.materializeDispatch(t, attemptR4, f.researchLane, f.researchDispatcher)
+		f.materializeDispatch(t, attemptR4, f.researchLane, f.dispatcher)
 		f.completeReport(t, attemptR4, f.researchLane, 45)
-		f.dispatch(t, attemptV4, f.reviewLane, f.reviewDispatcher)
+		f.dispatch(t, attemptV4, f.reviewLane, f.dispatcher)
 		f.completeReviewNoShip(t, attemptV4, 46)
 		if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR4, crossAttemptDispatchEpoch(t, f.s, workID, attemptR4), "r4", 47); err != nil {
 			t.Fatalf("reject the second corrected research result: %v", err)

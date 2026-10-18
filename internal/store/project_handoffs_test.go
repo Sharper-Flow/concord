@@ -948,7 +948,7 @@ func completeWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT report_schema_version FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&reportSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion})}
+	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}

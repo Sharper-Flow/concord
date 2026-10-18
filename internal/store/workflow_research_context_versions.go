@@ -1,7 +1,5 @@
 package store
 
-import "slices"
-
 // The research-context publication heads. Each builder promotes its
 // family one version past the failure-attribution head: the restated fields
 // are the definition's own registry content, so every earlier version keeps
@@ -22,15 +20,10 @@ func researchContextSelectionField() WorkflowPayloadField {
 // action's in-definition entry changes; no global action policy, old
 // builder, or frozen definition moves.
 func withResearchContextSelection(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "record_work_context" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload.Fields = append(slices.Clone(definition.ActionDefinitions[index].Payload.Fields), researchContextSelectionField())
-	}
-	return definition
+	return reviseWorkflowAction(definition, "record_work_context", researchContextSelection)
 }
+
+var researchContextSelection = withAppendedPayloadField(researchContextSelectionField)
 
 // withResearchContextPacketRef points the definition's dispatch_worker packet
 // field at the research-context packet3 closure, whose frozen decoder anchors
@@ -40,20 +33,10 @@ func withResearchContextSelection(definition WorkflowDefinition) WorkflowDefinit
 // constant. The retained packet2 declarations replay exactly the closure
 // they recorded.
 func withResearchContextPacketRef(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for i := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[i].ID != "dispatch_worker" {
-			continue
-		}
-		for j := range definition.ActionDefinitions[i].Payload.Fields {
-			field := &definition.ActionDefinitions[i].Payload.Fields[j]
-			if field.Name == "worker_packet" {
-				field.SchemaRef = "worker_packet3"
-			}
-		}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "dispatch_worker", withWorkerPacketRef(researchContextPacketSchema))
 }
+
+const researchContextPacketSchema = "worker_packet3"
 
 // Each builder below ships its family's research-context head: the promoted
 // version restates the record_work_context payload and anchors the dispatch

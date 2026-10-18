@@ -152,16 +152,6 @@ func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
 	}
 }
 
-func TestWorkflowOutcomePredicateVacuityChecksAbsentConjunct(t *testing.T) {
-	t.Parallel()
-	if !workflowOutcomePredicateVacuous("absent", "scope-absent") {
-		t.Fatal("an already absent conjunct must be vacuous")
-	}
-	if workflowOutcomePredicateVacuous("exists", "scope-absent") {
-		t.Fatal("an absent ground truth must not make an exists conjunct vacuous")
-	}
-}
-
 // A verdict cannot answer a predicate the contract did not approve (CD-0006
 // R1): the verdict fold refuses it, so no recorded verdict set can carry one
 // to completion.

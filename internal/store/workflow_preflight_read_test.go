@@ -80,7 +80,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 		t.Fatalf("advance state after inspection: %v", err)
 	}
 	mutated := false
-	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), request, nil, s.Clock(), nil, func(*Transaction) error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), request, nil, func(*Transaction) error {
 		mutated = true
 		return nil
 	})

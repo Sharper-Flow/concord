@@ -5370,11 +5370,15 @@ func readBoundedFile(path string, maxBytes int) (string, error) {
 // Project, under an exclusive lease, and completion refuses when tracked
 // files changed while the lease was held.
 type WorktreeVerifyRequest struct {
-	Owner                      SessionWorktreeOwner
-	WorkID                     string
-	ProjectID                  string
-	Command                    []string
-	Oracle                     *NativeOracleRequest
+	Owner     SessionWorktreeOwner
+	WorkID    string
+	ProjectID string
+	Command   []string
+	Oracle    *NativeOracleRequest
+	// NativeAuthorization authenticates a host-selected worker control in the
+	// native acquiring transaction or before a retained replay is returned.
+	// It is trusted program wiring, never a decoded caller argument.
+	NativeAuthorization        func(context.Context, *Transaction) error `json:"-"`
 	nativePlanJSON             string
 	nativePlanSHA256           string
 	nativeCommandJSON          string
@@ -5429,6 +5433,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
 		return WorktreeVerifyResult{}, retitleFailure(err, "worktree_verify")
+	}
+	if req.NativeAuthorization != nil && (req.Oracle == nil || req.Oracle.Phase != "execute") {
+		return WorktreeVerifyResult{}, oracleFailure(KindInvalidPayload, "worker execution authorization requires the native execute producer", "select a recorded native control")
 	}
 	if req.Oracle != nil {
 		return s.verifyNativeOracle(ctx, req)

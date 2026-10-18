@@ -7,15 +7,18 @@
 - **Related:** CD-0016 (context continuity), CD-0027 (typed restart excluded),
   CD-0049 (agent delivery and identity assertion), CD-0034 (host prompt
   provenance), issue #254
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the session
+  assertion from launcher start to session preparation under the Snowball
+  coordinator's operator-delegated approval.
 - **Supersedes:** nothing; scopes CD-0027's exclusion and amends CD-0049's
   consequences
 
 ## Context
 
 CD-0049 D3 holds that Concord records the orchestrator identity a session
-requires and verifies it. Its Invariant 3 requires a launcher-started session to
-either record the typed agent identity it asserted or refuse with a typed
-failure. Its Consequences state that "CD-0016's clean-restart boundary becomes
+requires and verifies it. Its Invariant 3 requires a managed session to
+either record the typed agent identity session-prepare asserted or refuse
+with a typed failure. Its Consequences state that "CD-0016's clean-restart boundary becomes
 reachable" and that the D2 assertion "is what populates the reserved
 `typed_agent_*` columns".
 
@@ -86,8 +89,9 @@ unchanged, and the requirement to record an asserted identity is satisfied by D4
 below rather than withdrawn.
 
 A context boundary records a work item crossing a continuity boundary. A session
-identity assertion happens at launcher start, before any work item is
-necessarily selected — `concord session` accepts an empty work id. Recording one
+identity assertion happens at session preparation, before managed action. A
+host-started session with no selected work stays identity-only, performs no
+preparation, and records no assertion (CD-0031 as amended). Recording one
 as the other would misuse the boundary sequence and require a `restart` boundary
 kind that D1 keeps closed.
 
@@ -130,20 +134,21 @@ observed rather than a pin on what was approved.
 
 1. No Concord code path makes lane restart reachable.
 2. No durable Concord record defines an orchestrator persona.
-3. A launcher-started session that proceeds has recorded the orchestrator
-   identity it asserted; one that cannot assert refuses with a typed failure
-   naming the required identity, the observed identity, and the paths searched.
+3. A managed session that proceeds has recorded the orchestrator identity
+   session-prepare asserted; one that cannot assert refuses with a typed
+   failure naming the required identity, the observed identity, and the paths
+   searched.
 4. The orchestrator ruleset digest is derived only from artifacts the assertion
    actually resolved, never from a declared or expected value.
 
 ## Consequences
 
-Issue #254 becomes implementable: the assertion slots beside the existing lane
-identity hook in `runSessionCommand`, and its record has a home that no accepted
+Issue #254 becomes implementable: the assertion slots beside the lane
+identity check in session-prepare, and its record has a home that no accepted
 decision forbids.
 
-`concord session` acquires a durable write. It performs only reads today, so the
-session path gains a store write boundary it did not previously have.
+Session preparation acquires a durable write: the typed assertion event of
+D4. No entry surface performs a durable store write (CD-0108 as amended).
 
 The migration in D3 is forward-only and drops columns that hold no rows, so it
 carries no data loss.
@@ -163,10 +168,10 @@ explicit operator acceptance.
 
 ## Verification
 
-- A launcher-started session with a resolvable orchestrator definition records a
+- A prepared managed session with a resolvable orchestrator definition records a
   `subject_type='session'` event carrying type, version, and ruleset digest.
-- A launcher-started session with no resolvable orchestrator definition exits
-  non-zero with a diagnostic naming required identity, observed identity, and
+- A prepared managed session with no resolvable orchestrator definition refuses
+  with a typed diagnostic naming required identity, observed identity, and
   searched paths, and writes no event.
 - `typed_agent_type`, `typed_agent_version`, and `typed_agent_ruleset_digest` do
   not exist after the migration, and `boundary_kind` admits only `summary`.

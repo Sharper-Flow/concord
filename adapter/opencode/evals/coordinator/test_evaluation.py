@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
-                        evaluate, launch_targets, served_correction_step,
+                        evaluate, served_correction_step,
                         start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
-                       WORKTREE, OTHER_REPO, LAUNCH_COMMAND, SAME_REPO_PROJECT, BASE_SHA,
+                       WORKTREE, OTHER_REPO, SAME_REPO_PROJECT, BASE_SHA,
                        move_notice, runtime_response, start_ok)
 
 MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
@@ -59,15 +59,6 @@ def observation(case):
         {"type": "text", "part": {"text": json.dumps({**case["expected"], "context_receipts": {"source": "nonce"}})}},
         {"type": "step_finish", "part": {"reason": "stop"}},
     ])
-    return calls, events
-
-
-def targeted_observation(case, target):
-    """An observation whose terminal answer carries a chosen launch target."""
-    calls, events = observation(case)
-    final = json.loads(events[-2]["part"]["text"])
-    final["operator_action"]["target"] = target
-    events[-2]["part"]["text"] = json.dumps(final)
     return calls, events
 
 
@@ -208,11 +199,12 @@ class EvaluationTests(unittest.TestCase):
         case = SCENARIOS["cross-repository-second-session"]
         args, _ = start_args(case)
         self.assertTrue(start_in_scope(args, case))
+        # The resume shape is exactly { work_id }; any Project
+        # selector, on any route, is out of scope.
         for change, valid in (
             ({"project_id": "synthetic-foreign-project"}, False),
-            ({"project_id": "synthetic-same-repo-project"}, False),
+            ({"project_id": "synthetic-cross-repo-project"}, False),
             ({"work_id": "foreign-work"}, False),
-            ({"project_id": None}, False),
             ({"title": "Synthetic parser repair"}, False),
         ):
             with self.subTest(change=change):
@@ -320,7 +312,8 @@ class EvaluationTests(unittest.TestCase):
         # (work-resume exit 2, adapter contact_operator), so no scenario
         # declares a replay allowance and an identical same-turn replay of a
         # refused start fails everywhere.
-        for name in ("genuine-refusal-no-fallback", "stale-context-turn-boundary"):
+        for name in ("genuine-refusal-no-fallback", "stale-context-turn-boundary",
+                     "stale-context-continuation-scheduled"):
             with self.subTest(name=name):
                 case = SCENARIOS[name]
                 calls, events = observation(case)
@@ -344,12 +337,17 @@ class EvaluationTests(unittest.TestCase):
         case = SCENARIOS["authority-denial"]
         self.assertFalse(start_in_scope({"work_id": WORK}, case))
 
-    def test_resume_admission_excludes_same_repository_project(self):
-        # work_start resume selects a member Project in another repository
-        # only; the same-repository selection route is worktree_claim, so a
-        # fixture declaring the wrong route must not admit it either.
-        case = {"start": {"admit": {"work_id": WORK, "project_id": "synthetic-same-repo-project"}}}
-        self.assertFalse(start_in_scope({"work_id": WORK, "project_id": "synthetic-same-repo-project"}, case))
+    def test_no_scenario_admits_a_project_selector_on_resume(self):
+        # The resume contract carries work_id alone, so no fixture
+        # may declare a Project selector on its admitted resume — a fixture
+        # that did would admit input the published surface refuses closed.
+        for name, case in SCENARIOS.items():
+            start = case.get("start")
+            if isinstance(start, dict) and isinstance(start.get("admit"), dict):
+                self.assertEqual(set(start["admit"]), {"work_id"}, name)
+        self.assertFalse(start_in_scope(
+            {"work_id": WORK, "project_id": "synthetic-same-repo-project"},
+            {"start": {"admit": {"work_id": WORK}}}))
 
     def test_narrated_terminal_answer_passes_with_strict_advisory_false(self):
         # Contract v2: the terminal assistant answer is identified
@@ -398,7 +396,7 @@ class EvaluationTests(unittest.TestCase):
             ("default-checkout-resume", None),
             ("dirty-same-target-reuse", None),
             ("same-repository-second-project", "turn_move_boundary"),
-            ("cross-repository-second-session", "session_opener_unregistered"),
+            ("cross-repository-second-session", "resume_failure"),
             ("stale-context-turn-boundary", "session_directory_mismatch"),
             ("genuine-refusal-no-fallback", "work_bootstrap"),
             ("authority-denial", None),
@@ -449,7 +447,7 @@ class EvaluationTests(unittest.TestCase):
     def test_refusal_boundary_names_accept_only_the_typed_identifier(self):
         for name, typed in (
             ("genuine-refusal-no-fallback", "work_bootstrap"),
-            ("cross-repository-second-session", "session_opener_unregistered"),
+            ("cross-repository-second-session", "resume_failure"),
         ):
             for boundary, admitted in ((typed, True), (START, False)):
                 with self.subTest(name=name, boundary=boundary):
@@ -467,327 +465,67 @@ class EvaluationTests(unittest.TestCase):
         # substituted, so the evaluated guidance is the shipped guidance.
         source = CONCORD_SOURCE.read_text()
         template = re.search(r'move_context_not_landed", `([^`]+)`', source)
+        recovery = re.search(r'const recovery = scheduled \? ("[^"\n]+") : ("[^"\n]+")', source)
         self.assertIsNotNone(template)
-        rendered = (
-            template.group(1)
-            .replace("${JSON.stringify(target.worktree.path)}", json.dumps(WORKTREE))
-            .replace("${JSON.stringify(context.directory)}", json.dumps("/synthetic/repo"))
-        )
-        served = SCENARIOS["stale-context-turn-boundary"]["start"]["result"]["error"]["message"]
-        self.assertEqual(served, rendered)
+        self.assertIsNotNone(recovery)
+        for name, branch in (("stale-context-turn-boundary", 2),
+                             ("stale-context-continuation-scheduled", 1)):
+            with self.subTest(name=name):
+                rendered = (
+                    template.group(1)
+                    .replace("${JSON.stringify(target.worktree.path)}", json.dumps(WORKTREE))
+                    .replace("${JSON.stringify(context.directory)}", json.dumps("/synthetic/repo"))
+                    .replace("${recovery}", json.loads(recovery.group(branch)))
+                )
+                self.assertNotIn("${", rendered)
+                served = SCENARIOS[name]["start"]["result"]["error"]["message"]
+                self.assertEqual(served, rendered)
 
-    def test_open_session_target_admits_only_the_grants_plain_forms(self):
-        # Contract v2, plain-only boundary: where the served start refusal
-        # carries launch {argv, directory, runnable}, the open_session
-        # target admits exactly the grant's two plain spellings — the argv
-        # joined plainly, and a plain cd into the served directory joined
-        # to that launch by one actual && operator. Everything else is a
-        # non-match; no shell interpretation exists here.
+    def test_scheduled_continuation_rejects_wrong_dispositions(self):
+        case = SCENARIOS["stale-context-continuation-scheduled"]
+        for field, value in (("status", "completed"), ("status", "needs_operator"),
+                             ("status", "continuing"), ("why_agent_cannot", "none"),
+                             ("recovery_owner", "operator"), ("recovery_owner", "host"),
+                             ("operator_action", {"kind": "send_next_message", "target": None})):
+            with self.subTest(field=field, value=value):
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final[field] = value
+                events[-2]["part"]["text"] = json.dumps(final)
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_scheduled_continuation_does_not_admit_dispatch(self):
+        case = SCENARIOS["stale-context-continuation-scheduled"]
+        calls, events = observation(case)
+        refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
+        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        events.insert(1, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
+            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+        }}})
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_open_session_target_compares_exactly(self):
+        # The adapter serves no launch command, so the open_session
+        # target is the registered canonical checkout the host-started
+        # session runs in, and it compares exactly like every other
+        # field: a command spelling of the same intent, a different
+        # path, or decorated syntax is a non-match.
         case = SCENARIOS["cross-repository-second-session"]
         for target, admitted in (
-            (LAUNCH_COMMAND, True),
-            (f"cd {OTHER_REPO} && {LAUNCH_COMMAND}", True),
-            (f"cd /synthetic/elsewhere && {LAUNCH_COMMAND}", False),
-            (f"{LAUNCH_COMMAND} now", False),
-            (f"echo go && {LAUNCH_COMMAND}", False),
-            (LAUNCH_COMMAND + " '", False),
+            (OTHER_REPO, True),
+            (f"cd {OTHER_REPO}", False),
+            (OTHER_REPO + "/", False),
+            ("/synthetic/elsewhere", False),
+            (f"open {OTHER_REPO}", False),
         ):
             with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final["operator_action"]["target"] = target
+                events[-2]["part"]["text"] = json.dumps(final)
                 result = evaluate(case, calls, events, 0, {"source": "nonce"})
                 self.assertEqual(result["checks"]["final_response"], admitted)
                 self.assertEqual(result["passed"], admitted)
-                if admitted:
-                    self.assertTrue(result["advisory"]["strict_output_compliance"])
-
-    def test_quoted_or_escaped_operators_do_not_chain_the_launch(self):
-        # epoch20 regression, retained: a quoted or escaped '&&' is a
-        # literal argument, never the control operator. Under the
-        # plain-only boundary such a spelling is unsupported syntax and a
-        # non-match; only the bare && between the served directory and
-        # the launch chains them.
-        case = SCENARIOS["cross-repository-second-session"]
-        for separator in ("'&&'", '"&&"', r"\&\&", r"\&&", r"&\&", "'&'&", "&'&'"):
-            with self.subTest(separator=separator):
-                calls, events = targeted_observation(case, f"cd {OTHER_REPO} {separator} {LAUNCH_COMMAND}")
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_shell_dependent_values_admit_no_plain_launch(self):
-        # Independent-review expansion tier: unquoted glob characters and
-        # a word-initial '#' depend on shell expansion or commenting, so
-        # no plain literal spelling of them exists. A grant carrying such
-        # a value admits nothing, in either form.
-        for directory in ("/synthetic/*repo", "/synthetic/?repo", "/synthetic/[ab]repo"):
-            with self.subTest(directory=directory):
-                case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-                case["start"]["result"]["launch"]["directory"] = directory
-                calls, events = targeted_observation(case, f"cd {directory} && {LAUNCH_COMMAND}")
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        case["start"]["result"]["launch"]["argv"][-1] = "#project"
-        calls, events = targeted_observation(case, " ".join(case["start"]["result"]["launch"]["argv"]))
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["passed"])
-
-    def test_unsafe_grant_values_admit_no_launch_target(self):
-        # epoch21 parser-specific positives, now explicit non-matches per
-        # the delegated plain-only direction: values the adapter renders
-        # shell-quoted (a space, here) have no plain spelling. Quoting or
-        # splitting them in the target is unsupported syntax, and the
-        # unsafe grant itself admits nothing at all.
-        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        launch = case["start"]["result"]["launch"]
-        launch["directory"] = "/synthetic/other repo"
-        launch["argv"] = ["concord", "zl", WORK, "--project", "synthetic cross project"]
-        quoted_value = f"concord zl {WORK} --project 'synthetic cross project'"
-        for target in (
-            quoted_value,
-            f"cd '/synthetic/other repo' && {quoted_value}",
-            f'cd "/synthetic/other repo" && concord zl {WORK} --project "synthetic cross project"',
-            f"cd /synthetic/other repo && concord zl {WORK} --project synthetic cross project",
-            f"cd /synthetic/other\\ repo && {quoted_value}",
-            f"cd '/synthetic/other repo' && concord zl {WORK} --project synthetic\\ cross\\ project",
-            f"cd '/synthetic/other repo' && concord zl {WORK} --project 'synthetic cross 'project",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_newline_is_unsupported_launch_syntax(self):
-        # epoch20 regression, retained: an unquoted newline is command
-        # syntax, never argument whitespace. The plain forms contain no
-        # newline, so each split spelling is a non-match.
-        case = SCENARIOS["cross-repository-second-session"]
-        split_launch = LAUNCH_COMMAND.replace("concord zl", "concord\nzl")
-        for target in (
-            split_launch,
-            f"cd {OTHER_REPO}\n&& {LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO} && {split_launch}",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_carriage_return_is_outside_the_plain_launch_characters(self):
-        # CR is not one of the characters a plain launch value may carry,
-        # so a target containing it never equals a plain form.
-        case = SCENARIOS["cross-repository-second-session"]
-        for target in (
-            LAUNCH_COMMAND.replace("concord ", "concord\r"),
-            "concord\rzl" + LAUNCH_COMMAND[len("concord zl"):],
-            f"cd {OTHER_REPO}\r\n&& {LAUNCH_COMMAND}",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_operator_adjacency_variants_are_unsupported_spellings(self):
-        # The admitted cd form carries " && " exactly. Shell-equivalent
-        # adjacency spellings, doubled operators, and trailing commands
-        # are unsupported syntax; their false negatives are accepted.
-        case = SCENARIOS["cross-repository-second-session"]
-        for target in (
-            f"cd {OTHER_REPO}&& {LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO}&&{LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO} &&& {LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO} &&&& {LAUNCH_COMMAND}",
-            f"cd&& {OTHER_REPO} && {LAUNCH_COMMAND}",
-            f"{LAUNCH_COMMAND} && echo done",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_line_continuation_is_unsupported_launch_syntax(self):
-        # Backslash-newline continuation is shell syntax this comparator
-        # does not interpret; every continuation spelling is a non-match,
-        # including ones a shell would read as the admitted form.
-        case = SCENARIOS["cross-repository-second-session"]
-        for target in (
-            f"cd {OTHER_REPO} \\\n&& {LAUNCH_COMMAND}",
-            LAUNCH_COMMAND.replace("zl ", "zl \\\n"),
-            LAUNCH_COMMAND.replace("concord zl", "concord\\\nzl"),
-            f"cd {OTHER_REPO} &\\\n& {LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO} &\\\n\\\n& {LAUNCH_COMMAND}",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_extra_commands_redirects_and_malformed_structures_are_rejected(self):
-        case = SCENARIOS["cross-repository-second-session"]
-        for target in (
-            f"{LAUNCH_COMMAND};",
-            f"{LAUNCH_COMMAND} | tee /tmp/log",
-            f"({LAUNCH_COMMAND})",
-            f"cd {OTHER_REPO} > /tmp/log && {LAUNCH_COMMAND}",
-            f"cd {OTHER_REPO} && {LAUNCH_COMMAND}; echo done",
-            LAUNCH_COMMAND + ' "',
-            LAUNCH_COMMAND + " \\",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_comments_globs_and_expansions_are_non_matches(self):
-        # Comment, glob, and expansion syntax never has a plain spelling;
-        # each such target is a non-match in both forms.
-        case = SCENARIOS["cross-repository-second-session"]
-        for target in (
-            LAUNCH_COMMAND.replace(WORK, "$WORK"),
-            f'cd "${OTHER_REPO}" && {LAUNCH_COMMAND}',
-            f"cd ~{OTHER_REPO} && {LAUNCH_COMMAND}",
-            f'{LAUNCH_COMMAND} "$(echo x)"',
-            f"cd `pwd` && {LAUNCH_COMMAND}",
-            f"{LAUNCH_COMMAND} # tail comment",
-            f"cd {OTHER_REPO} && {LAUNCH_COMMAND[:-1]}*",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_quoted_or_escaped_expansion_characters_are_non_matches(self):
-        # epoch21 parser-specific positive, now an explicit non-match: a
-        # served word containing '$' is not a plain value, and quoting or
-        # escaping it in the target is unsupported syntax.
-        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        case["start"]["result"]["launch"]["argv"] = ["concord", "zl", "--flag", "a$b"]
-        for target in (
-            "concord zl --flag 'a$b'",
-            'concord zl --flag "a\\$b"',
-            "concord zl --flag a\\$b",
-        ):
-            with self.subTest(target=target):
-                calls, events = targeted_observation(case, target)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
-
-    def test_launch_targets_admit_only_consistent_safe_grants(self):
-        # Direct coverage of the one closed comparator: the two plain
-        # forms for the served grant, and the empty set for any grant
-        # that is malformed, unsafe, or internally inconsistent.
-        case = SCENARIOS["cross-repository-second-session"]
-        self.assertEqual(launch_targets(case),
-                         (LAUNCH_COMMAND, f"cd {OTHER_REPO} && {LAUNCH_COMMAND}"))
-
-        def varied(**changes):
-            scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-            scenario["start"]["result"]["launch"].update(changes)
-            return scenario
-
-        for scenario in (
-            varied(argv=[]),
-            varied(argv="concord zl"),
-            varied(argv=["concord", None]),
-            varied(argv=["concord", ""]),
-            varied(argv=None),
-            varied(directory="/synthetic/other repo"),
-            varied(directory=""),
-            varied(directory=None),
-            varied(directory="/synthetic/*repo"),
-            varied(runnable=""),
-            varied(runnable=None),
-            varied(runnable=f"concord 'zl' {WORK}"),
-        ):
-            with self.subTest(launch=scenario["start"]["result"]["launch"]):
-                self.assertEqual(launch_targets(scenario), ())
-        for value in ("a b", "a$b", "`x`", "~x", "a;b", "a|b", "a<b", "a(b)",
-                      "a#b", "a\nb", "a\rb", "a\\b", "a'b", 'a"b', "", "a\tb"):
-            with self.subTest(value=value):
-                scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-                scenario["start"]["result"]["launch"]["argv"][-1] = value
-                scenario["start"]["result"]["launch"]["runnable"] = " ".join(
-                    scenario["start"]["result"]["launch"]["argv"])
-                self.assertEqual(launch_targets(scenario), ())
-        scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        scenario["start"]["result"]["launch"]["argv"][-1] = "other-project"
-        scenario["start"]["result"]["launch"]["runnable"] = " ".join(
-            scenario["start"]["result"]["launch"]["argv"])
-        direct = " ".join(scenario["start"]["result"]["launch"]["argv"])
-        self.assertEqual(launch_targets(scenario), (direct, f"cd {OTHER_REPO} && {direct}"))
-        # No start fixture, or a start result without a launch object,
-        # defines no launch meaning at all.
-        self.assertEqual(launch_targets(SCENARIOS["genuine-refusal-no-fallback"]), ())
-        self.assertEqual(launch_targets({"start": {"admit": {}, "result": {}}}), ())
-        self.assertEqual(launch_targets({}), ())
-
-    def test_target_meaning_admits_nothing_without_the_served_grant(self):
-        # Without a served launch grant, a non-open_session target
-        # compares exactly as before: no scenario fixture, no meaning
-        # judgment.
-        case = SCENARIOS["genuine-refusal-no-fallback"]
-        self.assertNotIn("launch", case["start"]["result"])
-        calls, events = observation(case)
-        final = json.loads(events[-2]["part"]["text"])
-        final["operator_action"]["target"] = f"cd {OTHER_REPO} && echo {final['operator_action']['target']}"
-        events[-2]["part"]["text"] = json.dumps(final)
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["passed"])
-
-    def test_open_session_without_a_served_grant_admits_no_target(self):
-        # Fail-closed: an open_session action with no consistent served
-        # grant has no defined plain forms, so no target — not even the
-        # expected string itself — matches.
-        case = copy.deepcopy(SCENARIOS["genuine-refusal-no-fallback"])
-        case["expected"]["operator_action"]["kind"] = "open_session"
-        case["expected"]["operator_action"]["target"] = LAUNCH_COMMAND
-        calls, events = observation(case)
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["passed"])
-
-    def test_exact_equality_cannot_bypass_the_plain_launch_boundary(self):
-        # Delegated direction: for open_session the grant's plain forms
-        # govern even when the served target string equals the expected
-        # one. A quoted expected spelling, or a grant whose runnable
-        # disagrees with its argv, matches nothing.
-        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        quoted = LAUNCH_COMMAND.replace(WORK, f"'{WORK}'")
-        case["expected"]["operator_action"]["target"] = quoted
-        calls, events = observation(case)
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["passed"])
-        mismatched = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-        mismatched["start"]["result"]["launch"]["runnable"] = f"concord 'zl' {WORK} --project"
-        calls, events = observation(mismatched)
-        result = evaluate(mismatched, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["passed"])
-
-    def test_malformed_grant_admits_no_target(self):
-        # A structurally invalid served grant (argv not a list, missing
-        # runnable) defines no launch meaning; exact equality with the
-        # expected target does not admit it.
-        for mutation in ({"argv": "concord zl"}, {"runnable": None}):
-            with self.subTest(mutation=mutation):
-                case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
-                case["start"]["result"]["launch"].update(mutation)
-                calls, events = observation(case)
-                result = evaluate(case, calls, events, 0, {"source": "nonce"})
-                self.assertFalse(result["checks"]["final_response"])
-                self.assertFalse(result["passed"])
 
     def test_wrong_boundary_still_fails_under_the_v2_rules(self):
         # Gating stays exact: a boundary the served refusal does not name
@@ -801,14 +539,11 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result["checks"]["final_response"])
         self.assertFalse(result["passed"])
 
-    def test_receipt_mismatch_still_fails_under_a_plain_form_target(self):
+    def test_receipt_mismatch_still_fails_under_an_exact_target(self):
         # The complete context_receipts object stays exact equality even
-        # where the open_session target is a admitted plain form.
+        # where the open_session target is the expected checkout.
         case = SCENARIOS["cross-repository-second-session"]
         calls, events = observation(case)
-        final = json.loads(events[-2]["part"]["text"])
-        final["operator_action"]["target"] = f"cd {OTHER_REPO} && {LAUNCH_COMMAND}"
-        events[-2]["part"]["text"] = json.dumps(final)
         result = evaluate(case, calls, events, 0, {"source": "wrong"})
         self.assertFalse(result["checks"]["final_response"])
         self.assertFalse(result["passed"])
@@ -1224,7 +959,7 @@ class RelocationGuidanceFixtureTests(unittest.TestCase):
         fixtures = {
             "default-checkout resume": "with its\n`work_id` from the default checkout",
             "same-repository second Project": "`concord_work_transition.worktree_claim`",
-            "cross-repository second session": "launch command",
+            "cross-repository second session": "session the operator starts there",
             "turn-move boundary recovery": "turn-move boundary",
             "unconfirmed landing": "unconfirmed",
             "dirty-origin refusal stays with the operator": "replay the tool's declared recovery",

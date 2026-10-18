@@ -94,14 +94,6 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestOutsideRepairActualChildInFreshBranch"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestOutsideRepairTerminalAfterJSONPipe"
-    },
-    {
-      "kind": "go_test",
       "value": "cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore"
     },
     {

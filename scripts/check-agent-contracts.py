@@ -285,14 +285,11 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "approve_contract": {"payload", "contract_version", "premise", "outcome_predicates", "route_conventions"},
         "revise_candidates": {"payload", "contract_version", "candidate_kind", "candidate_refs", "added", "removed"},
         "supersede_contract": {"payload", "new_contract_version", "supersede_reason", "audit_evidence"},
-        "replace_outcome": {"payload", "outcome", "evidence_refs"},
         "link_successor": {"payload", "successor_work_id", "relation", "relation_data"},
         "complete_external_step": {"payload", "operation_id", "attempt_epoch", "current_claim"},
         "rebuild_after_interrupt": {"payload", "operation_id", "event_stream"},
         "retry_same_action": {"payload", "operation_id"},
         "takeover_attempt": {"payload", "operation_id", "current_claim"},
-        "resolve_conditions": {"payload", "condition_id", "resolver_authority", "resolution_evidence"},
-        "explicit_resolve": {"payload", "condition_id", "resolver_authority", "resolution_evidence"},
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
         "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},
@@ -524,7 +521,8 @@ def check_workflow_contracts() -> list[str]:
                 # Rejection test: removed agent-surface metadata must remain unknown.
                 mutated["surface_version"] = "5.0.0"
             elif case["mutation"] == "wrong_notice_id":
-                for assertion in mutated["scenarios"][28]["expected"]["assertions"]:
+                notice_scenario = next(item for item in mutated["scenarios"] if item["id"] == "WF29-impact-notice-identity")
+                for assertion in notice_scenario["expected"]["assertions"]:
                     if assertion.get("path") == "impact_notices.0.notice_id":
                         assertion["value"] = "notice:0000000000000000000000000000000000000000000000000000000000000000"
             elif case["mutation"] == "literal_backslash_zero_actor":
@@ -565,14 +563,22 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        if len(scenarios) != 57:
-            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected 57 scenarios, got {len(scenarios)}")
+        # Numbers run 1..57; a retired number is never reused. 3 and 52 were
+        # retired with CD-0236.
+        retired_numbers = {3, 52}
+        expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
+        if len(scenarios) != len(expected_numbers):
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected {len(expected_numbers)} scenarios, got {len(scenarios)}")
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
             findings.append(".concord/scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
-        if numbers != list(range(1, 58)):
-            findings.append(".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57")
+        if numbers != expected_numbers:
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57 without the retired {sorted(retired_numbers)}")
+        for item in scenarios:
+            number = item.get("scenario_number")
+            if not isinstance(number, int) or not str(item.get("id", "")).startswith(f"WF{number:02d}-"):
+                findings.append(f".concord/scenarios/workflow-engine.v1.json: scenario {item.get('id')} does not carry its WF number {number}")
         targets = set(contract.get("targets", []))
         ops = set(contract.get("ops", []))
         nested_ids: list[str] = []

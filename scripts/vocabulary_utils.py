@@ -1,9 +1,14 @@
-"""Small JSON Schema and canonical JSON helpers for vocabulary generators."""
+"""Shared JSON Schema, canonical JSON, generator, and checker helpers for vocabularies."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
+import subprocess
+import sys
+from collections.abc import Callable
+from pathlib import Path
 
 
 SCHEMA_KEYWORDS = {
@@ -169,3 +174,64 @@ def check_schema_keywords(node, path="schema"):
         elif isinstance(value, list):
             for index, child in enumerate(value):
                 check_schema_keywords(child, f"{path}.{key}[{index}]")
+
+
+def gofmt(source: str) -> str:
+    return subprocess.run(["gofmt"], input=source, text=True, capture_output=True, check=True).stdout
+
+
+def generate_projections(
+    label: str,
+    vocabulary_path: Path,
+    schema_path: Path,
+    root: Path,
+    project: Callable[[dict, str], dict[Path, str]],
+    semantic: Callable[[dict], None] | None = None,
+) -> int:
+    """Run one vocabulary generator: validate the declaration against its
+    schema and semantic rules, then write its projections, or with --check
+    fail when a written projection drifts from the declaration."""
+    parser = argparse.ArgumentParser(description=f"Validate and deterministically generate {label} projections.", allow_abbrev=False)
+    parser.add_argument("--check", action="store_true",
+                        help=f"fail on {label} projection drift instead of writing generated files")
+    args = parser.parse_args()
+    try:
+        vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        check_schema_keywords(schema)
+        schema_validate(vocabulary, schema, schema, "vocabulary")
+        if semantic is not None:
+            semantic(vocabulary)
+        vocabulary_digest = digest(vocabulary)
+        expected = project(vocabulary, vocabulary_digest)
+        if args.check:
+            for path, content in expected.items():
+                if not path.is_file() or path.read_text(encoding="utf-8") != content:
+                    fail(f"generated {label} drift: {path.relative_to(root)}")
+        else:
+            for path, content in expected.items():
+                path.parent.mkdir(exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+        print(vocabulary_digest)
+        return 0
+    except (OSError, json.JSONDecodeError, ValueError, subprocess.CalledProcessError) as exc:
+        print(f"{label} generation failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def load_json_finding(root: Path, relative: Path, findings: list[str]):
+    try:
+        return json.loads((root / relative).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        findings.append(f"json-load: {relative}: invalid JSON: {exc}")
+        return None
+
+
+def generator_freshness(root: Path, script: str, findings: list[str]) -> None:
+    result = subprocess.run(
+        [sys.executable, str(root / "scripts" / script), "--check"],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+        findings.append(f"generator-freshness: {detail.replace(chr(10), ' ')}")

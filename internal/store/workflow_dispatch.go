@@ -41,7 +41,11 @@ type WorkflowActionExecutionRequest struct {
 	// FailedRetryApproved is set by the boundary after consuming the exact
 	// approval for a failed retry below the limit. It cannot open the
 	// convergence wall and is never decoded from request input.
-	FailedRetryApproved  bool
+	FailedRetryApproved bool
+	// ApprovedTakeover names the held attempt whose exact approval the
+	// boundary consumed for this fenced start. It is never decoded from
+	// request input.
+	ApprovedTakeover     *WorkflowStartTakeover
 	AcceptedInputsDigest string
 	IdempotencyIdentity  string
 	OperationID          string
@@ -399,6 +403,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	}
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return result, err
+	}
+	if action := workflowActionDefinitionByID(entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
+		if err := guardStartTakeover(ctx, tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+			return result, err
+		}
 	}
 	payload := guards.defaultedPayload()
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
@@ -1172,10 +1181,6 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 			}
 		}
 	}
-	var actionGroundTruth map[string]any
-	if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
-		_ = json.Unmarshal(payload, &actionGroundTruth)
-	}
 	var outcomePredicates []workflowContractPredicatePayload
 	if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
 		_ = json.Unmarshal(rawPredicates, &outcomePredicates)
@@ -1186,39 +1191,22 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 		if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
 			outcomePredicates = []workflowContractPredicatePayload{}
 		} else {
-			outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+			outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", "")
 			outcome := workflowFieldRaw(fields, "outcome")
 			if len(outcome) != 0 && string(outcome) != "null" {
 				var predicate map[string]any
 				if json.Unmarshal(outcome, &predicate) == nil {
-					outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+					outcomeKind = workflowFieldStringDefaultMap(predicate, "kind", outcomeKind)
 				}
 			}
 			outcomePayload := workflowFieldRaw(fields, "outcome_payload")
 			if len(outcomePayload) == 0 {
 				outcomePayload = defaultWorkflowOutcome(definition, fields)
 			}
-			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
-		}
-	}
-	for _, predicate := range outcomePredicates {
-		var groundTruth map[string]any
-		groundTruthValue := ""
-		if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
-			groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
-		}
-		if groundTruthValue == "" {
-			groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
-		}
-		if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
+			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKind, OutcomePayload: outcomePayload}}
 		}
 	}
 	return outcomePredicates, nil
-}
-
-func workflowOutcomePredicateVacuous(kind, groundTruth string) bool {
-	return (kind == "exists" && strings.HasSuffix(groundTruth, "-present")) || (kind == "absent" && strings.HasSuffix(groundTruth, "-absent"))
 }
 
 func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {

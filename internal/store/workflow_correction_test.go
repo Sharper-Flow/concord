@@ -92,7 +92,7 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	}}}); err != nil {
 		t.Fatalf("fresh dispatch: %v", err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC())}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("fresh complete: %v", err)
 	}
 	dispatchVersion := verdictItemVersion(t, s, workID)
@@ -476,7 +476,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		EventID: "worker-completed-corrective-" + workID,
 		Kind:    WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(41, 1).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatalf("complete corrective worker attempt: %v", err)
 	}
@@ -713,7 +713,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 			EventID: fmt.Sprintf("completed-%s-%d", workID, cycle), Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 			Actor: "worker:test", OccurredAt: time.Unix(31+cycle, 0).UTC(), PayloadVersion: 1,
-			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 		}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1722,7 +1722,7 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchCountingAttempt(t, s, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
-	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatalf("complete corrective worker attempt: %v", err)
 	}

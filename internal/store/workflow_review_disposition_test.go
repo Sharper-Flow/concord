@@ -358,7 +358,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
-			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
+			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC(), workerFixtureDirectory(t, s, workID))
 			var payload WorkerCompletedPayload
 			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 				t.Fatal(err)

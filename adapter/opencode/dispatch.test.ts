@@ -1,10 +1,10 @@
-import { afterAll, afterEach, describe, test, expect } from "bun:test"
+import { afterAll, afterEach, describe, test, expect, spyOn } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, withWorkerReadbackScope, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
@@ -921,9 +921,34 @@ test("a worker transcript above the old export limit records completion", async 
   expect(recorded).toEqual(["worker-dispatch", "worker-complete"])
 })
 
-test("a transcript that outlives the readback page bound refuses typed", async () => {
-  // A reader that always advertises a next page simulates a transcript the
-  // page walk never reaches the head of; the walk refuses after its bound.
+test("completion reads a valid worker report beyond sixteen message pages", async () => {
+  const [opening, assistant] = transcript()
+  const messages = [opening, ...Array.from({ length: 16 * READBACK_MESSAGE_PAGE }, (_, index) => ({
+    info: { id: `message-intermediate-${index}`, sessionID: "session-1", role: "user", time: { created: index + 2 } },
+    parts: [{ type: "text", text: "intermediate worker context" }],
+  })), assistant]
+  const calls: Array<{ command: string; input: any }> = []
+  let pageReads = 0
+  const result = await complete(workerBody(), {
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages(_id, limit, before) {
+        pageReads++
+        const end = before === undefined ? messages.length : Number(before)
+        const start = Math.max(0, end - limit)
+        return okRoute(messages.slice(start, end), start ? `<http://host/session/session-1/message?limit=${limit}&before=${start}>; rel="next"` : undefined)
+      },
+    },
+    evidenceRunner: { async run(argv, input) { calls.push({ command: argv[1], input: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("ok")
+  expect(result.readback_model).toBe(READBACK_MODEL)
+  expect(pageReads).toBe(17)
+  expect(calls.map(({ command }) => command)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(calls.every(({ input }) => input.attempt_id === packet().attempt_id)).toBe(true)
+})
+
+test("a repeated readback cursor refuses typed", async () => {
   const session = { id: "session-1" }
   const alwaysMore: SessionReader = {
     async get() { return okRoute(session) },
@@ -932,10 +957,139 @@ test("a transcript that outlives the readback page bound refuses typed", async (
   const read = await readWorkerSessionBody(alwaysMore, "session-1", SIGNAL)
   expect(read.ok).toBe(false)
   if (read.ok || read.kind !== "readback_refusal") {
-    throw new Error("the page-bound walk refused with the wrong kind")
+    throw new Error("the repeated-cursor walk refused with the wrong kind")
   }
-  expect(read.predicate).toBe("readback_message_bound")
-  expect(read.message).toContain(`${MAX_READBACK_MESSAGE_PAGES} readback pages`)
+  expect(read.predicate).toBe("session_read")
+  expect(read.message).toContain("pagination repeated a cursor")
+})
+
+test.each([undefined, "retained-task"])("readback retains all identities, the exact opening and only the selected Task parts (%s)", async (taskPartID) => {
+  const [opening, assistant] = transcript()
+  const retainedPart = { id: "retained-task", type: "tool", tool: "task", state: { status: "completed", output: workerBody() } }
+  const newest = { ...assistant, info: { ...assistant.info, id: "message-newest" }, parts: [retainedPart, { type: "file", url: "data:image/png;base64," + "x".repeat(200_000) }] }
+  const middle = { ...assistant, parts: [{ type: "text", text: "discarded transcript context" }] }
+  const reader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      return before ? okRoute([opening, middle]) : okRoute([newest], '<http://host/session/session-1/message?before=oldest>; rel="next"')
+    },
+  }
+  const read = await readWorkerSessionBody(reader, "session-1", SIGNAL, taskPartID)
+  expect(read.ok).toBe(true)
+  if (!read.ok) throw new Error(read.message)
+  const evidence = JSON.parse(read.body)
+  expect(evidence.messages.map((message: any) => message.info)).toEqual([opening.info, middle.info, newest.info])
+  expect(evidence.messages[0]).toEqual(opening)
+  expect(evidence.messages[1].parts).toEqual([])
+  expect(evidence.messages[2].parts).toEqual(taskPartID ? [retainedPart] : [])
+  expect(Buffer.byteLength(read.body)).toBeLessThan(8_192)
+  expect(readExportSession(read.body, "session-1").ok).toBe(true)
+})
+
+test.each(["non-record", "invalid-parts"] as const)("readback projects newer page parts when the oldest message is %s", async (malformed) => {
+  const [opening, assistant] = transcript()
+  const oldest = malformed === "non-record" ? null : { ...opening, parts: "invalid" }
+  const retainedPart = { id: "retained-task", type: "tool", tool: "task", state: { status: "completed", output: workerBody() } }
+  const newest = { ...assistant, parts: [retainedPart, { type: "file", url: "discarded attachment" }] }
+  const reader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      return before ? okRoute([oldest]) : okRoute([newest], '<http://host/session/session-1/message?before=oldest>; rel="next"')
+    },
+  }
+  const read = await readWorkerSessionBody(reader, "session-1", SIGNAL, "retained-task")
+  expect(read.ok).toBe(true)
+  if (!read.ok) throw new Error(read.message)
+  const evidence = JSON.parse(read.body)
+  expect(evidence.messages[0]).toEqual(oldest)
+  expect(evidence.messages[1].parts).toEqual([retainedPart])
+  expect(readExportSession(read.body, "session-1").ok).toBe(false)
+})
+
+test.each(["duplicate", "model"] as const)("readback checks %s identity across pages before completion", async (conflict) => {
+  const [opening, assistant] = transcript()
+  const newer = { ...assistant, info: { ...assistant.info, id: conflict === "duplicate" ? assistant.info.id : "message-other-model", ...(conflict === "model" ? { modelID: "different-model" } : {}) } }
+  const recorded: Array<{ command: string; input: any }> = []
+  const result = await complete(workerBody(), {
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages(_id, _limit, before) { return before ? okRoute([opening, assistant]) : okRoute([newer], '<http://host/session/session-1/message?before=oldest>; rel="next"') },
+    },
+    evidenceRunner: { async run(argv, input) { recorded.push({ command: argv[1], input: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.predicate).toBe(conflict === "duplicate" ? "export_message_identity" : "export_model_ambiguous")
+  expect(recorded.map(({ command }) => command)).toEqual(["worker-dispatch"])
+  expect(recorded[0].input.terminal).toBe("failed")
+})
+
+test.each(["caller", "deadline"] as const)("readback %s cancellation names reconciliation without terminal evidence", async (cause) => {
+  const caller = new AbortController()
+  const deadline = new AbortController()
+  const timeout = spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+  const recorded: string[] = []
+  try {
+    const result = await completeWorkerAttempt(lane, packet(), workerBody(), {
+      credentials: testCredentials, workerDirectory: WORKER_DIRECTORY, packetDigest: PACKET_DIGEST,
+      sessionReader: {
+        async get() { return okRoute({ id: "session-1" }) },
+        async messages(_id, _limit, _before, signal) {
+          if (!signal) throw new Error("readback request has no abort signal")
+          expect(signal.aborted).toBe(false)
+          ;(cause === "caller" ? caller : deadline).abort(new DOMException(`synthetic ${cause} stop`, cause === "caller" ? "AbortError" : "TimeoutError"))
+          return okRoute(transcript(), '<http://host/session/session-1/message?before=older>; rel="next"')
+        },
+      },
+      evidenceRunner: { async run(argv) { recorded.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+    }, caller.signal)
+    expect(timeout).toHaveBeenCalledWith(30_000)
+    expect(result.outcome).toBe("error")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(`synthetic ${cause} stop`)
+    expect(result.error?.predicate).toBeUndefined()
+    expect(recorded).toEqual([])
+  } finally {
+    timeout.mockRestore()
+  }
+})
+
+test("readback reuses the operation signal without leaking completed read deadlines", async () => {
+  const caller = new AbortController()
+  const first = new AbortController()
+  const second = new AbortController()
+  let deadlines = 0
+  const timeout = spyOn(AbortSignal, "timeout").mockImplementation(() => deadlines++ === 0 ? first.signal : second.signal)
+  const observed = new Set<AbortSignal>()
+  const reader: SessionReader = {
+    async get(_id, signal) {
+      if (!signal) throw new Error("session read has no abort signal")
+      observed.add(signal)
+      return okRoute({ id: "session-1" })
+    },
+    async messages(_id, _limit, _before, signal) {
+      if (!signal) throw new Error("message read has no abort signal")
+      observed.add(signal)
+      return okRoute(transcript())
+    },
+  }
+  try {
+    await withWorkerReadbackScope(caller.signal, async signal => {
+      observed.add(signal)
+      expect((await readWorkerSessionBody(reader, "session-1", signal)).ok).toBe(true)
+      first.abort(new DOMException("finished read deadline", "TimeoutError"))
+      expect(signal.aborted).toBe(false)
+      expect((await readWorkerSessionBody(reader, "session-1", signal)).ok).toBe(true)
+      second.abort(new DOMException("finished read deadline", "TimeoutError"))
+      expect(signal.aborted).toBe(false)
+      expect(observed.size).toBe(1)
+      caller.abort(new DOMException("caller stopped recovery", "AbortError"))
+      expect(signal.aborted).toBe(true)
+      expect(signal.reason).toBe(caller.signal.reason)
+    })
+    expect(timeout).toHaveBeenCalledTimes(2)
+  } finally {
+    timeout.mockRestore()
+  }
 })
 
 test("readback refusal names its predicate and preserves the export digest", () => {
@@ -1488,6 +1642,31 @@ test("the readback shape is recorded verbatim regardless of host configuration",
   const result = await complete(workerBody(report({}, hostExecuted)), { sessionReader: readbackSessionReader(hostExecuted) })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
+})
+
+test("report admission derives model identity only from host readback", async () => {
+  const hostExecuted = "zai-coding-plan/glm-5.3"
+  for (const supplied of [undefined, "openai/forged-model", null, 42, { provider: "forged" }]) {
+    const carried: Record<string, unknown> = report({ readback_model: supplied })
+    if (supplied === undefined) delete carried.readback_model
+    const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet(), hostExecuted)
+    expect(admitted).toEqual({ report: canonicalReport({ readback_model: hostExecuted }) })
+
+    const recorded: Record<string, unknown>[] = []
+    const result = await complete(workerBody(carried), {
+      sessionReader: readbackSessionReader(hostExecuted),
+      evidenceRunner: {
+        async run(_argv, input) {
+          recorded.push(JSON.parse(input))
+          return { exitCode: 0, stdout: "", stderr: "" }
+        },
+      },
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.readback_model).toBe(hostExecuted)
+    expect(recorded).toHaveLength(2)
+    expect(recorded.every(event => event.readback_model === hostExecuted)).toBe(true)
+  }
 })
 
 test("an unknown readback is recorded as-is and not refused", async () => {
@@ -2117,7 +2296,10 @@ test("a refused readback that cannot bind provenance records no born-failed evid
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison, type AgentLaneReportContextFinding } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport as admitRunReport, resolveWorkerReportFromText as admitTextReport, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison, type AgentLaneReportContextFinding } from "./dispatch"
+
+const resolveWorkerReport = (text: string, p: AgentLanePacket, hostModel = READBACK_MODEL) => admitRunReport(text, p, hostModel)
+const resolveWorkerReportFromText = (text: string, p: AgentLanePacket, hostModel = READBACK_MODEL) => admitTextReport(text, p, hostModel)
 
 test("legacy report identity forbids a worker-job claim", () => {
   const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
@@ -2614,7 +2796,7 @@ test("attribution-worker-report: an admitted failed report rides as worker_repor
   expect(observed.sources).toHaveLength(1)
   expect(observed.sources[0].kind).toBe("admitted_report")
   expect(observed.sources[0].locator).toBeUndefined()
-  const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet())
+  const admitted = resolveWorkerReportFromText(JSON.stringify(carried), packet(), READBACK_MODEL)
   expect("report" in admitted).toBe(true)
   if ("report" in admitted) {
     const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify(admitted.report), "utf8").digest("hex")
@@ -3080,12 +3262,13 @@ const reviewReport = (overrides: Record<string, unknown> = {}) =>
 const completeReview = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = reviewPacket()) =>
   completeWorkerAttempt(reviewLane, dispatched, body, { credentials: testCredentials, sessionReader: readbackSessionReader(READBACK_MODEL, "concord-review", dispatched), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
 
-async function terminalReviewEvidence(carried: unknown = reviewReport()) {
+async function terminalReviewEvidence(carried: unknown = reviewReport(), options: Partial<CompleteOptions> = {}, dispatched = reviewPacket()) {
   const calls: { argv: string[]; input: string }[] = []
   const result = await completeReview(workerBody(carried), {
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-  })
+    ...options,
+  }, dispatched)
   const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
   return { result, verbs: records.map((call) => call.argv[1]), payloads: records.map((call) => JSON.parse(call.input)) }
 }
@@ -3182,6 +3365,44 @@ test("a typed review block rides worker-complete and the completed envelope", as
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].review).toEqual(block)
   expect(result.review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
+})
+
+test("review subject drift at settlement records a host validator failure, never a completed review", async () => {
+  const dispatched = reviewPacket()
+  dispatched.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: "a".repeat(40) }
+  const subjectRunner: DispatchRunner = { run: async (argv) => ({ exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }) }
+  const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport(), { subjectRunner }, dispatched)
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(result.outcome).toBe("error")
+  expect(result).not.toHaveProperty("review")
+  expect(payloads[1].detail).toContain("review subject")
+  expect(payloads[1]).not.toHaveProperty("review")
+  expect(payloads[1].failure_attribution.observer).toBe("host_adapter")
+  expect(payloads[1].failure_attribution.sources).toHaveLength(1)
+  expect(payloads[1].failure_attribution.sources[0].kind).toBe("validator")
+})
+
+test.each(["dispatched", "completed"] as const)("review subject checks distinguish new admission from %s recovery", async (state) => {
+  const dispatched = reviewPacket()
+  dispatched.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: "a".repeat(40) }
+  let probes = 0
+  const subjectRunner: DispatchRunner = { run: async (argv) => {
+    probes++
+    return { exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }
+  } }
+  const recovery: NonNullable<CompleteOptions["recovery"]> = {
+    packet_digest: PACKET_DIGEST, worker_worktree: WORKER_DIRECTORY, coordinator_session: "parent", attempt_epoch: 1,
+    dispatch_event_id: "original-dispatch", lifecycle_state: state, packet_schema_version: "1.0", report_schema_version: "1.0",
+    ...(state === "completed" ? { terminal_event_id: "original-completion" } : {}),
+    dispatch: { attempt_id: dispatched.attempt_id, lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest,
+      packet_schema_version: "1.0", report_schema_version: "1.0", packet_digest: PACKET_DIGEST, readback_model: READBACK_MODEL,
+      host_provenance: { digest: "sha256:" + "c".repeat(64), sources: [{ kind: "unenumerated", path: "synthetic-retained-instruction" }] } },
+  }
+  const sessionReader = { ...readbackSessionReader(READBACK_MODEL, "concord-review", dispatched), get: async () => okRoute({ id: "session-1", parentID: "parent" }) }
+  const { result, verbs } = await terminalReviewEvidence(reviewReport(), { subjectRunner, recovery, sessionReader }, dispatched)
+  expect(verbs, JSON.stringify(result)).toEqual(["worker-dispatch", state === "completed" ? "worker-complete" : "worker-fail"])
+  expect(result.outcome).toBe(state === "completed" ? "ok" : "error")
+  expect(probes).toBe(state === "completed" ? 0 : 2)
 })
 
 test("a ship verdict with findings completes and counts each severity", async () => {

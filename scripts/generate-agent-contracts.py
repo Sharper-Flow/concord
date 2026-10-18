@@ -1320,10 +1320,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # neither form, and refuses an entry-level field beside the batch.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id"],
+        "required": ["predicate_id", "verdict_kind"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
         },
@@ -1633,7 +1633,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 61
+    expected_operations = 62
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1752,9 +1752,9 @@ def validate_work_start_host_tool(tool: dict) -> None:
     # The projection preserves the authored declaration order, so the
     # published capture surface is pinned in exactly the contract's own
     # (lexicographic) property order.
-    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
+    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "size_inputs", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
     resume_required = ["work_id"]
-    resume_properties = ["project_id", "work_id"]
+    resume_properties = ["work_id"]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
         fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
@@ -1763,9 +1763,7 @@ def validate_work_start_host_tool(tool: dict) -> None:
     if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
         fail("concord_work_start branches must close their argument surface")
     if branches[1].get("required") != resume_required or list(branches[1].get("properties", {})) != resume_properties:
-        fail("concord_work_start resume branch must carry work_id and the optional project_id selector")
-    if branches[1].get("properties", {}).get("project_id") != branches[1].get("properties", {}).get("work_id"):
-        fail("concord_work_start project_id must share the work_id bounds")
+        fail("concord_work_start resume branch must carry exactly work_id")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
         if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")
@@ -1808,6 +1806,47 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
         fail("concord_ci_watch time_seconds_max must be an integer bounded 0..1800")
 
 
+def validate_worker_read_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    fields = ["ordinal", "offset", "length"]
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_read host schema must be a closed object")
+    if list(properties) != fields or args.get("required") != fields:
+        fail("concord_worker_read must require only ordinal, offset, and length")
+    for name, minimum, maximum in (("ordinal", 0, 9007199254740991), ("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_diff_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_diff host schema must be a closed object")
+    if list(properties) != ["offset", "length"] or args.get("required") != ["offset", "length"]:
+        fail("concord_worker_diff must require only offset and length")
+    for name, minimum, maximum in (("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_diff {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_check_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_check host schema must be a closed object")
+    if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
+        fail("concord_worker_check must require only control_id")
+    reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
+    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
+    expected = {key: value for key, value in reference.items() if key != "description"}
+    if actual != expected:
+        fail("concord_worker_check control_id must use the workflow reference bounds")
+
+
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
@@ -1815,6 +1854,9 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
     "concord_ci_watch": validate_ci_watch_host_tool,
+    "concord_worker_read": validate_worker_read_host_tool,
+    "concord_worker_check": validate_worker_check_host_tool,
+    "concord_worker_diff": validate_worker_diff_host_tool,
 }
 
 
@@ -1870,8 +1912,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     def sample(schema):
         schema=resolve(schema)
         if "const" in schema: return schema["const"]
-        if "oneOf" in schema:
-            branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
+        if "oneOf" in schema or "anyOf" in schema:
+            branch=(schema.get("oneOf") or schema["anyOf"])[0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result

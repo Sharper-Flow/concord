@@ -2,6 +2,18 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/agent.TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFencedStartTakeoverRequiresApprovalOnEveryCallableStart"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
     }
   ],

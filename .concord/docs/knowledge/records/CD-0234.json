@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-17T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0234",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0008"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0234-the-engine-has-no-external-condition-resolver.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:83221a111dbaf3600c8a6622904540937f5e52cd84a3339d96e7f2f0fddd0f12",
+  "status": "accepted",
+  "summary": "No retained workflow family declares add_condition, resolve_condition, or cancel_condition, and the engine has no condition resolver. A family may declare one only under an accepted decision that adds a resolver bound to the closed await_type set. An open condition refuses consequential actions before any write, and recorded conditions stay readable and rebuild unchanged.",
+  "tags": [
+    "workflow",
+    "external-conditions",
+    "history"
+  ],
+  "title": "The engine has no external-condition resolver"
+}

@@ -355,7 +355,7 @@ func TestOutOfOrderCompletionRetiresTheReadyReview(t *testing.T) {
 			ready := "attempt:" + workID + ":ready"
 			reviewGateRunAttemptWithVerdict(t, s, workID, ready, epoch, lane, ownerRef, "no_ship", 104)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-				workerCompleteEventForLane(workID, "out-of-order-delayed-complete", delayed, lane, time.Unix(106, 0).UTC()),
+				workerCompleteEventForLane(workID, "out-of-order-delayed-complete", delayed, lane, time.Unix(106, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 			}}); err != nil {
 				t.Fatal(err)
 			}

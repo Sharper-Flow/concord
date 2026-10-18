@@ -28,7 +28,7 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0182-session-opener.md",
-  "product_wide_rationale": "Governs how one work item reaches a second repository's coordinator session across the launcher, the agent adapter, the installer, and the coordinator instructions, so no single runtime Domain owns host placement.",
+  "product_wide_rationale": "Governs how one work item reaches a second repository's coordinator session across the store remedy, the installer, and the coordinator instructions, so no single runtime Domain owns host placement.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -36,14 +36,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ff312e956f40da52786a39b93cda0f0527daefec51456f5d8f1c053647fcb564",
+  "sha256": "sha256:c5e0dfb9f6c2cf3b18805ace9ef8379bfdba27606ad12cd3706d047b022ff874",
   "status": "accepted",
-  "summary": "The operator may register one session-opener argv template in the options of the Concord plugin tuple entry in the OpenCode config, and registering it is standing consent for coordinators to open sessions and spend model quota; concord zl gains --project for a member Project of the work whose active worktree or canonical path lands the session with the fixed resume prompt, the cross_repository_claim remedy names concord_work_start with the work and Project identities, the adapter resume accepts the optional project_id and routes another repository through the registered opener or returns the exact launch command, and the installer recognizes the tuple entry so upgrades keep its options.",
+  "summary": "A second repository's coordinator session is started by the host: the store refuses the cross-repository claim and names the concord_work_start route, the typed session_placement detail answers where the receiving session goes with restore only at the recorded path, and the receiving session resumes with the work_id alone. The session opener, the explicit Project selector, and their consent rules are removed. The installer keeps the tuple entry and its options; the bounded addressed handoff and its consumption are unchanged.",
   "tags": [
-    "launcher",
     "sessions",
     "adapter",
     "installer"
   ],
-  "title": "The session opener is host placement"
+  "title": "Cross-repository coordinator sessions are host-placed"
 }

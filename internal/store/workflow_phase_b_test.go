@@ -38,10 +38,12 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.static_analysis":    {"scope", "analyze", "report", "review", "complete"},
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
+	// A composed head lists each action once, in first appearance over its
+	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_alignment", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
-		"workflow.break_fix":          {"record_diagnosis", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
-		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
+		"workflow.implementation":     {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "record_design", "approve_contract", "accept_worker_evidence", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
+		"workflow.break_fix":          {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "accept_worker_result", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
+		"workflow.research":           {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
@@ -530,7 +532,7 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 		t.Fatal(err)
 	}
 	called := false
-	err = AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, nil, time.Time{}, func(*Transaction) error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, func(*Transaction) error {
 		called = true
 		return nil
 	}, func(*Transaction) error { return nil })

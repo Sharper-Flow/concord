@@ -10,8 +10,7 @@
 #   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #
 # Smoke leaves out the packages CI splits into shard jobs (internal/store and
-# cmd/concord), because each takes longer than one 15-minute Go test run on
-# this host. Its Go step is CI's "Test every package without its own shard
+# cmd/concord). Its Go step is CI's "Test every package without its own shard
 # job" command, and scripts/test-oc-test.py fails when the two differ. To test
 # one shard locally, run CI's selection for it, for example shard 1 of 3:
 #

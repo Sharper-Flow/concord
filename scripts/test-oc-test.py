@@ -80,10 +80,7 @@ def workflow_step_run(workflow: str, step_name: str) -> str:
         if line.strip() and indent <= step_indent:
             break
         if indent == step_indent + 2 and line.lstrip().startswith("run:"):
-            command = line.split("run:", 1)[1].strip()
-            if command in ("", "|", ">"):
-                raise AssertionError(f"step {step_name!r} has a multi-line run; the smoke parity needs one command")
-            return command
+            return line.split("run:", 1)[1].strip()
     raise AssertionError(f"step {step_name!r} has no run")
 
 
@@ -103,7 +100,7 @@ class PhaseReportingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "bin").mkdir()
-            shutil.copyfile(Path(__file__).resolve().parents[1] / "bin/oc-test", root / "bin/oc-test")
+            shutil.copyfile(REPOSITORY / "bin/oc-test", root / "bin/oc-test")
             for name in ("go",):
                 command = root / "bin" / name
                 command.write_text('#!/bin/bash\nif [[ "${FAIL_STAGE:-}" == "$1" ]]; then exit 7; fi\nexit 0\n')
@@ -149,7 +146,7 @@ class TierRoutingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "bin").mkdir()
-            shutil.copyfile(Path(__file__).resolve().parents[1] / "bin/oc-test", root / "bin/oc-test")
+            shutil.copyfile(REPOSITORY / "bin/oc-test", root / "bin/oc-test")
             for name in commands:
                 command = root / "bin" / name
                 command.write_text(FAKE_COMMAND)

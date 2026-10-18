@@ -248,7 +248,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		activeVersions, err := s.ActiveWorkflowContractVersions(ctx, workID)
+		var activeVersions []int64
+		err = s.readSnapshot(ctx, func(q queryer) error {
+			var innerErr error
+			activeVersions, innerErr = activeWorkflowContractVersions(ctx, q, workID)
+			return innerErr
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -363,8 +368,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed-retry boundary read refused: %v", err)
 		}
-		expected, err := WorkflowFailedWorkerRetryBinding(ctx, retryStore, nil, retryID)
-		if err != nil || expected == nil {
+		var expected *WorkflowRetryApprovalBinding
+		if err := retryStore.Transact(ctx, func(tx *Transaction) error {
+			var txErr error
+			expected, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, retryID)
+			return txErr
+		}); err != nil || expected == nil {
 			t.Fatalf("the exact binding reader returned %+v, %v, want a binding", expected, err)
 		}
 		if retry.RetryBinding == nil || *retry.RetryBinding != *expected || retry.RetryBinding.FailedAttemptID != attempt {
@@ -636,7 +645,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err := RebuildFromLog(ctx, s); err != nil {
 			t.Fatalf("rebuild the duplicate-active history: %v", err)
 		}
-		activeVersions, err := s.ActiveWorkflowContractVersions(ctx, workID)
+		var activeVersions []int64
+		err = s.readSnapshot(ctx, func(q queryer) error {
+			var innerErr error
+			activeVersions, innerErr = activeWorkflowContractVersions(ctx, q, workID)
+			return innerErr
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -232,8 +232,12 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 	const workID = "authorized-failure-retry-binding"
 	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
 	version := readWorkVersion(t, s, workID)
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
 		t.Fatalf("unrecorded failure binding=%#v error=%v, want the exact failed authorization", binding, err)
 	}
 	if readWorkVersion(t, s, workID) != version {
@@ -383,8 +387,12 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	if !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("retry preflight error=%v, want the registry staleness refusal", err)
 	}
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("a refused retry must not request a wasted approval: binding=%#v error=%v", binding, err)
 	}
 }

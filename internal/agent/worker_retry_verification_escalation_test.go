@@ -45,7 +45,12 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			if got := verifyWallChallenges(t, s); got != 0 {
 				t.Fatalf("the verification journey minted %d approval challenges, want 0", got)
 			}
-			if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
+			var binding *store.WorkflowRetryApprovalBinding
+			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+				var txErr error
+				binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+				return txErr
+			}); err != nil || binding != nil {
 				t.Fatalf("retry approval binding behind the escalated verification wall = %+v err=%v, want none", binding, err)
 			}
 			var seedEpoch int64
@@ -170,7 +175,11 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			if rearmed.Disposition != "failed" || rearmed.Escalated || rearmed.AttemptCount != 1 || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != seedEpoch+1 {
 				t.Fatalf("correction after the converging retry failed = %+v, want the unescalated failed record bound to %s at epoch %d", rearmed, retryID, seedEpoch+1)
 			}
-			if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
+			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+				var txErr error
+				binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+				return txErr
+			}); err != nil || binding != nil {
 				t.Fatalf("retry approval binding behind the re-armed verification wall = %+v err=%v, want none", binding, err)
 			}
 			afterID := "attempt:work-1:verification-7"

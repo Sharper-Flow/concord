@@ -459,6 +459,13 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 			}
 		}
 	}
+	// No transaction is open on this replay path; the admission reads the
+	// receipt's events through the store's deferred read snapshot.
+	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(ctx, nil, base, raw, record); admissionErr != nil {
+		return Envelope{}, false, admissionErr
+	} else if refused {
+		return refusal, true, nil
+	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		step, stepErr := store.Step(ctx, r.Store, opID)
 		if stepErr != nil {
@@ -541,6 +548,173 @@ func (r runtime) finishMutationReplay(ctx context.Context, response Envelope, ke
 		return Envelope{}, false, err
 	}
 	return response, true, nil
+}
+
+// Shared by the fresh effects and the replay admission, so both refusals stay
+// byte-identical.
+const (
+	routineOverlapClaimRefusal    = "a routine overlap resolution accepts no approval claim"
+	routineCorrectionClaimRefusal = "a routine delivery correction accepts no approval claim"
+)
+
+// routineReplayClaimSurface names one fresh-forbidden routine surface and its
+// one receipt-linked event kind; any other kind carries no approval fact.
+type routineReplayClaimSurface struct {
+	eventKind      string
+	refusalMessage string
+}
+
+// replayRoutineClaimAdmission refuses a cached replay of one of the two
+// routine surfaces when the replay input carries an approval claim the
+// original call did not consume: the canonical digest excludes the approval
+// block, so a same-key replay can add a claim the fresh planner refuses.
+// Gates exit cheap before any history query: another operation, an absent
+// input claim, a destructive kind, and a cross-Product receipt, read from the
+// receipt's persisted authorized snapshot against the selected Product the
+// digest fixed, never the currently derived work membership; an empty
+// selected Product stays non-cross. The receipt's raw stored event is the
+// only historical consent and only at source version 1; missing, unreadable,
+// or corrupt receipt events refuse closed while read errors keep their typed
+// store failure. The transactional branch reads only through the supplied
+// transaction and never calls a pool method inside it; the early branch reads
+// through the store's deferred read snapshot, never a write transaction. The
+// owner writes nothing and touches no receipt before its decision.
+func (r runtime) replayRoutineClaimAdmission(ctx context.Context, tx *store.Transaction, base Envelope, raw []byte, prior store.MutationIdempotencyRecord) (Envelope, bool, error) {
+	var surface routineReplayClaimSurface
+	var resolutionKind string
+	var claimed bool
+	switch {
+	case r.Tool == "concord_work_relate" && r.Operation == "resolve_overlap":
+		var in resolveOverlapMutationInput
+		if err := decodeOperationInput(raw, &in); err != nil {
+			return Envelope{}, false, err
+		}
+		surface = routineReplayClaimSurface{eventKind: store.WorkflowOverlapResolved, refusalMessage: routineOverlapClaimRefusal}
+		resolutionKind = in.ResolutionKind
+		claimed = in.Approval != nil
+	case r.Tool == "concord_work_transition" && r.Operation == "correct_delivery":
+		var in correctDeliveryMutationInput
+		if err := decodeOperationInput(raw, &in); err != nil {
+			return Envelope{}, false, err
+		}
+		surface = routineReplayClaimSurface{eventKind: store.WorkflowDeliveryCorrected, refusalMessage: routineCorrectionClaimRefusal}
+		claimed = in.Approval != nil
+	default:
+		return Envelope{}, false, nil
+	}
+	// A destructive resolution stays approved; an absent approval is no
+	// claim, while a present one is a claim even with an empty reference.
+	if !claimed || resolutionKind == store.ResolutionMergedInto || resolutionKind == store.ResolutionSupersedes {
+		return Envelope{}, false, nil
+	}
+	authorizedScope, scopeErr := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
+	if scopeErr != nil {
+		return coreError(base, "unauthorized", "stored mutation scope is unreadable and cannot be re-authorized", "contact_operator", false), true, nil
+	}
+	// Cross-Product reads the receipt's persisted Product set, not the live
+	// work membership, against the selected Product the digest fixed.
+	crossProduct := false
+	if products, present := authorizedScope["product_ids"].([]any); present && r.Envelope.SelectedProductID != "" {
+		for _, rawProduct := range products {
+			product, valid := rawProduct.(string)
+			if !valid || product == "" {
+				return coreError(base, "invariant_violation", "stored mutation Product binding is malformed", "contact_operator", false), true, nil
+			}
+			if product != r.Envelope.SelectedProductID {
+				crossProduct = true
+			}
+		}
+	}
+	if crossProduct {
+		return Envelope{}, false, nil
+	}
+	readEvent := func(eventID string) (store.Event, bool, error) {
+		if tx != nil {
+			return store.EventByIDTx(ctx, tx, eventID)
+		}
+		return store.EventByID(ctx, r.Store, eventID)
+	}
+	return replayRoutineClaimHistory(base, prior, surface, resolutionKind, readEvent)
+}
+
+// replayRoutineClaimHistory refuses closed unless the receipt links exactly
+// one event of the surface's kind whose stored payload proves the original
+// call consumed the approval the replayed input claims; readEvent is the
+// caller's raw-event reader.
+func replayRoutineClaimHistory(base Envelope, prior store.MutationIdempotencyRecord, surface routineReplayClaimSurface, resolutionKind string, readEvent func(string) (store.Event, bool, error)) (Envelope, bool, error) {
+	var eventIDs []string
+	if err := json.Unmarshal([]byte(prior.ResultEventIDs), &eventIDs); err != nil {
+		return Envelope{}, false, newRuntimeFailure("invariant_violation", "cached mutation receipt event references are unreadable", "contact_operator", false)
+	}
+	var linked store.Event
+	matched := 0
+	for _, eventID := range eventIDs {
+		event, found, err := readEvent(eventID)
+		if err != nil {
+			return Envelope{}, false, err
+		}
+		if !found {
+			return Envelope{}, false, newRuntimeFailure("invariant_violation", "cached mutation receipt names event "+eventID+" and the event log does not hold it", "contact_operator", false)
+		}
+		if event.Kind != surface.eventKind {
+			continue
+		}
+		matched++
+		linked = event
+	}
+	if matched != 1 {
+		return Envelope{}, false, newRuntimeFailure("invariant_violation", fmt.Sprintf("cached mutation receipt carries %d %s events, want exactly one", matched, surface.eventKind), "contact_operator", false)
+	}
+	consent, consentErr := historicalRoutineClaimConsent(linked, resolutionKind)
+	if consentErr != nil {
+		return Envelope{}, false, consentErr
+	}
+	if consent {
+		return Envelope{}, false, nil
+	}
+	return coreError(base, "invalid_input", surface.refusalMessage, "reread_entities", false), true, nil
+}
+
+// historicalRoutineClaimConsent classifies one receipt-linked stored event by
+// the frozen source rules its writer admitted it under: only source version 1
+// carries approval facts — the overlap fold required a plan-layer reference
+// for every kind except depends_on, the delivery-correction fold the complete
+// binding with its recorded operator; current v2 classes carry no binding.
+// PURE CLASSIFICATION over the raw stored bytes: no approval row is read, no
+// live authorization re-runs, and a current cached dispatch is proven by
+// nothing here.
+func historicalRoutineClaimConsent(event store.Event, resolutionKind string) (bool, error) {
+	if event.PayloadVersion != 1 {
+		return false, nil
+	}
+	switch event.Kind {
+	case store.WorkflowOverlapResolved:
+		var payload struct {
+			ResolutionKind string `json:"resolution_kind"`
+			ApprovalRef    string `json:"approval_ref"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return false, newRuntimeFailure("invariant_violation", "stored overlap resolution event payload is unreadable", "contact_operator", false)
+		}
+		if payload.ResolutionKind != resolutionKind {
+			return false, newRuntimeFailure("invariant_violation", "stored overlap resolution event disagrees with the receipt's resolution kind", "contact_operator", false)
+		}
+		return resolutionKind != store.ResolutionDependsOn && payload.ApprovalRef != "", nil
+	case store.WorkflowDeliveryCorrected:
+		var payload struct {
+			ApprovalRef             string `json:"approval_ref"`
+			ApprovalOperationDigest string `json:"approval_operation_digest"`
+			ApprovalScopeJSON       string `json:"approval_scope_json"`
+			ApprovalVersionsJSON    string `json:"approval_versions_json"`
+			ApprovalConsequence     string `json:"approval_consequence"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return false, newRuntimeFailure("invariant_violation", "stored delivery correction event payload is unreadable", "contact_operator", false)
+		}
+		return event.Actor != "" && payload.ApprovalRef != "" && payload.ApprovalOperationDigest != "" && payload.ApprovalScopeJSON != "" && payload.ApprovalVersionsJSON != "" && payload.ApprovalConsequence != "", nil
+	default:
+		return false, nil
+	}
 }
 
 func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {
@@ -3951,7 +4125,7 @@ func (r runtime) planResolveOverlap(_ context.Context, base Envelope, raw []byte
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		consumedRef, _ := plan.scope["approval_ref"].(string)
 		if !destructive && in.Approval != nil && consumedRef == "" {
-			return nil, nil, nil, newRuntimeFailure("invalid_input", "a routine overlap resolution accepts no approval claim", "reread_entities", false)
+			return nil, nil, nil, newRuntimeFailure("invalid_input", routineOverlapClaimRefusal, "reread_entities", false)
 		}
 		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
 		if destructive {
@@ -3997,7 +4171,7 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if in.Approval != nil {
 			if consumedRef, _ := plan.scope["approval_ref"].(string); consumedRef == "" {
-				return nil, nil, nil, newRuntimeFailure("invalid_input", "a routine delivery correction accepts no approval claim", "reread_entities", false)
+				return nil, nil, nil, newRuntimeFailure("invalid_input", routineCorrectionClaimRefusal, "reread_entities", false)
 			}
 		}
 		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
@@ -4927,6 +5101,15 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return storeIdempotencyConflict(r.Operation, key)
 			}
 			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
+				// A refusal reuses the replay result-rejection path below:
+				// the open transaction rolls back with no receipt touch.
+				if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(ctx, tx, base, raw, prior); admissionErr != nil {
+					return admissionErr
+				} else if refused {
+					response = refusal
+					resultRejected = true
+					return errors.New("mutation result rejected")
+				}
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr

@@ -268,7 +268,12 @@ func TestRoutineEvaluation(t *testing.T) {
 		}}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
-		authority, err := s.WorkflowEvaluationAuthority(context.Background(), workID, reviewerRef)
+		var authority WorkflowEvaluationAuthority
+		err := s.readSnapshot(context.Background(), func(q queryer) error {
+			var innerErr error
+			authority, innerErr = workflowEvaluationAuthority(context.Background(), q, workID, reviewerRef)
+			return innerErr
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

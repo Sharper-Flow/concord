@@ -338,7 +338,12 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if !correctionIntent {
 		t.Fatalf("work pin has no rejected-result correction intent: %#v", pin.NextValidIntents)
 	}
-	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID); err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after rejected result: %v", err)
 	} else if binding != nil {
 		t.Fatalf("rejected completed result has retry approval binding %#v", binding)
@@ -578,7 +583,13 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	if version := readWorkVersion(t, s, workID); version != pin.Version {
 		t.Fatalf("refused dispatch changed the work version: %d -> %d", pin.Version, version)
 	}
-	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	bindingErr := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	})
+	if bindingErr != nil || binding != nil {
 		t.Fatalf("retry approval binding at the wall = %+v, %v, want none", binding, bindingErr)
 	}
 
@@ -766,7 +777,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
 			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
 		}
-		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+		var binding *WorkflowRetryApprovalBinding
+		bindingErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+			var txErr error
+			binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+			return txErr
+		})
 		if bindingErr != nil {
 			t.Fatal(bindingErr)
 		}
@@ -781,7 +797,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	// The armed wall mints no retry approval binding: an escalated
 	// correction admits a dispatch only behind a store-derived convergence
 	// basis, and an operator approval has no effect (CON-885).
-	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+	var binding *WorkflowRetryApprovalBinding
+	bindingErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	})
 	if bindingErr != nil {
 		t.Fatal(bindingErr)
 	}
@@ -794,7 +815,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
 		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
 	}
-	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+	var after *WorkflowRetryApprovalBinding
+	afterErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		after, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	})
 	if afterErr != nil {
 		t.Fatal(afterErr)
 	}
@@ -829,8 +855,12 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 		t.Fatalf("interrupted dispatch intent: %v", err)
 	}
 
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after the interrupted dispatch: %v", err)
 	}
 	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
@@ -842,8 +872,11 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 	}
 
 	issue1013RecordWorkerDispatch(t, s, workID, interrupted)
-	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after the materialized dispatch: %v", err)
 	}
 	if binding != nil {

@@ -94,8 +94,12 @@ func TestFailedWorkerRetryBindingPinsFailureAndContract(t *testing.T) {
 	}
 	failWorkerAttempt(t, s, workID, attemptID)
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 9, "record-retry-binding")
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding: %v", err)
 	}
 	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 || binding.ContractVersion != 1 {

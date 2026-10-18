@@ -843,15 +843,17 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 }
 
 // TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects:
-// a cached same-key correction replay answers with the original result. The
-// canonical mutation digest excludes the approval block by design, so a
-// replay that adds an approval claim carries the stored digest of the
-// unsigned success and receives the cached result unchanged: the ok
+// a cached same-key correction replay that adds an unneeded approval claim
+// refuses with the same invalid_input refusal the fresh correction call
+// returns. The canonical mutation digest excludes the approval block by
+// design, so the claim-bearing replay carries the stored digest of the
+// unsigned success, and the routine correction surface owns that refusal at
+// every replay owner. The refused replay records no new durable effect: no
+// correction, no domain event, no actor prefix, no version move, no
+// approval row consumed or minted, no idempotency row added, and no receipt
+// touch. The unchanged unsigned replay stays the cached success: the ok
 // outcome, the replayed marker, and the exact original result payload and
-// changed refs. The replay records no consumed consent and no new durable
-// effect: no correction, no domain event, no actor prefix, no version
-// move, no approval row consumed or minted, and no idempotency row added.
-// The unchanged unsigned replay stays the same cached success.
+// changed refs.
 func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
@@ -891,18 +893,9 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: withClaim}, env)
-	if replayed.Outcome != OutcomeOK || replayed.Error != nil {
-		t.Errorf("cached correction replay with an unneeded claim outcome=%s error=%+v, want the original cached success", replayed.Outcome, replayed.Error)
-	}
-	if !replayed.Replayed {
-		t.Errorf("cached correction replay carries replayed=false, want the replayed marker")
-	}
-	if !sameResultPayload(t, unsigned.Result, replayed.Result) {
-		t.Errorf("cached correction replay result payload differs from the original: original=%s replayed=%s", unsigned.Result, replayed.Result)
-	}
-	if !sameChangedRefs(t, unsigned.ChangedRefs, replayed.ChangedRefs) {
-		t.Errorf("cached correction replay changed refs %+v differ from the original %+v", replayed.ChangedRefs, unsigned.ChangedRefs)
+	claimReplay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: withClaim}, env)
+	if claimReplay.Outcome != OutcomeError || claimReplay.Error == nil || claimReplay.Error.Kind != "invalid_input" || claimReplay.Error.Message != "a routine delivery correction accepts no approval claim" {
+		t.Errorf("cached correction replay with an unneeded claim outcome=%s error=%+v, want the same fresh invalid_input refusal the unsigned claim path returns", claimReplay.Outcome, claimReplay.Error)
 	}
 	// The replay must settle nothing new: these probes measure the reply
 	// against the baseline populations captured before it.
@@ -925,15 +918,32 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`); got != baselineIdempotency {
 		t.Errorf("the claim replay left %d idempotency rows, want the baseline %d", got, baselineIdempotency)
 	}
+	if touched := countRows(t, s.DatabaseForTesting(), `SELECT replayed_count FROM idempotency_records WHERE idempotency_key='delivery-correction-cached-replay'`); touched != 0 {
+		t.Errorf("the claim replay touched the receipt %d times, want the refused claim to leave it untouched", touched)
+	}
 	if got := workVersion(t, s, "work-1"); got != baselineVersion {
 		t.Errorf("the claim replay moved the work to v%d, want %d", got, baselineVersion)
 	}
 
-	// The unchanged unsigned replay stays the cached success and appends
-	// nothing.
+	// The unchanged unsigned replay stays the cached success: the ok
+	// outcome, the replayed marker, and the exact original result payload
+	// and changed refs, with the single receipt observation the replay
+	// touch records.
 	unchanged := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "correct_delivery", Input: unsignedRaw}, env)
 	if unchanged.Outcome != OutcomeOK || unchanged.Error != nil {
 		t.Fatalf("the unchanged unsigned replay outcome=%s error=%+v, want the cached success", unchanged.Outcome, unchanged.Error)
+	}
+	if !unchanged.Replayed {
+		t.Errorf("the unchanged unsigned replay carries replayed=false, want the replayed marker")
+	}
+	if !sameResultPayload(t, unsigned.Result, unchanged.Result) {
+		t.Errorf("the unchanged unsigned replay result payload differs from the original: original=%s replayed=%s", unsigned.Result, unchanged.Result)
+	}
+	if !sameChangedRefs(t, unsigned.ChangedRefs, unchanged.ChangedRefs) {
+		t.Errorf("the unchanged unsigned replay changed refs %+v differ from the original %+v", unchanged.ChangedRefs, unsigned.ChangedRefs)
+	}
+	if touched := countRows(t, s.DatabaseForTesting(), `SELECT replayed_count FROM idempotency_records WHERE idempotency_key='delivery-correction-cached-replay'`); touched != 1 {
+		t.Errorf("the unchanged unsigned replay touched the receipt %d times, want exactly the one replay observation", touched)
 	}
 	if got := agentDeliveryCorrectionEvents(t, s); got != 1 {
 		t.Fatalf("the unchanged unsigned replay left %d correction events, want one", got)

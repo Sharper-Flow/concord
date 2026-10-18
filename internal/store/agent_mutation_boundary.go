@@ -155,13 +155,6 @@ func acceptedInputsDigest(ctx context.Context, q queryer, operationID string) (s
 	return digest, nil
 }
 
-func (s *Store) LatestWorkflowContractVersion(ctx context.Context, workID string) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, newFailure(KindUnavailable, "workflow_contract", "store is not open", false, "open the authority database")
-	}
-	return latestWorkflowContractVersion(ctx, s.db, workID)
-}
-
 func latestWorkflowContractVersion(ctx context.Context, q queryer, workID string) (int64, error) {
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_contract")
 	if err == sql.ErrNoRows {

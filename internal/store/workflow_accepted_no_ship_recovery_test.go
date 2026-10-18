@@ -216,8 +216,12 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 	// fourth correction arms the wall: no retry approval binding exists
 	// there, because only a store-derived convergence basis admits a
 	// dispatch and an operator approval has no effect (CON-885).
-	binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID)
-	if err != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("escalated retry binding = %#v, error %v, want none behind the convergence wall", binding, err)
 	}
 	registered, _ := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)

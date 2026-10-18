@@ -7,15 +7,6 @@ import (
 	"errors"
 )
 
-// ActiveWorkflowContractVersions returns every active contract version so a
-// recovery request can bind an ambiguous projection without selecting one.
-func (s *Store) ActiveWorkflowContractVersions(ctx context.Context, workID string) ([]int64, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "workflow_contract", "store is not open", false, "open the authority database")
-	}
-	return activeWorkflowContractVersions(ctx, s.db, workID)
-}
-
 // activeWorkflowContractVersion returns the only contract that can authorize
 // work. It never selects a contract from an ambiguous projection.
 func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subject string) (int64, error) {

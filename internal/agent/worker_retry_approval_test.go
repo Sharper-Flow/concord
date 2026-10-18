@@ -101,8 +101,12 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	}
 	// The seed's public dispatch opens the failed attempt's own fenced
 	// epoch; the fresh approved retry opens the next one.
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil || binding == nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding == nil {
 		t.Fatalf("failed retry binding after the approved retry = %+v err=%v", binding, err)
 	}
 	if retryEpoch != binding.FailedAttemptEpoch+1 {
@@ -234,7 +238,12 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	if pinErr != nil || livePin.Attempt == nil || livePin.Attempt.ID != freshID || livePin.Attempt.Epoch != 2 {
 		t.Fatalf("fresh live attempt pin=%+v err=%v, want %s at epoch 2", livePin.Attempt, pinErr, freshID)
 	}
-	binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	var binding *store.WorkflowRetryApprovalBinding
+	bindingErr := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	})
 	if bindingErr != nil || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != 1 {
 		t.Fatalf("retry binding after the fresh live attempt = %+v err=%v, want the original failed attempt's open window, never the fresh attempt", binding, bindingErr)
 	}
@@ -501,7 +510,12 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	}); err != nil {
 		t.Fatalf("seed retry failure: %v", err)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding == nil {
 		t.Fatalf("retry binding=%+v err=%v", binding, err)
 	}
 	var failedVersion int64

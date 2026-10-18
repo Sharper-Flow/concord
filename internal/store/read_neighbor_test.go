@@ -265,12 +265,17 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "WorkflowEvaluationAuthority", run: func() error {
+		{name: "workflowEvaluationAuthority", run: func() error {
 			actorRef, err := WorkflowActorRef(actor)
 			if err != nil {
 				return err
 			}
-			authority, err := s.WorkflowEvaluationAuthority(ctx, "neighbor-work", actorRef)
+			var authority WorkflowEvaluationAuthority
+			err = s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				authority, innerErr = workflowEvaluationAuthority(ctx, q, "neighbor-work", actorRef)
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}
@@ -445,13 +450,20 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
 		}},
-		{name: "WorkflowFailedWorkerRetryBinding", run: func() error {
-			_, err := WorkflowFailedWorkerRetryBinding(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
-			return err
+		{name: "readSnapshot workflowFailedWorkerRetryBinding", run: func() error {
+			return s.readSnapshot(ctx, func(q queryer) error {
+				_, err := workflowFailedWorkerRetryBinding(ctx, q, BuiltinWorkflowRegistry(), "neighbor-work")
+				return err
+			})
 		}},
 		{name: "ActiveWorkflowContract", absent: KindProjectionNotFound, run: func() error { _, err := s.ActiveWorkflowContract(ctx, "neighbor-work"); return err }},
-		{name: "LatestWorkflowContractVersion", run: func() error {
-			contractVersion, err := s.LatestWorkflowContractVersion(ctx, "neighbor-work")
+		{name: "readSnapshot latestWorkflowContractVersion", run: func() error {
+			var contractVersion int64
+			err := s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				contractVersion, innerErr = latestWorkflowContractVersion(ctx, q, "neighbor-work")
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}
@@ -460,8 +472,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ActiveWorkflowContractVersions", run: func() error {
-			versions, err := s.ActiveWorkflowContractVersions(ctx, "neighbor-work")
+		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
+			var versions []int64
+			err := s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				versions, innerErr = activeWorkflowContractVersions(ctx, q, "neighbor-work")
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}

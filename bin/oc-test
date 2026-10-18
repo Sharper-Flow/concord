@@ -3,10 +3,18 @@
 # Repository-local verification throttle wrapper.
 #
 # Tiers:
-#   smoke       All Go packages, adapter tests, and JSON/law validation.
+#   smoke       Go packages CI tests without shards, adapter tests, and
+#               JSON/law validation.
 #   targeted    Caller-supplied command and arguments, passed through unchanged.
 #   conformance Gated production-like ten-process conformance harness.
 #   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
+#
+# Smoke leaves out the packages CI splits into shard jobs (internal/store and
+# cmd/concord). Its Go step is CI's "Test every package without its own shard
+# job" command, and scripts/test-oc-test.py fails when the two differ. To test
+# one shard locally, run CI's selection for it, for example shard 1 of 3:
+#
+#   bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 3)" ./internal/store
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # When it is missing the tier still runs, unthrottled, after a warning. Smoke
@@ -32,7 +40,7 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance | preflight
 
-  smoke        all Go packages, adapter suite, and JSON/law validation under host admission control
+  smoke        Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
   targeted     caller-supplied command and arguments without heavy admission or added limits
   conformance  long uninstrumented ten-process SQLite harness under host admission control
   preflight    Lefthook pre-push gates from lefthook.yml under smoke admission
@@ -92,7 +100,7 @@ case "$tier" in
   smoke)
     [[ $# -eq 0 ]] || usage
     run_tier smoke smoke bash -euo pipefail -c '
-      go test -timeout=15m ./...
+      go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
       env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
       env -u CONCORD_SELECTED_PRODUCT_ID CONCORD_REQUIRE_BUN=1 python3 scripts/check-json.py --adapter-tests-external
     '

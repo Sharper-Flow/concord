@@ -135,7 +135,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			packVersion := int64(2)
 			wantRevision, wantRole, wantRequired := int64(1), "context", true
 			if name == "rebind_after_stale" {
-				if _, err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: packVersion, Revision: revision}); err != nil {
+				if err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: packVersion, Revision: revision}); err != nil {
 					t.Fatal(err)
 				}
 				packVersion++

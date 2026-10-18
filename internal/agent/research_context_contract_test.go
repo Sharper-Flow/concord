@@ -97,13 +97,13 @@ func seedResearchContextLinkedPack(t *testing.T, f researchScopeEnv, packID stri
 	if err != nil {
 		t.Fatalf("seed linked pack %s: %v", packID, err)
 	}
-	if _, err := recordResearchSource(ctx, f.store, store.ResearchSourceRequest{
+	if err := recordResearchSource(ctx, f.store, store.ResearchSourceRequest{
 		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
 		Source: store.ResearchSource{SourceID: "src-" + packID, Kind: store.SourceCode, Locator: "internal/agent/research_context_contract_test.go", Title: "research context fixture", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatalf("seed linked source %s: %v", packID, err)
 	}
-	if _, err := recordResearchFinding(ctx, f.store, store.ResearchFindingRequest{
+	if err := recordResearchFinding(ctx, f.store, store.ResearchFindingRequest{
 		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
 		Finding: store.ResearchFinding{FindingID: "f-" + packID, Kind: store.FindingObservation, Statement: researchScopeMarkerA + " linked finding statement", Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, SourceIDs: []string{"src-" + packID}, Scopes: store.ResearchScopes{Mode: "home"}},
 	}); err != nil {

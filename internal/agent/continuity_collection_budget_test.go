@@ -979,13 +979,13 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
 		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
 		Source: store.ResearchSource{SourceID: "src-continuation-research", Kind: store.SourceCode, Locator: "internal/agent/continuity_collection_budget_test.go", Title: "the continuation research source", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
 		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
 		Finding: store.ResearchFinding{FindingID: "f-continuation-research", Kind: store.FindingObservation,
 			Statement:  "the continuation research finding 😀 " + strings.Repeat("f", 512),

@@ -17,28 +17,25 @@ func createResearchPack(ctx context.Context, s *store.Store, req store.CreateRes
 	return out, err
 }
 
-func appendResearchRevision(ctx context.Context, s *store.Store, req store.AppendResearchRevisionRequest) (out store.ResearchRevision, err error) {
-	err = s.Transact(ctx, func(tx *store.Transaction) error {
-		out, err = store.AppendResearchRevisionWithinTx(ctx, tx, req)
+func appendResearchRevision(ctx context.Context, s *store.Store, req store.AppendResearchRevisionRequest) error {
+	return s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.AppendResearchRevisionWithinTx(ctx, tx, req)
 		return err
 	})
-	return out, err
 }
 
-func recordResearchFinding(ctx context.Context, s *store.Store, req store.ResearchFindingRequest) (out store.ResearchFinding, err error) {
-	err = s.Transact(ctx, func(tx *store.Transaction) error {
-		out, err = store.RecordResearchFindingWithinTx(ctx, tx, req)
+func recordResearchFinding(ctx context.Context, s *store.Store, req store.ResearchFindingRequest) error {
+	return s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.RecordResearchFindingWithinTx(ctx, tx, req)
 		return err
 	})
-	return out, err
 }
 
-func recordResearchSource(ctx context.Context, s *store.Store, req store.ResearchSourceRequest) (out store.ResearchSource, err error) {
-	err = s.Transact(ctx, func(tx *store.Transaction) error {
-		out, err = store.RecordResearchSourceWithinTx(ctx, tx, req)
+func recordResearchSource(ctx context.Context, s *store.Store, req store.ResearchSourceRequest) error {
+	return s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.RecordResearchSourceWithinTx(ctx, tx, req)
 		return err
 	})
-	return out, err
 }
 
 func setResearchFreshness(ctx context.Context, s *store.Store, req store.SetResearchFreshnessRequest) error {

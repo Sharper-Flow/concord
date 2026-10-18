@@ -351,7 +351,7 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create research pack: %v", err)
 	}
-	if _, err := recordResearchSource(ctx, fx.store, store.ResearchSourceRequest{
+	if err := recordResearchSource(ctx, fx.store, store.ResearchSourceRequest{
 		PackID: pack.PackID, ExpectedVersion: 1,
 		Source: store.ResearchSource{
 			SourceID: "source-population", Kind: store.SourceCode, Locator: "internal/agent/result_payload_population_test.go",
@@ -361,7 +361,7 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add research source: %v", err)
 	}
-	if _, err := recordResearchFinding(ctx, fx.store, store.ResearchFindingRequest{
+	if err := recordResearchFinding(ctx, fx.store, store.ResearchFindingRequest{
 		PackID: pack.PackID, ExpectedVersion: 2,
 		Finding: store.ResearchFinding{
 			FindingID: "finding-population", Kind: store.FindingObservation, Statement: "the population fixture answers every read",

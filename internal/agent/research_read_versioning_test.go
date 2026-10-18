@@ -56,14 +56,14 @@ func seedResearchReadPack(t *testing.T, s *store.Store, id string) {
 	if err != nil {
 		t.Fatalf("create %s: %v", id, err)
 	}
-	if _, err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{
+	if err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{
 		PackID: id, ExpectedVersion: pack.ExpectedVersion,
 		Revision: revision("What did the second revision add?"),
 	}); err != nil {
 		t.Fatalf("append %s: %v", id, err)
 	}
 	version := pack.ExpectedVersion + 1
-	if _, err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
 		PackID: id, Revision: 1, ExpectedVersion: version,
 		Source: store.ResearchSource{SourceID: "s-1", Kind: store.SourceCode, Locator: "internal/store/research_reads.go", Title: "research reads", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
@@ -71,7 +71,7 @@ func seedResearchReadPack(t *testing.T, s *store.Store, id string) {
 	}
 	version++
 	for _, finding := range []struct{ id, statement string }{{"f-1", "revision one finding one"}, {"f-1b", "revision one finding two"}} {
-		if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
 			PackID: id, Revision: 1, ExpectedVersion: version,
 			Finding: store.ResearchFinding{FindingID: finding.id, Kind: store.FindingObservation, Statement: finding.statement, Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, SourceIDs: []string{"s-1"}, Scopes: store.ResearchScopes{Mode: "home"}},
 		}); err != nil {
@@ -79,7 +79,7 @@ func seedResearchReadPack(t *testing.T, s *store.Store, id string) {
 		}
 		version++
 	}
-	if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
 		PackID: id, Revision: 2, ExpectedVersion: version,
 		Finding: store.ResearchFinding{FindingID: "f-2", Kind: store.FindingObservation, Statement: "revision two finding", Confidence: store.ConfidenceMedium, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}},
 	}); err != nil {

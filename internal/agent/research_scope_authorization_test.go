@@ -95,13 +95,13 @@ func seedResearchScopePack(t *testing.T, s *store.Store, packID, owner, question
 	if err != nil {
 		t.Fatalf("seed pack %s: %v", packID, err)
 	}
-	if _, err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
 		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
 		Source: store.ResearchSource{SourceID: "src-" + packID, Kind: store.SourceCode, Locator: "internal/agent/research_scope_authorization_test.go", Title: "research scope fixture", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatalf("seed source %s: %v", packID, err)
 	}
-	if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
 		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
 		Finding: store.ResearchFinding{FindingID: "f-" + packID, Kind: store.FindingObservation, Statement: finding, Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}},
 	}); err != nil {

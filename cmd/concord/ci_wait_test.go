@@ -1352,6 +1352,30 @@ func TestCiWaitPRExpectedHeadNeverReachedIsSuperseded(t *testing.T) {
 	}
 }
 
+// The merge state a poll observes before the latch belongs to the head the
+// push replaces, so a wait that times out before the pull request reaches the
+// expected commit names that commit and carries no merge state.
+func TestCiWaitPRExpectedHeadTimeoutCarriesNoReplacedMergeState(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced, nil))
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
+	if _, report := runCiWaitStdin(t, request); report.Status != "pending" {
+		t.Fatalf("the replaced head must keep the wait pending, got %+v", report)
+	}
+	state, ok := ciWaitReadState(statePath)
+	if !ok {
+		t.Fatal("a pending slice must persist its state")
+	}
+	state.DeadlineAt = time.Now().Add(-time.Minute)
+	ciWaitSaveState(state, statePath)
+	code, report := runCiWaitStdin(t, request)
+	if code != 1 || report.Status != "timeout" || report.SHA != pushed || report.HeadSHA != "" || report.MergeState != "" {
+		t.Fatalf("a timeout before the pull request reaches the pushed commit must carry no replaced-head merge state, got code=%d report=%+v", code, report)
+	}
+}
+
 func TestCiWaitExpectedHeadRequiresAPRSelectorAndACommitSHA(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
 	for name, body := range map[string]string{

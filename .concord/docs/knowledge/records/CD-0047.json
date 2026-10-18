@@ -11,8 +11,10 @@
   "date": "2026-08-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
+    "scripts/check-doc-contract.py",
     "scripts/check-law-coverage.py",
     "scripts/check-reachability.py",
+    "scripts/generate-agent-lanes.py",
     "scripts/knowledge_index.py",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
@@ -29,7 +31,7 @@
   },
   "sha256": "sha256:c19a6944c6913a64b599d4eb7b5a47b65f5fc6f82d9e76187d142337561511da",
   "status": "accepted",
-  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
+  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse stale citations and unprojected agent definitions.",
   "tags": [
     "coverage",
     "drift",

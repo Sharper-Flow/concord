@@ -4,22 +4,11 @@ import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { fakeTool } from "./plugin-tool.fixture"
 
 // The builder reaches core through the adapter transport in concord.ts, which
-// imports the host plugin surface. The stub mirrors concord.test.ts so the
+// imports the host plugin surface. With the shared stub the
 // suite never loads the real host module.
-function schemaBuilder() {
-  return {
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta() { return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: schemaBuilder, array: schemaBuilder, record: schemaBuilder, union: schemaBuilder, literal: schemaBuilder,
-    string: schemaBuilder, number: schemaBuilder, unknown: schemaBuilder, null: schemaBuilder,
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 // Fake-runner suite: bind the transport to a nominal core path instead of

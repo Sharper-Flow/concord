@@ -17,6 +17,7 @@ import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } 
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 import { privateKeyObject } from "./credentials"
 import { canonicalWorkerControl } from "./worker_control"
+import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
   const directory = await createDirectory(prefix)
@@ -26,26 +27,6 @@ async function mkdtemp(prefix: string): Promise<string> {
 
 syntheticHostVersionFixture()
 
-function schemaBuilder(kind: string, ...args: unknown[]) {
-  return {
-    kind, args, metadata: undefined as unknown,
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta(metadata: unknown) { this.metadata = metadata; return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: (...args: unknown[]) => schemaBuilder("object", ...args),
-    record: (...args: unknown[]) => schemaBuilder("record", ...args),
-    union: (...args: unknown[]) => schemaBuilder("union", ...args),
-    literal: (...args: unknown[]) => schemaBuilder("literal", ...args),
-    array: (...args: unknown[]) => schemaBuilder("array", ...args),
-    string: (...args: unknown[]) => schemaBuilder("string", ...args),
-    number: (...args: unknown[]) => schemaBuilder("number", ...args),
-    unknown: (...args: unknown[]) => schemaBuilder("unknown", ...args),
-    null: (...args: unknown[]) => schemaBuilder("null", ...args),
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()

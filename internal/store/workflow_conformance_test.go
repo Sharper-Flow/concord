@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -507,7 +508,7 @@ func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
 
 	for _, scenario := range corpus.Scenarios {
 		scenario := scenario
-		if workflowcorpus.AgentBoundaryOwns(scenario.ID) {
+		if slices.Contains(workflowcorpus.AgentBoundaryScenarioIDs, scenario.ID) {
 			continue
 		}
 		t.Run(scenario.ID, func(t *testing.T) {

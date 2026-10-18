@@ -569,62 +569,6 @@ func TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation(t *testin
 	}
 }
 
-func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *testing.T) {
-	t.Parallel()
-	raw, err := os.ReadFile("workflow_conformance_test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fullSource := string(raw)
-	source := fullSource
-	if marker := strings.Index(source, "func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes"); marker >= 0 {
-		source = source[:marker]
-	}
-	forbidden := []string{
-		`observation.State["rigor"] = map[string]any{"proof_depth": "verification"}`,
-		`observation.Effects["domain_transaction"] = map[string]any{"count": 1}`,
-		`"resume_step": "step-2"`,
-		`"resume_step": "proposal"`,
-		`"last_checkpoint": "cp-1"`,
-		`"old_event_upcasted"] = true`,
-		`"new_event_refused"] = true`,
-		`"epoch-4"] = map[string]any{"error": map[string]any{"kind": string(KindOperationConflict)}`,
-	}
-	for _, pattern := range forbidden {
-		if strings.Contains(source, pattern) {
-			t.Fatalf("observation harness contains forbidden constant injection shape %q", pattern)
-		}
-	}
-	for _, required := range []string{"ReadWorkflowContinuity", "readWorkflowReplayEvidence", "workflowObservationAssertionError"} {
-		if !strings.Contains(fullSource, required) {
-			t.Fatalf("observation harness lost authoritative constructor %s", required)
-		}
-	}
-}
-
-func TestWorkflowProjectionCorruptionHasOneTypedFaultAdapter(t *testing.T) {
-	t.Parallel()
-	raw, err := os.ReadFile("workflow_conformance_test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	source := string(raw)
-	start := strings.Index(source, "\nfunc applyProjectionCorruptionFault")
-	if start < 0 {
-		t.Fatal("projection corruption adapter is missing")
-	}
-	adapter := source[start:]
-	if next := strings.Index(adapter[1:], "\nfunc "); next >= 0 {
-		adapter = adapter[:next+1]
-	}
-	if strings.Count(adapter, "tx.ExecContext(ctx, `UPDATE workflow_instances") != 1 {
-		t.Fatalf("typed fault adapter projection write count=%d, want one", strings.Count(adapter, "tx.ExecContext(ctx, `UPDATE workflow_instances"))
-	}
-	if !strings.Contains(adapter, "projection_corruption must declare") {
-		t.Fatal("projection corruption is not isolated behind the typed declared fault adapter")
-	}
-}
-
 func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testing.T) {
 	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)

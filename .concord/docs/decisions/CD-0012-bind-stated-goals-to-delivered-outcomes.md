@@ -68,6 +68,9 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Historical pins retain their operator requirements.
+
+
 ### D1. The outcome contract has three parts with three revision authorities
 
 Every work item carries an **outcome contract** composed of three separable parts. Each

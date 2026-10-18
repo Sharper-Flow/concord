@@ -24,19 +24,18 @@ func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, s
 	return s, binding, ref
 }
 
+// resolveContentPair settles the pair through the live writer. Both kinds it
+// serves are routine coordination answers, so the request carries no approval
+// claim.
 func resolveContentPair(t *testing.T, s *Store, from, to, kind string) {
 	t.Helper()
-	approval := "approval:content"
-	if kind == ResolutionDependsOn {
-		approval = ""
-	}
 	fromVersion, toVersion := readWorkVersion(t, s, from), readWorkVersion(t, s, to)
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "content-resolution-" + from + "-" + to + "-" + kind, FromWorkID: from, ToWorkID: to,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
 			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
-			Reason: "synthetic coordination", ApprovalRef: approval, Actor: "operator",
+			Reason: "synthetic coordination", Actor: "operator",
 		})
 		return err
 	})
@@ -177,17 +176,20 @@ func TestOverlapChangedThenRevertedDoesNotReviveJudgment(t *testing.T) {
 }
 
 func TestOverlapSupersessionPayloadHistoryRebuild(t *testing.T) {
-	for _, payloadVersion := range []int{1, 2, 3} {
+	// The supersession source bytes keep the original v3 shape: the typed
+	// decision_domains fact is optional and stays absent from this
+	// constructor's successor contract, so the same bytes witness every
+	// recorded historical payload version. The historical versions are
+	// named here and never read from the current registration.
+	const historicalSupersessionPayloadVersion = 3
+	for _, payloadVersion := range []int{1, 2, historicalSupersessionPayloadVersion} {
 		t.Run(fmt.Sprint(payloadVersion), func(t *testing.T) {
 			s, binding, actor := overlapContentFixture(t)
 			resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
 			event := contentSuccessor(t, s, actor, 2, binding, []string{})
-			if event.PayloadVersion != 3 {
-				t.Fatalf("constructor payload version=%d, want 3", event.PayloadVersion)
-			}
 			event.PayloadVersion = payloadVersion
 			applyContentSuccessor(t, s, event)
-			if payloadVersion == 3 {
+			if payloadVersion == historicalSupersessionPayloadVersion {
 				assertContentCurrent(t, s)
 			} else {
 				assertContentStale(t, s)
@@ -209,6 +211,18 @@ func TestOverlapSupersessionPayloadHistoryRebuild(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOverlapSourceJudgedContentV3ChangedContentInvalidates(t *testing.T) {
+	const sourceJudgedContentPayloadVersion = 3
+	s, original, actor := overlapContentFixture(t)
+	resolveContentPair(t, s, "content-left", "content-right", ResolutionCompatibleWith)
+	changed := original
+	changed.DomainModifies = []string{"child", "root"}
+	event := contentSuccessor(t, s, actor, 2, changed, []string{})
+	event.PayloadVersion = sourceJudgedContentPayloadVersion
+	applyContentSuccessor(t, s, event)
+	assertContentStale(t, s)
 }
 
 func overlapFixtureExec(t *testing.T, s *Store, query string, args ...any) {

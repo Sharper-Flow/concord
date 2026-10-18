@@ -19,6 +19,7 @@
         "internal/pm1fixture",
         "internal/store/storetest",
         "internal/store/storetest/neighbor",
+        "internal/store/storetest/projection",
         "internal/testenv",
         "internal/testutil/schemawire",
         "internal/workflowcorpus"

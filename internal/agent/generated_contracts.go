@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:9f42a652501248b633cf3be58e9b2b97d8ace134a01459bbe9fdfd34f8f3c4cd"
+const ManifestDigest = "sha256:7cd82f2b5f5f0785619fa3da583363e8deb3a6ed63a8ea68e7b7256724fa8348"
 
 type OperationKind string
 
@@ -357,7 +357,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair", "approved_at", "approved_by", "superseded_by", "definition_pin"}},
 	"workflow_correction_context":                           {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "source_event_id", "source_event_seq"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch", "source_event_id", "source_event_seq"}},
 	"workflow_delivery_assertion":                           {Required: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact"}, Properties: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact", "correction"}},
-	"workflow_delivery_correction":                          {Required: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}},
+	"workflow_delivery_correction":                          {Required: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}},
 	"workflow_design_content":                               {Required: []string{"approach", "decisions", "touched_refs"}, Properties: []string{"approach", "decisions", "touched_refs"}},
 	"workflow_design_decision":                              {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                                {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},

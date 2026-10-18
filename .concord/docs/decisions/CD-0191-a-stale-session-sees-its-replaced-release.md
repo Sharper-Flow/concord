@@ -30,6 +30,9 @@ held in memory after a lane fix shipped.
 
 ## Decision
 
+CD-0013 D11 removes routine failed-worker retry approval only for its new policy. This does not weaken the release-currency boundary: stale packet and release checks remain, and no retry can repair stale authority by itself. The retry-approval rationale below continues to describe historical pins, not the new consent policy.
+
+
 ### D1. The adapter owns installed-versus-session staleness
 
 At every concord tool call the adapter derives the data root as the parent of

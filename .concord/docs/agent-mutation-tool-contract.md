@@ -1,6 +1,7 @@
 # Concord Agent Mutation-Tool Contract (TS4)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
 > **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
@@ -25,6 +26,9 @@ and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
+
+Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent. `merged_into`, `supersedes`, cancellation, removal, authority-expanding Product or client-policy changes, explicit cross-Product mutations, outside repair and both reconciliation modes, and physical research-pack deletion retain operator approval as listed gaps without a new class assignment. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+
 
 The binding contract is sections 1 through 4: the four-tool decision with the
 native-authority rule, each tool's operation table with core effects, the
@@ -118,7 +122,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for every kind except `depends_on` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for `merged_into` or `supersedes` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -294,7 +298,7 @@ or storage method is not sufficient evidence.
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
   the same transaction, a resolution that would close a cycle or add a
-  second successor is refused, and every kind except `depends_on` demands
+  second successor is refused, and `merged_into` or `supersedes` demands
   the operator approval pinned to both work and contract versions.
 
 ## Verification

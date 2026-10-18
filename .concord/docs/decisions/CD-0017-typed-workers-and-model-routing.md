@@ -21,6 +21,9 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, worker boundary, model distinctness, and convergence requirements remain. Earlier pins retain the approval prerequisite below.
+
+
 ### D1. Concord owns a canonical lane registry
 
 Every worker lane used by Concord runtime orchestration is a closed, typed, versioned

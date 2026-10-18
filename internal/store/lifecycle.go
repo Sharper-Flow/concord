@@ -499,7 +499,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -531,7 +531,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 	}
 	if payload.To == "completed" {
-		if err := refuseUnreconciledDelivery(ctx, tx, event.SubjectID); err != nil {
+		if err := refuseUnreconciledDelivery(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
 		// CD-0183 D4: the live path refuses a completed target while the
@@ -546,18 +546,17 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 				return err
 			}
 		}
-		var definitionRef string
-		var definitionVersion int64
+		var pin WorkflowDefinitionPin
 		var instanceState string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionRef, &definitionVersion, &instanceState)
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &instanceState)
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
 		var definition WorkflowDefinition
 		if definitionErr == nil {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
-			if !ok {
-				return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+			registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), pin)
+			if err != nil {
+				return err
 			}
 			definition = registered.Definition
 		}
@@ -618,19 +617,18 @@ func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string
 	return nil
 }
 
-func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, workID string) error {
-	var definitionRef string
-	var definitionVersion int64
+func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
+	var pin WorkflowDefinitionPin
 	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion, &currentStep); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &currentStep); err != nil {
 		if err == sql.ErrNoRows {
 			return nil
 		}
 		return workflowProjectionError(err, "cannot read workflow delivery state")
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
-	if !ok {
-		return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+	registered, err := verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+	if err != nil {
+		return err
 	}
 	step := workflowStep(registered.Definition, currentStep)
 	if !workflowStepIsDeliveryGate(step) {

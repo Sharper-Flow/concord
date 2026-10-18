@@ -693,8 +693,12 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	if after := workVersion(t, s, "work-1"); after != version {
 		t.Fatalf("refused escalation changed the work version %d -> %d", version, after)
 	}
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil || binding != nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("retry approval binding behind the escalated wall = %+v err=%v, want none", binding, err)
 	}
 

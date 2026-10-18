@@ -31,6 +31,9 @@ different facts.
 
 ## Decision
 
+D1 and D2's operator-substitution route applies to historical pins, not definitions declaring `approval_policy=consequence_v1`. Under that policy, an independent authenticated non-worker evaluator records verdicts without consent, and an authorized coordinator records completion against those stored verdicts. An executing coordinator remains forbidden to author its own verdict; missing independence requires the existing independent evaluator route, never a host approval. D3's worker boundary, D4's evidence gates, and model distinctness remain required.
+
+
 ### D1. Verified operator authority is available after a definition-backed exit
 
 `record_verdict` and `complete` accept the verified operator identity after an

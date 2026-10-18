@@ -129,24 +129,6 @@ type WorkflowRetryApprovalBinding struct {
 	ContractVersion    int64
 }
 
-// WorkflowFailedWorkerRetryBinding reads the ordinary failed-retry approval
-// binding. Escalated retries need convergence instead, so they return nil.
-// A nil registry means the builtin registry.
-func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (*WorkflowRetryApprovalBinding, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
-	}
-	// The admission fold runs in the caller's transaction, so the pool-backed
-	// read opens its own short read transaction around the same single
-	// implementation (the store connection invariant).
-	readTx, err := beginReadTx(ctx, s.db)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot open the binding read transaction", true, "retry once the store is readable", err)
-	}
-	defer func() { _ = readTx.Rollback() }()
-	return workflowFailedWorkerRetryBinding(ctx, readTx, registry, workID)
-}
-
 // WorkflowFailedWorkerRetryBindingTx is the transaction-scoped form used by
 // the approval and dispatch boundary. It rereads the binding before approval
 // consumption, so a stale approval cannot authorize a different attempt.

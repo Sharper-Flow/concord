@@ -1,6 +1,7 @@
 # Concord Canonical Agent Jobs (TS1)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS1; binding input to CD-0005 §1 and TS2–TS9.
 > **Binding inputs:** accepted PM1 query contract and scenario corpus, PM2–PM10,
@@ -20,6 +21,9 @@ constraints, and the Advance postmortem. This record defines the smallest
 evidenced set of end-to-end agent jobs AJ1 through AJ9 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
+
+AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent policy. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Merger or supersession proves exact operator approval consumption as a retained gap without a new class assignment. Workflow scenarios distinguish new engineering/decision policy from retained historical pins; a missing independent verdict is never a consent challenge.
+
 
 The binding contract is sections 1 through 4: the decision boundary, the
 canonical jobs with their successful outcomes, the shared success oracles

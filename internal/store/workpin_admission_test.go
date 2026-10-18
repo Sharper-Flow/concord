@@ -20,16 +20,18 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		if err != nil {
 			return err
 		}
-		definition, _, _, err := workPinReadInstanceTx(ctx, tx, workID, &WorkPin{})
+		// nil registry keeps the builtin convenience verification, matching
+		// the builtin-definition intent sweep below.
+		registered, _, _, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &WorkPin{}, nil)
 		if err != nil {
 			return err
 		}
-		state, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, pin.Step, "work_pin")
+		state, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
 		if err != nil {
 			return err
 		}
 		for _, intent := range pin.NextValidIntents {
-			decision := workflowAdmit(definition.Definition, state, intent.ActionID)
+			decision := workflowAdmit(registered.Definition, state, intent.ActionID)
 			if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired && !decision.FreshReviewRequired {
 				return fmt.Errorf("%s step %s advertises unadmitted action %s: %+v", pin.WorkflowType, pin.Step, intent.ActionID, decision)
 			}

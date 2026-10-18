@@ -61,6 +61,9 @@ dispatch, and the built-in family graphs.
 
 ## Contract
 
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their event and actor mappings. Engineering records a valid contract and coordinator confirmation; independent evaluators record verdicts without consent; coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. Historical pins keep their original gates, and every evidence, recovery, source, and liveness obligation remains required.
+
+
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, the event
 families, the projections and folds, outcome evaluation and strength, the

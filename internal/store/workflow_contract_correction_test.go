@@ -191,7 +191,7 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	// The operator question gate requires an investigation observation naming
 	// a current Domain and another work item before it offers the question.
 	seedComparisonObservation(t, s, workID)
-	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,12 +246,17 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:primary" {
 		t.Fatalf("compatible verdicts after correction = %+v, want the preserved primary verdict", verdicts)
 	}
-	if binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("public correction path after contract supersession: %v", err)
 	} else if binding != nil {
 		t.Fatalf("correction path returned a retry binding without a failed worker: %#v", binding)
 	}
-	question, err = ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err = readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +279,7 @@ func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
 		t.Fatalf("record return-route mismatch verdict: %v", err)
 	}
 	seedComparisonObservation(t, s, workID)
-	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

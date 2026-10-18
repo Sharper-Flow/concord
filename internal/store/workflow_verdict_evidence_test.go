@@ -116,6 +116,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
+	attemptEpoch := latestStepStartEpoch(t, s, workID, "execution")
 	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
@@ -128,7 +129,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 			t.Fatalf("bind review evidence: %v", err)
 		}
 	}
-	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2})), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch})), 0); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return s, owner, reviewer

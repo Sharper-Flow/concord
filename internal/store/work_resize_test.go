@@ -364,7 +364,7 @@ func TestWorkRemovalRefusesResizeLineageMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"kept", result.SuccessorWorkID} {
-		err := validateRemovalGatesQ(context.Background(), s.DatabaseForTesting(), WorkRemovalRequest{WorkID: id, ExpectedVersion: deliveryWorkVersion(t, s, id)})
+		err := validateRemovalGatesQ(context.Background(), s.DatabaseForTesting(), WorkRemovalRequest{WorkID: id, ExpectedVersion: readWorkVersion(t, s, id)})
 		if err == nil {
 			t.Fatalf("removal of lineage member %s was admitted", id)
 		}

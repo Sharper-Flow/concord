@@ -25,7 +25,7 @@ func sizedWork(t *testing.T, s *Store, workID string) {
 
 func workSizeOverrideRequest(t *testing.T, s *Store, workID, eventID string, size WorkSize) WorkSizeOverrideRequest {
 	t.Helper()
-	version := deliveryWorkVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	return WorkSizeOverrideRequest{
 		WorkID: workID, ExpectedVersion: version, Size: size,
 		Reason:      "the operator judges the change wider than its declared footprint",
@@ -182,7 +182,7 @@ func insertWorkSizeOverrideApproval(t *testing.T, s *Store, workID string, usedC
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	insertConsumedApprovalState(t, s, workSizeOverrideApprovalRef, workID, deliveryWorkVersion(t, s, workID), usedCount)
+	insertConsumedApprovalState(t, s, workSizeOverrideApprovalRef, workID, readWorkVersion(t, s, workID), usedCount)
 }
 
 func assertNoWorkSizeOverride(t *testing.T, s *Store, workID string) {

@@ -150,7 +150,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(126_270 + 826 + diffBytes)
+  expect(registeredTotal).toBe(127_397 + 826 + diffBytes)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {

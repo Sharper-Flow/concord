@@ -340,11 +340,8 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "human-1", Tool: "read-population-fixture", OperationKind: "test", IdempotencyKey: key}
-	}
-	pack, err := store.CreateResearchPack(ctx, fx.store, store.CreateResearchPackRequest{
-		Identity: identity("create"), OwnerWorkID: fx.workID, Freshness: store.ResearchCurrent,
+	pack, err := createResearchPack(ctx, fx.store, store.CreateResearchPackRequest{
+		OwnerWorkID: fx.workID, Freshness: store.ResearchCurrent,
 		Revision: store.ResearchRevisionInput{
 			Question: "does every read hold at population scale?",
 			ScopeIn:  json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`),
@@ -354,8 +351,8 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create research pack: %v", err)
 	}
-	if _, err := fx.store.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity("source"), PackID: pack.PackID, ExpectedVersion: 1,
+	if _, err := recordResearchSource(ctx, fx.store, store.ResearchSourceRequest{
+		PackID: pack.PackID, ExpectedVersion: 1,
 		Source: store.ResearchSource{
 			SourceID: "source-population", Kind: store.SourceCode, Locator: "internal/agent/result_payload_population_test.go",
 			Title: "read population fixture", PublisherOrAuthor: "concord",
@@ -364,8 +361,8 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add research source: %v", err)
 	}
-	if _, err := fx.store.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity("finding"), PackID: pack.PackID, ExpectedVersion: 2,
+	if _, err := recordResearchFinding(ctx, fx.store, store.ResearchFindingRequest{
+		PackID: pack.PackID, ExpectedVersion: 2,
 		Finding: store.ResearchFinding{
 			FindingID: "finding-population", Kind: store.FindingObservation, Statement: "the population fixture answers every read",
 			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,

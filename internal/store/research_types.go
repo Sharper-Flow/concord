@@ -40,13 +40,6 @@ const (
 	UseDecisionBasis      ResearchUseRole       = "decision_basis"
 )
 
-type ResearchMutationIdentity struct {
-	PrincipalRef   string `json:"principal_ref"`
-	Tool           string `json:"tool"`
-	OperationKind  string `json:"operation_kind"`
-	IdempotencyKey string `json:"idempotency_key"`
-}
-
 type ResearchRevisionInput struct {
 	Question string          `json:"question"`
 	ScopeIn  json.RawMessage `json:"scope_in"`
@@ -171,48 +164,37 @@ type ResearchPackPage struct {
 }
 
 type CreateResearchPackRequest struct {
-	Identity    ResearchMutationIdentity `json:"identity"`
-	PackID      string                   `json:"pack_id,omitempty"`
-	OwnerWorkID string                   `json:"owner_work_id"`
-	Revision    ResearchRevisionInput    `json:"revision"`
-	Freshness   ResearchFreshness        `json:"freshness,omitempty"`
+	PackID      string                `json:"pack_id,omitempty"`
+	OwnerWorkID string                `json:"owner_work_id"`
+	Revision    ResearchRevisionInput `json:"revision"`
+	Freshness   ResearchFreshness     `json:"freshness,omitempty"`
 }
 
 type AppendResearchRevisionRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	Revision        ResearchRevisionInput    `json:"revision"`
+	PackID          string                `json:"pack_id"`
+	ExpectedVersion int64                 `json:"expected_version"`
+	Revision        ResearchRevisionInput `json:"revision"`
 }
 
 type ResearchFindingRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	Revision        int64                    `json:"revision,omitempty"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	Finding         ResearchFinding          `json:"finding"`
+	PackID          string          `json:"pack_id"`
+	Revision        int64           `json:"revision,omitempty"`
+	ExpectedVersion int64           `json:"expected_version"`
+	Finding         ResearchFinding `json:"finding"`
 }
 
 type ResearchSourceRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	Revision        int64                    `json:"revision,omitempty"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	Source          ResearchSource           `json:"source"`
+	PackID          string         `json:"pack_id"`
+	Revision        int64          `json:"revision,omitempty"`
+	ExpectedVersion int64          `json:"expected_version"`
+	Source          ResearchSource `json:"source"`
 }
 
 type SetResearchFreshnessRequest struct {
-	Identity        ResearchMutationIdentity `json:"identity"`
-	PackID          string                   `json:"pack_id"`
-	ExpectedVersion int64                    `json:"expected_version"`
-	Freshness       ResearchFreshness        `json:"freshness"`
+	PackID          string            `json:"pack_id"`
+	ExpectedVersion int64             `json:"expected_version"`
+	Freshness       ResearchFreshness `json:"freshness"`
 	// Revision targets the pinned revision whose freshness is set; 0 means
 	// the pack's current revision.
 	Revision int64 `json:"revision,omitempty"`
-}
-
-type researchResult struct {
-	PackID   string `json:"pack_id"`
-	Revision int64  `json:"revision,omitempty"`
-	ID       string `json:"id,omitempty"`
 }

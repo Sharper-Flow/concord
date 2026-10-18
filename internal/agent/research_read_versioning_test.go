@@ -43,47 +43,44 @@ func invokeResearchRead(t *testing.T, s *store.Store, service *Service, grant Au
 func seedResearchReadPack(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "human-1", Tool: "research-read-versioning", OperationKind: "test", IdempotencyKey: key}
-	}
 	revision := func(question string) store.ResearchRevisionInput {
 		return store.ResearchRevisionInput{
 			Question: question, ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`),
 			DoneWhen: json.RawMessage(`[]`), Method: "source_code",
 		}
 	}
-	pack, err := store.CreateResearchPack(ctx, s, store.CreateResearchPackRequest{
-		Identity: identity(id + "-create"), PackID: id, OwnerWorkID: "work-1",
+	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
+		PackID: id, OwnerWorkID: "work-1",
 		Freshness: store.ResearchCurrent, Revision: revision("Which revision does the exact read return?"),
 	})
 	if err != nil {
 		t.Fatalf("create %s: %v", id, err)
 	}
-	if _, err := store.AppendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{
-		Identity: identity(id + "-append"), PackID: id, ExpectedVersion: pack.ExpectedVersion,
+	if _, err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{
+		PackID: id, ExpectedVersion: pack.ExpectedVersion,
 		Revision: revision("What did the second revision add?"),
 	}); err != nil {
 		t.Fatalf("append %s: %v", id, err)
 	}
 	version := pack.ExpectedVersion + 1
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity(id + "-source"), PackID: id, Revision: 1, ExpectedVersion: version,
+	if _, err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+		PackID: id, Revision: 1, ExpectedVersion: version,
 		Source: store.ResearchSource{SourceID: "s-1", Kind: store.SourceCode, Locator: "internal/store/research_reads.go", Title: "research reads", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatalf("source %s: %v", id, err)
 	}
 	version++
 	for _, finding := range []struct{ id, statement string }{{"f-1", "revision one finding one"}, {"f-1b", "revision one finding two"}} {
-		if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-			Identity: identity(id + "-" + finding.id), PackID: id, Revision: 1, ExpectedVersion: version,
+		if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+			PackID: id, Revision: 1, ExpectedVersion: version,
 			Finding: store.ResearchFinding{FindingID: finding.id, Kind: store.FindingObservation, Statement: finding.statement, Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, SourceIDs: []string{"s-1"}, Scopes: store.ResearchScopes{Mode: "home"}},
 		}); err != nil {
 			t.Fatalf("finding %s: %v", finding.id, err)
 		}
 		version++
 	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity(id + "-f-2"), PackID: id, Revision: 2, ExpectedVersion: version,
+	if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		PackID: id, Revision: 2, ExpectedVersion: version,
 		Finding: store.ResearchFinding{FindingID: "f-2", Kind: store.FindingObservation, Statement: "revision two finding", Confidence: store.ConfidenceMedium, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}},
 	}); err != nil {
 		t.Fatalf("finding f-2: %v", err)

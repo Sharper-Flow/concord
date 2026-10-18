@@ -972,24 +972,21 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: ownerEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-research-owner"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "continuation-research-test", OperationKind: key, IdempotencyKey: continuationResearchPack + "-" + key}
-	}
-	pack, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{
-		Identity: identity("create"), PackID: continuationResearchPack, OwnerWorkID: "work-research-owner", Freshness: store.ResearchCurrent,
+	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
+		PackID: continuationResearchPack, OwnerWorkID: "work-research-owner", Freshness: store.ResearchCurrent,
 		Revision: store.ResearchRevisionInput{Question: "the continuation research question", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity("source"), PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
+	if _, err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
 		Source: store.ResearchSource{SourceID: "src-continuation-research", Kind: store.SourceCode, Locator: "internal/agent/continuity_collection_budget_test.go", Title: "the continuation research source", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity("finding"), PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
+	if _, err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
 		Finding: store.ResearchFinding{FindingID: "f-continuation-research", Kind: store.FindingObservation,
 			Statement:  "the continuation research finding 😀 " + strings.Repeat("f", 512),
 			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,
@@ -1438,9 +1435,8 @@ func TestContinuityProjectionCarriesSelectedResearch(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, "pack-continuation-research").Scan(&packVersion); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetResearchFreshness(ctx, store.SetResearchFreshnessRequest{
-			Identity: store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "continuation-research-test", OperationKind: "stale", IdempotencyKey: "continuation-research-stale"},
-			PackID:   "pack-continuation-research", Revision: 1, ExpectedVersion: packVersion, Freshness: store.ResearchStale,
+		if err := setResearchFreshness(ctx, s, store.SetResearchFreshnessRequest{
+			PackID: "pack-continuation-research", Revision: 1, ExpectedVersion: packVersion, Freshness: store.ResearchStale,
 		}); err != nil {
 			t.Fatal(err)
 		}

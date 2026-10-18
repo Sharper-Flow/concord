@@ -970,8 +970,7 @@ func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) er
 		return fmt.Errorf("durable_mixed probe claim: %w", err)
 	}
 	seedResearchWork(t, s, durableMixedResearchOwner)
-	if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
-		Identity:    researchIdentity("conformance-durable-mixed-pack-create"),
+	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 		PackID:      durableMixedResearchPackID,
 		OwnerWorkID: durableMixedResearchOwner,
 		Revision:    ResearchRevisionInput{Question: "conformance", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"},

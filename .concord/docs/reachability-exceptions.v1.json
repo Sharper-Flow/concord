@@ -102,29 +102,6 @@
       "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
     },
     {
-      "id": "research-pooled-transaction-test-surface",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.AppendResearchRevision",
-        "internal/store.CreateResearchPack",
-        "internal/store.SetResearchFreshness",
-        "internal/store.Store.AddResearchFinding",
-        "internal/store.Store.AddResearchSource",
-        "internal/store.Store.AppendResearchRevision",
-        "internal/store.Store.CreateResearchPack",
-        "internal/store.Store.SetResearchFreshness",
-        "internal/store.Store.UpdateResearchFinding",
-        "internal/store.Store.UpdateResearchSource",
-        "internal/store.addResearchFinding",
-        "internal/store.addResearchSource",
-        "internal/store.beginResearchMutation",
-        "internal/store.canonicalRequestDigest",
-        "internal/store.finishResearchMutation",
-        "internal/store.validateResearchIdentity"
-      ],
-      "reason": "CD-0216 Consequences names this direct-caller form: direct callers use the sole pack-operation idempotency boundary (beginResearchMutation and finishResearchMutation over idempotency_records), and agent envelopes compose its transaction-scoped cores with envelope-owned idempotency. Production reaches only those WithinTx cores through internal/agent research mutations; research_test.go and the agent research fixtures call these forms. Deleting them needs an amendment to that CD-0216 sentence."
-    },
-    {
       "id": "law-boundary-pooled-test-seams",
       "state": "out_of_scope",
       "functions": [

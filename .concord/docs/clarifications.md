@@ -49,7 +49,7 @@ re-litigate them silently.
 
 ### R0. Typed law relation authority
 
-- **Decision (2026-08-11):** accepted by CD-0015 for issue #44. Git knowledge
+- **Decision (2026-08-11):** accepted by CD-0015. Git knowledge
   manifests remain the sole law authority. Decision/spec records may carry the
   closed `supersedes`, `refines`, `subordinate_to`, and `conflicts_with`
   relations in compatible manifest schema `1.1`; SQLite stores only their
@@ -187,7 +187,7 @@ re-litigate them silently.
   projections while retaining its generic authoritative event log and D2/D3.
 - **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
   resolves repository and deploy packaging. CD-0089 permits Concord development
-  coordination after issue #600 without changing the accepted storage authority.
+  coordination without changing the accepted storage authority.
   TS tracks govern release completeness rather than reopening that authority.
 
 ---

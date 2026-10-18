@@ -8,6 +8,16 @@
 - **Related:** CD-0012, CD-0013, CD-0018
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-8392894d5f50a158bf6910c1`.
+- **Amended:** 2026-10-18.
+- **Revision choice:** Compatible amendment under
+  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; this record keeps its ID.
+- **Amendment reason:** The published tool surface declares no condition
+  action under
+  [CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2.
+  Schema teaching must name only published predicate fields.
+- **P12:** This amendment affects only the workflow-engine Domain. It removes
+  or reverses no user-visible behavior, touches no security or data-safety
+  rule, and changes no UI/UX.
 
 ## Context
 
@@ -56,8 +66,7 @@ system.
 
 The generated schema that agents read when they write contracts states the
 rule at the field. The `outcome_predicates` array shared by `approve_contract`
-and `supersede_contract` carries the rule in its description. The
-`add_condition` `expected_within_seconds` field carries it as well.
+and `supersede_contract` carries the rule in its description.
 `advertisedAdmissionTeachingGaps` reports a gap when the published schema
 drops the rule, so generation and its tests fail on drift.
 

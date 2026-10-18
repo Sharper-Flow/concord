@@ -212,13 +212,12 @@ durable results include current step and a safe next action—never a bare "star
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
-carry typed attributed-report fields per CD-0039: the native authority performs
-and proves the operation while Concord folds one `workflow.native_run_recorded`
-event per report with the reporting client, subject, evidence, and both times
-alongside the status. A report that the approved logical operation did not
-complete successfully classifies the action `partial` with
-`operation_conflict`/`reconcile_operation`; `ok` is reserved for successful
-native predicates. The adapter never derives outcomes from provider output.
+belong only to the archived `workflow.ops_runbook` family (CD-0218 D1).
+Admission refuses them, and no route records a new native-run report. Reports
+recorded under CD-0039 stay readable (CD-0218 D4): each
+`workflow.native_run_recorded` event carries the reporting client, subject,
+evidence, and both times alongside the status. The adapter never derives
+outcomes from provider output.
 
 Every native-run record embeds the shared CD-0040 capture component and carries
 its verification participation: reads return the record unverified, diverged,

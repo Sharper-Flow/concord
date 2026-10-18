@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate and deterministically generate the TS8 agent contract projections."""
 from __future__ import annotations
-import argparse, copy, hashlib, json, re, subprocess, sys
+import argparse, copy, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1779,8 +1779,8 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
     properties = args.get("properties", {})
     if args.get("type") != "object" or args.get("additionalProperties") is not False:
         fail("concord_ci_watch host schema must be a closed object")
-    if list(properties) != ["repo", "selector", "mode", "time_seconds_max"]:
-        fail("concord_ci_watch must publish exactly repo, selector, mode, and time_seconds_max")
+    if list(properties) != ["repo", "selector", "head_sha", "mode", "time_seconds_max"]:
+        fail("concord_ci_watch must publish exactly repo, selector, head_sha, mode, and time_seconds_max")
     if args.get("required") != ["repo", "selector"]:
         fail("concord_ci_watch must require only repo and selector")
     repo = properties.get("repo", {})
@@ -1799,6 +1799,9 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
     value = selector_properties.get("value", {})
     if value.get("type") != "string" or value.get("minLength") != 1 or value.get("maxLength") != 64:
         fail("concord_ci_watch selector.value must be a string bounded 1..64")
+    head = properties.get("head_sha", {})
+    if head.get("type") != "string" or head.get("pattern") != "^[0-9a-f]{40}$":
+        fail("concord_ci_watch head_sha must be a lowercase 40-character commit SHA")
     if properties.get("mode", {}).get("enum") != ["checks", "merge"]:
         fail("concord_ci_watch mode must admit checks and merge only")
     budget = properties.get("time_seconds_max", {})
@@ -2246,6 +2249,9 @@ def main() -> int:
         actions, workflows, teaching, schema_refs = load_workflow_action_contracts()
         if freeze:
             return freeze_historical_decoder(schema_refs)
+        bun = shutil.which("bun")
+        if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
+            fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
@@ -2292,6 +2298,17 @@ def main() -> int:
                     continue
                 if not path.is_file() or path.read_text() != content:
                     fail(f"generated contract drift: {path.relative_to(ROOT)}")
+            if bun is None:
+                # Without Bun, validate the deterministic body and pin syntax,
+                # not the publication byte count.
+                if not re.fullmatch(
+                    re.escape(expected[publication_tests]) + r"\nexport const PINNED_PUBLISHED_TOTAL_BYTES = [1-9][0-9]*;\n",
+                    publication_tests.read_text(),
+                ):
+                    fail("generated contract drift: adapter/opencode/generated-contract-tests.ts")
+                print("publication byte measurement NOT run (Bun unavailable); the validator body and pin format were checked")
+                print(digest)
+                return 0
         else:
             (ROOT / "internal/agent").mkdir(exist_ok=True)
             for path, content in expected.items():

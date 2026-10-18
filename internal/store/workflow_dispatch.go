@@ -404,8 +404,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return result, err
 	}
-	if workflowActionOpensHeldAttempt(entry.Definition, request.ActionID) {
-		if err := guardStartTakeover(ctx, tx, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+	if action := workflowActionDefinitionByID(entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
+		if err := guardStartTakeover(ctx, tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
 			return result, err
 		}
 	}

@@ -484,7 +484,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 		t.Fatalf("record the tie job: %v", err)
 	}
 	job := &WorkerJobBinding{JobID: "job:ties", Revision: 1}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 	// refuses and names pB.
 	tiedEvidence := workerEvidenceForLane(lane)
 	tiedEvidence[0].PredicateIDs = []string{"predicate:pB-tie"}
-	completion := jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job)
+	completion := jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -517,7 +517,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 		t.Fatalf("attempt lifecycle after the refused tie = %q, want dispatched", lifecycle)
 	}
 	// Tying the job's own predicate succeeds.
-	valid := jobBoundCompletionEvent(workID, "ties-completed-pa", attempt, lane, time.Unix(16, 0).UTC(), job)
+	valid := jobBoundCompletionEvent(workID, "ties-completed-pa", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
 	if err := json.Unmarshal(valid.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestWorkerPredicateTiesParentListPreservedOnReleasedPins(t *testing.T) {
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	attempt := "attempt:" + workID + ":ties"
 	dispatchJobBoundAttemptWithPredicates(t, s, workID, "execution", attempt, fixture.owner, "attribution-ties-released-dispatch", job, []string{"predicate:return-route", "predicate:pB-tie"})
-	completion := jobBoundCompletionEvent(workID, "ties-released-completed", attempt, lane, time.Unix(16, 0).UTC(), job)
+	completion := jobBoundCompletionEvent(workID, "ties-released-completed", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -915,7 +915,7 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	probeGit := newFakeWorktreeGit(sessionPath)
 	probeGit.worktrees[sessionPath] = "main"
 	eventID := "completed-" + workID + "-review"
-	completion := jobBoundCompletionEvent(workID, eventID, attempt, lane, time.Unix(25, 0).UTC(), job)
+	completion := jobBoundCompletionEvent(workID, eventID, attempt, lane, time.Unix(25, 0).UTC(), job, sessionPath)
 	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: eventID, Runner: probeGit})
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
@@ -1235,7 +1235,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	earlier := "attempt:" + workID + ":earlier"
 	dispatchJobBoundAttempt(t, s, workID, "repair", earlier, nil, fixture.owner, 0, "attribution-sources-dispatch-earlier", job)
 	earlierCompleted := "completed-" + workID + "-earlier"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job)}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("the earlier completion refused: %v", err)
 	}
 	var earlierPayload string
@@ -1253,7 +1253,8 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	probeGit := newFakeWorktreeGit(sessionPath)
 	probeGit.worktrees[sessionPath] = "main"
 	completedEvent := "completed-" + workID + "-review"
-	completion := jobBoundCompletionEvent(workID, completedEvent, attempt, lane, time.Unix(25, 0).UTC(), job)
+	completion := jobBoundCompletionEvent(workID, completedEvent, attempt, lane, time.Unix(25, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
+	completion = workerCompletionAtClaim(t, s, completion)
 	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: completedEvent, Runner: probeGit})
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
@@ -1348,7 +1349,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	}
 	dispatchJobBoundAttempt(t, s, workID, "repair", later, correction, fixture.owner, 0, "attribution-sources-dispatch-later", job)
 	laterCompleted := "completed-" + workID + "-later"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job)}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("the later completion refused: %v", err)
 	}
 	var raw string

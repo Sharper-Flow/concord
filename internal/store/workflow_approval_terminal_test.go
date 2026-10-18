@@ -461,7 +461,7 @@ func approvalPreflightSelection(t *testing.T, s *Store, registry DefinitionRegis
 	_, err = workflowActionPreflightTx(ctx, tx, registry, WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 		SelectedChoice: choice, DecisionContextDigest: digest, Actor: actor,
-	}, true)
+	})
 	return err
 }
 

@@ -2,13 +2,10 @@
 """Validate and deterministically generate work-kind projections."""
 from __future__ import annotations
 
-import argparse
 import json
-import subprocess
-import sys
 from pathlib import Path
 
-from vocabulary_utils import check_schema_keywords, digest, fail, schema_validate
+from vocabulary_utils import fail, generate_projections, gofmt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,43 +82,24 @@ func WorkKindRefusalFor(kind string) (message, recovery string, ok bool) {{
 '''
 
 
+def semantic(vocabulary: dict) -> None:
+    kinds = vocabulary["kinds"]
+    names = [item["kind"] for item in kinds]
+    if len(set(names)) != len(names):
+        fail("work kinds must be unique")
+    if any(item["stored"] and item["fold_create"] == "refused" for item in kinds):
+        fail("stored work kinds must allow fold create")
+
+
+def project(vocabulary: dict, vocabulary_digest: str) -> dict[Path, str]:
+    return {
+        ROOT / "internal/store/generated_work_kinds.go": gofmt(go_projection(vocabulary)),
+        ROOT / "contracts/work-kinds.digest": vocabulary_digest + "\n",
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--check", action="store_true",
-                        help="fail on work-kind projection drift instead of writing generated files")
-    args = parser.parse_args()
-    try:
-        check = args.check
-        vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
-        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-        check_schema_keywords(schema)
-        schema_validate(vocabulary, schema, schema, "vocabulary")
-        kinds = vocabulary["kinds"]
-        names = [item["kind"] for item in kinds]
-        if len(set(names)) != len(names):
-            fail("work kinds must be unique")
-        if any(item["stored"] and item["fold_create"] == "refused" for item in kinds):
-            fail("stored work kinds must allow fold create")
-        vocabulary_digest = digest(vocabulary)
-        expected = {
-            ROOT / "internal/store/generated_work_kinds.go": subprocess.run(
-                ["gofmt"], input=go_projection(vocabulary), text=True, capture_output=True, check=True
-            ).stdout,
-            ROOT / "contracts/work-kinds.digest": vocabulary_digest + "\n",
-        }
-        if check:
-            for path, content in expected.items():
-                if not path.is_file() or path.read_text(encoding="utf-8") != content:
-                    fail(f"generated work kinds drift: {path.relative_to(ROOT)}")
-        else:
-            for path, content in expected.items():
-                path.parent.mkdir(exist_ok=True)
-                path.write_text(content, encoding="utf-8")
-        print(vocabulary_digest)
-        return 0
-    except (OSError, json.JSONDecodeError, ValueError, subprocess.CalledProcessError) as exc:
-        print(f"work-kind generation failed: {exc}", file=sys.stderr)
-        return 1
+    return generate_projections("work-kind", VOCABULARY, SCHEMA, ROOT, project, semantic)
 
 
 if __name__ == "__main__":

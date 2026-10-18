@@ -39,7 +39,7 @@ pre-push:
         - .golangci.yml
         - .github/workflows/ci.yml
         - lefthook.yml
-      run: test -z "$(gofmt -l .)"
+      run: unformatted="$(gofmt -l .)" || exit 1; printf '%s\n' "$unformatted"; test -z "$unformatted"
     go-vet:
       glob: *go_planes
       run: go vet ./...

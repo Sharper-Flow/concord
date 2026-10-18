@@ -59,20 +59,28 @@ func archivedWorkLocator(t *testing.T, s *store.Store, workID string) (locator, 
 	return notePath, commit, true
 }
 
-func archivedWorkCount(t *testing.T, s *store.Store, workID string) int {
+func archivedCancelledWorkCount(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT count(*) FROM archived_work WHERE id=?`, workID).Scan(&count); err != nil {
+		`SELECT count(*) FROM archived_work WHERE id=?`, "work-cancelled").Scan(&count); err != nil {
 		t.Fatalf("count archived_work: %v", err)
 	}
 	return count
 }
 
-// publishCancelledNote drives concord_work_compact.publish for work-cancelled
-// through the approval round-trip the operation requires. The returned envelope
-// is the approved dispatch.
-func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
+// cancelledNotePublication is one concord_work_compact.publish request for
+// work-cancelled under one idempotency key, with the scope and versions a host
+// approval for it binds.
+type cancelledNotePublication struct {
+	input    []byte
+	env      CallEnvelope
+	scope    map[string]any
+	versions map[string]any
+	digest   string
+}
+
+func newCancelledNotePublication(t *testing.T, s *store.Store, grant Authority, home store.KnowledgeHome, idempotencyKey string) cancelledNotePublication {
 	t.Helper()
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
 	env.HostAssertionDigest = "sha256:host-compaction-resolution"
@@ -85,20 +93,49 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 		t.Fatalf("encode note content: %v", err)
 	}
 	input := []byte(fmt.Sprintf(
-		`{"work_id":"work-cancelled","expected_version":%d,"content":%s,"content_digest":%q,"home_project_id":%q,"home_locator_id":%q,"idempotency_key":"compact-cancelled-approval-roundtrip-1"}`,
-		version, string(contentJSON), digestValue, home.HomeProjectID, home.HomeLocatorID))
-
-	// The first publication request mints the core approval challenge. The test
-	// stands in for the host that asks the operator and resubmits the same intent.
+		`{"work_id":"work-cancelled","expected_version":%d,"content":%s,"content_digest":%q,"home_project_id":%q,"home_locator_id":%q,"idempotency_key":%q}`,
+		version, string(contentJSON), digestValue, home.HomeProjectID, home.HomeLocatorID, idempotencyKey))
 	scope := map[string]any{
 		"product_id":    "prod-alpha",
 		"project_ids":   []string{"proj-api"},
 		"work_ids":      []string{"work-cancelled"},
 		"scope_version": env.ScopeVersion,
 	}
-	versions := map[string]any{"work": version}
-	mutDigest := mutationDigest("concord_work_compact", "publish", env, input)
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: input}, env)
+	return cancelledNotePublication{input: input, env: env, scope: scope, versions: map[string]any{"work": version}, digest: mutationDigest("concord_work_compact", "publish", env, input)}
+}
+
+func (p cancelledNotePublication) request() InvokeRequest {
+	return InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: p.input}
+}
+
+// approvedBy returns the request carrying approvalRef and an envelope whose
+// signed host approval binds that reference to this exact request.
+func (p cancelledNotePublication) approvedBy(t *testing.T, privateKey ed25519.PrivateKey, approvalRef string) (InvokeRequest, CallEnvelope) {
+	t.Helper()
+	withApproval, err := injectApproval(p.input, approvalRef)
+	if err != nil {
+		t.Fatalf("inject approval: %v", err)
+	}
+	env := p.env
+	env.HostApproval = signedHostApproval(privateKey, approvalRef, p.digest, p.scope, p.versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(approvalRef))
+	return InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env
+}
+
+// publishCancelledNote drives concord_work_compact.publish for work-cancelled
+// through the approval round-trip the operation requires. The returned envelope
+// is the approved dispatch.
+func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
+	t.Helper()
+	return publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, "compact-cancelled-approval-roundtrip-1")
+}
+
+func publishCancelledNoteWithKey(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome, idempotencyKey string) Envelope {
+	t.Helper()
+	publication := newCancelledNotePublication(t, s, grant, home, idempotencyKey)
+
+	// The first publication request mints the core approval challenge. The test
+	// stands in for the host that asks the operator and resubmits the same intent.
+	first := dispatchMutation(t, s, service, publication.request(), publication.env)
 	if first.Outcome == OutcomeOK {
 		return first
 	}
@@ -109,13 +146,8 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 	if !ok || len(challengeRef) != 64 {
 		t.Fatalf("publication challenge=%v", first.Error.Details)
 	}
-
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutDigest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env)
+	request, env := publication.approvedBy(t, privateKey, challengeRef)
+	return dispatchMutation(t, s, service, request, env)
 }
 
 func TestPredicateFirstCallChallengePublish(t *testing.T) {
@@ -124,7 +156,7 @@ func TestPredicateFirstCallChallengePublish(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("publish response=%+v", response)
 	}
-	if archivedWorkCount(t, s, "work-cancelled") != 1 {
+	if archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatal("approved publication did not record one canonical note")
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 1 {
@@ -180,7 +212,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["git"] = map[string]any{"commit_oid": commitOID}
 	obs.Effects = map[string]any{
 		"publication_order":   publicationOrderObserved,
-		"canonical_notes":     map[string]any{"count": archivedWorkCount(t, s, "work-cancelled")},
+		"canonical_notes":     map[string]any{"count": archivedCancelledWorkCount(t, s)},
 		"retry_safe_replayed": true,
 		"durable_tier":        durableTierEffects(t, home.RepoPath, locator),
 	}

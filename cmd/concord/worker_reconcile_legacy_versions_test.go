@@ -143,7 +143,7 @@ func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Even
 // actor.
 func storedWorkerEventRow(t *testing.T, dbPath, eventID string) (version int, payload []byte, actor string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func storedWorkerEventRow(t *testing.T, dbPath, eventID string) (version int, pa
 
 func countWorkerEvents(t *testing.T, dbPath, kind string) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,6 +232,7 @@ func TestWorkerEvidenceExactReconciliationAcknowledgesLegacyPayloadVersions(t *t
 		request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-legacy-complete-first01")
 		request["event_id"] = completionEventID
 		request["report_schema_version"] = store.WorkerReportSchemaVersionLegacy
+		delete(request, "worker_directory")
 		var out, diagnostic bytes.Buffer
 		for i := range 2 {
 			assertion.Nonce = fmt.Sprintf("nonce-legacy-complete-v3-%03d", i)

@@ -259,6 +259,150 @@ func requireFailureKind(t *testing.T, err error, want FailureKind, label string)
 	}
 }
 
+func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fed := seedReplacementFederation(t)
+	home := fed.sourceHome
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productID != "fed-product" || designated {
+		t.Fatalf("fixture is not a registered, non-designated source: %q, %v", productID, designated)
+	}
+	commit, err := resolveKnowledgeHead(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := knowledgeContentDigest(ctx, home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, manifestRegisteredSourceRole)
+	if err != nil || missing {
+		t.Fatalf("read source manifest: missing=%v, err=%v", missing, err)
+	}
+	notes := make([]VerifiedNote, 0, len(manifest.Records))
+	laws := make([]indexedLaw, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
+		laws = append(laws, indexedLaw{record: record, body: body})
+	}
+	// Move the designation after preparation but before the write transaction.
+	designateReplacementHome(t, fed.store, "fed-product", home, 2)
+	before := knowledgeDerivedSnapshot(t, fed.reader)
+	tx, err := beginOrdinaryTx(ctx, fed.store.DatabaseForTesting())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, knowledgeArchitecture{}, productID, designated)
+	if err == nil {
+		err = tx.Commit()
+	}
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindStaleContext, "source became designated during rebuild")
+	var failure *Failure
+	if !errors.As(err, &failure) || !failure.RetrySafe || failure.EffectPossible {
+		t.Fatalf("stale-context refusal must be retry-safe with no possible effect: %v", err)
+	}
+	if after := knowledgeDerivedSnapshot(t, fed.reader); after != before {
+		t.Fatalf("the stale rebuild disturbed the prior projection:\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
+func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fed := seedReplacementFederation(t)
+	home := fed.homeA
+	addReplacementLocator(t, fed.store, fed.homeB)
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productID != "fed-product" || !designated {
+		t.Fatalf("fixture is not the designated home: %q, %v", productID, designated)
+	}
+	commit, err := resolveKnowledgeHead(ctx, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := knowledgeContentDigest(ctx, home, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, manifestSharedHomeRole)
+	if err != nil || missing {
+		t.Fatalf("read home manifest: missing=%v, err=%v", missing, err)
+	}
+	notes := make([]VerifiedNote, 0, len(manifest.Records))
+	laws := make([]indexedLaw, 0, len(manifest.Records))
+	for _, record := range manifest.Records {
+		body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
+		if manifestLawBearingKinds[record.Kind] {
+			laws = append(laws, indexedLaw{record: record, body: body})
+		}
+	}
+	before := knowledgeDerivedSnapshot(t, fed.reader)
+	designateReplacementHome(t, fed.store, productID, fed.homeB, 2)
+	validationErr := validateFederatedSourceManifest(ctx, fed.store.DatabaseForTesting(), home, manifest, productID, designated)
+	designateReplacementHome(t, fed.store, productID, home, 3)
+	restoredProductID, restoredDesignated, err := resolveKnowledgeSourceRole(ctx, fed.store.DatabaseForTesting(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredProductID != productID || restoredDesignated != designated {
+		t.Fatalf("designation did not return to the prepared role: (%q, %v), want (%q, %v)", restoredProductID, restoredDesignated, productID, designated)
+	}
+	if validationErr != nil {
+		t.Fatalf("validation discarded the pinned role during a designation flip and return: %v", validationErr)
+	}
+	tx, err := beginOrdinaryTx(ctx, fed.store.DatabaseForTesting())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, knowledgeArchitecture{}, productID, designated); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("rebuild with the restored prepared role: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit rebuild with the restored prepared role: %v", err)
+	}
+	if after := knowledgeDerivedSnapshot(t, fed.reader); after != before {
+		t.Fatalf("the flip-and-return rebuild changed the prior registry or source-law rows:\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
+func TestKnowledgeHomeReplacementMissingManifestKeepsPriorRegistry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fed := seedReplacementFederation(t)
+	fed.homeB.RepoPath = initKnowledgeRepo(t)
+	writeKnowledgeFile(t, fed.homeB.RepoPath, "README.md", "A repository without a knowledge manifest.\n")
+	commit := commitKnowledgeRepo(t, fed.homeB.RepoPath, "repository without a manifest")
+	if _, missing, err := readKnowledgeManifest(ctx, fed.homeB.RepoPath, commit, manifestSharedHomeRole); err != nil || !missing {
+		t.Fatalf("fixture must have no committed manifest: missing=%v, err=%v", missing, err)
+	}
+	addReplacementLocator(t, fed.store, fed.homeB)
+	designateReplacementHome(t, fed.store, "fed-product", fed.homeB, 2)
+	before := knowledgeDerivedSnapshot(t, fed.reader)
+	if err := fed.store.RebuildKnowledgeIndex(ctx, fed.homeB); err != nil {
+		t.Fatalf("missing-manifest replacement rebuild: %v", err)
+	}
+	if after := knowledgeDerivedSnapshot(t, fed.reader); after != before {
+		t.Fatalf("the missing-manifest rebuild cleared another home's registry or law rows:\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
 // TestKnowledgeHomeReplacementTakesOverRegistry proves the designated home's
 // rebuild takes over the Product registry: after the designation moves to the
 // second checkout, both rebuilds succeed, exactly one domain_registries row
@@ -410,11 +554,11 @@ func TestKnowledgeHomeReplacementRefusalKeepsPriorProjection(t *testing.T) {
 	}
 }
 
-// TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeTransaction pins
+// TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeWrite pins
 // the existing undesignated-home guard: a member home with no designation and
 // no registration refuses its rebuild with KindKnowledgeAmbiguous before any
 // write, and the designated home's rows are unchanged.
-func TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeTransaction(t *testing.T) {
+func TestKnowledgeHomeReplacementUndesignatedHomeRefusesBeforeWrite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, homeA, homeB := seedReplacementHome(t)

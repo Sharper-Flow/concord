@@ -7,6 +7,9 @@
 knowledge authority, audience policy, release evidence, and Advance migration.
 **Amended by:** CD-0041 adds Domain-bound Product law, architecture-overlap
 resolution, and the revised priority order to D5/D10/R3.
+**Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
+D1 and D2 follow goals.md and CD-0082 D1; the full-successor requirement is removed.
 
 ## Context
 
@@ -22,27 +25,20 @@ explicitly deferred; they do not weaken the accepted constraints.
 
 ## Decisions
 
-### D1. Full successor; full system before usability
+### D1. Product direction follows the goals
 
-Concord is Advance's full successor. Concord may be designed, built, tested, replayed,
-and shadow-evaluated incrementally, but no partial slice is called usable or becomes
-the operator's primary coordination system. Replacement readiness requires the full
-accepted operational floor.
+[`goals.md`](../goals.md) owns Concord's purpose, goals, and measures. Advance
+replacement is not current Product direction. Concord has no full-successor or
+predecessor-replacement-readiness requirement.
 
-### D2. Product-at-a-time, one-way migration
+Usability and delivery are judged against those goals and applicable current law.
+This removes no accepted release, maturity, quality, or data-integrity obligation.
 
-After Concord is fully replacement-ready, migration proceeds one **Product** at a
-time—not one Project at a time.
+### D2. Demand-driven migration and correction
 
-- All Projects in that Product move together.
-- Only deliberately selected active Advance changes are migrated.
-- Durable specs, decisions, and Product knowledge remain shared through git.
-- A migrated Product fixes forward in Concord; it does not roll back to Advance.
-- Unmigrated Products remain in Advance until selected.
-- Advance retires after the final Product moves.
-
-This allows a bounded transition without splitting one Product's live authority
-across systems.
+Migration and correction follow
+[`CD-0082`](./CD-0082-migration-is-demand-driven.md) D1. Each selected operation
+keeps its local authority and safeguards.
 
 ### D3. Full workflow coordination engine; native effects
 
@@ -184,7 +180,6 @@ Research: [`research/R3-impact-propagation.md`](../research/R3-impact-propagatio
 
 ### Positive
 
-- Concord has a clear successor identity and non-ambiguous migration authority.
 - Full workflow ownership no longer conflicts with native execution ownership.
 - Product rigor reflects declared responsibility rather than repository visibility.
 - Human legislative authority and operator interaction are explicit.
@@ -193,9 +188,6 @@ Research: [`research/R3-impact-propagation.md`](../research/R3-impact-propagatio
 
 ### Cost
 
-- Product-at-a-time migration creates a temporary period where different Products
-  use different systems.
-- Fix-forward migration requires strong pre-cutover evidence and correction paths.
 - Full coordination is a larger Product commitment than a registry-only workflow
   surface.
 - Independent human installations may duplicate overlapping work; Concord does not

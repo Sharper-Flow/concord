@@ -200,7 +200,7 @@ SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "t
 # byte length can still reach the floor — so a core-admitted string can never
 # be refused by the code-point bounds. The byte bounds travel as x-maxBytes
 # and x-minBytes from the same registry metadata and the byte-aware
-# validators (adapter dispatch.ts, Go payloadschema) enforce them (CON-412).
+# validators (adapter dispatch.ts, Go payloadschema) enforce them.
 BYTE_LIMIT_GUIDANCE = (
     "The store counts this field's length in UTF-8 bytes: x-maxBytes and "
     "x-minBytes carry the enforcing byte bounds, and the code-point "
@@ -654,7 +654,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         # The enforcing unit is the UTF-8 byte; the standard code-point
         # bounds are derived so publication never refuses a core-admitted
         # string, and the byte bounds ride as x-* keywords the byte-aware
-        # validators enforce (see BYTE_LIMIT_GUIDANCE, CON-412).
+        # validators enforce (see BYTE_LIMIT_GUIDANCE).
         if "max_length" in field:
             schema["maxLength"] = field["max_length"]
             schema["x-maxBytes"] = field["max_length"]
@@ -673,7 +673,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     # ignored under the draft this surface publishes: the authored bound
     # would declare an enforcement no validator applies. Inline the target
     # and attach the siblings to the copy, so one schema carries both the
-    # referenced shape and the declared bounds (CON-412).
+    # referenced shape and the declared bounds.
     if "$ref" in schema and any(key != "$ref" and key != "description" for key in schema):
         target_name = schema["$ref"].split("/")[-1]
         target = defs.get(target_name)
@@ -703,7 +703,7 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         schema["description"] = rule
     elif byte_bounded and "description" not in schema:
         # One concise byte-limit guidance line for every byte-bounded field
-        # no guard-owned rule already teaches (CON-412).
+        # no guard-owned rule already teaches.
         schema["description"] = BYTE_LIMIT_GUIDANCE
     return schema
 
@@ -780,7 +780,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
         # the same declaration. A group whose declared kind match pairs a
         # scalar field with an object field's discriminator expands into one
         # closed branch per kind, so outcome_kind and outcome_payload.kind
-        # cannot disagree in any published branch (CON-412).
+        # cannot disagree in any published branch.
         branches: list[dict] = []
         for group in alternatives:
             branches.extend(workflow_payload_alternative_branches(payload, defs, field_teaching, alternatives, group, (cross_field or {}).get("kind_matches", [])))
@@ -792,7 +792,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
 # match to its per-kind closed branches: the discriminator consts of the
 # referenced oneOf. The kinds are derived from the same outcome schema the
 # store's DecodeWorkflowPredicate enforces, never hand-listed, and a branch
-# without a discriminator const fails generation (CON-412).
+# without a discriminator const fails generation.
 def outcome_payload_kind_branches(field_name: str, object_field: dict, defs: dict, discriminator: str) -> list[tuple[str, dict]]:
     target_name = object_field.get("schema_ref", "")
     if not target_name:
@@ -1263,7 +1263,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
-    # S4 narrows the live outcome union before any branch copy is taken: the
+    # The live outcome union narrows before any branch copy is taken: the
     # published tokens are exactly what the live heads pin, and the
     # decision_record authoring surface retires (CD-0218 D1). The frozen
     # historical decoder keeps the full retired vocabulary for replay.
@@ -1273,7 +1273,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # The pinned-token annotation lands on the outcome def BEFORE any branch
     # copies are taken: the per-kind item branches and the supersede pair
     # branches deepcopy the outcome branches, and each copy must teach the
-    # per-workflow allowed tokens (CON-412).
+    # per-workflow allowed tokens.
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):
         fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
@@ -1284,7 +1284,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # the engine's kind-match declaration. The item branches derive from the
     # same outcome oneOf the fold decodes — never a hand-listed kind set —
     # so publication cannot admit an outcome_kind/outcome_payload pair the
-    # core refuses (CON-412).
+    # core refuses.
     outcome_kinds = outcome_payload_kind_branches("outcome_payload", {"schema_ref": "workflow_action_outcome"}, defs, "kind")
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
@@ -1320,10 +1320,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # neither form, and refuses an entry-level field beside the batch.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id"],
+        "required": ["predicate_id", "verdict_kind"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
         },
@@ -1633,7 +1633,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 61
+    expected_operations = 62
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1662,7 +1662,7 @@ def validate(manifest: dict) -> str:
     # proliferation is what this rule exists to prevent: a ceiling may only
     # differ where accepted scenario evidence fixes it. Two operations are
     # evidence-fixed today: workflow_action at 30 (TS1) and worktree_verify
-    # at 1800 (the 367.08s verification lane measured in CON-317). This rule
+    # at 1800 (the verification lane measured 367.08s). This rule
     # pins both operations to their evidence-fixed values, so a new distinct
     # value arrives only with accepted evidence and this rule failing loudly,
     # never by quiet accretion.
@@ -1752,9 +1752,9 @@ def validate_work_start_host_tool(tool: dict) -> None:
     # The projection preserves the authored declaration order, so the
     # published capture surface is pinned in exactly the contract's own
     # (lexicographic) property order.
-    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
+    capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "size_inputs", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
     resume_required = ["work_id"]
-    resume_properties = ["project_id", "work_id"]
+    resume_properties = ["work_id"]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
         fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
@@ -1763,9 +1763,7 @@ def validate_work_start_host_tool(tool: dict) -> None:
     if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
         fail("concord_work_start branches must close their argument surface")
     if branches[1].get("required") != resume_required or list(branches[1].get("properties", {})) != resume_properties:
-        fail("concord_work_start resume branch must carry work_id and the optional project_id selector")
-    if branches[1].get("properties", {}).get("project_id") != branches[1].get("properties", {}).get("work_id"):
-        fail("concord_work_start project_id must share the work_id bounds")
+        fail("concord_work_start resume branch must carry exactly work_id")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
         if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")
@@ -1808,6 +1806,47 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
         fail("concord_ci_watch time_seconds_max must be an integer bounded 0..1800")
 
 
+def validate_worker_read_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    fields = ["ordinal", "offset", "length"]
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_read host schema must be a closed object")
+    if list(properties) != fields or args.get("required") != fields:
+        fail("concord_worker_read must require only ordinal, offset, and length")
+    for name, minimum, maximum in (("ordinal", 0, 9007199254740991), ("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_diff_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_diff host schema must be a closed object")
+    if list(properties) != ["offset", "length"] or args.get("required") != ["offset", "length"]:
+        fail("concord_worker_diff must require only offset and length")
+    for name, minimum, maximum in (("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_diff {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_check_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_check host schema must be a closed object")
+    if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
+        fail("concord_worker_check must require only control_id")
+    reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
+    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
+    expected = {key: value for key, value in reference.items() if key != "description"}
+    if actual != expected:
+        fail("concord_worker_check control_id must use the workflow reference bounds")
+
+
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
@@ -1815,6 +1854,9 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
     "concord_ci_watch": validate_ci_watch_host_tool,
+    "concord_worker_read": validate_worker_read_host_tool,
+    "concord_worker_check": validate_worker_check_host_tool,
+    "concord_worker_diff": validate_worker_diff_host_tool,
 }
 
 
@@ -1856,7 +1898,7 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     # The workflow_action fixture is assembled from the first registry
     # action's closed variant — the same variant host publication emits —
     # because the merged union form's minimal call (a bare action_id string)
-    # is not a call any closed variant admits (CON-412). The fixture proves
+    # is not a call any closed variant admits. The fixture proves
     # both directions only when the first action's core and public payloads
     # are one declaration; a divergent first action must fail generation
     # rather than emit a fixture the published surface refuses.
@@ -1870,8 +1912,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     def sample(schema):
         schema=resolve(schema)
         if "const" in schema: return schema["const"]
-        if "oneOf" in schema:
-            branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
+        if "oneOf" in schema or "anyOf" in schema:
+            branch=(schema.get("oneOf") or schema["anyOf"])[0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result
@@ -1964,7 +2006,7 @@ def go_historical_schema_projection() -> str:
         "// beside the public authoring document. The engine resolves retained\n"
         "// workflow definitions' declared payload schemas against this frozen\n"
         "// baseline closure, so a public authoring change cannot break historical\n"
-        "// payload validation (CON-902 S0).\n"
+        "// payload validation.\n"
         "const GeneratedHistoricalSchemaDocument = `" + document + "`\n"
     )
 
@@ -2028,7 +2070,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
-  // outcome_kind/outcome_payload pair validates no branch (CON-412).
+  // outcome_kind/outcome_payload pair validates no branch.
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {{}};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];

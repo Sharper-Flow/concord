@@ -1027,6 +1027,8 @@ type WorktreeReclaimRequest struct {
 	// recorded_at, which proves the row's recording process ended; an
 	// unreadable lease set releases nothing.
 	HostLeases HostLeaseSet
+	// withinTx captures an audit row's post-state before commit and native removal.
+	withinTx func(*sql.Tx) error
 }
 
 // HostLeaseSet is the caller's observation of the live host lease set, kept
@@ -1541,6 +1543,11 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, req, probe)
 	if err != nil {
 		return WorktreeEntry{}, err
+	}
+	if req.withinTx != nil {
+		if err := req.withinTx(tx); err != nil {
+			return WorktreeEntry{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot commit reclaim", true, "retry the same operation", err)
@@ -4730,6 +4737,8 @@ type WorktreeAuditReclaimRow struct {
 	// claim ref, a divergent live branch, or the default ref. It is empty on
 	// a refused row and on a reclaim that owed and completed every deletion.
 	RetainedRefs []WorktreeAuditRetainedRef `json:"retained_refs,omitempty"`
+	// WorkPin belongs to this row's reclaim transaction, not the later report.
+	WorkPin *WorkPin `json:"-"`
 }
 
 // WorktreeAuditRetainedRef is one retained branch ref a reclaimed row reports:
@@ -4815,16 +4824,23 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
 			HostLeases: leases,
+			withinTx: func(tx *sql.Tx) error {
+				pin, available, err := readMutationWorkPinTx(ctx, tx, drift.WorkID, nil)
+				if err != nil {
+					return err
+				}
+				if available {
+					row.WorkPin = &pin
+				}
+				row.Version = pin.Version
+				return nil
+			},
 		})
 		if reclaimErr == nil {
 			// The row reports the work item's true post-reclaim version: a
 			// converged reclaim whose stored advance is already public
 			// history repairs the projection without another bump.
-			after, versionErr := currentWorkVersion(ctx, s.db, drift.WorkID)
-			if versionErr != nil {
-				return out, versionErr
-			}
-			row.Outcome, row.Version = WorktreeAuditReclaimed, after
+			row.Outcome = WorktreeAuditReclaimed
 			// The retained refs the reclamation recorded stay visible on the
 			// row after the directory is gone (CD-0212 D3).
 			row.RetainedRefs = retainedRefsFromFacts(entry.GitFacts)
@@ -4836,6 +4852,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			return out, reclaimErr
 		}
 		row.Outcome, row.RefusalKind, row.Detail = WorktreeAuditRefused, string(failure.Kind), failure.Detail
+		row.Version, row.WorkPin = 0, nil
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil
@@ -5353,11 +5370,15 @@ func readBoundedFile(path string, maxBytes int) (string, error) {
 // Project, under an exclusive lease, and completion refuses when tracked
 // files changed while the lease was held.
 type WorktreeVerifyRequest struct {
-	Owner                      SessionWorktreeOwner
-	WorkID                     string
-	ProjectID                  string
-	Command                    []string
-	Oracle                     *NativeOracleRequest
+	Owner     SessionWorktreeOwner
+	WorkID    string
+	ProjectID string
+	Command   []string
+	Oracle    *NativeOracleRequest
+	// NativeAuthorization authenticates a host-selected worker control in the
+	// native acquiring transaction or before a retained replay is returned.
+	// It is trusted program wiring, never a decoded caller argument.
+	NativeAuthorization        func(context.Context, *Transaction) error `json:"-"`
 	nativePlanJSON             string
 	nativePlanSHA256           string
 	nativeCommandJSON          string
@@ -5412,6 +5433,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
 		return WorktreeVerifyResult{}, retitleFailure(err, "worktree_verify")
+	}
+	if req.NativeAuthorization != nil && (req.Oracle == nil || req.Oracle.Phase != "execute") {
+		return WorktreeVerifyResult{}, oracleFailure(KindInvalidPayload, "worker execution authorization requires the native execute producer", "select a recorded native control")
 	}
 	if req.Oracle != nil {
 		return s.verifyNativeOracle(ctx, req)

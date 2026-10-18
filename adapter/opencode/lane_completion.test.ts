@@ -534,6 +534,34 @@ describe("host task failure", () => {
       state: { status: "error", error, metadata } } },
   })
 
+  test("a native after-hook with no result leaves settlement to the terminal part event", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "native-part", async () => process.cwd(), process.cwd())
+    const verbs: string[] = []
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "native-part", args: {} }, undefined, deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(windows.claimSettlement(SESSION, "native-part")).not.toBeNull()
+  })
+
+  test("a native terminal part matches its before-hook part identity, not its separate call identity", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "native-part", async () => process.cwd(), process.cwd())
+    const verbs: string[] = []
+    const event = failedEvent("native-tool-call")
+    const foreignEvent = { ...event, properties: { part: { ...event.properties.part, id: "another-part" } } }
+    expect(await failDispatchedWorker(foreignEvent, deps(verbs, windows))).toBeNull()
+    expect(verbs).toEqual([])
+    const nativeEvent = { ...event, properties: { part: { ...event.properties.part, id: "native-part" } } }
+    const result = await failDispatchedWorker(nativeEvent, deps(verbs, windows))
+    expect(result?.error?.message).toContain("Task cancelled")
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(windows.inFlightAttempt(SESSION)).toBeNull()
+    await failDispatchedWorker(nativeEvent, deps(verbs, windows))
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
   for (const fault of ["export-command", "malformed-export"]) {
     test(`a persisted born-failed ${fault} releases settlement`, async () => {
       const windows = new DispatchWindows()

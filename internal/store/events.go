@@ -143,6 +143,9 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err := refuseRetiredPlanningAppend(ctx, tx, e, prepared); err != nil {
 		return 0, err
 	}
+	if err := validateLiveProjectLocator(e); err != nil {
+		return 0, err
+	}
 
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO domain_events

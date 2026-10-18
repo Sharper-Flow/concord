@@ -9,7 +9,11 @@
 - **Original approval:** The operator approved the contract for
   `work-c089308b507cfac61f7dd228` on 2026-09-20, then accepted D1 to D5
   below on the same date.
-- **Related:** CD-0006, CD-0036, CD-0041, and `.concord/docs/specs-as-laws.md`
+- **Amended:** 2026-10-17. D4 and its verification key the tier on the record
+  that declares a conflict, the only record that can withdraw it.
+- **Amended:** 2026-10-18.
+- **Related:** CD-0006, CD-0015, CD-0036, CD-0041, and
+  `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
@@ -47,7 +51,7 @@ migration of existing law text.
 
 ## Decision
 
-Under CD-0013 D11, recording an engineering contract or routine successor is not human enactment of Product law. The legislative authority and explicit scope-cut decision in this record remain required for actual law changes. A contract without the required human enactment cannot authorize such a change merely because its workflow consent class is routine.
+Under CD-0013 D11, recording an engineering contract or routine successor does not itself enact Product law. Actual law changes follow CD-0230 D4, including its amendment of this record's D2, D4, and D5. A routine workflow consent class does not establish law-change authority. A governed scope cut remains a product decision requiring operator approval under CD-0230 D5 and is never silent.
 
 
 ### D1. A Product law record carries an authority tier
@@ -107,14 +111,15 @@ the recorded operator approval or the host route's review obligations.
 The referenced contract version is positive. Both manifest readers
 apply the same closed D5 cohort described in D5.
 
-### D4. A conflict with `derived` law is revised inside the contract
+### D4. A conflict a `derived` record declares is revised inside the contract
 
-A conflict with `legislated` law keeps the legislative moment that CD-0006 and
-`.concord/docs/specs-as-laws.md` define. The operator chooses to clarify intent, to evolve
-the law, or to accept a scope reduction.
+A conflict whose declaring record is `legislated` keeps the legislative moment
+that CD-0006 and `.concord/docs/specs-as-laws.md` define. The operator chooses to clarify
+intent, to evolve the law, or to accept a scope reduction.
 
-A conflict with `derived` law is revised inside the work contract and recorded
-there as a revision line. It costs no separate approval turn.
+A conflict whose declaring record is `derived` is revised inside the work
+contract and recorded there as a revision line, because only the declaring
+record can withdraw the conflict. It costs no separate approval turn.
 
 This amends CD-0006. Human approval remains required to enact a law change, and
 the approval of the contract that carries the revision supplies it. The operator
@@ -209,10 +214,10 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
 - A manifest test refuses non-work IDs and out-of-cohort D5 vehicle claims.
 - A search test proves that admission refusals and unadmitted sources use
   CD-0020 D3 as amended by CD-0200 D3.
-- A store test proves that a conflict with a `derived` record records a contract
-  revision line and raises no operator approval requirement.
-- A store test proves that a conflict with a `legislated` record still raises the
-  legislative moment.
+- A store test proves that a conflict a `derived` record declares records a
+  contract revision line and raises no operator approval requirement.
+- A store test proves that a conflict a `legislated` record declares still raises
+  the legislative moment at approval.
 - A validator run checks every current tier and each legislative reference.
   A history-derived test proves the closed D5 cohort and its counts at
   the pinned application commit, not the current checkout.

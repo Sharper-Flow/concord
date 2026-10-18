@@ -1,6 +1,7 @@
 # CD-0217: Publication and research retention have separate boundaries
 
 - **Status:** Accepted
+- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Supersedes:** [CD-0066](CD-0066-pm7-retention-amendment.md)
@@ -18,7 +19,7 @@ Projection pruning remains a deferred optimization, not a new maintenance obliga
 
 ## Decision
 
-CD-0013 D11 separates routine local publication/proof reconciliation from destructive research retirement. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion still requires exact approval, while dry-run and mere retirement eligibility have no destructive authority.
+CD-0013 D11 separates routine local publication/proof reconciliation from research retirement, whose operator approval remains a listed gap without a new class assignment. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion still requires exact approval, while dry-run and mere retirement eligibility grant no deletion authority. Approval does not waive CD-0230 D5's destructive-action safety requirements.
 
 
 ### D1. Terminal projection pruning remains deferred

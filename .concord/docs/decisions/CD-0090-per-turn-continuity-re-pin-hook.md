@@ -8,10 +8,18 @@
   `addOrchestratorContinuityHook|change:researcher:orchestrator-continuity|adv-researcher|1`).
 - **Scope:** Orchestrator prompt continuity; adapter plugin surface;
   `ContinuitySnapshot` payload; agent-tool surface version.
-- **Related:** CD-0016, CD-0031, CD-0034, CD-0043, CD-0072, CD-0084.
+- **Related:** CD-0016, CD-0031, CD-0034, CD-0043, CD-0072, CD-0084, CD-0098,
+  CD-0104, CD-0223.
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes D2's work resolution from the
+  launcher identity environment to the session's directory and active claim,
+  under the Snowball coordinator's operator-delegated approval.
 - **Supersedes:** nothing. Amends the recorded consequences of CD-0016
   (§Consequences, "does not add a generic host hook") and CD-0031
   (§Consequences, "OpenCode host hooks and plugins are unnecessary").
+- **Amended:** D2 resolves the session's work from the directory the session
+  runs in, through its active claimed worktree, not from the launcher identity
+  environment; a session under a managed parent adds no block. Compatible
+  amendment in place, coordinator-approved 2026-10-17.
 
 ## Context
 
@@ -20,7 +28,7 @@ by summary. Three moments matter:
 
 | Moment | Mechanism | State before this decision |
 |---|---|---|
-| Session boot | CD-0031 session-boot packet | Covered |
+| Managed entry | CD-0031 session-boot packet through work-start preparation | Covered |
 | Any `concord_*` call | CD-0016 pinned projection, re-derived per call | Covered |
 | Mid-session with no Concord call | none | Uncovered |
 
@@ -54,17 +62,29 @@ remains unchanged and is not reopened here.
 The adapter plugin entry (`concord-plugin.ts`) registers
 `experimental.chat.system.transform`. Each turn it:
 
-1. resolves the session's work from the launcher identity environment;
-2. spawns the internal read-only `continuity-block` verb, which runs
-   `ReadWorkflowContinuity` and renders through `sessionboot.Build` — the same
-   render path as session boot, so boot and re-pin bytes agree;
+1. adds no block for a turn without a session identity or for a session under
+   a managed parent; otherwise it reads from the host the directory the
+   session runs in;
+2. spawns the internal read-only `continuity-block` verb with that directory.
+   The verb resolves the directory through its active claimed worktree to the
+   work item, runs `ReadWorkflowContinuity`, and renders through
+   `sessionboot.Build` — the same render path as session boot, so boot and
+   re-pin bytes agree. A directory with no active claimed worktree renders
+   nothing;
 3. adds one sentinel-delimited block to `system[0]`, then replaces that block
    in place on later state changes; it never duplicates the block;
 4. emits nothing and never throws on failure, empty work, or absent identity.
 
+The hook never resolves work from the launcher identity environment.
+`work_start` moves the session directory and leaves that environment
+unchanged, so the environment names the launch item after a move. A session
+under a managed parent is a dispatched lane, and its dispatch packet is its
+complete Concord context (CD-0223).
+
 The render path is pinned to `sessionboot.Build`. The envelope render stamps
 wall-clock `ObservedAt` and is nondeterministic; using it would break
-byte-stability. Spawns are gated by a bounded time window and keyed by identity.
+byte-stability. Spawns are gated by a bounded time window and keyed by the
+session and its directory.
 
 ### D3. Byte-stability is the cache-safety mechanism
 
@@ -114,12 +134,16 @@ set, or evidence. It changes no reading obligation.
 
 ## Verification
 
-- Verb determinism: two invocations from one snapshot produce identical bytes
+- Verb determinism: two invocations for one session directory produce
+  identical bytes, and a directory that resolves no work prints nothing
   (`cmd/concord` tests).
+- Directory resolution: an active claim resolves its work item; a reclaimed
+  claim or an unknown path resolves no work (`internal/store` tests).
 - Step join: `StepActions` equals the current step's `actions[]` for a fixture
   definition; empty when no workflow is in flight (`internal/store` tests).
-- Hook: determinism, sentinel-replacement-not-append, failure no-op, spawn-window gate
-  (adapter tests).
+- Hook: determinism, sentinel-replacement-not-append, failure no-op, spawn-window gate,
+  re-resolution after a `work_start` move, no block for a managed-parent
+  session, and no fallback to the launcher identity environment (adapter tests).
 - Cache safety mechanism: adapter tests prove byte-stability for unchanged
   state and sentinel replacement for changed state. Live cache-meter
   measurement is deferred until after deployment and is not claimed here.

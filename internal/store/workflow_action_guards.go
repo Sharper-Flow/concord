@@ -556,7 +556,7 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if step.Kind == WorkflowStepHumanCheckpoint {
 		return containsString(step.Actions, "confirm_premise")
 	}
-	return step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker")
+	return containsString(step.Actions, "dispatch_worker")
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete
@@ -961,14 +961,7 @@ func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, curren
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false
 	}
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 21
-	case "workflow.break_fix":
-		return definition.Version >= 19
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityAcceptDelivery)
 }
 
 func guardAcceptWorkerEvidenceRoute(g *workflowActionGuardContext) error {
@@ -1070,14 +1063,7 @@ func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep st
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false
 	}
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 18
-	case "workflow.break_fix":
-		return definition.Version >= 16
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityRefineProof)
 }
 
 // workflowVerificationBindingsAfter lists the immutable subject refs bound as

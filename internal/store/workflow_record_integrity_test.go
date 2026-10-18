@@ -71,12 +71,13 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "rot-worker-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "rot-worker-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatalf("recording the dispatched lane attempt: %v", err)
 	}
@@ -94,8 +95,8 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	// workflow actor before the read transaction opens, so the single
 	// connection is free for the store-level operation.
 	outside := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/outsider", "session/record-authorship-outsider")
-	recordOutsider := workflowEvent("rot-outsider-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "actor_ref": outside, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/outsider", "session_ref": "session/record-authorship-outsider", "actor_class": "agent"})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{recordOutsider}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+	recordOutsider := workflowEvent("rot-outsider-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 12, "resulting_version": 13, "actor_ref": outside, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/outsider", "session_ref": "session/record-authorship-outsider", "actor_class": "agent"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{recordOutsider}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -32,6 +32,7 @@ def _load_cli_module(name: str, filename: str):
 lanes_generator = _load_cli_module("cli_safety_lanes", "generate-agent-lanes.py")
 work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
 native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
+work_sizes_generator = _load_cli_module("cli_safety_work_sizes", "generate-work-sizes.py")
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
@@ -92,10 +93,11 @@ class ToolDescriptionTests(unittest.TestCase):
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
             "concord_domain.attachments", "concord_domain.overlaps",
+            "concord_domain.footprint",
         ])
         self.assertEqual(tool["description"],
                          "Navigate Product architecture: current Domains, current law, "
-                         "attachments, and unresolved overlap.")
+                         "attachments, unresolved overlap, and the footprint of a change.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [
@@ -121,6 +123,49 @@ class ToolDescriptionTests(unittest.TestCase):
                     if tool["id"] == owner:
                         self.assertNotRegex(tool["description"],
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
+
+
+class WorkerReadingHostContractTests(unittest.TestCase):
+    TOOL = "concord_worker_read"
+    FIELDS = ["ordinal", "offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_read_host_tool)
+
+    def setUp(self):
+        self.host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
+        self.schema = json.loads((ROOT / "contracts/host-tool-surface.schema.json").read_text())
+        self.tool = next(tool for tool in self.host["tools"] if tool["name"] == self.TOOL)
+
+    def test_the_shipped_reader_is_a_named_closed_host_tool(self):
+        generator.validate_host_manifest(self.host, self.schema)
+        self.assertEqual(list(self.tool["args"]["properties"]), self.FIELDS)
+
+    def test_no_source_execution_or_binding_selector_can_enter_the_host_contract(self):
+        for name in ("path", "ref", "command", "runner", "packet", "work_id", "attempt_id", "worktree_identity"):
+            with self.subTest(name=name):
+                tool = copy.deepcopy(self.tool)
+                tool["args"]["properties"][name] = {"type": "string"}
+                with self.assertRaises(ValueError):
+                    self.VALIDATOR(tool)
+
+    def test_ranges_requiredness_and_closure_cannot_drift(self):
+        for name in self.FIELDS:
+            for bound in ("minimum", "maximum"):
+                with self.subTest(name=name, bound=bound):
+                    tool = copy.deepcopy(self.tool)
+                    tool["args"]["properties"][name][bound] += 1
+                    with self.assertRaises(ValueError):
+                        self.VALIDATOR(tool)
+        for change in ({"additionalProperties": True}, {"required": self.FIELDS[:-1]}):
+            tool = copy.deepcopy(self.tool)
+            tool["args"].update(change)
+            with self.assertRaises(ValueError):
+                self.VALIDATOR(tool)
+
+
+class WorkerDiffHostContractTests(WorkerReadingHostContractTests):
+    TOOL = "concord_worker_diff"
+    FIELDS = ["offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_diff_host_tool)
 
 
 class ResultRequirednessTests(unittest.TestCase):
@@ -1160,14 +1205,15 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("native_lane_generator", ROOT / "scripts/generate-agent-lanes.py")
         lanes = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(lanes)
-        text = lanes.acceptance_oracle_instructions(packet_schema)
+        text = lanes.acceptance_oracle_instructions(packet_schema, {"id": "implement"})
         for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
-                      "Managed workers", "gain no Concord tools", "Ordinary test output",
+                      "Workers gain no general Concord tools", "Ordinary test output",
                       "Never author `subject_commit`", "never", "invent a locator",
                       "target_runner_v1", "materializer", "runner", "collection"):
             self.assertIn(claim, text)
         self.assertNotIn("candidate_subject", text)
         self.assertNotIn("Run the declared controls within your lane permissions", text)
+        self.assertNotIn("Managed workers gain no Concord tools", text)
 
 
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
@@ -2755,7 +2801,7 @@ class _WorkloadReached(Exception):
 
 
 class GeneratorCLISafetyTests(unittest.TestCase):
-    """Shared CLI contract for all eight generate-* main entry points.
+    """Shared CLI contract for all nine generate-* main entry points.
 
     Help must exit 0 with usage on stdout and perform no main-workload read,
     write, mkdir, or subprocess work. Unrecognized arguments — abbreviations
@@ -2772,6 +2818,7 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("generate-agent-lanes.py", lanes_generator, "MANIFEST"),
         ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
         ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
+        ("generate-work-sizes.py", work_sizes_generator, "VOCABULARY"),
         ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
         ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
         ("generate-branch-freshness.py", branch_freshness_generator, "DECLARATION"),

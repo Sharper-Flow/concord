@@ -27,7 +27,8 @@ import (
 // The command is store-free: a CI wait touches GitHub through `gh` and a
 // state file, never Concord authority, so it routes around the database open
 // like predecessor-inventory. It stays read-only against GitHub: every gh
-// invocation is a query subcommand.
+// invocation is a query subcommand, a fixed REST endpoint read with GET, or
+// the one constant GraphQL query document (CD-0232, CD-0233).
 //
 // Segmentation exists because the host bash tool kills long-running commands
 // (default 2 minutes, hard maximum 10 minutes), so a single blocking 30-minute
@@ -124,12 +125,19 @@ type ciWaitState struct {
 	LastMergeState string         `json:"last_merge_state,omitempty"`
 	Mode           string         `json:"mode,omitempty"`
 	OwnerPID       int            `json:"owner_pid,omitempty"`
+	// MergeQueueBaseline is the newest merge-queue event id the wait's first
+	// queue read observed. Nil means not read yet; "" means no event.
+	MergeQueueBaseline *string `json:"merge_queue_baseline,omitempty"`
+	// RequiredBase names the base branch RequiredContexts were read for. An
+	// empty value means the required contexts are not read yet.
+	RequiredBase     string   `json:"required_base,omitempty"`
+	RequiredContexts []string `json:"required_contexts,omitempty"`
 }
 
 func runCiWait(raw []byte, out, errOut io.Writer) int {
 	var request ciWaitRequest
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "ci-wait", err.Error())
+		writeOperatorDiagnostic(errOut, "ci-wait", diagnosticText(err))
 		return 1
 	}
 
@@ -236,16 +244,21 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 
 // ciWaitPoll reads the current state once and classifies it. The observation
 // comes from gh; the classification derives from it and nothing else.
+//
+// A resumed state file skips the request checks, yet its repo and selector
+// value become gh arguments, API path segments, and a GraphQL variable, so
+// every poll checks them again before any gh call.
 func ciWaitPoll(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
+	if err := ciWaitSubjectError(state.Repo, state.Selector); err != nil {
+		return ciWaitReport{}, false, fmt.Errorf("the state file names an invalid subject: %w", err)
+	}
 	switch state.Selector.Kind {
 	case "pr":
 		return ciWaitPollPR(ctx, state)
 	case "sha":
 		return ciWaitPollSHA(ctx, state)
-	case "run":
-		return ciWaitPollRun(ctx, state)
 	default:
-		return ciWaitReport{}, false, fmt.Errorf("selector.kind must be one of pr, sha, or run")
+		return ciWaitPollRun(ctx, state)
 	}
 }
 
@@ -289,8 +302,9 @@ func ciWaitGHOnce(ctx context.Context, args ...string) ([]byte, error) {
 	defer cancel()
 	//nolint:gosec // G204: subcommands are a fixed read-only query set, and every
 	// variable arg is validated before this call: selector values are
-	// digits-only or hex-40, and repo is a token the gh binary parses, never a
-	// shell input.
+	// digits-only or hex-40, repo is two plain path segments, a branch name is
+	// escaped per path segment, and `gh api` reads only fixed GET endpoints
+	// and one constant GraphQL query document. No arg is ever shell input.
 	cmd := exec.CommandContext(commandContext, "gh", args...)
 	// The gh process becomes its own process group leader, so the kill below
 	// reaches every child it spawned. Without this, a hung `gh` child keeps
@@ -350,6 +364,7 @@ type ghPRCheck struct {
 
 type ghPRHead struct {
 	HeadRefOid        string       `json:"headRefOid"`
+	BaseRefName       string       `json:"baseRefName"`
 	URL               string       `json:"url"`
 	State             string       `json:"state"`
 	MergedAt          string       `json:"mergedAt"`
@@ -373,7 +388,7 @@ type ghPRRollup struct {
 }
 
 func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
-	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,url,state,mergedAt,mergeStateStatus,statusCheckRollup")
+	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,baseRefName,url,state,mergedAt,mergeStateStatus,statusCheckRollup")
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -444,6 +459,14 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	default:
 		population = ciWaitPRCheckPopulation(nil, head.StatusCheckRollup)
 	}
+	var missing []string
+	if state.Mode != "merge" {
+		required, err := ciWaitRequiredContexts(ctx, state, head.BaseRefName)
+		if err != nil {
+			return ciWaitReport{}, false, err
+		}
+		population, missing = ciWaitJoinRequired(population, required)
+	}
 	counts := &ciWaitChecks{Total: len(population), Entries: make([]ciWaitCheck, 0, len(population))}
 	var failures []ciWaitDetail
 	for _, check := range population {
@@ -466,6 +489,13 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	}
 	report.Checks = counts
 	if state.Mode == "merge" {
+		removal, err := ciWaitMergeQueueRemoval(ctx, state)
+		if err != nil {
+			return ciWaitReport{}, false, err
+		}
+		if removal != nil {
+			return ciWaitQueueRemovalReport(ctx, state, report, removal), true, nil
+		}
 		// GitHub's MergeStateStatus documents UNSTABLE as "Mergeable with
 		// non-passing commit status", so an observed failure there keeps
 		// the merge possible and the wait stays pending.
@@ -482,6 +512,10 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		// pending until the deadline, and the timeout report says so.
 		if counts.Total == 0 {
 			report.Reason = "no checks reported for this pull request yet"
+			return report, false, nil
+		}
+		if len(missing) > 0 {
+			report.Reason = "required checks not reported yet: " + strings.Join(missing, ", ")
 			return report, false, nil
 		}
 		if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {
@@ -678,25 +712,14 @@ func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 	counts := &ciWaitChecks{Total: len(runs)}
 	var failures []ciWaitDetail
 	for _, run := range runs {
-		switch run.Status {
-		case "completed":
-			switch run.Conclusion {
-			case "success":
-				counts.Passing++
-			case "skipped", "neutral":
-				counts.Skipped++
-			case "cancelled":
-				counts.Failing++
-				failures = append(failures, ciWaitDetail{
-					Name: run.Name, URL: run.URL, Classification: "cancelled",
-				})
-			default:
-				counts.Failing++
-				failures = append(failures, ciWaitDetail{
-					Name: run.Name, URL: run.URL,
-					Classification: ciWaitClassifyName(run.Name),
-				})
-			}
+		switch ciWaitRunBucket(run) {
+		case "pass":
+			counts.Passing++
+		case "skipping":
+			counts.Skipped++
+		case "fail":
+			counts.Failing++
+			failures = append(failures, ciWaitRunFailure(run))
 		default:
 			counts.Pending++
 		}
@@ -718,6 +741,30 @@ func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 		return report, true, nil
 	}
 	return report, false, nil
+}
+
+// ciWaitRunBucket classifies one workflow run: an unfinished run is pending,
+// and every completed conclusion other than success, skipped, or neutral fails.
+func ciWaitRunBucket(run ghRunSummary) string {
+	if run.Status != "completed" {
+		return "pending"
+	}
+	switch run.Conclusion {
+	case "success":
+		return "pass"
+	case "skipped", "neutral":
+		return "skipping"
+	default:
+		return "fail"
+	}
+}
+
+func ciWaitRunFailure(run ghRunSummary) ciWaitDetail {
+	classification := ciWaitClassifyName(run.Name)
+	if run.Conclusion == "cancelled" {
+		classification = "cancelled"
+	}
+	return ciWaitDetail{Name: run.Name, URL: run.URL, Classification: classification}
 }
 
 // --- Run selector ---
@@ -941,24 +988,8 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 	if request.Selector == nil {
 		return nil, "", fmt.Errorf("selector is required: one of pr, sha, or run with its value")
 	}
-	if request.Repo == "" {
-		return nil, "", fmt.Errorf("repo is required as owner/name")
-	}
-	switch request.Selector.Kind {
-	case "pr":
-		if !ciWaitDigitsOnly(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a pr selector value must be a pull request number")
-		}
-	case "sha":
-		if !ciWaitHex40(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a sha selector value must be a 40-character commit SHA")
-		}
-	case "run":
-		if !ciWaitDigitsOnly(request.Selector.Value) {
-			return nil, "", fmt.Errorf("a run selector value must be a run id")
-		}
-	default:
-		return nil, "", fmt.Errorf("selector.kind must be one of pr, sha, or run")
+	if err := ciWaitSubjectError(request.Repo, *request.Selector); err != nil {
+		return nil, "", err
 	}
 	mode := request.Mode
 	if mode == "" {
@@ -1066,6 +1097,52 @@ func ciWaitDigitsOnly(value string) bool {
 	}
 	for _, r := range value {
 		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ciWaitSubjectError checks the repository and selector a wait names. Both
+// reach gh as arguments, so a value outside these shapes never runs.
+func ciWaitSubjectError(repo string, selector ciWaitSelector) error {
+	if !ciWaitRepoValid(repo) {
+		return fmt.Errorf("repo is required as owner/name")
+	}
+	switch selector.Kind {
+	case "pr":
+		if !ciWaitDigitsOnly(selector.Value) {
+			return fmt.Errorf("a pr selector value must be a pull request number")
+		}
+	case "sha":
+		if !ciWaitHex40(selector.Value) {
+			return fmt.Errorf("a sha selector value must be a 40-character commit SHA")
+		}
+	case "run":
+		if !ciWaitDigitsOnly(selector.Value) {
+			return fmt.Errorf("a run selector value must be a run id")
+		}
+	default:
+		return fmt.Errorf("selector.kind must be one of pr, sha, or run")
+	}
+	return nil
+}
+
+// ciWaitRepoValid admits exactly two plain path segments. The repository
+// names fixed GitHub API paths and GraphQL variables, so a segment can carry
+// no separator, query, fragment, gh placeholder, or dot-only traversal.
+func ciWaitRepoValid(repo string) bool {
+	owner, name, ok := strings.Cut(repo, "/")
+	return ok && ciWaitRepoSegment(owner) && ciWaitRepoSegment(name)
+}
+
+func ciWaitRepoSegment(segment string) bool {
+	if segment == "" || segment == "." || segment == ".." {
+		return false
+	}
+	for _, r := range segment {
+		ok := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '.' || r == '_' || r == '-'
+		if !ok {
 			return false
 		}
 	}

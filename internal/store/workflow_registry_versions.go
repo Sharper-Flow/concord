@@ -442,21 +442,12 @@ func previousWorkflowVersion(definition WorkflowDefinition, version int64) Workf
 // schema had to be read as a per-element contract by inference. Their content
 // is unchanged; only definitions from this version forward say it outright.
 func withDesignDecisionItemSchema(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for actionIndex := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[actionIndex].ID != "record_design" {
-			continue
-		}
-		fields := definition.ActionDefinitions[actionIndex].Payload.Fields
-		for fieldIndex := range fields {
-			if fields[fieldIndex].Name != "decisions" {
-				continue
-			}
-			fields[fieldIndex] = actionItemArrayField("decisions", fields[fieldIndex].Required, *fields[fieldIndex].MinItems, *fields[fieldIndex].MaxItems, fields[fieldIndex].SchemaRef)
-		}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "record_design", designDecisionItemSchema)
 }
+
+var designDecisionItemSchema = withPayloadFieldRevision("decisions", func(field WorkflowPayloadField) WorkflowPayloadField {
+	return actionItemArrayField("decisions", field.Required, *field.MinItems, *field.MaxItems, field.SchemaRef)
+})
 
 // implementationDesignItemSchemaV10 ships the unambiguous decisions declaration.
 func implementationDesignItemSchemaV10() WorkflowDefinition {
@@ -619,20 +610,13 @@ func withCurrentPremiseContract(definition WorkflowDefinition) WorkflowDefinitio
 // workflowString guard already refused a one-byte premise everywhere
 // (CD-0115 D1, CON-412).
 func withCurrentPremiseFloor(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for i := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[i].ID != "approve_contract" {
-			continue
-		}
-		for j := range definition.ActionDefinitions[i].Payload.Fields {
-			field := &definition.ActionDefinitions[i].Payload.Fields[j]
-			if field.Name == "premise" {
-				field.MinLength = workflowInt(workflowStringMinBytes)
-			}
-		}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "approve_contract", premiseFloor)
 }
+
+var premiseFloor = withPayloadFieldRevision("premise", func(field WorkflowPayloadField) WorkflowPayloadField {
+	field.MinLength = workflowInt(workflowStringMinBytes)
+	return field
+})
 
 // Each builder below ships the declared premise floor at its family's next
 // version. The definition content stays the predecessor's; the only content
@@ -973,15 +957,10 @@ func confirmPremiseOperatorFields() []WorkflowPayloadField {
 // operator-decision contract. Released versions keep the payload they were
 // pinned under.
 func withCurrentConfirmPremise(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "confirm_premise" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: confirmPremiseOperatorFields()}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "confirm_premise", confirmPremiseOperatorPayload)
 }
+
+var confirmPremiseOperatorPayload = withClosedPayload(confirmPremiseOperatorFields)
 
 // Each builder below ships the confirm_premise declaration at its family's
 // next version. The definition content stays the predecessor's; the only
@@ -1050,14 +1029,7 @@ func verdictBatchActionFields() []WorkflowPayloadField {
 // builtinActionPolicies stays byte-identical so every released definition
 // digest holds.
 func withCurrentVerdictBatch(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "record_verdict" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: verdictBatchActionFields()}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "record_verdict", withClosedPayload(verdictBatchActionFields))
 }
 
 // Each builder below ships the record_verdict batch declaration at its
@@ -1096,15 +1068,10 @@ func acceptDeliveryActionFields() []WorkflowPayloadField {
 // pinned under, and builtinActionPolicies stays byte-identical so every
 // released definition digest holds.
 func withCurrentAcceptDelivery(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "accept_worker_result" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: acceptDeliveryActionFields()}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "accept_worker_result", acceptDeliveryPayload)
 }
+
+var acceptDeliveryPayload = withClosedPayload(acceptDeliveryActionFields)
 
 // Each builder below ships the accept_worker_result delivery declaration at
 // its family's next version. The definition content stays the predecessor's;
@@ -1129,15 +1096,10 @@ func proposalOutOfScopeActionFields() []WorkflowPayloadField {
 // out-of-scope-carrying contract. Released versions keep the payload they
 // were pinned under.
 func withCurrentProposalOutOfScope(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "record_proposal" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: proposalOutOfScopeActionFields()}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "record_proposal", proposalOutOfScopePayload)
 }
+
+var proposalOutOfScopePayload = withClosedPayload(proposalOutOfScopeActionFields)
 
 // implementationProposalOutOfScopeV22 ships the CD-0202 out_of_scope
 // declaration. The definition content stays the predecessor's; the only
@@ -1162,8 +1124,7 @@ func breakFixAcceptDeliveryV19() WorkflowDefinition {
 // fold, keyed on workflowWorkerJobsActive.
 func withWorkerJobs(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
-	record := currentActionDefinition("record_worker_job", true)
-	record.RequiredCapability = "work_transition"
+	record := workTransitionAction(currentActionDefinition("record_worker_job", true))
 	definition.AvailableActions = append(definition.AvailableActions, record.ID)
 	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
 	for i := range definition.StepGraph.Steps {
@@ -1191,14 +1152,7 @@ func breakFixWorkerJobsV21() WorkflowDefinition {
 // CD-0205 worker-job lifecycle. Earlier versions keep the behavior and digest
 // they shipped with: no job binding, and an accept that advances as before.
 func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
-	switch definition.Ref {
-	case "workflow.implementation":
-		return definition.Version >= 24
-	case "workflow.break_fix":
-		return definition.Version >= 21
-	default:
-		return false
-	}
+	return workflowCapabilities(definition).has(WorkflowCapabilityWorkerJobs)
 }
 
 func researchVerdictBatchV12() WorkflowDefinition {
@@ -1418,18 +1372,14 @@ func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
 // released definition digest holds, and oracle capability stays a declared
 // action member rather than a mutable behavior flag on historical defs.
 func withOwnerOracle(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		action := &definition.ActionDefinitions[index]
-		switch action.ID {
-		case "record_worker_job":
-			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), acceptanceOracleActionField())
-		case "request_correction":
-			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), workflowOpenFindingsCorrectionField())
-		}
-	}
-	return definition
+	definition = reviseWorkflowAction(definition, "record_worker_job", acceptanceOracleRevision)
+	return reviseWorkflowAction(definition, "request_correction", openFindingsCorrection)
 }
+
+var (
+	acceptanceOracleRevision = withAppendedPayloadField(acceptanceOracleActionField)
+	openFindingsCorrection   = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
+)
 
 // Each builder below ships the acceptance-oracle declaration at its
 // family's next version. The definition content stays the predecessor's;
@@ -1600,19 +1550,7 @@ func breakFixTypedDiagnosisV25() WorkflowDefinition {
 // through the frozen 1.0/1.1 worker_packet baseline the released pins
 // decode through. Released versions never call this composition.
 func withVersionedPacketRef(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for i := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[i].ID != "dispatch_worker" {
-			continue
-		}
-		for j := range definition.ActionDefinitions[i].Payload.Fields {
-			field := &definition.ActionDefinitions[i].Payload.Fields[j]
-			if field.Name == "worker_packet" {
-				field.SchemaRef = "worker_packet2"
-			}
-		}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "dispatch_worker", withWorkerPacketRef("worker_packet2"))
 }
 
 // withDerivedWorkerFailure publishes the CD-0198 D5 derivation: the callable
@@ -1688,15 +1626,10 @@ func canonicalVerdictActionFields() []WorkflowPayloadField {
 // registry content, so every earlier version keeps the payload and digest it
 // shipped, and the shared policy table stays byte-identical.
 func withCanonicalVerdictAuthoring(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "record_verdict" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: canonicalVerdictActionFields()}
-	}
-	return definition
+	return reviseWorkflowAction(definition, "record_verdict", canonicalVerdictPayload)
 }
+
+var canonicalVerdictPayload = withClosedPayload(canonicalVerdictActionFields)
 
 // withNoDiscoveryStep removes the discovery marker from one definition: the
 // graph node and its callable record_discovery entry leave the definition, so

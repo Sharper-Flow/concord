@@ -1,6 +1,7 @@
 # Concord Process-Exhaust Salvage and Receipt (PM9)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
@@ -19,7 +20,7 @@ link, the optional prune event — is the only receipt, and process exhaust
 stays producer-owned with salvage into bounded note fields before approval.
 ## Contract
 
-For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. The original event history, loss-prevention obligations, content/home proof, and separate destructive-deletion approval remain required. Publication acceptance does not itself permit research retirement.
+For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. The original event history, loss-prevention obligations, content/home proof, and separate operator approval for physical research-pack deletion remain required. That approval remains a listed gap without a new class assignment. Publication acceptance does not itself permit research retirement.
 
 
 The binding contract is sections 1 through 3: the no-receipt decision with

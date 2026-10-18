@@ -11,7 +11,8 @@
 - **Preserves:** The CD-0160 verb ownership, one bounded slice, carried
   deadline, head-SHA supersession, narrowed command allowance, and explicit
   error reporting
-- **Amends:** CD-0160 D4
+- **Amends:** CD-0160 D1 (the `mode` input), D2 (the `merged` and `closed`
+  statuses), and D4
 
 ## Context
 
@@ -43,7 +44,8 @@ check set with `DIRTY` stays pending, and the report says why. `UNKNOWN`,
 `BEHIND`, `BLOCKED`, `UNSTABLE`, `DRAFT`, and an empty value carry no verdict
 about check completeness, so they never block the check verdict. A complete
 check set with no failures is `success` in checks mode whatever those states
-say.
+say. Under [CD-0233](CD-0233-a-checks-wait-waits-for-every-required-context.md),
+a set is not complete while a required context of the base branch is absent.
 
 ### D2. Merge mode answers the merge question
 
@@ -54,8 +56,12 @@ the newest attempt per check identity supplies the verdict. A failed or
 cancelled selected attempt ends an open merge wait as `failure`,
 unless `merge_state` is `UNSTABLE`. That state stays pending because GitHub
 reports the pull request as mergeable despite non-passing commit status.
-Failure takes precedence over pending peers. Without an observed failure,
-every open merge wait stays pending, including `CLEAN` and `HAS_HOOKS`.
+Failure takes precedence over pending peers. Under
+[CD-0232](CD-0232-a-merge-wait-ends-when-the-merge-queue-removes-the-pull-request.md),
+a fresh merge-queue removal that is not a merge ends an open merge wait as
+`failure` before check failures, and `UNSTABLE` does not hold it open.
+Without an observed failure or removal, every open merge wait stays pending,
+including `CLEAN` and `HAS_HOOKS`.
 In both modes the selector reads `state` and `mergedAt` on the `gh pr view`
 call it already makes. A merged pull request reports `merged`, and a closed
 one reports `closed`. Those outcomes and head supersession retain precedence
@@ -83,8 +89,8 @@ unchanged.
 
 - A green pull request with `UNKNOWN`, `BEHIND`, `BLOCKED`, `UNSTABLE`, or
   `DRAFT` merge state reports `success` in checks mode. The operator accepts
-  those states as check-completeness outcomes; only `DIRTY` holds a green
-  wait open.
+  those states as check-completeness outcomes; only `DIRTY` holds a complete
+  green wait open.
 - A merge-mode wait can still time out while GitHub has not computed
   mergeability. No claim is made that `UNKNOWN` resolves on demand.
 - The manifest digest moves, and all generated projections regenerate.

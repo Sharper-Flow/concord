@@ -34,17 +34,17 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	claim := testClaim("op-1", "claim-1")
-	first, err := ClaimStep(ctx, s, claim)
+	first, err := ClaimStepAuthorized(ctx, s, claim, nil)
 	if err != nil || first.AttemptEpoch != 1 {
-		t.Fatalf("first ClaimStep() = %+v, %v", first, err)
+		t.Fatalf("first ClaimStepAuthorized() = %+v, %v", first, err)
 	}
-	replay, err := ClaimStep(ctx, s, claim)
+	replay, err := ClaimStepAuthorized(ctx, s, claim, nil)
 	if err != nil || !replay.Replayed || replay.AttemptEpoch != first.AttemptEpoch {
 		t.Fatalf("claim replay = %+v, %v", replay, err)
 	}
 	conflict := claim
 	conflict.AcceptedInputsDigest = testDigest("different")
-	_, err = ClaimStep(ctx, s, conflict)
+	_, err = ClaimStepAuthorized(ctx, s, conflict, nil)
 	assertFailureKind(t, err, KindIdempotencyConflict)
 
 	complete := CompleteRequest{OpID: "op-1", AttemptEpoch: 1, ResultKind: ResultCompleted, ResultPayload: `{"ok":true}`, EvidenceRefs: []string{"e1"}, ChangedRefs: []string{"c1"}, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: "complete-1", RequestID: "complete-request", ObservedAt: time.Unix(2, 0).UTC(), ResultEventIDs: []string{"event-1"}}
@@ -64,36 +64,38 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 func TestFenceRequiresManifestDigest(t *testing.T) {
 	t.Parallel()
 	claim := testClaim("digest-current", "digest-current")
-	got, err := ClaimStep(context.Background(), openTemp(t), claim)
+	got, err := ClaimStepAuthorized(context.Background(), openTemp(t), claim, nil)
 	if err != nil || got.OpID != claim.OpID {
 		t.Fatalf("current manifest digest claim = %+v, %v", got, err)
 	}
 	missing := testClaim("digest-missing", "digest-missing")
 	missing.ContractDigest = ""
-	if _, err := ClaimStep(context.Background(), openTemp(t), missing); err == nil {
+	if _, err := ClaimStepAuthorized(context.Background(), openTemp(t), missing, nil); err == nil {
 		t.Fatal("claim without manifest digest unexpectedly succeeded")
 	}
 	wrong := testClaim("digest-wrong", "digest-wrong")
 	wrong.ContractDigest = "not-a-manifest-digest"
-	if _, err := ClaimStep(context.Background(), openTemp(t), wrong); err == nil {
+	if _, err := ClaimStepAuthorized(context.Background(), openTemp(t), wrong, nil); err == nil {
 		t.Fatal("claim with wrong manifest digest unexpectedly succeeded")
 	}
 }
 
-func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
+// TestFenceStaleAttemptAndNewClaim proves a second claim on a pending step
+// fences the first: the earlier epoch can no longer complete.
+func TestFenceStaleAttemptAndNewClaim(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	claim := testClaim("op-2", "claim-2")
-	first, err := ClaimStep(ctx, s, claim)
+	first, err := ClaimStepAuthorized(ctx, s, claim, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	takeoverClaim := testClaim("op-2", "claim-3")
-	takeoverClaim.PrincipalRef = "operator"
-	takeover, err := OperatorTakeover(ctx, s, takeoverClaim, "approval-1")
-	if err != nil || takeover.AttemptEpoch != 2 || takeover.ApprovalRef != "approval-1" {
-		t.Fatalf("takeover = %+v, %v", takeover, err)
+	secondClaim := testClaim("op-2", "claim-3")
+	secondClaim.PrincipalRef = "operator"
+	second, err := ClaimStepAuthorized(ctx, s, secondClaim, nil)
+	if err != nil || second.AttemptEpoch != 2 {
+		t.Fatalf("second claim = %+v, %v", second, err)
 	}
 	stale := CompleteRequest{OpID: "op-2", AttemptEpoch: first.AttemptEpoch, ResultKind: ResultCompleted, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: "stale-complete", RequestID: "stale-request", ObservedAt: time.Unix(3, 0).UTC()}
 	_, err = CompleteStep(ctx, s, stale)

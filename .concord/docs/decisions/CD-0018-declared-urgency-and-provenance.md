@@ -8,13 +8,16 @@
 **Issue:** [#70](https://github.com/Sharper-Flow/concord/issues/70).
 **Amended by:** CD-0041 leaves assignment/lease exclusions intact but replaces
 D4's unstructured parallel-safety judgement with Domain-overlap detection and
-operator-approved, version-pinned resolution.
+operator-approved, version-pinned resolution. Concord (CON) issue CON-910 (2026-10-13)
+drops the retired launcher query from the ranking claims under the Snowball
+coordinator's operator-delegated approval.
 **Amends:** CD-0005 (adds `urgency` to the capture/revise/read surface and one
 `relation_kind` member — both TS8 MAJOR); C14 §5 and C17 §5 (records an explicit,
 declared urgency, restated not to introduce owners or assignments).
 **Preserves:** C17 §5.1 (no computed importance score — ranking uses stored declared
 fields), C17 §5.2 (no activity-derived priority), C17 §5.4 (no third blocked state),
-C18 (launcher stays read-only), CD-0013/CD-0017 D4 (worker authority boundary).
+C18 (the operator surface stays read-only), CD-0013/CD-0017 D4 (worker
+authority boundary).
 
 ## Context
 
@@ -22,8 +25,7 @@ An agent working one work item needs to raise a second item that the operator ca
 to another agent immediately and concurrently. R7 established four things:
 
 1. The ranking path is already complete. `priority` is the primary `ORDER BY` key on
-   every ready, list, blocked, and launcher query; the launcher `l` key already hands
-   a work item to a fresh agent session. An agent can raise top-of-queue work today.
+   every ready, list, and blocked query. An agent can raise top-of-queue work today.
 2. The `[-100, 100]` priority integer has no named bands and no written convention.
    Two agents raising equally urgent work choose different numbers. Every surveyed
    tracker (Kanban, Jira, Linear, Azure DevOps, GitLab, Asana, GitHub Projects) uses a
@@ -70,7 +72,7 @@ even though Kanban's WIP-override mechanism does not (Concord has no WIP limit).
 
 ### D2. Ranking prepends urgency; priority becomes the within-band tiebreak
 
-Every ready, list, blocked, and launcher query prepends `urgency` to its existing
+Every ready, list, and blocked query prepends `urgency` to its existing
 `ORDER BY`. An `expedite` item outranks every `standard` item regardless of
 `priority`; within each band, the existing `priority ASC, created_at DESC, id ASC`
 ordering is preserved unchanged. The product-row focus query prepended urgency to its
@@ -121,13 +123,15 @@ operator approval; merger and supersession still require it.
 
 ### D5. The entry route does not dispatch
 
-The entry route performs no dispatch action. The operator names work to
-`concord zl`, which starts a session through Concord's session bootstrap.
-CD-0108 D4 keeps that entry route store-write-free.
+Starting an operator session performs no Concord dispatch. The host owns
+session start. CD-0108 D4 keeps work capture inside the session through
+the typed mutation surface.
 
 ## Operational usage note
 
-> **Resolved by CD-0031:** launcher-started operator sessions receive core-derived continuity before OpenCode starts. Host skills may still govern method, but durable work intent no longer depends on prose injection.
+Core-derived continuity reaches managed sessions through work-start
+preparation and continuity hooks. Durable work intent uses the typed
+mutation surface.
 
 > The mechanism for delivering operational guidance to Concord agents — skills,
 > prompt injection, documentation, or another shape — is not yet decided. The
@@ -155,8 +159,8 @@ happen to be in the same area — the edge records provenance, not topic similar
 1. Every work item has exactly one `urgency` value, either `standard` or `expedite`.
 2. `urgency` is declared at capture or revise and is never derived from any other
    signal.
-3. `expedite` items sort above all `standard` items in every ready, list, blocked,
-   launcher, and product-row query.
+3. `expedite` items sort above all `standard` items in every ready, list, and
+   blocked query.
 4. Within each band, the existing `priority ASC, created_at DESC, id ASC` ordering is
    preserved.
 5. `raised_from` is a directional, acyclic, non-blocking relation.
@@ -188,7 +192,7 @@ happen to be in the same area — the edge records provenance, not topic similar
   `scripts/generate-agent-contracts.py`, and digest re-pin. The generated current
   manifest remains the only pre-go-live surface identity.
 - A schema migration adds `urgency` to `work_items` with default `standard`.
-- Every ready, list, blocked, and launcher query's `ORDER BY` changes.
+- Every ready, list, and blocked query's `ORDER BY` changes.
 
 ## Rejected alternatives
 

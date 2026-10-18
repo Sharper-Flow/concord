@@ -382,8 +382,9 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			if available, err := workflowEvidenceBindingRecoveryAvailable(ctx, s.db, entry.Definition, workID, "acceptance"); available || err != nil {
-				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, available, err)
+			state, _, _, err := loadWorkflowAdmissionStateTx(ctx, s.db, workID, entry.Definition, "acceptance", "test")
+			if state.EvidenceRecoveryRoute || err != nil {
+				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}
 			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)
@@ -430,7 +431,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
 		t.Fatalf("mandate recovery binding refused: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, s, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, s, workID)); err != nil {
 		t.Fatalf("verdict after mandate recovery binding refused: %v", err)
 	}
 }

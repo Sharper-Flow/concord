@@ -173,6 +173,24 @@
           ],
           "properties": {
             "tool": {
+              "const": "concord_domain"
+            },
+            "operation": {
+              "const": "footprint"
+            },
+            "query_id": {
+              "const": "C22.DomainFootprint"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
               "const": "concord_product_view"
             },
             "operation": {
@@ -723,6 +741,7 @@
             "observation_record",
             "observations",
             "overlaps",
+            "footprint",
             "publish",
             "ready",
             "reconcile",
@@ -770,7 +789,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint))$"
         },
         "outcome": {
           "enum": [
@@ -1207,6 +1226,7 @@
             "observation_record",
             "observations",
             "overlaps",
+            "footprint",
             "publish",
             "ready",
             "reconcile",
@@ -1254,7 +1274,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps|Footprint))$"
         },
         "reason_code": {
           "type": "string",
@@ -1502,6 +1522,7 @@
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
+            "worker_reconcile_failed_recorded",
             "lane_tool_refusal",
             "invalid_cli_input",
             "invalid_request_wrapper",

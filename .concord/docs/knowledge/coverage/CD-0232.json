@@ -1,0 +1,42 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalEndsTheWait"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalPrecedesCheckFailures"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueEventsThatKeepTheWaitOpen"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueBaselineIsTheFirstRead"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueRemovalWithoutRunDetail"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeQueueReadFailureIsError"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeStalledQueueReadIsPending"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitRepoMustBeOwnerName"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitResumedStateMustNameAValidSubject"
+    }
+  ],
+  "id": "CD-0232",
+  "state": "satisfied"
+}

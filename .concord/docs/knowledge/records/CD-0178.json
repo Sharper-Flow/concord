@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:080ef1dc8e787d8d0aae5b4869761edcbcb933231b7135451d31586e6698f18d",
+  "sha256": "sha256:8b74960d3f4db4e8a126339e38b01b33ad327113ffa3d132639eed32b9262a3e",
   "status": "accepted",
   "summary": "Lane workers stay native task subagents in their coordinator's directory; a work item that touches a second repository gets a coordinator session in each repository, every verified landed session of the receiving Project may consume its shared handoff bind (CD-0182), and a worktree_claim for a Project in another repository refuses with cross_repository_claim before it creates a worktree; occupancy becomes one row per session carrying the host process identity, released by session_vacate, a verified landing elsewhere, or the end of the host process, and the caller-supplied session observation is no longer a release or removal input; removal content gates stay unchanged.",
   "tags": [

@@ -20,10 +20,11 @@ Only contracts approved through surface `2.2.0` carry the internal persisted
 law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
 checks the accepted Git-derived `law_subjects` and `law_relations` projection;
-an explicit conflict may pass planning only when a conflicting endpoint is in
-`law_modifies`. Completion reruns the check without that exception, so only a
-Git-authorized law delta can resolve the conflict. Earlier contracts retain
- their prior evidence-reference interpretation of `spec_mandate`.
+an explicit conflict may pass planning only when the endpoint whose record
+declares it is in `law_modifies`. Completion reruns the check without that
+exception, so only a Git-authorized law delta can resolve the conflict. Earlier
+contracts retain their prior evidence-reference interpretation of
+`spec_mandate`.
 
 CD-0036 records each current contract's bounded `law_revisions` pins as
 `(law_id, content_hash)`. A changed hash under the same accepted ID is a
@@ -55,7 +56,7 @@ with the two schemas it cites. This record fills the implementation boundary
 CD-0013 left open: the common representation, the definition registry and
 digest check, the instance state machine, the event families, the V15
 projections and folds, outcome evaluation, the ordered completion gate, actor
-distinctness, impact edges and notices, external condition resolution,
+distinctness, impact edges and notices, external condition refusal,
 dispatch, and the built-in family graphs.
 
 ## Contract
@@ -67,7 +68,7 @@ The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, the event
 families, the projections and folds, outcome evaluation and strength, the
 ordered completion gate, the actor tuple and evaluator distinctness, impact
-edges and notices, external condition resolution, dispatch, and the built-in
+edges and notices, external condition refusal, dispatch, and the built-in
 family graphs and actions. Section 13 records implementation-deferred items
 and carries no obligation.
 
@@ -186,8 +187,8 @@ drift. No fallback definition, newer version, or response-wording path is accept
 | `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
 | `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
 | `running` | `blocked` | unresolved dependency or condition discovered | internal-inline |
-| `blocked` | `awaiting_condition` | a typed external condition is registered | internal-inline |
-| `awaiting_condition` | `running` | owning resolver supplies valid evidence | internal-inline |
+| `blocked` | `awaiting_condition` | a typed external condition is registered (historical pins only) | internal-inline |
+| `awaiting_condition` | `running` | owning resolver supplies valid evidence (no resolver exists; CD-0234 D1) | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `awaiting_condition`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
@@ -207,7 +208,7 @@ mutating workflow payload also carries the existing subject-version convention
 `expected_version` and `resulting_version`; they are consecutive positive
 integers and are validated in the fold. This common pair is not repeated in each
 row below. The following are the complete v1 family payloads; omitted keys are
-rejected. `workflow.completed` may only be appended by `CompleteWorkflowTx` after
+rejected. `workflow.completed` may only be appended by `CompleteWorkflowTxWithRegistry` after
 the ordered gate in §7; the generic event append path rejects it structurally.
 `workflow.staleness_observed` is an external observation event. It does not
 advance the work-item version.
@@ -255,7 +256,7 @@ source-owned edge. Both event kinds are emitted as v2 after migration V28.
 
 V15 creates the ten D2 projections below. Every table has `fold_guard=workflow`
 semantics: direct writes are refused; only event application inside
-`ApplyOperationTx`, `CompleteWorkflowTx`, or `RebuildFromLog` may mutate it. `work_id` references the
+`ApplyOperationTx`, `CompleteWorkflowTxWithRegistry`, or `RebuildFromLog` may mutate it. `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
@@ -469,7 +470,7 @@ record does not satisfy the predicate or unblock a dependent managed work unit.
 
 ## 7. Ordered completion gate
 
-`CompleteWorkflowTx` executes the following ordered clauses in one SQLite
+`CompleteWorkflowTxWithRegistry` executes the following ordered clauses in one SQLite
 transaction. It locks the work item, checks the pinned definition and expected
 version, and rolls back on the first refusal. The typed refusal and recovery action
 are stable:
@@ -523,6 +524,14 @@ event stores the tuple once in `workflow.actor_recorded`; later events carry onl
 verdict is distinct from an agent executor but must still carry a complete tuple.
 Any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
+
+Every new `record_verdict` call supplies an explicit `verdict_kind` for each
+judged predicate: `ok`, `outcome_mismatch`, or `insufficient_evidence`. An omitted,
+null, empty, or undeclared kind refuses the entire action before any event,
+durable operation, work-version update, or workflow-projection change. No verdict
+kind is inferred. This authoring rule applies to new calls on earlier definition
+pins too. Stored events, released definition data and digests, historical decoder
+schemas, replay, and rebuild retain their recorded meaning.
 
 For `confirm_premise`, the invoking agent tuple is never converted to an
 operator by changing `actor_class`, and `confirming_actor_ref` is not accepted
@@ -598,17 +607,14 @@ A contract revision uses the same reverse-edge direction and emits `breaking`
 when an active hard dependent consumed the superseded contract. It emits
 `non-breaking` for every other inbound dependent.
 
-## 10. External condition resolution
+## 10. External conditions
 
-The engine exposes no wait daemon and performs no polling. Resolution is explicit
-on request or at a consequential boundary:
-
-```go
-type ConditionResolver interface {
-    Resolve(ctx context.Context, condition ExternalCondition,
-        now time.Time) (Resolution, error)
-}
-```
+The engine exposes no wait daemon, performs no polling, and has no condition
+resolver (CD-0234 D1). No retained family declares an action that
+opens, resolves, or cancels a condition. Recorded conditions fold, read, and
+rebuild. A consequential action on work with an open condition refuses with
+`not_terminal`. The table states the owning-authority evidence a resolver added by
+a later decision must require.
 
 `await_type` is closed to:
 
@@ -676,15 +682,25 @@ The corpus records `engine_status=engine_shipped`. The checker compares every sc
 error kind with the current closed envelope enum; unknown classifications fail
 validation rather than being downgraded to prose or generic success.
 
-### Corpus clarification note (issue #31)
+### Scenarios that bind production routes
 
-WF09 previously asserted `unauthorized` for an undeclared `replace_outcome`
-request. That request fails the workflow graph's declared-action transition
-check before actor authorization, so the accepted assertion is corrected to
-`invalid_transition`. The correction is recorded here rather than hidden in the
-harness; the structured corpus request retains the action ID, pinned definition,
-actor, expected version, and request identity that make the classification
-reproducible.
+WF09, WF22, and WF25 each bind their criterion to a production route.
+
+- WF09 sends `approve_contract`, the only declared action that writes an
+  approved end-state, at the `execution` step. The step does not declare the
+  action, so the graph's declared-action check refuses it with
+  `invalid_transition` before actor authorization, and no contract event is
+  written.
+- WF22 commits `checkpoint_context`, abandons an uncommitted `record_proposal`
+  transaction, rebuilds projections from the event log, and reads the resume
+  state through the continuity read (CD-0016). Its resume step is `proposal`,
+  a step of the pinned `workflow.implementation` definition.
+- WF25 leaves a compaction publication claim pending, then repeats the
+  publication under a new idempotency key without an approval. The agent
+  boundary returns `approval_required`, and the attempt epoch does not advance.
+  Compaction requires an approval on every publication, so WF25 covers
+  durable-operation claims only. The fenced-start takeover of a held attempt
+  is a separate route for criterion 25, covered by its own tests.
 
 ## 12. Built-in family graphs and actions
 
@@ -744,7 +760,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (CD-0156) |
 | `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |
 | `start_execution`, `start_repair`, `start_refine`, `start_run`, `start_poc`, `start_action` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed` |
-| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the checkpoint payload is the typed resume boundary |
+| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the folded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
 | `bind_evidence` | `workflow.evidence_bound`; the producer names a completed durable operation, for example a green verify-tier run at `worktree_verify:sha256:<digest>` |
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |

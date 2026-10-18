@@ -29,73 +29,7 @@ func workflowClauseError(err error, clause int) error {
 }
 
 func workflowCompletionRequired() error {
-	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for CompleteWorkflowTx", false, "use the ordered workflow completion entry point")
-}
-
-// CompleteWorkflow is the only public completion entry point.  It owns one
-// SQLite transaction from the first gate clause through all impact notices and
-// the reserved completion append.
-func CompleteWorkflow(ctx context.Context, s *Store, event Event) error {
-	return CompleteWorkflowWithRegistry(ctx, s, BuiltinWorkflowRegistry(), event)
-}
-
-// CompleteWorkflowWithRegistry is the test and embedded-engine seam for a
-// pinned definition registry.  The registry is read-only during completion.
-func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, event Event) (retErr error) {
-	if s == nil || s.db == nil {
-		return newFailure(KindUnavailable, "complete_workflow", "store is not open", false, "open a store before completing a workflow")
-	}
-	// A replay of the exact completion identity is an idempotent no-op.  This
-	// check happens before opening the mutation transaction and never treats a
-	// different event identity as a replay.
-	var existingKind string
-	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
-	if err == nil && existingKind == WorkflowCompleted {
-		replay, err := s.beginDurableTx(ctx)
-		if err != nil {
-			return err
-		}
-		defer replay.finish(&retErr)
-		return replay.Commit()
-	}
-	// CD-0200: the completion's law boundary verifies the Product's complete
-	// registered source set before this transaction opens. The verification
-	// probes git and rebuilds through the pool, and the transaction-scoped
-	// boundary clause proves it from the returned context.
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	tx, err := s.beginDurableTx(ctx)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
-	}
-	defer tx.finish(&retErr)
-	scope, err := beginFold(ctx, tx.Tx)
-	if err != nil {
-		return err
-	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
-		return err
-	}
-	if err := scope.close(ctx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
-	}
-	return nil
-}
-
-// CompleteWorkflowTx evaluates the complete ordered gate using the built-in
-// v1 definitions. The scope's close runs at return, before the caller commits.
-func CompleteWorkflowTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = scope.close(ctx) }()
-	return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, scope)
+	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for the ordered completion gate", false, "use the ordered workflow completion entry point")
 }
 
 // CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No
@@ -726,10 +660,10 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 }
 
 // requireAcceptanceDeliverables refuses the acceptance-step transition while
-// the deliverables completion depends on are absent: a recorded workflow
-// verdict and every required evidence kind durably bound. Once the step
-// advances, no declared action can produce them, so the confirmation is the
-// last point the requirement can be enforced.
+// the deliverables completion depends on are absent: an independent verdict
+// for every approved predicate and every required evidence kind durably
+// bound. Once the step advances, no declared action can produce them, so the
+// confirmation is the last point the requirement can be enforced.
 func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition WorkflowDefinition, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
@@ -756,6 +690,25 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 	}
 	if len(missing) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
+	}
+	// Completion's clause 4 judges each verdict actor against the whole
+	// execution history, so a verdict whose actor executed after recording it
+	// fails there, past the last step that declares record_verdict.
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	if err != nil {
+		return err
+	}
+	for _, verdict := range verdicts {
+		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
+			continue
+		}
+		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef, verdict.VerdictModel, definition.EvaluatorIndependence.ModelDistinct); err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable || failure.RecoveryAction == "contact_operator" {
+				return err
+			}
+			return newFailure(failure.Kind, "workflow_action", "premise confirmation requires an independent verdict for "+verdict.PredicateID+": "+failure.Detail, false, "record_verdict for "+verdict.PredicateID+" with verified operator approval (CD-0116 D1) or by an evaluator that executed no step, before confirming the premise")
+		}
 	}
 	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
 	if cutoffErr != nil {
@@ -863,20 +816,20 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // The executing model is read from the instance because it is a property of the
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
-func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+func workflowCompletionActorDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
 	if err := workflowStepExecutorRefusal(ctx, tx, workID, verdictActor, "complete_workflow"); err != nil {
 		return err
 	}
 	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
 }
 
-func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+func workflowActorsDistinct(ctx context.Context, tx queryer, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	return workflowActorsDistinctForExecutor(ctx, tx, workID, "", verdictActor, verdictModel, requireModelDistinct, operation)
 }
 
 // workflowActorsDistinctForExecutor evaluates distinctness against a supplied
 // executorRef, which must resolve, and otherwise against the instance's current lookup.
-func workflowActorsDistinctForExecutor(ctx context.Context, tx *sql.Tx, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
+func workflowActorsDistinctForExecutor(ctx context.Context, tx queryer, workID, executorRef, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
 	var err error
 	if executorRef == "" {

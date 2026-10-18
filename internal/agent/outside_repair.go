@@ -21,15 +21,10 @@ import (
 // Service.ExternalEvidenceCommand and bound to the Project's git_remote.
 
 const (
-	OutsideRepairOperationDisposition = "outside_repair"
-	OutsideRepairOperationReconcile   = "outside_repair_reconcile"
-
 	OutsideRepairModeCompleted = "completed"
 	OutsideRepairModeResume    = "resume"
 
-	outsideRepairHoldIntent      = "close_outside_repair"
 	outsideRepairRefreshedIntent = "refresh_outside_repair"
-	outsideRepairVerifiedIntent  = "verify_outside_repair"
 )
 
 // boundedExternalEvidenceWait caps one external command run while the runtime
@@ -334,19 +329,6 @@ func outsideRepairGitHubRepository(normalizedRemote string) (string, bool) {
 			return "", false
 		}
 		return path, true
-	}
-	// The recorded locator is normalized by the store, which turns any
-	// scheme-carrying remote into an ssh form whose host carries the original
-	// scheme: an https://github.com origin reads `ssh://https/github.com/...`
-	// and an ssh://git@github.com origin reads `ssh://git@github.com/...` for
-	// a greater user prefix. Read the scheme-carrying host shape
-	// deterministically: the GitHub host follows the scheme marker, so the
-	// remaining path is the owner/repo.
-	if host == "https" || host == "http" {
-		trimmed, trimmedOK := strings.CutPrefix(path, "github.com/")
-		if trimmedOK && outsideRepairRepositoryPattern.MatchString(trimmed) {
-			return trimmed, true
-		}
 	}
 	return "", false
 }
@@ -953,13 +935,8 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+2, 10)}}
 		var intents []NextIntent
-		switch mode {
-		case OutsideRepairModeCompleted:
-			intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", ReasonCode: outsideRepairVerifiedIntent, RequiredFields: []string{"work_id"}}}
-		case OutsideRepairModeResume:
+		if mode == OutsideRepairModeResume {
 			intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", ReasonCode: outsideRepairRefreshedIntent, RequiredFields: []string{"work_id"}}}
-		default:
-			intents = []NextIntent{{Tool: "concord_work_transition", Operation: OutsideRepairOperationReconcile, ReasonCode: outsideRepairHoldIntent, RequiredFields: []string{"mode"}}}
 		}
 		return mutationPayload(changed, intents), result.EventIDs, changed, nil
 	}

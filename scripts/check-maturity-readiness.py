@@ -4,16 +4,20 @@
 A manifest records a Product's distance from one maturity rung. It reuses the
 floor-readiness state model and the shared `evidence_anchors` machinery: a
 satisfied item binds a typed executable anchor that resolves, an outstanding
-item names a public tracking issue, and an unmeasured or out-of-scope item
+item names a tracking issue, and an unmeasured or out-of-scope item
 carries a reason.
 
 Unlike the floor manifest, this validator does not bind condition titles to
 sentences in the source document. CD-0091 states each rung bar as prose rather
 than an itemised floor, so `source` records provenance only.
+
+Beta b2 is computed from validated law coverage. Manifest validity does not
+certify a Product's maturity or change its registered stage.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import sys
@@ -22,9 +26,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from coverage_state import (  # noqa: E402
+    check_outstanding_pointer,
+    load_issue_states,
+    maturity_manifest_paths,
+    valid_issue_pointer,
+)
 from evidence_anchors import check_anchor  # noqa: E402
 
-MANIFEST_GLOB = "maturity-readiness*.json"
 MANIFEST = ROOT / ".concord/docs/maturity-readiness.v1.json"
 SCHEMA_VERSION = "1.0"
 RUNGS = {"alpha": "a", "beta": "b", "production": "p"}
@@ -40,6 +49,7 @@ CONDITION_ID = re.compile(r"^[abp][0-9]{1,2}$")
 ITEM_ID = re.compile(r"^([abp][0-9]{1,2})-[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_ITEMS = 500
 MAX_EVIDENCE = 32
+BETA_COVERAGE_ITEM = "b2-law-coverage-proved"
 
 
 def bounded_text(value: object, minimum: int, maximum: int) -> bool:
@@ -110,6 +120,7 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ITEMS:
         findings.append("manifest.items: must be a bounded non-empty array")
         return tally
+    issue_states = load_issue_states(findings)
     identifiers: set[str] = set()
     covered: set[str] = set()
     for number, item in enumerate(raw):
@@ -168,8 +179,10 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
         if state == "outstanding":
             if reason is not None:
                 findings.append(f"{where}: outstanding item must not carry reason")
-            if not isinstance(issue, int) or isinstance(issue, bool) or not 1 <= issue <= 1000000:
-                findings.append(f"{where}: outstanding item requires a tracking issue number")
+            if not valid_issue_pointer(issue):
+                findings.append(f"{where}: outstanding item requires a tracking issue number or Linear issue identifier")
+            else:
+                check_outstanding_pointer(item, f"{where} ({identifier})", issue_states, findings)
             continue
         if issue is not None:
             findings.append(f"{where}: issue is only valid for an outstanding item")
@@ -181,16 +194,45 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
     return tally
 
 
-def validate(data: object) -> tuple[list[str], dict[str, int]]:
+def validate_beta_coverage(data: dict, declared: dict[str, int], findings: list[str]) -> dict[str, list[str]] | None:
+    if "b2" not in declared:
+        findings.append("beta manifest requires condition b2")
+    items = [item for item in data["items"] if item["id"] == BETA_COVERAGE_ITEM]
+    if len(items) != 1 or items[0]["condition"] != "b2":
+        findings.append(f"beta b2 requires exactly one canonical item {BETA_COVERAGE_ITEM}")
+    elif items[0]["state"] == "out_of_scope":
+        findings.append(f"{BETA_COVERAGE_ITEM}: mandatory beta condition cannot be out_of_scope")
+    if findings:
+        return None
+
+    try:
+        coverage = importlib.import_module("check-law-coverage")
+    except (ImportError, OSError) as exc:
+        findings.append(f"beta b2 law coverage checker is unavailable: {exc}")
+        return None
+    coverage_findings, records = coverage.validate()
+    findings.extend(f"beta b2 law coverage: {finding}" for finding in coverage_findings)
+    if coverage_findings:
+        return None
+    blockers = {
+        state: sorted(record["id"] for record in records if record["state"] == state)
+        for state in ("outstanding", "unmeasured")
+    }
+    if items[0]["state"] == "satisfied" and any(blockers.values()):
+        findings.append(f"{BETA_COVERAGE_ITEM}: claims satisfied but law coverage has outstanding or unmeasured records")
+    return blockers
+
+
+def validate(data: object) -> tuple[list[str], dict[str, int], dict[str, list[str]] | None]:
     findings: list[str] = []
     tally = dict.fromkeys(STATES, 0)
     if not isinstance(data, dict):
-        return ["manifest: top-level value must be an object"], tally
+        return ["manifest: top-level value must be an object"], tally, None
     if set(data) - ALLOWED_ROOT:
         findings.append(f"manifest: unknown fields: {sorted(set(data) - ALLOWED_ROOT)}")
     if ALLOWED_ROOT - set(data):
         findings.append(f"manifest: missing fields: {sorted(ALLOWED_ROOT - set(data))}")
-        return findings, tally
+        return findings, tally, None
     if data["schema_version"] != SCHEMA_VERSION:
         findings.append(f"manifest: schema_version must be {SCHEMA_VERSION}")
     rung = data["rung"]
@@ -202,13 +244,14 @@ def validate(data: object) -> tuple[list[str], dict[str, int]]:
     validate_source(data["source"], prefix_letter, findings)
     declared = validate_conditions(data["conditions"], prefix_letter, findings)
     tally = validate_items(data["items"], declared, findings)
-    return findings, tally
+    blockers = validate_beta_coverage(data, declared, findings) if rung == "beta" and not findings else None
+    return findings, tally, blockers
 
 
 def main() -> int:
     # One file measures one rung (the schema says so); every file under the
     # glob is validated, and a rung may appear at most once across them.
-    paths = sorted((ROOT / ".concord/docs").glob(MANIFEST_GLOB))
+    paths = maturity_manifest_paths(ROOT)
     if not paths:
         print("maturity readiness manifest is missing", file=sys.stderr)
         return 1
@@ -218,24 +261,29 @@ def main() -> int:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"{path.name}: unreadable: {exc}", file=sys.stderr)
+            print(f"{path.relative_to(ROOT)}: unreadable: {exc}", file=sys.stderr)
             failed = True
             continue
         rung = data.get("rung", "unknown") if isinstance(data, dict) else "unknown"
         if rung in seen_rungs:
-            print(f"{path.name}: rung {rung} is already measured by another manifest", file=sys.stderr)
+            print(f"{path.relative_to(ROOT)}: rung {rung} is already measured by another manifest", file=sys.stderr)
             failed = True
             continue
         seen_rungs.add(rung)
-        findings, tally = validate(data)
+        findings, tally, blockers = validate(data)
+        if rung == "beta" and blockers is not None:
+            verdict = "NOT READY" if any(blockers.values()) else "READY"
+            print(f"b2 coverage: {verdict} ({len(blockers['outstanding'])} outstanding, {len(blockers['unmeasured'])} unmeasured)")
+            for identifier, state in sorted((identifier, state) for state, identifiers in blockers.items() for identifier in identifiers):
+                print(f"b2 blocker: {identifier} ({state})")
         if findings:
             failed = True
             for finding in findings:
-                print(f"{path.name}: {finding}", file=sys.stderr)
+                print(f"{path.relative_to(ROOT)}: {finding}", file=sys.stderr)
             continue
         total = sum(tally.values())
         print(
-            f"maturity readiness ({rung}, {path.name}) check passed: {total} item(s) — "
+            f"maturity manifest validity ({rung}, {path.name}) check passed: {total} declared item(s) — "
             + ", ".join(f"{count} {state}" for state, count in tally.items())
         )
     return 1 if failed else 0

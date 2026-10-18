@@ -5,6 +5,9 @@
 **Approval:** Operator approval for GitHub issue #44.
 **Amended by:** CD-0041 gives every law one Domain home and composes these
 relations with architecture-bound work contracts and overlap checks.
+**Amended:** 2026-10-17. Planning admits an explicit conflict only when
+`law_modifies` names the endpoint whose record declares it, because only that
+record can withdraw the declaration.
 
 ## Decision
 
@@ -58,7 +61,8 @@ Workflow contracts reuse `spec_mandate` for referenced law IDs and add bounded
 `law_modifies`. The latter must be a subset of the mandate and explicitly
 enters the operator-approved amendment path. At contract approval/planning,
 all mandated IDs must be currently accepted in the resolved Git home and an
-explicit conflict blocks unless a conflicting endpoint is in `law_modifies`.
+explicit conflict blocks unless the endpoint whose record declares it is in
+`law_modifies`.
 Before completion, the same bounded check runs without that exception. An
 amendment intent therefore permits planning only; completion requires a Git
 manifest delta that removes or resolves the conflict.

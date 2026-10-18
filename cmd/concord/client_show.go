@@ -27,7 +27,7 @@ func runClientShow(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		ClientRef string `json:"client_ref"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "client-show", err.Error())
+		writeOperatorDiagnostic(errOut, "client-show", diagnosticText(err))
 		return 1
 	}
 	// Match registration's SQLite length(TEXT) constraint, which stops at NUL.
@@ -38,7 +38,7 @@ func runClientShow(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	client, err := s.TrustedClient(context.Background(), request.ClientRef)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "client-show", err.Error())
+		writeOperatorDiagnostic(errOut, "client-show", diagnosticText(err))
 		return 1
 	}
 	response := clientShowResponse{ClientRef: client.ClientRef, Status: client.Status, PrincipalRef: client.PrincipalRef, PolicyRevision: client.PolicyRevision}

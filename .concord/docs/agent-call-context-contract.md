@@ -1,6 +1,7 @@
 # Concord Agent Call Context, Authorization, and Idempotency (TS5)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS5; binding input to CD-0005 §5 and TS6–TS9.
 > **Binding inputs:** PM2 global local authority, PM5 Product/Project/work
@@ -187,8 +188,10 @@ Approval is a durable core record, referenced by opaque `approval_ref`. It binds
 - issue time, expiry or explicit non-expiring policy, and allowed use count; and
 - revocation/consumption state.
 
-Approval need follows CD-0013 D11's destructive, decision-bearing, and routine
-classes, not the presence of an external effect or durable acknowledgement.
+Workflow-action consent follows the definition-pinned policy in CD-0013 D11,
+which applies CD-0230 D5's classes without classifying its retained approval gaps.
+Other operation approvals remain required until their holding records are amended.
+An external effect or durable acknowledgement alone does not determine consent.
 Required approvals default to single use. Reuse requires an explicit
 bounded approval policy naming the operation family, scope, expiry, and maximum
 uses. Changing any bound input, version, scope, content/home, or consequence makes

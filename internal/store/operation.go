@@ -191,8 +191,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"project.created":                         registerEventKind[projectCreatedPayload](2, 1, map[int]Upcaster{1: upcastProjectCreatedV1}, EventAppendAuthorityGeneric, foldProjectCreated, nil),
 	"project.renamed":                         registerEventKind[projectRenamedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectRenamed, nil),
 	"project.stage_changed":                   registerEventKind[projectStageChangedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectStageChanged, nil),
-	"project.locator_added":                   registerEventKind[projectLocatorPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectLocatorAdded, nil),
-	"project.locator_updated":                 registerEventKind[projectLocatorPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
+	"project.locator_added":                   registerEventKind[projectLocatorPayload](2, 1, map[int]Upcaster{1: upcastProjectLocatorV1}, EventAppendAuthorityGeneric, foldProjectLocatorAdded, nil),
+	"project.locator_updated":                 registerEventKind[projectLocatorPayload](2, 1, map[int]Upcaster{1: upcastProjectLocatorV1}, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
 	"project.locator_removed":                 registerEventKind[projectLocatorPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
 	"project.governing_requirement_declared":  registerEventKind[GoverningRequirement](1, 1, nil, EventAppendAuthorityGeneric, foldProjectGoverningRequirementDeclared, nil),
 	"project.governing_requirement_withdrawn": registerEventKind[GoverningRequirement](1, 1, nil, EventAppendAuthorityGeneric, foldProjectGoverningRequirementWithdrawn, nil),
@@ -204,6 +204,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
+	WorkSized:                                 registerEventKind[workSizedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSized, nil),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
@@ -233,7 +234,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRoleChanged, nil),
-	"compaction_link.published":               registerEventKind[compactionLinkPayload](2, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
+	"compaction_link.published":               registerEventKind[compactionLinkPayload](3, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1, 2: upcastCompactionLinkPublishedV2}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
 	"managed_resource.created":                registerEventKind[managedResourceCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceCreated, nil),
 	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
 	"managed_resource.updated":                registerEventKind[managedResourceUpdatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceUpdated, nil),
@@ -799,9 +800,9 @@ var replayProjectionClearTables = []string{
 	"domain_observations",
 	"resource_products", "managed_resources",
 	// work-referencing RESTRICT-FK tables clear before work_items:
-	// observations (CD-0030), messages (CD-0029), claims (CD-0028),
+	// observations (CD-0030), size records (CD-0229), messages (CD-0029), claims (CD-0028),
 	// outside-repair reconciliations and dispositions.
-	"work_observations", "work_messages", "resource_claims",
+	"work_observations", "work_size_assessments", "work_messages", "resource_claims",
 	"outside_repair_reconciliations", "outside_repair_dispositions",
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting

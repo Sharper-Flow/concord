@@ -2,8 +2,9 @@
 """Fail on mechanism the product cannot reach unless the repository declares it.
 
 CD-0047 D4. Law binding is a human claim and must be declared. Reachability is
-not: deadcode derives it from a real callgraph, which is why this plane
-declares only its exceptions and computes everything else. A per-symbol
+not: deadcode derives function reachability from a real callgraph, and go list
+accounts for internal packages outside the entrypoints' dependency set. This
+plane declares only its exceptions and computes everything else. A per-symbol
 manifest would restate a fact the toolchain already owns, and would drift from
 the code on every refactor.
 
@@ -16,11 +17,16 @@ method plus tx-scoped-core pairs — an exported `func (s *Store) X` delegating
 to `func X(ctx, s, req)` — so grepping for `.X(` misses every call through the
 core and reports live code as dead. deadcode resolves the callgraph properly.
 
-Not every unreachable function is a defect. CD-0013 D11 keeps the workflow
-action surface reserved until the engine ships, so its unreachability is
-accepted law working as intended. The manifest is how the two categories are
+Not every unreachable function is a defect. CD-0008 permits read-only
+point-in-time reconstruction for audit and diagnosis, and no operator verb is
+owed for it before the floor, so its unreachability is accepted law working as
+intended. The manifest is how the two categories are
 told apart, and declaring an exception is a deliberate act with a reason
 attached rather than an absence nobody noticed.
+
+Package exceptions retain test support, not unused packages. Tests of a
+production dependency must import each helper, directly or through another
+declared helper; an orphaned helper or helper cluster is a finding.
 
 A deliberate act still needs an owner. An `outstanding` exception names the
 issue that owns closing it, and scripts/coverage_state.py rejects a pointer
@@ -28,6 +34,7 @@ whose issue has closed.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -52,7 +59,7 @@ SCHEMA = ROOT / "contracts/reachability-exceptions.schema.json"
 
 ALLOWED_ROOT = {"schema_version", "analysis", "exceptions"}
 ALLOWED_ANALYSIS = {"tool", "version", "args", "entrypoints"}
-ALLOWED_EXCEPTION = {"id", "state", "functions", "issue", "reason"}
+ALLOWED_EXCEPTION = {"id", "state", "functions", "packages", "issue", "reason"}
 
 # deadcode emits: path/to/file.go:LINE:COL: unreachable func: Name
 # Line and column are deliberately discarded. Pinning them would make every
@@ -62,6 +69,7 @@ FINDING = re.compile(r"^(?P<file>[^:]+\.go):\d+:\d+: unreachable func: (?P<func>
 
 EXCEPTION_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SYMBOL = re.compile(r"^[a-z0-9/_]+\.[A-Za-z_][A-Za-z0-9_.]*$")
+PACKAGE = re.compile(r"^internal(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$")
 
 # Only these states describe an intentionally unreachable function. A satisfied
 # subject is reachable, and therefore is not an exception at all.
@@ -133,6 +141,71 @@ def check_analysis_block(manifest: dict, findings: list[str]) -> dict | None:
     return None if local else analysis
 
 
+def list_packages(arguments: list[str], findings: list[str]) -> dict[str, dict] | None:
+    """Read Go's build-selected package graph, including its test imports."""
+    try:
+        result = subprocess.run(
+            ["go", "list", "-json=Dir,ImportPath,GoFiles,CgoFiles,Imports,TestImports,XTestImports", *arguments],
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode:
+            findings.append(f"package analysis failed: {(result.stderr or result.stdout).strip()}")
+            return None
+        packages = {}
+        decoder = json.JSONDecoder()
+        remaining = result.stdout.strip()
+        while remaining:
+            package, end = decoder.raw_decode(remaining)
+            packages[package["ImportPath"]] = package
+            remaining = remaining[end:].lstrip()
+        return packages
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
+        findings.append(f"package analysis failed: {exc}")
+        return None
+
+
+def check_packages(analysis: dict, declared: list[str], findings: list[str]) -> None:
+    # deadcode's -tags flag is the only build flag outside the inherited Go environment.
+    flags: list[str] = []
+    for index, arg in enumerate(analysis["args"]):
+        if arg.startswith(("-tags=", "--tags=")):
+            flags.append("-tags=" + arg.split("=", 1)[1])
+        elif arg in ("-tags", "--tags"):
+            flags.extend(["-tags", analysis["args"][index + 1]])
+    roots = list_packages([*flags, "-deps", *analysis["entrypoints"]], findings)
+    internal = list_packages([*flags, "./internal/..."], findings)
+    if roots is None or internal is None:
+        return
+    unreachable = {
+        Path(package["Dir"]).relative_to(ROOT).as_posix(): name
+        for name, package in internal.items()
+        if name not in roots and (package.get("GoFiles") or package.get("CgoFiles"))
+    }
+    local: list[str] = []
+    check_subject_set(declared, list(unreachable), "package", local)
+    findings.extend(item.replace("undeclared package:", "undeclared unreachable package:", 1) for item in local)
+
+    # Only tests of production dependencies seed liveness. Tests of an orphan
+    # helper cannot justify that helper or another member of an orphan cluster.
+    imports = {
+        name for package in roots.values()
+        for name in package.get("TestImports", []) + package.get("XTestImports", [])
+    }
+    candidates = {unreachable[path] for path in declared if path in unreachable}
+    pending = list(imports & candidates)
+    used: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in used:
+            continue
+        used.add(name)
+        pending.extend(set(internal[name].get("Imports", [])) & candidates - used)
+    findings.extend(
+        f"declared test-support package has no test importer: {path}"
+        for path, name in sorted(unreachable.items()) if path in declared and name not in used
+    )
+
+
 def check_schema_states() -> list[str]:
     findings: list[str] = []
     document = load_json(SCHEMA, findings)
@@ -174,6 +247,7 @@ def main() -> int:
     issue_states = load_issue_states(findings)
 
     declared: list[str] = []
+    declared_packages: list[str] = []
     for exception in exceptions:
         if not isinstance(exception, dict):
             findings.append("exception must be an object")
@@ -201,15 +275,21 @@ def main() -> int:
         if exception.get("state") == "outstanding":
             check_outstanding_pointer(exception, prefix, issue_states, findings)
 
-        functions = exception.get("functions")
-        if not isinstance(functions, list) or not functions:
-            findings.append(f"{prefix}: functions must be a non-empty array")
+        if ("functions" in exception) == ("packages" in exception):
+            findings.append(f"{prefix}: requires exactly one of functions or packages")
             continue
-        for symbol in functions:
-            if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol):
-                findings.append(f"{prefix}: function must read <package>.<Name>: {symbol!r}")
+        key = "packages" if "packages" in exception else "functions"
+        subjects = exception[key]
+        if not isinstance(subjects, list) or not subjects:
+            findings.append(f"{prefix}: {key} must be a non-empty array")
+            continue
+        for subject in subjects:
+            pattern = PACKAGE if key == "packages" else SYMBOL
+            if not isinstance(subject, str) or not pattern.fullmatch(subject):
+                shape = "package must read internal/<path>" if key == "packages" else "function must read <package>.<Name>"
+                findings.append(f"{prefix}: {shape}: {subject!r}")
                 continue
-            declared.append(symbol)
+            (declared_packages if key == "packages" else declared).append(subject)
 
     if analysis is None:
         return report(findings, "reachability")
@@ -226,6 +306,7 @@ def main() -> int:
         return report(findings, "reachability")
 
     check_subject_set(declared, discovered, "unreachable function", findings)
+    check_packages(analysis, declared_packages, findings)
     return report(findings, "reachability")
 
 

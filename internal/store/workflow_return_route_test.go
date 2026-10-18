@@ -230,7 +230,7 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 	if correction == nil || correction.AttemptCount != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("dispatch correction context = %+v, want the first verdict correction", correction)
 	}
-	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
 		t.Fatal("request_correction remained available before a fresh verdict")
 	}
 }
@@ -277,7 +277,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(`{"diagnosis":"missing accepted delivery","strategy":"accept a completed worker result first","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`), Actor: fixture.owner,
 	})
 	// Admission gates request_correction on the shared prerequisite
@@ -310,7 +310,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
 			fixture := prepareVerdictCorrectionFixture(t, workID)
-			err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+			err := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
 			})
 			var failure *Failure
@@ -541,6 +541,10 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, effectStep, ownerRef)
+	// The authorization just opened the step's newest action start, so the
+	// dispatch evidence and the accept below name its recorded epoch.
+	authEpoch := latestStepStartEpoch(t, s, workID, effectStep)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: dispatchID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
@@ -549,7 +553,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -563,14 +567,14 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
 		Payload: mustJSONValue(map[string]any{
 			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-			"step_id": effectStep, "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"step_id": effectStep, "action_id": "dispatch_worker", "attempt_epoch": authEpoch, "worker_attempt_id": attemptID,
 			"actor_ref": ownerRef,
 		}),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
 		t.Fatal(err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(authEpoch)+`}`), 0, acceptor); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return refineReturnRouteWorkerLabeled(t, fixture, workID, acceptor, label)
@@ -805,7 +809,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
 		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 	}); err != nil {
@@ -893,7 +897,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, fixture.store, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -959,7 +963,7 @@ func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
 		t.Fatalf("unaccepted review missing class = %q, want %q", missing, workflowCorrectionMissingAcceptedDelivery)
 	}
 	payload := json.RawMessage(`{"diagnosis":"the review found the delivered subject does not satisfy the approved predicate","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: fixture.owner,
 	})
 	var failure *Failure

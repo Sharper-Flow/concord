@@ -368,7 +368,8 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return predicateErr
 		}
 		contract.OutcomePredicates = predicates
-		contract.ChangesProductTruth = out.ChangesProductTruth
+		changes := out.ChangesProductTruth
+		contract.ChangesProductTruth = &changes
 		binding, bindingErr := readWorkflowArchitectureBinding(ctx, tx, work, contract.Version)
 		if bindingErr != nil {
 			return bindingErr

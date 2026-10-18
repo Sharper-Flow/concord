@@ -79,7 +79,7 @@ jobs:
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
       - name: Retain baseline and current execution evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: workflow-history-${{ github.run_attempt }}
           path: ${{ runner.temp }}/workflow-history
@@ -131,14 +131,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -224,9 +218,9 @@ jobs:
       - name: Validate storage vocabulary authority
         run: python3 scripts/check-vocabulary-authority.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-branch-freshness.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check && python3 scripts/generate-lane-step-dispatch.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-work-sizes.py --check && python3 scripts/generate-branch-freshness.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check && python3 scripts/generate-lane-step-dispatch.py --check
       - name: Validate work-item and native-run vocabularies
-        run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py
+        run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py && python3 scripts/check-work-sizes.py
       - name: Validate archived-work knowledge-kind vocabulary
         run: python3 scripts/check-archived-work-kind.py
       - name: Validate rigor-class vocabulary
@@ -277,6 +271,8 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
+      - name: Validate the package-to-Domain map
+        run: python3 scripts/check-package-domains.py
       - name: Test legislative reference grammar and defaults
         run: python3 scripts/test-knowledge-authority.py
       - name: Test release and installer tooling
@@ -284,7 +280,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-committed-content.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-conflict-rules.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-check-committed-content.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py
 
       - name: Restore write access to the uv fixture cache
         if: always()
@@ -308,7 +304,7 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Check Go formatting
-        run: test -z "$(gofmt -l .)"
+        run: unformatted="$(gofmt -l .)" || exit 1; printf '%s\n' "$unformatted"; test -z "$unformatted"
       - name: Tidy Go modules
         run: go mod tidy
       - name: Check module diff
@@ -330,8 +326,8 @@ jobs:
         run: python3 scripts/check-reachability.py
       - name: Validate cognitive-complexity budget
         run: python3 scripts/check-complexity.py
-      - name: Test reachability and complexity checkers
-        run: python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
+      - name: Test reachability, issue-state and complexity checkers
+        run: python3 scripts/test-reachability.py && python3 scripts/test-update-issue-state.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
 
   # Full suite without the race detector, split across runners.
   # internal/store alone took 798 s and cmd/concord 439 s of one 14-minute
@@ -386,21 +382,15 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test every package without its own shard job
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -434,7 +424,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -459,14 +449,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -506,7 +490,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -531,14 +515,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -578,7 +556,7 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
@@ -603,14 +581,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -650,21 +622,15 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 1 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -698,21 +664,15 @@ jobs:
       - name: Fetch the released sources the release-pair tests build
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0 +refs/tags/v14.4.7:refs/tags/v14.4.7
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test shard 2 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -762,14 +722,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord

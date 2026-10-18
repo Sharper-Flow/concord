@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c7d061b735433eda3b035c345bc2fce54bfc4cfb70ae3c87301f935ff6c32761",
+  "sha256": "sha256:d5299b388e387b5bb1d8960caa1c4e040e3df877ec1c8984c74103819688ee98",
   "status": "accepted",
   "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; the durable sequence is the only receipt.",
   "tags": [

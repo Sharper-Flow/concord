@@ -269,7 +269,7 @@ func ReadApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref 
 		return c, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,max_uses,used_count FROM agent_approval_challenges WHERE challenge_ref=? AND client_ref=? AND session_ref=? AND agent_ref=? AND worktree=?`, ref, identity.ClientRef, identity.SessionRef, identity.AgentRef, identity.Worktree).Scan(&c.ChallengeRef, &c.ClientRef, &c.PrincipalRef, &c.SessionRef, &c.AgentRef, &c.Directory, &c.Worktree, &c.ProductScopeJSON, &c.OperationDigest, &c.ScopeJSON, &c.VersionJSON, &c.Consequence, &c.HostAssertionDigest, &c.IssuedAt, &c.ExpiresAt, &c.Status, &c.MaxUses, &c.UsedCount); err != nil {
-		return c, newFailure(KindProjectionNotFound, "agent_challenge_read", "approval challenge not found", false, "reread the active approval challenge")
+		return c, approvalReadFailure(err, "agent_challenge_read", "approval challenge not found", "reread the active approval challenge", "cannot read approval challenge")
 	}
 	return c, nil
 }
@@ -281,7 +281,7 @@ func ReadApprovalChallengeRefTx(ctx context.Context, transaction *Transaction, r
 		return c, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,max_uses,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref).Scan(&c.ChallengeRef, &c.ClientRef, &c.PrincipalRef, &c.SessionRef, &c.AgentRef, &c.Directory, &c.Worktree, &c.ProductScopeJSON, &c.OperationDigest, &c.ScopeJSON, &c.VersionJSON, &c.Consequence, &c.HostAssertionDigest, &c.IssuedAt, &c.ExpiresAt, &c.Status, &c.MaxUses, &c.UsedCount); err != nil {
-		return c, newFailure(KindProjectionNotFound, "agent_challenge_read", "approval challenge not found", false, "reread the approval challenge")
+		return c, approvalReadFailure(err, "agent_challenge_read", "approval challenge not found", "reread the approval challenge", "cannot read approval challenge")
 	}
 	return c, nil
 }
@@ -379,7 +379,7 @@ func ReadApprovalTx(ctx context.Context, transaction *Transaction, ref string) (
 		return a, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT a.approval_ref,a.operation_digest,a.scope_json,a.version_json,a.consequence,a.client_ref,a.session_ref,a.expires_at,a.max_uses,a.used_count,COALESCE(a.revoked_at,''),c.status FROM agent_approvals a JOIN agent_clients c ON c.client_ref=a.client_ref WHERE a.approval_ref=?`, ref).Scan(&a.ApprovalRef, &a.OperationDigest, &a.ScopeJSON, &a.VersionJSON, &a.Consequence, &a.ClientRef, &a.SessionRef, &a.ExpiresAt, &a.MaxUses, &a.UsedCount, &a.RevokedAt, &a.ClientStatus); err != nil {
-		return a, newFailure(KindProjectionNotFound, "agent_approval_read", "approval not found", false, "reread the approval")
+		return a, approvalReadFailure(err, "agent_approval_read", "approval not found", "reread the approval", "cannot read approval")
 	}
 	return a, nil
 }
@@ -406,16 +406,29 @@ func ReadApprovalAuthorityTx(ctx context.Context, transaction *Transaction, appr
 		return a, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT a.client_ref,a.protected_evidence_ref,a.used_count,a.max_uses,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json FROM agent_approvals a JOIN agent_clients c ON c.client_ref=a.client_ref WHERE a.approval_ref=? AND c.status='active'`, approvalRef).Scan(&a.ClientRef, &a.ProtectedEvidenceRef, &a.UsedCount, &a.MaxUses, &a.PrincipalRef, &a.CapabilitiesJSON, &a.ProductScopeJSON, &a.ProjectScopeJSON); err != nil {
-		return a, newFailure(KindProjectionNotFound, "agent_approval_authority", "consumed approval authority is unavailable", false, "reread the consumed approval")
+		return a, approvalReadFailure(err, "agent_approval_authority", "consumed approval authority is unavailable", "reread the consumed approval", "cannot read approval authority")
 	}
 	challengeRef := ""
 	if len(a.ProtectedEvidenceRef) > len("approval-challenge:") {
 		challengeRef = a.ProtectedEvidenceRef[len("approval-challenge:"):]
 	}
-	if challengeRef == "" || tx.QueryRowContext(ctx, `SELECT status FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&a.ChallengeStatus) != nil {
+	if challengeRef == "" {
 		return a, newFailure(KindProjectionNotFound, "agent_approval_authority", "approval challenge was not exactly consumed", false, "reread the approval challenge")
 	}
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&a.ChallengeStatus); err != nil {
+		return a, approvalReadFailure(err, "agent_approval_authority", "approval challenge was not exactly consumed", "reread the approval challenge", "cannot read approval authority")
+	}
 	return a, nil
+}
+
+// approvalReadFailure classifies one approval-record read error: no row is
+// the not-found refusal its caller names; any other error is a retryable
+// store fault, never evidence that the record is absent.
+func approvalReadFailure(err error, op, missing, missingRecovery, unreadable string) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return newFailure(KindProjectionNotFound, op, missing, false, missingRecovery)
+	}
+	return wrapFailure(KindUnavailable, op, unreadable, true, "retry once the database is readable", err)
 }
 
 func PruneAndRecordNonceTx(ctx context.Context, transaction *Transaction, clientRef, nonce, observedAt, expiresAt, pruneBefore string) error {

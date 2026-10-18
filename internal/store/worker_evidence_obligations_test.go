@@ -11,8 +11,8 @@ import (
 
 // workerCompleteEventV2 builds a current-version completion carrying reported
 // evidence exactly as the adapter would after parsing agent-lane-report.v1.
-func workerCompleteEventV2(workID, eventID, attemptID, model string, origin string, evidence []WorkerReportEvidence) Event {
-	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: origin}
+func workerCompleteEventV2(workID, eventID, attemptID, model string, origin string, evidence []WorkerReportEvidence, directory string) Event {
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: origin}
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
 }
 
@@ -41,11 +41,12 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	attemptID := "evidence-covered-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-covered", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-covered", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	evidence := append(laneCoveringEvidence(lane), WorkerReportEvidence{Obligation: lane.EvidenceObligations[0], Detail: "a second fact for the same obligation"})
-	complete := workerCompleteEventV2("evidence-covered", "evidence-covered-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, evidence)
+	complete := workerCompleteEventV2("evidence-covered", "evidence-covered-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, evidence, workerFixtureDirectory(t, s, "evidence-covered"))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}}); err != nil {
 		t.Fatalf("covered completion was refused: %v", err)
 	}
@@ -76,6 +77,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-undischarged-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-undischarged", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-undischarged", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +85,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	partial := laneCoveringEvidence(lane)[:len(lane.EvidenceObligations)-1]
 	before := workerProjectionSnapshot(t, s)
 	beforeEvents := countRows(t, s, "domain_events")
-	complete := workerCompleteEventV2("evidence-undischarged", "evidence-undischarged-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, partial)
+	complete := workerCompleteEventV2("evidence-undischarged", "evidence-undischarged-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, partial, workerFixtureDirectory(t, s, "evidence-undischarged"))
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}})
 	if !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("undischarged completion error = %v, want %s", err, KindInvalidPayload)
@@ -114,11 +116,12 @@ func TestWorkerCompletionNamingObligationOutsideItsLaneIsRefused(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[3]
 	foreign := BuiltinLaneDefinitions()[0].EvidenceObligations[0]
 	attemptID := "evidence-foreign-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-foreign", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-foreign", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	evidence := append(laneCoveringEvidence(lane), WorkerReportEvidence{Obligation: foreign, Detail: "an obligation this lane never declared"})
-	complete := workerCompleteEventV2("evidence-foreign", "evidence-foreign-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, evidence)
+	complete := workerCompleteEventV2("evidence-foreign", "evidence-foreign-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, evidence, workerFixtureDirectory(t, s, "evidence-foreign"))
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}})
 	if !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("foreign obligation error = %v, want %s", err, KindInvalidPayload)
@@ -163,7 +166,7 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
-			complete := workerCompleteEventV2("evidence-shape", "evidence-shape-complete", attemptID, preferredModelForLane(lane), testCase.origin, testCase.evidence)
+			complete := workerCompleteEventV2("evidence-shape", "evidence-shape-complete", attemptID, preferredModelForLane(lane), testCase.origin, testCase.evidence, workerFixtureDirectory(t, s, "evidence-shape"))
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}}); !hasFailureKind(err, KindInvalidPayload) {
 				t.Fatalf("shape error = %v, want %s", err, KindInvalidPayload)
 			}
@@ -189,10 +192,11 @@ func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *tes
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-legacy-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-legacy", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-legacy", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	legacy := workerCompleteEvent("evidence-legacy", "evidence-legacy-complete", attemptID, preferredModelForLane(lane))
+	legacy := workerCompleteEvent("evidence-legacy", "evidence-legacy-complete", attemptID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "evidence-legacy"))
 	if legacy.PayloadVersion != 1 {
 		t.Fatalf("fixture payload version = %d, want 1", legacy.PayloadVersion)
 	}

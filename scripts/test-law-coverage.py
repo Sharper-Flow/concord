@@ -9,12 +9,14 @@ accepts its own seeded manifest would be the defect it exists to close.
 import contextlib
 import errno
 import importlib.util
+import io
 import json
 import os
 import pathlib
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,6 +35,22 @@ def anchor_findings(kind: str, value: str) -> list[str]:
 
 def test_repository_manifest_passes() -> None:
     assert guard.main() == 0, "the seeded manifest must validate"
+
+
+def test_callable_returns_validated_records_without_reporting() -> None:
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        findings, records = guard.validate()
+    assert findings == [], findings
+    assert records == guard.knowledge_index.compose_law_coverage(ROOT)["records"]
+    assert out.getvalue() == err.getvalue() == "", (out.getvalue(), err.getvalue())
+
+
+def test_callable_rejects_a_non_object_coverage_manifest() -> None:
+    with mock.patch.object(guard.knowledge_index, "compose_law_coverage", return_value=None):
+        findings, records = guard.validate()
+    assert any("must be an object" in finding for finding in findings), findings
+    assert records == [], records
 
 
 def test_every_anchor_kind_is_exercised_by_the_manifest() -> None:
@@ -473,6 +491,7 @@ def test_outstanding_linear_pointer_must_be_live() -> None:
     try:
         snapshot_document = json.loads(originals[1])
         snapshot_document["issues"]["CON-901"] = "closed"
+        snapshot_document["linear_read_at"]["CON-901"] = snapshot_document["generated_at"]
         snapshot.write_text(json.dumps(snapshot_document, indent=2) + "\n", encoding="utf-8")
 
         def run_with_issue(identifier: str) -> subprocess.CompletedProcess:

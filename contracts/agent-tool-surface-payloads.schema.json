@@ -660,7 +660,7 @@
             }
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "properties": {
               "next_valid_intents": {
                 "type": "array",
@@ -682,6 +682,11 @@
                 {
                   "required": [
                     "obligations"
+                  ]
+                },
+                {
+                  "required": [
+                    "outstanding_evidence_kinds"
                   ]
                 }
               ]
@@ -774,6 +779,15 @@
             "maxLength": 64
           },
           "description": "Sorted exact evidence obligation IDs the pinned definition declares across root, step, and rigor declarations; the same collector admission reads."
+        },
+        "outstanding_evidence_kinds": {
+          "type": "array",
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidence_kind"
+          },
+          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including recovery check verification. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots."
         },
         "outside_repair_disposition": {
           "$ref": "#/$defs/outside_repair_disposition"
@@ -1288,6 +1302,9 @@
         },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
+        },
+        "size": {
+          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -1391,8 +1408,7 @@
         "outcome_predicates",
         "required_evidence",
         "route_conventions",
-        "spec_mandate",
-        "changes_product_truth"
+        "spec_mandate"
       ],
       "properties": {
         "version": {
@@ -1454,7 +1470,7 @@
           "maxItems": 32,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "law_revisions": {
@@ -1470,7 +1486,7 @@
             ],
             "properties": {
               "law_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               },
               "content_hash": {
                 "$ref": "#/$defs/digest"
@@ -1483,7 +1499,7 @@
           "maxItems": 32,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "rigor_class": {
@@ -1497,6 +1513,50 @@
         },
         "self_repair": {
           "$ref": "#/$defs/workflow_self_repair"
+        },
+        "approved_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "superseded_by": {
+          "$ref": "#/$defs/version"
+        },
+        "definition_pin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ref",
+                "version",
+                "digest",
+                "verified"
+              ],
+              "properties": {
+                "ref": {
+                  "$ref": "#/$defs/id"
+                },
+                "version": {
+                  "$ref": "#/$defs/version"
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                },
+                "verified": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -1809,13 +1869,13 @@
           ],
           "properties": {
             "old_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
             "accepted_successor_law_id": {
-              "$ref": "#/$defs/id"
+              "$ref": "#/$defs/law_id"
             },
             "accepted_successor_content_hash": {
               "$ref": "#/$defs/digest"
@@ -2159,6 +2219,12 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "contract_version": {
+          "description": "Selects the recorded contract version the workflow summary describes instead of the active one.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
         }
       }
     },
@@ -3661,7 +3727,7 @@
               "maxItems": 32,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/law_id"
               }
             },
             "pending_operator_decision": {
@@ -4573,6 +4639,12 @@
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }
+              },
+              "contract_version": {
+                "$ref": "#/$defs/version"
+              },
+              "previous_contract_version": {
+                "$ref": "#/$defs/version"
               }
             }
           }
@@ -5067,6 +5139,9 @@
         "defect_intake": {
           "$ref": "#/$defs/defect_intake",
           "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
+        },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs"
         }
       }
     },
@@ -9685,7 +9760,7 @@
           "type": "array",
           "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/law_id"
           }
         },
         "resolution_state": {
@@ -12031,7 +12106,8 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "predicate_id"
+        "predicate_id",
+        "verdict_kind"
       ],
       "properties": {
         "predicate_id": {
@@ -12044,7 +12120,8 @@
             "ok",
             "outcome_mismatch",
             "insufficient_evidence"
-          ]
+          ],
+          "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."
         },
         "evaluation_evidence": {
           "type": "array",
@@ -12557,6 +12634,89 @@
         "root_cause_work_id": {
           "$ref": "#/$defs/id",
           "description": "The completed workflow.research cluster RCA that admits a recurrent bug capture. Required once the core computes an earlier same-shape sibling; checked whenever a bug supplies it. Research captures must omit it."
+        }
+      }
+    },
+    "work_size_inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
+      "required": [
+        "security",
+        "user_visible",
+        "blast_radius",
+        "estimated_production_lines"
+      ],
+      "properties": {
+        "paths": {
+          "description": "Repository-relative files or directories the change will edit.",
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "behavior": {
+          "description": "A phrase for the behavior the change will alter, when the files are not known yet.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "security": {
+          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
+          "type": "boolean"
+        },
+        "user_visible": {
+          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
+          "type": "boolean"
+        },
+        "blast_radius": {
+          "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
+          "type": "string",
+          "enum": [
+            "contained",
+            "package",
+            "cross_package",
+            "external"
+          ]
+        },
+        "estimated_production_lines": {
+          "description": "Production lines you expect to add or change, tests excluded.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        }
+      }
+    },
+    "work_size_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The work item's current size record: the size the versioned model decided, the model version, and when it was recorded. Absent when the work was never sized.",
+      "required": [
+        "size",
+        "model_version",
+        "recorded_at"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": [
+            "small",
+            "larger",
+            "crucial"
+          ]
+        },
+        "model_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },
@@ -22322,6 +22482,305 @@
         }
       ],
       "description": "One selected research entry of the shared work-context view. Exactly the resolved state carries the native finding and its linked source descriptors; every other state carries the closed selection tuple and provenance only."
+    },
+    "domain_footprint_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "paths"
+          ],
+          "not": {
+            "required": [
+              "behavior"
+            ]
+          }
+        },
+        {
+          "required": [
+            "behavior"
+          ],
+          "not": {
+            "required": [
+              "paths"
+            ]
+          }
+        },
+        {
+          "required": [
+            "paths",
+            "behavior"
+          ]
+        }
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "paths": {
+          "description": "Repository paths relative to the root of the Product's designated knowledge home, normalized, without '.' or '..' segments.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "behavior": {
+          "description": "A behavior phrase matched against current law through the knowledge search.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "domain_footprint_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "knowledge_commit",
+        "registry_content_hash",
+        "package_map_content_hash",
+        "paths",
+        "domains",
+        "laws",
+        "package_checks"
+      ],
+      "properties": {
+        "knowledge_commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "registry_content_hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "package_map_content_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "domain_ids",
+              "unmapped"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "package": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "domain_ids": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "unmapped": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "domains": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "domain_id",
+              "name",
+              "status"
+            ],
+            "properties": {
+              "domain_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "deprecated"
+                ]
+              }
+            }
+          }
+        },
+        "laws": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "law_id",
+              "kind",
+              "title",
+              "path",
+              "content_hash",
+              "home_domain_id",
+              "basis",
+              "matched_paths",
+              "checks"
+            ],
+            "properties": {
+              "law_id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "constitution",
+                  "decision",
+                  "spec"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "content_hash": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "home_domain_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "is_law_document",
+                  "names_path",
+                  "behavior_match",
+                  "homed_in_domain",
+                  "applies_to_domain"
+                ]
+              },
+              "matched_paths": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "checks": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "adapter_test",
+                        "generated",
+                        "go_test",
+                        "scenario",
+                        "validator"
+                      ]
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "package_checks": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "package",
+              "kind",
+              "value"
+            ],
+            "properties": {
+              "package": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "go_package"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 258
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

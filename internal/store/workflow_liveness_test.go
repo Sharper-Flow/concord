@@ -721,7 +721,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,
 		Payload: request.Payload, Actor: request.Actor,
 	}
-	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		if seedGreenRun {
 			sqlTx, sqlErr := transactionSQL(tx, "liveness")
 			if sqlErr != nil {

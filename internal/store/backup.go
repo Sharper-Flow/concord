@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -167,7 +168,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		if !ok {
 			return newFailure(KindUnavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
 		}
-		operation, err := driverConn.NewBackup(destination)
+		operation, err := driverConn.NewBackup(SQLiteFileURI(destination))
 		if err != nil {
 			return wrapFailure(KindUnavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
 		}
@@ -761,7 +762,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 func manifestPath(destination string) string { return destination + ".manifest.json" }
 
 func readOnlyDataSource(path string) string {
-	return "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=foreign_keys(1)"
+	return SQLiteFileURI(path) + "?mode=ro&_pragma=foreign_keys(1)"
 }
 
 func fileSHA256(path string) (string, error) {
@@ -851,4 +852,9 @@ func readBackupManifest(destination string) (BackupManifest, error) {
 		return m, wrapFailure(KindInvalidPayload, "verify_backup", "backup manifest is not valid JSON", false, "discard the manifest and create a fresh backup", err)
 	}
 	return m, nil
+}
+
+// hash.Hash.Write always returns a nil error by contract.
+func writeHashf(h hash.Hash, format string, args ...any) {
+	_, _ = fmt.Fprintf(h, format, args...)
 }

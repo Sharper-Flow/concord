@@ -480,7 +480,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 // schema objects nor migration rows, including pending additive steps.
 func releaseMigrationSnapshot(t *testing.T, path string) string {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +661,7 @@ var cutoverEvidenceQueries = []struct {
 // migration path, so the witness reads and seeds the exact rows on disk.
 func mustOpenCutoverStore(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,20 +669,13 @@ func mustOpenCutoverStore(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-// evidenceQueries is the shared shape of one pair's fingerprinted
-// populations: a stable name beside the read that captures it.
-type evidenceQueries = []struct {
-	name  string
-	query string
-}
-
-// captureEvidenceRows reads every population one query list names as opaque
-// row strings. Row order is fixed by each query's ORDER BY, so equal stores
-// produce equal fingerprints.
-func captureEvidenceRows(t *testing.T, db *sql.DB, queries evidenceQueries) map[string][]string {
+// captureCutoverEvidence reads every living-evidence population as opaque
+// row strings, fixed by each query's ORDER BY, so equal stores produce
+// equal fingerprints.
+func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 	t.Helper()
 	captured := map[string][]string{}
-	for _, evidence := range queries {
+	for _, evidence := range cutoverEvidenceQueries {
 		rows, err := db.Query(evidence.query)
 		if err != nil {
 			t.Fatal(err)
@@ -714,14 +707,6 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, queries evidenceQueries) map[
 		captured[evidence.name] = population
 	}
 	return captured
-}
-
-// captureCutoverEvidence reads every living-evidence population as opaque
-// row strings, fixed by each query's ORDER BY, so equal stores produce
-// equal fingerprints.
-func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
-	t.Helper()
-	return captureEvidenceRows(t, db, cutoverEvidenceQueries)
 }
 
 // seedCutoverLivingEvidence writes the baseline schema's minimal living

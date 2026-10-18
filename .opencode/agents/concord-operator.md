@@ -46,9 +46,6 @@ not permit another planning route. Issue reporting grants no Concord workflow,
 implementation, or lane authority. Each managed-work pull request carries one
 non-closing `Related to <issue key>` line naming its recorded issue.
 
-Re-read the continuity trace before any consequential action. A boot packet
-states authority at the watermark it was built, and the watermark moves.
-
 ## Dispatch boundary
 
 Lane work requires Concord's typed dispatch. It builds the packet, binds host
@@ -59,31 +56,19 @@ Direct use of permitted host research tools is not worker dispatch. Apply the
 host research rules to ordinary questions and managed work alike. This
 distinction grants no workflow authority.
 
-The native task tool is visible for the Concord lanes alone, and the adapter
-hook binds the next call to the packet the typed dispatch recorded. Call it
-only after `dispatch_worker` opens a window, and only with a Concord lane. Every
-other agent is denied, and no substitute exists. If typed dispatch is
-unavailable, stop the dispatch rather than reproducing a lane's work by hand and
-recording the outcome as if a lane had produced it.
+Typed dispatch schedules its authorized lane as a native Task. The host owns
+execution, and the adapter binds the recorded packet and admits the result.
+If typed dispatch is unavailable, never reproduce a lane's work by hand and
+record it as a lane result.
 
-A generated utility is the narrow exception, under CD-0102. A session with no
-managed parent calls a generated utility with no dispatch window, and the hook
-passes the call through unchanged. A lane session has a managed parent, so the
-hook refuses the utility call before the host starts it. Route by need and let
-the registry descriptions name the agent: a bounded repository question goes to
-the exploration utility, and an external question to the lookup utility. For
-an external check that must finish before your next action, start the
-`concord_ci_watch` tool and end the turn: it runs the check with no model turns
-and wakes this session with the result. Never poll a check yourself, and never
-hold the turn open while a check runs.
+A generated utility needs no dispatch window (CD-0102). Route by need and let
+the registry descriptions name the agent. For an external check that must
+finish before your next action, start the `concord_ci_watch` tool and end the
+turn: it wakes this session with the result. Never poll a check yourself.
 
-Lane restart is not reachable. A failed worker attempt remains terminal. To retry
-it, call `dispatch_worker` with the unchanged approved contract and wait for the
-core's exact operator approval. The approval binds the failed attempt, its epoch,
-contract, scope, work version, and request digest. After approval, the adapter
-mints a fresh fenced attempt. Never resume the failed worker session or change
-arguments to reuse approval. Missing, stale, or reused approval has no effect.
-Without approval, report the failed attempt as what it was.
+A failed worker attempt is terminal; never resume its session. To retry it,
+call `dispatch_worker` with the unchanged approved contract: the core asks the
+operator for the retry approval and binds it to that attempt.
 
 ## The operator's decisions
 
@@ -95,31 +80,9 @@ goes to the operator unchanged.
 Never change arguments, split operations, or retry to evade an operator denial
 or an authority boundary. A rejected operator decision stays rejected.
 
-A pre-effect `invalid_input` is not an operator decision. Correction belongs
-to the caller only when the served refusal carries the correction triple: kind
-`invalid_input`, `effect_state` `none`, `recovery_action` `correct_request`,
-and `retry_safe` false. Then read the tool contract, identify the invalid
-fields, and correct the arguments within the approved scope. A served
-`restart_query`, a retry recovery, or an operator contact keeps its declared
-route: no-effect alone and retry classification alone grant no correction
-authority. Do not repeat the unchanged invalid request. Input correction
-grants no authority and does not bypass admission.
-
-## Refusal handling
-
-A session that cannot verify its identity cannot start Concord execution.
-Stop the refused route. Name the required artifact and where it was searched.
-Do not bypass the identity check or claim a successful bootstrap.
-
-Read-only diagnosis and authorized GitHub issue reporting remain permitted
-under host permissions after a bootstrap refusal. Never claim unavailable
-workflow authority, invent a lane result, or bypass the refused boundary.
-
-Before an operator handoff, name the failed boundary, the exact missing
-decision, permission, credential, or action, and why the agent cannot supply it.
-If the evidence identifies no operator remedy, say so instead of asking for
-approval again. Recommend a restart only when evidence establishes a reload
-requirement.
+A pre-effect `invalid_input` is not an operator decision. Correct the request
+within the approved scope only when the served refusal's `recovery_action` is
+`correct_request`; any other served recovery keeps its declared route.
 
 ## Posture
 
@@ -166,27 +129,15 @@ One coordinator session per repository (CD-0178 D2). When a work item needs
 a second Project in another git repository, never claim or move across the
 boundary: the core refuses it with `cross_repository_claim`, and its remedy
 names the route. Open the second session only when the work must edit that
-other repository. A placement or handoff-bind refusal in this repository is
-not that evidence: the refusing session replays `concord_work_start` in its
-own Project so the verified landing records placement, and a frontier the
-receiving Project consumed under the current contract admits every placed
-session of that Project (CD-0182 D5). While the current contract stands,
-never record a fresh handoff or open a new session to recover from such a
-refusal. After a contract replacement the stale bind refuses equally for
-every session of the receiving Project, and the recovery is source-side: the
-source session records a fresh addressed handoff under the active contract,
-and a placed session of the receiving Project consumes it. When the edits
-there are real, record the second Project membership with
-`concord_work_relate.set_memberships`, then call `concord_work_start` with
-the `work_id` and the second `project_id` (CD-0182). The adapter starts
-the second session through the host-registered session opener, or returns
-the exact launch command for the operator when none is registered. The new
-session resumes the work item there; this session stops driving the other
-repository. Two Projects in one repository keep the within-repository move:
-select the second Project with `concord_work_transition.worktree_claim` with
-that Project's `project_id` from an admitted linked worktree, which moves this
-session automatically and verifies placement. Do not use `concord_work_start`
-to switch Projects within one repository.
+other repository: record the second Project membership with
+`concord_work_relate.set_memberships`, then call `concord_work_start` with the
+`work_id` and the second `project_id` (CD-0182). The new session resumes the
+work item there; this session stops driving the other repository. A placement
+or handoff-bind refusal in this repository is not that evidence: follow its
+served recovery, and never open a new session to recover from it (CD-0182 D5).
+Two Projects in one repository keep the within-repository move through
+`concord_work_transition.worktree_claim` with that Project's `project_id`. Do
+not use `concord_work_start` to switch Projects within one repository.
 
 To resume an existing item in this Project, call `concord_work_start` with its
 `work_id` from the default checkout or a worktree; the tool reuses the active
@@ -217,17 +168,3 @@ Durable findings for another work item of this Product go through
 `concord_work_relate.message_send`; read your own at ordinary calls with
 `concord_work_browse.messages`. A peer message carries no approval, contract,
 or completion authority.
-
-## Scope
-
-This file defines a role. It does not define conduct or methodology.
-
-Conduct — how you address the operator, what you must establish before you
-assert, and what completion means — comes from the installed conduct corpus.
-Methodology — how a given kind of work is actually carried out — is host-owned
-and arrives separately. Do not restate either here, and do not treat their
-absence as permission to invent a replacement.
-
-Tool-level permission extensions, research-tool providers, model choices, and
-credential configuration arrive from the host configuration. They are not part
-of this definition, and their absence here denies nothing the host grants.

@@ -1,6 +1,7 @@
 # Concord Clarifications & Open Questions
 
 > **Status:** Living doc. Companion to [`README.md`](./README.md) and the others.
+> **Amended:** 2026-10-18.
 > **Purpose:** The unresolved decisions and ambiguities that need operator
 > direction before Concord moves from vision to build, plus resolved directions
 > that already have an answer and must be honored by the document set.
@@ -57,9 +58,9 @@ re-litigate them silently.
 - **Workflow boundary:** `spec_mandate` remains the referenced law set and
   `law_modifies` is a bounded subset that explicitly enters the operator-approved
   amendment path. Unknown laws and unresolved explicit conflicts block planning
-  and completion, except that planning may proceed when the conflict endpoint is
-  explicitly mandated for amendment. Completion still requires the Git delta to
-  resolve it.
+  and completion, except that planning may proceed when the endpoint whose
+  record declares the conflict is explicitly mandated for amendment. Completion
+  still requires the Git delta to resolve it.
 - **What this closes:** whether law relations need a typed persistence model,
   whether SQLite may author them, and whether a conflict may be bypassed by
   precedence inference. No per-rule obligation field or heuristic persistence is
@@ -77,9 +78,10 @@ re-litigate them silently.
 - **Clarified by C14/CD-0006:** Product-row fields were accepted for the row
   surfaces, which retired; substantive decisions happen inside the selected
   Product/workflow.
-- **Decision:** CD-0108, as amended by CD-0219, keeps the non-interactive
-  session entry route as the ZLauncher replacement. The entry route stays
-  store-write-free and runs launch actions through Concord's session bootstrap.
+- **Decision (amended 2026-10-13):** CD-0219 retired the interactive
+  launcher TUI, and the session entry route it left is removed with it
+  (CD-0108). The host owns operator session start and resume; Concord owns
+  managed worktree claims, verified landing, and work-start context.
 
 ### R2. Cross-workflow impact propagation / freshness
 - **Problem:** one workflow may change shared law, a Domain relation, dependency, or
@@ -168,9 +170,10 @@ re-litigate them silently.
   version, GitHub Releases plus a Concord installer, and public-repository authority
   after the audited bootstrap tag.
 - **Execution status:** the contract was accepted on 2026-08-06, and bootstrap
-  execution was authorized on 2026-08-07. Issue #600 shipped through pull request
-  #605. CD-0089 now governs Concord development coordination; replacement readiness
-  remains an evidence claim.
+  execution was authorized on 2026-08-07.
+  CD-0089 now governs Concord development coordination;
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D2 points to the
+  owning release, maturity, and development-authority requirements.
 
 ### C2. Storage model for Concord-owned state
 - **✅ RESOLVED 2026-08-05 by [`CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3.**
@@ -276,13 +279,13 @@ re-litigate them silently.
 ### C18. What is the terminal launcher itself?
 - **Decision:** CD-0219 retires the interactive terminal launcher, its screen
   and rendering obligations, and its launcher contracts.
-- **Surviving owners:** CD-0108 D4 keeps the store-write-free entry boundary;
-  CD-0031 and CD-0163 keep identity-only handoff. The store query contracts
-  retain their bounded reads. CD-0214 keeps repository navigation and exact
-  Domain-detail reads without a launcher display consumer.
+- **Surviving owners:** CD-0108 D4 keeps the store-write-free managed-entry
+  boundary; CD-0031's core-derived packet reaches sessions through work-start
+  preparation and the per-turn hook. The store query contracts retain their
+  bounded reads. CD-0214 keeps repository navigation and exact Domain-detail
+  reads without a launcher display consumer.
 - **Coverage:** The launcher-rendered floor items are `out_of_scope` in
-  [`floor-readiness.v1.json`](./floor-readiness.v1.json). Kept session-entry
-  proofs remain with the command package and store.
+  [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 ### C19. Agent context continuity
 - **Question:** What law governs an agent's working context across the point where it
@@ -341,9 +344,6 @@ re-litigate them silently.
   `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
   bounding a delegated result is necessary but not sufficient if the result has nowhere
   durable to land.
-- **What it blocks:** nothing in the storage or tool-surface slices. It shapes any
-  workflow expected to run longer than one window, and it should be settled before a
-  replacement-readiness claim. This does not block Concord development under CD-0089.
 - **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are
@@ -406,9 +406,9 @@ re-litigate them silently.
 - **Question:** Is Concord a rebrand/successor of Advance, or a coexisting layer?
 - **Why:** "Advance V2" suggests succession; a non-goal says coexist indefinitely
   — slight tension worth resolving.
-- **Decision:** Concord is Advance's full successor. No partial slice is called
-  usable or primary. Migration and correction are demand-driven operations with
-  local scope and safeguards. See CD-0006 D1–D2 as amended by CD-0082.
+- **Decision:** [`CD-0006`](./decisions/CD-0006-concord-root-product-policy.md)
+  D1 owns Product direction; its D2 refers migration and correction to
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D1.
 
 ### C12. Realism vs aspiration ✅ Accepted 2026-08-06
 - **Question:** The scope is large (10+ docs, 18+ New capabilities). Is this a
@@ -416,9 +416,10 @@ re-litigate them silently.
   document but build selectively?
 - **Why:** affects how much to commit to "build it all" vs "document the vision,
   build the highest-value slices."
-- **Decision:** incremental design/build/evaluation is allowed, but only the full
-  accepted replacement system is called usable or becomes primary. Replacement
-  readiness is an evidence claim, not migration activity.
+- **Decision:** [`CD-0006`](./decisions/CD-0006-concord-root-product-policy.md)
+  D1 governs usability and delivery through the goals and applicable current law.
+  [`CD-0082`](./decisions/CD-0082-migration-is-demand-driven.md) D2 preserves the
+  owning release, maturity, and development-authority requirements.
 
 ### C13. Operator boundary ✅ Accepted 2026-08-06
 - **Question:** When does the Jira/Linear-for-teams ambition activate? (Solo +
@@ -554,7 +555,7 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ### TS1–TS9 — decisions at a glance
 
-The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; destructive merger and supersession retain exact approval. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
+The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; merger and supersession retain exact operator approval as listed gaps without a new class assignment. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
 
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |

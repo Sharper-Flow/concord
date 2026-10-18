@@ -1,6 +1,7 @@
 # CD-0028: Durable resource claims for concurrent agents
 
 - **Status:** Accepted
+- **Amended:** 2026-10-18.
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; work-item events; fold projection
 - **Related:** CD-0016 (continuity), CD-0006 D8 (single operator), issue #88
@@ -19,7 +20,7 @@ model may assume it is the only writer.
 
 ## Decision
 
-A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, while cancellation, work removal, and other destructive effects retain it. All lifecycle, evidence, dependency, and claim-release invariants remain required. Historical workflow pins retain their signature rules.
+A resource claim grants no approval or workflow authority. Terminal-transition consent follows CD-0013 D11: routine acceptance-backed completion needs no operator approval, while cancellation and work removal retain it as listed gaps without a new class assignment. All lifecycle, evidence, dependency, and claim-release invariants remain required. Historical workflow pins retain their signature rules.
 
 
 **D1. A claim is a durable record of intent, not a lock.**

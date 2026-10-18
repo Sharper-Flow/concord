@@ -233,7 +233,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	oracleVerifyControl(t, oracleRepairFixture{store: s, git: git, entry: entry}, workID, "candidate", "1", []string{"true"}, 0)
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,17 +291,17 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	// The first review completes and the acceptor rejects it: the rejection
 	// opens the post-rejection review debt.
-	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":review-1", "refine", 1, reviewGateLane(t, "review"), ownerRef, at)
+	reviewOneEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":review-1", "refine", reviewGateLane(t, "review"), ownerRef, at)
 	at += 2
 	model = admissionSuccessor(def, model, "dispatch_worker")
 	conformanceCheckpoint(t, s, workID, def, model, "after review dispatch")
-	reviewGateRejectResult(t, s, workID, "attempt:"+workID+":review-1", 1, acceptor)
+	reviewGateRejectResult(t, s, workID, "attempt:"+workID+":review-1", reviewOneEpoch, acceptor)
 	model = admissionSuccessor(def, model, "reject_worker_result")
 	conformanceCheckpoint(t, s, workID, def, model, "after rejection")
 
 	// A fresh review of the repaired result completes with a ship verdict:
 	// the model's dispatch move names the settling review ready.
-	reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", 1, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	settlingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", reviewGateLane(t, "review"), ownerRef, "ship", at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
 	conformanceCheckpoint(t, s, workID, def, model, "after settling review completion")
 
@@ -316,7 +316,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// integration covered, so the model must reflect the same dimension.
 	model.integration = true
 	conformanceCheckpoint(t, s, workID, def, model, "after current-epoch verification")
-	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", 1, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", settlingEpoch, acceptor); err != nil {
 		t.Fatalf("accept the settling review: %v", err)
 	}
 	// The settling review carries no worker job and asserts delivery, so
@@ -374,13 +374,13 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// and the accepted delivery the fold counts as production.
 	retryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
 	retryDerives := conformanceStepDerives(t, s, workID, "repair")
-	retryEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	model = admissionDerivedCheckpointSuccessor(def, model, retryEntry, retryDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "producer restarted")
-	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", retryEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+	repairTwoEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", reviewGateLane(t, "implementation"), ownerRef, at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
 	conformanceCheckpoint(t, s, workID, def, model, "producer redispatched")
-	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair-2", retryEpoch, acceptor); err != nil {
+	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair-2", repairTwoEpoch, acceptor); err != nil {
 		t.Fatalf("accept the fresh production: %v", err)
 	}
 	// The fresh repair-2 dispatch carries no worker job, so the plain
@@ -459,7 +459,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	model = admissionSuccessor(def, model, "record_worker_job")
 	// The conformance lift compares the folded delivery state verbatim, so
 	// the model carries the recorded revision's real deterministic keys.
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	reRecorded := &WorkerJobBinding{JobID: job.JobID, Revision: 2}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, reRecorded)
 	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err = s.WorkerJobRevisions(context.Background(), workID)
+	views, err = readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

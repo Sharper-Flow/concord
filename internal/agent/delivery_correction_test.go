@@ -254,9 +254,13 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// unchanged original, under coordinator provenance only. The core
 		// records the coordinator's evidence and never claims a verification
 		// of any forge or merge state.
-		projection, err := store.ReadWorkflowProjection(context.Background(), s, store.WorkflowReadRequest{WorkID: "work-1"})
+		workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 		if err != nil {
 			t.Fatal(err)
+		}
+		projection := workflowRead.Workflow
+		if projection == nil {
+			t.Fatal("Q7 omitted the recorded workflow")
 		}
 		assertion := projection.DeliveryAssertion
 		if assertion == nil || assertion.Correction == nil {
@@ -280,7 +284,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// fail closed when a reader drops them: the read must stay able to name
 		// the exact target a correction admission consumes and the artifact the
 		// correction overlay selects.
-		published, err := publishedWorkflowRead(&projection)
+		published, err := publishedWorkflowRead(projection)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -585,7 +589,9 @@ func correctionApprovedDispatch(t *testing.T, s *store.Store, service *Service, 
 // seeded actor population, and the recorded binding untouched.
 func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := crossProductDispatchFixture(t, []Capability{"work_transition", "cross_scope"})
+	// product_read authorizes the read-surface assertions below; the
+	// correction boundary itself needs work_transition and cross_scope only.
+	s, service, grant, privateKey := crossProductDispatchFixture(t, []Capability{"work_transition", "cross_scope", "product_read"})
 	targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryAgentFixture(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -726,6 +732,113 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	}
 	if !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
 		t.Fatalf("cross-Product correction snapshot lost the derived Product set: %s", snapshot)
+	}
+
+	// The read surface shows the effective merge evidence beside the
+	// unchanged original, under coordinator provenance only. The core
+	// records the coordinator's evidence and never claims a verification of
+	// any forge or merge state.
+	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := workflowRead.Workflow
+	if projection == nil {
+		t.Fatal("Q7 omitted the recorded workflow")
+	}
+	assertion := projection.DeliveryAssertion
+	if assertion == nil || assertion.Correction == nil {
+		t.Fatalf("read carries no corrected delivery assertion: %+v", projection.DeliveryAssertion)
+	}
+	if assertion.EventID != targetEventID || assertion.Artifact != "file:internal/adapter/opencode/run.ts" {
+		t.Fatalf("original assertion changed in the read: %+v", assertion)
+	}
+	if assertion.Correction.Artifact != deliveryCorrectionAgentMergeRef {
+		t.Fatalf("effective artifact=%q, want the merge evidence", assertion.Correction.Artifact)
+	}
+	if assertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
+		t.Fatalf("evidence source=%q, want the coordinator-asserted provenance", assertion.Correction.EvidenceSource)
+	}
+
+	// The corrected assertion round-trips through the closed workflow_read
+	// contract, and the required target_payload_version and effective_artifact
+	// fail closed when a reader drops them: the read must stay able to name
+	// the exact target a correction admission consumes and the artifact the
+	// correction overlay selects.
+	published, err := publishedWorkflowRead(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishedJSON, err := json.Marshal(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("workflow_read", publishedJSON); err != nil {
+		t.Fatalf("published workflow_read subset does not round-trip through the closed contract: %v", err)
+	}
+	assertionShape, ok := published["delivery_assertion"].(map[string]any)
+	if !ok {
+		t.Fatalf("read shape carries no delivery_assertion object: %+v", published["delivery_assertion"])
+	}
+	if assertionShape["effective_artifact"] != deliveryCorrectionAgentMergeRef {
+		t.Fatalf("effective_artifact = %v, want the merge evidence", assertionShape["effective_artifact"])
+	}
+	delete(assertionShape, "target_payload_version")
+	withoutVersion, err := json.Marshal(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
+		t.Fatalf("dropped target_payload_version validated as %v, want a required-field refusal naming it", err)
+	}
+	delete(assertionShape, "effective_artifact")
+	assertionShape["target_payload_version"] = targetPayloadVersion
+	withoutEffective, err := json.Marshal(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
+		t.Fatalf("dropped effective_artifact validated as %v, want a required-field refusal naming it", err)
+	}
+
+	// The public history read carries the same effective assertion beside the
+	// unchanged original: the page's workflow projection names the asserted
+	// artifact, the correction's merge evidence under coordinator provenance,
+	// and the target_payload_version a correction admission consumes. The
+	// closed work_event_page contract refuses the projection's internal
+	// fields, so an ok outcome proves the published subset shape.
+	history := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","page":{"cursor":null,"limit":20}}`)}, env)
+	if history.Outcome != OutcomeOK || history.Error != nil {
+		t.Fatalf("history read outcome=%+v error=%+v", history.Outcome, history.Error)
+	}
+	var page struct {
+		Workflow *struct {
+			DeliveryAssertion *struct {
+				EventID              string `json:"event_id"`
+				Artifact             string `json:"artifact"`
+				TargetPayloadVersion int    `json:"target_payload_version"`
+				Correction           *struct {
+					Artifact       string `json:"artifact"`
+					EvidenceSource string `json:"evidence_source"`
+				} `json:"correction"`
+			} `json:"delivery_assertion"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(history.Result, &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Workflow == nil || page.Workflow.DeliveryAssertion == nil || page.Workflow.DeliveryAssertion.Correction == nil {
+		t.Fatalf("history page carries no corrected delivery assertion: %s", history.Result)
+	}
+	historyAssertion := page.Workflow.DeliveryAssertion
+	if historyAssertion.EventID != targetEventID || historyAssertion.Artifact != "file:internal/adapter/opencode/run.ts" {
+		t.Fatalf("history page changed the original assertion: %+v", historyAssertion)
+	}
+	if historyAssertion.TargetPayloadVersion != targetPayloadVersion {
+		t.Fatalf("history target_payload_version=%d, want %d", historyAssertion.TargetPayloadVersion, targetPayloadVersion)
+	}
+	if historyAssertion.Correction.Artifact != deliveryCorrectionAgentMergeRef || historyAssertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
+		t.Fatalf("history correction = %+v, want the merge evidence under coordinator provenance", historyAssertion.Correction)
 	}
 }
 

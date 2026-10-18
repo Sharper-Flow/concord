@@ -434,7 +434,7 @@ func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, 
 // inputs.worker_job shape.
 func recordedPacketJobForTest(t *testing.T, s *Store, workID string, job WorkerJobBinding) map[string]any {
 	t.Helper()
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +514,7 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +587,11 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 	if err != nil {
 		return err
 	}
-	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job)
+	var directory string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory); err != nil {
+		return err
+	}
+	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
 }
 
@@ -644,7 +648,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	job := &WorkerJobBinding{JobID: "job:record-core", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, worker, job)
-	ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -732,7 +736,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 	if pin := issue1013Pin(t, s, workID); pin.Step != "repair" {
 		t.Fatalf("step after the job-bound accept = %q, want repair held", pin.Step)
 	}
-	ready, err = s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err = readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -838,7 +842,7 @@ func TestWorkerJobRecordingAuthorityAndReadinessGates(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("record revision behind an unsatisfied prerequisite: %v", err)
 	}
-	ready, err := s.ReadyWorkerJobRevisions(context.Background(), workID)
+	ready, err := readyWorkerJobRevisions(context.Background(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,7 +892,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatalf("local accept of the job-bound attempt at refine: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "refine")
-			views, err := s.WorkerJobRevisions(context.Background(), workID)
+			views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -904,7 +908,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatal(err)
 			}
 			unbound := "attempt:" + workID + ":unbound-review"
-			reviewGateRunAttempt(t, s, workID, unbound, "refine", epoch(), reviewGateLane(t, "review"), ownerRef, 200)
+			reviewGateRunAttempt(t, s, workID, unbound, "refine", reviewGateLane(t, "review"), ownerRef, 200)
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": unbound, "attempt_epoch": epoch()}), 0, acceptor); err == nil || !strings.Contains(err.Error(), "exits only through an admitted delivery assertion") {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}

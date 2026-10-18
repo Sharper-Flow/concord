@@ -128,7 +128,7 @@ func PlanUpgradeReadiness(ctx context.Context, path string, options ...UpgradeOp
 // appear beside the store, which the plan accepts. Any failure to open or
 // reach the store fails closed.
 func openReadonlyStore(path string) (*sql.DB, error) {
-	dsn := "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=busy_timeout(" + pragmaBusyTimeout + ")"
+	dsn := SQLiteFileURI(path) + "?mode=ro&_pragma=busy_timeout(" + pragmaBusyTimeout + ")"
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, wrapFailure(KindReadinessUnknown, "readiness",
@@ -326,26 +326,6 @@ func appliedBreakingFloor(applied map[int]appliedMigration) int {
 // KindReadinessUnknown marks a store whose activation readiness cannot be
 // established by reading. The planner never repairs, guesses, or writes.
 const KindReadinessUnknown FailureKind = "readiness_unknown"
-
-// escapeSQLiteURIPath percent-encodes one absolute filesystem path for the
-// path component of a file: URI. SQLite resolves %XX escapes in URI
-// filenames, so a path containing '?', '#', or spaces names exactly the
-// file the planner observed — never a fragment-shortened neighbor.
-func escapeSQLiteURIPath(path string) string {
-	var builder strings.Builder
-	for i := 0; i < len(path); i++ {
-		c := path[i]
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-			builder.WriteByte(c)
-		case strings.IndexByte("/._~-", c) >= 0:
-			builder.WriteByte(c)
-		default:
-			fmt.Fprintf(&builder, "%%%02X", c)
-		}
-	}
-	return builder.String()
-}
 
 func appliedVersions(applied map[int]appliedMigration) []int {
 	versions := make([]int, 0, len(applied))

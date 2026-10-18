@@ -309,6 +309,9 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	t.Helper()
 	const workID = "work-1"
 	ctx := context.Background()
+	if payload.WorkerDirectory == "" {
+		payload.WorkerDirectory = agentWorkerDirectory(t, s, workID)
+	}
 	if payload.EvidenceOrigin == "" {
 		payload.EvidenceOrigin = store.WorkerEvidenceReported
 	}
@@ -329,6 +332,15 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	}); err != nil {
 		t.Fatalf("completed report through the seam for %s: %v", attemptID, err)
 	}
+}
+
+func agentWorkerDirectory(t *testing.T, s *store.Store, workID string) string {
+	t.Helper()
+	var directory string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, store.WorktreeSetID(workID)).Scan(&directory); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 // agentEvidenceForLane discharges every obligation the attempt's lane

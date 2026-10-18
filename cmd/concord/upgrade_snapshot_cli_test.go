@@ -77,7 +77,7 @@ func TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				db, err := sql.Open("sqlite", "file:"+path)
+				db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 				if err != nil {
 					t.Fatal(err)
 				}

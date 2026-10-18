@@ -28,19 +28,26 @@ import {
   publishWorkStartDefinition,
   publishRequestDefinition,
   takeWorkNotices,
-  configureSessionOpener,
+  readBoundWorkerSource,
+  readBoundWorkerDiff,
+  executeBoundWorkerControl,
 } from "./concord"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, registerCiWatchPeer } from "./ci-watch"
+import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition, redeliverQueuedCiReports, registerCiWatchPeer } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { continueWorkStartOnEvent, observeWorkStartMessage } from "./work-start-continuation"
+import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
+import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
+import { workerDiffTool, publishWorkerDiffDefinition } from "./worker_diff"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -68,22 +75,13 @@ async function pushSessionGoalTitle(input: unknown, output: { context: string[] 
   }
 }
 
-export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, options?: PluginOptions) {
+export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, _options?: PluginOptions) {
   hostControlPlane().bind(input)
   // The CI watcher delivers through the same client, so the plugin factory is
   // the one place the watcher transport is bound.
   bindCiWatchClient(input)
   // Bind before publication so a failed peer registration can log.
   const ciPeer = registerCiWatchPeer(input)
-  // CD-0182: the session opener is the operator's host placement. The host
-  // passes the options of the tuple entry to this factory, and the
-  // session_opener value is the one argv template a coordinator may run to
-  // open a second repository's session. Registering it is the operator's
-  // standing consent for coordinators to open sessions and spend model
-  // quota; an absent or invalid template still yields the exact launch
-  // command. Validation happens at use, so the refusal can name the invalid
-  // field.
-  configureSessionOpener(options?.["session_opener"])
   // CD-0111 D1/D2: claim the session's release lease before any tool can
   // run. The claim fails closed: a session that cannot claim a lease keeps
   // the release it runs visible to the installer, so the tools refuse rather
@@ -96,27 +94,29 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   const instanceDirectory = input?.directory
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
+  const workerCapabilities = createWorkerCapabilityGuard()
+  // Concord entries retain their structured managed-parent refusals. Native
+  // and nested MCP calls pass the worker capability ceiling instead.
+  const tools = guardPrimaryRoles({
+    concord_product_view: product_view,
+    concord_work_browse: work_browse,
+    concord_work_trace: work_trace,
+    concord_knowledge: knowledge,
+    concord_work_define: work_define,
+    concord_domain: domain,
+    concord_work_transition: work_transition,
+    concord_work_relate: work_relate,
+    concord_work_compact: work_compact,
+    concord_work_start: work_start,
+    concord_ci_watch: ciWatchTool(ciPeer.id),
+    concord_worker_read: workerReadTool(workerCapabilities, readBoundWorkerSource),
+    concord_worker_check: workerCheckTool(workerCapabilities, executeBoundWorkerControl),
+    concord_worker_diff: workerDiffTool(workerCapabilities, readBoundWorkerDiff),
+  })
   return {
-    // Every registration passes the primary role guard, which refuses a tool
-    // the step agent's named profile denies before any transport runs.
-    tool: guardPrimaryRoles({
-      concord_product_view: product_view,
-      concord_work_browse: work_browse,
-      concord_work_trace: work_trace,
-      concord_knowledge: knowledge,
-      concord_work_define: work_define,
-      concord_domain: domain,
-      concord_work_transition: work_transition,
-      concord_work_relate: work_relate,
-      concord_work_compact: work_compact,
-      concord_work_start: work_start,
-      // The registration is the watcher tool's only name: its module lives
-      // in the custom tools directory, where nothing but the plugin may name
-      // a tool.
-      concord_ci_watch: ciWatchTool(ciPeer.id),
-    }),
+    tool: tools,
     "chat.message": async (
-      input: { sessionID: string; messageID?: string },
+      input: { sessionID: string; messageID?: string; agent?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },
     ) => {
       // The ci-watch start notice is a noReply user message, and the host
@@ -126,6 +126,8 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // treat the notice as an operator turn. Skip those when every part
       // carries the notice marker.
       if (isCiWatchNoticeMessage(output?.parts)) return
+      observeWorkStartMessage(input.sessionID, output?.parts)
+      await workerCapabilities.observe(input.sessionID, input.agent)
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and
@@ -145,8 +147,16 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       await publishRequestDefinition(definitionInput, output)
       await publishWorkStartDefinition(definitionInput, output)
       await publishCiWatchDefinition(definitionInput, output)
+      await publishWorkerReadDefinition(definitionInput, output)
+      await publishWorkerCheckDefinition(definitionInput, output)
+      await publishWorkerDiffDefinition(definitionInput, output)
     },
     event: async ({ event }: { event: unknown }) => {
+      redeliverQueuedCiReports(event)
+      continueWorkStartOnEvent(event, message => {
+        if (input?.client?.app?.log) void input.client.app.log({ body: { service: "concord", level: "warn", message } }).catch(() => { console.warn(message) })
+        else console.warn(message)
+      })
       const result = await failDispatchedWorker(event)
       if (result?.error) {
         await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })
@@ -161,25 +171,28 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       if (input.tool === "question" && questionRequiresNormalChat(input.sessionID)) {
         throw new Error(TURN_MOVE_QUESTION_REFUSAL)
       }
-      if (input.tool !== TASK_TOOL_ID) return
+      if (input.tool !== TASK_TOOL_ID) {
+        if (!Object.hasOwn(tools, input.tool)) await workerCapabilities.before(input, output)
+        return
+      }
       const windows = dispatchWindows()
+      const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
+      if (concordUtility) {
+        if (await hostControlPlane().hasManagedParent(input.sessionID)) {
+          throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
+        }
+        return
+      }
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
       // A lane runs only inside the window an authorized dispatch_worker
       // opened. Without one, a direct lane Task is exactly the coordinator
       // Task-list competition the registry forbids: the call is refused with
       // the correcting route instead of consuming a lane's attempt unbound.
       if (concordLane && !windows.has(input.sessionID)) {
-        throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; issue the dispatch_worker action first, then repeat this Task call inside the window it opens`)
+        throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
       }
       if (windows.has(input.sessionID)) {
         await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
-        return
-      }
-      const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
-      if (concordUtility) {
-        if (await hostControlPlane().hasManagedParent(input.sessionID)) {
-          throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
-        }
         return
       }
       const scope = await hostControlPlane().taskScope(input.sessionID)
@@ -203,7 +216,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     // coordinator.
     "tool.execute.after": async (
       input: { tool: string; sessionID: string; callID: string; args: unknown },
-      output: { title: string; output: string; metadata: unknown },
+      output: { title: string; output: string; metadata: unknown } | undefined,
     ) => {
       await completeDispatchedWorker(input, output)
     },

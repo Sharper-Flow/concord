@@ -72,9 +72,9 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			at := int64(100)
 			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			attemptID := "attempt:" + workID + ":review"
-			reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+			verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "ship", at)
 			acceptor := reviewGateAcceptor(workID)
-			payload := json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attemptID, epoch))
+			payload := json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attemptID, verdictEpoch))
 			pin, err := ReadWorkPin(context.Background(), s, workID)
 			if err != nil {
 				t.Fatal(err)
@@ -83,7 +83,7 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 				t.Fatalf("pending review has wrong disposition/correction intents: %#v", pin.NextValidIntents)
 			}
 
-			if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID),
 				ActionID: "accept_worker_evidence", Payload: payload, Actor: acceptor,
 			}); err != nil {
@@ -208,13 +208,13 @@ func TestRefineReviewEvidenceDispositionRefusesInvalidAttempts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			attemptID := "attempt:" + workID + ":report"
 			capability := "review"
 			if scenario == "implementation" || scenario == "verification" {
 				capability = scenario
 			}
-			reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, capability), ownerRef, "ship", 100)
+			verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, capability), ownerRef, "ship", 100)
 			if scenario == "uncompleted" {
 				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lifecycle_state='dispatched',completed_at=NULL WHERE attempt_id=?; DELETE FROM fold_guard`, attemptID); err != nil {
 					t.Fatal(err)
@@ -224,12 +224,12 @@ func TestRefineReviewEvidenceDispositionRefusesInvalidAttempts(t *testing.T) {
 			if scenario == "self-acceptance" {
 				acceptor = fixture.owner
 			}
-			fields := map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}
+			fields := map[string]any{"attempt_id": attemptID, "attempt_epoch": verdictEpoch}
 			if scenario == "wrong-attempt" {
 				fields["attempt_id"] = "attempt:another-work"
 			}
 			if scenario == "wrong-epoch" {
-				fields["attempt_epoch"] = epoch + 1
+				fields["attempt_epoch"] = verdictEpoch + 1
 			}
 			if scenario == "delivery-fields" {
 				fields["delivery_artifact"] = "artifact:unapproved"
@@ -261,11 +261,11 @@ func TestRefineReviewEvidenceAcceptancePreservesVerdictDebt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	for i, verdict := range []string{"no_ship", "ship"} {
 		attemptID := "attempt:" + workID + ":" + verdict
-		reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, verdict, int64(100+i*10))
-		payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch})
+		verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, verdict, int64(100+i*10))
+		payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": verdictEpoch})
 		if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, reviewGateAcceptor(workID)); err != nil {
 			t.Fatal(err)
 		}
@@ -312,8 +312,8 @@ func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *test
 				}
 			}
 			reviewID := "attempt:" + workID + ":accepted"
-			reviewGateRunAttemptWithVerdict(t, s, workID, reviewID, epoch, reviewGateLane(t, "review"), ownerRef, "ship", 100)
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", mustJSONValue(map[string]any{"attempt_id": reviewID, "attempt_epoch": epoch}), 0, reviewGateAcceptor(workID)); err != nil {
+			reviewEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, reviewID, reviewGateLane(t, "review"), ownerRef, "ship", 100)
+			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", mustJSONValue(map[string]any{"attempt_id": reviewID, "attempt_epoch": reviewEpoch}), 0, reviewGateAcceptor(workID)); err != nil {
 				t.Fatal(err)
 			}
 			pin := issue1013Pin(t, s, workID)
@@ -358,7 +358,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
-			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
+			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC(), workerFixtureDirectory(t, s, workID))
 			var payload WorkerCompletedPayload
 			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 				t.Fatal(err)

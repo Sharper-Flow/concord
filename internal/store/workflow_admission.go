@@ -156,6 +156,9 @@ type WorkflowAdmissionState struct {
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
 	// requirement the recovery bind_evidence can settle.
 	EvidenceRecoveryRoute bool
+	// EvidenceRecovery retains the eligibility owner's snapshot facts for
+	// readers; admission still decides through EvidenceRecoveryRoute.
+	EvidenceRecovery *workflowEvidenceBindingRecoveryState
 	// PendingOperatorDecision reports an open operator question at the
 	// current step: the checkpoint declares an approval-required action and
 	// the investigation artifact stands behind it. workflowAdmit refuses
@@ -216,9 +219,8 @@ type WorkflowAdmissionDecision struct {
 	// boundary obtains that approval; an escalated retry needs convergence.
 	ApprovalRequired bool
 	// ConvergenceRequired keeps the refused retry visible on the work pin.
-	ConvergenceRequired     bool
-	RecoveryRoute           bool
-	ConsequentialConditions bool
+	ConvergenceRequired bool
+	RecoveryRoute       bool
 	// OffStep marks the structural step-legality refusal. The callers apply
 	// it at the engine's late position — after the payload and guard checks
 	// whose specific refusals precede the generic off-step one — instead of
@@ -465,13 +467,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, holdErr
 	}
 	state.DispatchHold = dispatchHold
-	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryAvailable(ctx, q, definition, workID, currentStep); evidenceErr != nil {
+	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0); evidenceErr != nil {
 		if !duplicatedProjection || !workflowDuplicateContractProjection(evidenceErr) {
 			return WorkflowAdmissionState{}, nil, nil, evidenceErr
 		}
 		state.EvidenceRecoveryRoute = false
 	} else {
-		state.EvidenceRecoveryRoute = evidenceRecovery
+		state.EvidenceRecoveryRoute = evidenceRecovery.Refusal == nil && len(evidenceRecovery.Requirements) != 0
+		state.EvidenceRecovery = &evidenceRecovery
 	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
 		return WorkflowAdmissionState{}, nil, nil, err
@@ -694,7 +697,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			return decision
 		}
 		if state.ExternalConditionsOpen != 0 {
-			decision.ConsequentialConditions = true
 			decision.Failure = newFailure(KindNotTerminal, "workflow_action", "consequential action has unresolved external conditions", false, "reread_entities")
 			return decision
 		}

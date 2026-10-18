@@ -68,7 +68,7 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 	}
 	lane := reviewGateLane(t, "review")
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
-		jobBoundCompletionEvent(workID, "refine-completed-"+label+"-"+workID, attemptID, lane, time.Unix(41, 0).UTC(), binding),
+		jobBoundCompletionEvent(workID, "refine-completed-"+label+"-"+workID, attemptID, lane, time.Unix(41, 0).UTC(), binding, workerFixtureDirectory(t, fixture.store, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 // dispatch helpers emit, attaching the recorded worker-job binding the
 // dispatch authorization recorded so the fold's end-to-end check passes on
 // job-capable pins. The helper carries no binding on legacy pins.
-func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding) Event {
-	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: binding, EvidenceOrigin: WorkerEvidenceReported}
+func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding, directory string) Event {
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, WorkerJob: binding, EvidenceOrigin: WorkerEvidenceReported}
 	if len(lane.RequiredReportBlocks) > 0 {
 		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
 	}
@@ -449,7 +449,7 @@ func seedReturnedRefineWithRecordedFailure(t *testing.T, workID string) (workflo
 	}
 	reviewLane := reviewGateLane(t, "review")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		jobBoundCompletionEvent(workID, "refine-completed-refine-review-2-"+workID, reviewAttempt, reviewLane, time.Unix(41, 0).UTC(), reviewBinding),
+		jobBoundCompletionEvent(workID, "refine-completed-refine-review-2-"+workID, reviewAttempt, reviewLane, time.Unix(41, 0).UTC(), reviewBinding, workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestReturnedRefineRecordedFailureKeepsCorrectionClosed(t *testing.T) {
 	// report and the accept disposes it.
 	lane := reviewGateLane(t, "review")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		jobBoundCompletionEvent(workID, "refine-completed-refine-live-"+workID, liveAttempt, lane, time.Unix(43, 0).UTC(), liveBinding),
+		jobBoundCompletionEvent(workID, "refine-completed-refine-live-"+workID, liveAttempt, lane, time.Unix(43, 0).UTC(), liveBinding, workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

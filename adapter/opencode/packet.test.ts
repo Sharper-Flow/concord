@@ -617,7 +617,7 @@ test("a malformed checkpoint refuses the packet", async () => {
   }
 })
 
-test("installed agents project the report schema bounds", async () => {
+test("installed agents project worker-authored report bounds and leave model identity to the adapter", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()
   const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
@@ -626,8 +626,9 @@ test("installed agents project the report schema bounds", async () => {
   expect(agent).toContain(`additionalProperties=${agentLaneReportSchema.additionalProperties}`)
   expect(agent).toContain(`maxItems=${reportProperties.evidence.maxItems}`)
   expect(agent).toContain(`maxLength=${reportEntry.properties.detail.maxLength}`)
-  expect(agent).toContain(`maxLength=${reportProperties.readback_model.maxLength}`)
-  expect(agent).toContain(reportProperties.readback_model.pattern)
+  expect(agent).toContain("The adapter supplies report identity from the dispatch packet and host readback.")
+  expect(agent).not.toContain("readback_model:")
+  expect(agentLaneReportSchema.required).toContain("readback_model")
   expect(agent).toContain("evidence_entry.predicate_ids: optional array; type=array, minItems=0, maxItems=8")
   expect(agent).toContain("omit it or use an empty array on an entry that proves no declared predicate")
   expect(agent).toContain("Both forms mean no predicate tie")
@@ -1354,11 +1355,8 @@ test("strict binding rejection", () => {
 })
 
 // Generated worker guidance teaches the canonical task, the binding
-// authority, and the one-result scope, and states the approval premise limit
-// in UTF-8 bytes apart from the packet's code-point field limits and the
-// model token budget. It directs no truncation and no reapproval, and names
-// no host Task prompt cap.
-test("generated guidance teaches the canonical task, binding authority, and count units", async () => {
+// authority, and the one-result scope, and names no host Task prompt cap.
+test("generated guidance teaches the canonical task and binding authority", async () => {
   const agent = (await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()).replace(/\s+/g, " ")
   expect(agent).toContain("## Objective and binding")
   expect(agent).toContain("`inputs.task` is the canonical objective, carried verbatim")
@@ -1367,11 +1365,6 @@ test("generated guidance teaches the canonical task, binding authority, and coun
   expect(agent).toContain("`objective_source`")
   expect(agent).toContain("`contract_version` is null before a contract is approved")
   expect(agent).toContain("Complete only that assigned result")
-  expect(agent).toContain("at most 4096 UTF-8 bytes")
-  expect(agent).toContain("count JSON Schema Unicode code points")
-  expect(agent).toContain("`context_tokens_max` is a model token limit")
-  expect(agent).toContain("do not truncate approved content")
-  expect(agent).toContain("do not ask to reapprove unchanged scope")
   expect(agent).not.toMatch(/Task prompt (cap|limit)/i)
 })
 
@@ -1525,8 +1518,10 @@ test("an oracle past the closed control bound refuses the packet build", async (
 test("TestReviewSubjectLaneMismatch", async () => {
   const agent = await Bun.file(new URL(`../../.opencode/agents/concord-review.md`, import.meta.url)).text()
   expect(agent).toContain("`inputs.work_context.subject_commit`")
-  expect(agent).toContain("`git rev-parse --verify HEAD^{commit}`")
-  expect(agent).toContain("`git status --porcelain=v1 -z --untracked-files=all`")
+  expect(agent).toContain("The host checks")
+  expect(agent).toContain("before review tool access")
+  expect(agent).toContain("and fresh report settlement")
+  expect(agent).toContain("Do not run shell commands")
   expect(agent).toContain("`failed`")
 })
 

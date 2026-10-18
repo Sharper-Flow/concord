@@ -31,11 +31,20 @@ type corpusSetup struct {
 type corpusIdempotency struct {
 	Key string `json:"key"`
 }
+type corpusApproval struct {
+	ApprovalRef *string `json:"approval_ref"`
+}
+type corpusOperation struct {
+	StepID   string `json:"step_id"`
+	StepKind string `json:"step_kind"`
+}
 type corpusRequest struct {
 	ExpectedVersion int64             `json:"expected_version"`
 	ActionID        string            `json:"action_id"`
 	Fields          map[string]any    `json:"fields"`
 	Idempotency     corpusIdempotency `json:"idempotency"`
+	Approval        corpusApproval    `json:"approval"`
+	Operation       corpusOperation   `json:"operation"`
 }
 type corpusAssertion struct {
 	Target string `json:"target"`

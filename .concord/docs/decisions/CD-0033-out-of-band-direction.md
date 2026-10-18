@@ -4,12 +4,16 @@
 - **Date:** 2026-08-16
 - **Scope:** Outcome-binding law; completion clause 5; operator direction
 - **Related:** CD-0005 (D6, TS4), CD-0012, issue #71
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the operator
+  console to the host-started session under the Snowball coordinator's
+  operator-delegated approval.
+- **Amended:** 2026-10-18.
 - **Supersedes:** nothing
 
 ## Context
 
-The operator console is the launcher plus the OpenCode TUI sessions it
-launches. Observation and intervention live in the session: the operator can
+The operator console is the host-started OpenCode session. Observation and
+intervention live in the session: the operator can
 redirect, correct, or narrow an agent mid-run by typing to it. That division
 is intended (CD-0005 D6, TS4): Concord owns authority and durable truth, not
 session observation.
@@ -22,7 +26,7 @@ same operator who redirected.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, out-of-band direction still changes a committed contract only through attributed, versioned supersession with audit evidence. Supersession itself requires no operator approval. CD-0013 D11 governs conditional contract/premise consent; neither an unsigned revision nor a chat message enacts Product law or waives governing requirements. Historical pins retain the signature rules below.
+For `approval_policy=consequence_v1`, out-of-band direction still changes a committed contract only through attributed, versioned supersession with audit evidence. Supersession itself requires no operator approval. CD-0013 D11 governs conditional contract/premise consent; neither a revision's workflow consent class nor a chat message enacts Product law or waives governing requirements, and actual law changes follow CD-0230 D4. Historical pins retain the signature rules below.
 
 
 **Operator direction of agent labor is legitimate and stays out-of-band. Its

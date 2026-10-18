@@ -118,7 +118,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 			},
 		}
 	}
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: recoveryPayload, Actor: owner,
 	}); err != nil {
 		t.Fatalf("duplicate recovery preflight refused the reachable route: %v", err)

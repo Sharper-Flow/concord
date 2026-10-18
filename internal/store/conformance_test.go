@@ -423,7 +423,7 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	}
 
 	claim := testClaim("conformance-fence", "parent-claim")
-	if _, err := ClaimStep(ctx, s, claim); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
 		t.Fatal(err)
 	}
 	results = run("fence")
@@ -435,13 +435,13 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	}
 
 	staleClaim := testClaim("conformance-stale", "stale-parent")
-	if _, err := ClaimStep(ctx, s, staleClaim); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, staleClaim, nil); err != nil {
 		t.Fatal(err)
 	}
-	takeover := testClaim("conformance-stale", "stale-takeover")
-	takeover.PrincipalRef = "operator"
-	takeover.RequestID = "stale-takeover-request"
-	if _, err := OperatorTakeover(ctx, s, takeover, "conformance-approval"); err != nil {
+	secondClaim := testClaim("conformance-stale", "stale-second-claim")
+	secondClaim.PrincipalRef = "operator"
+	secondClaim.RequestID = "stale-second-claim-request"
+	if _, err := ClaimStepAuthorized(ctx, s, secondClaim, nil); err != nil {
 		t.Fatal(err)
 	}
 	results = run("stale_completion")
@@ -450,7 +450,7 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	}
 
 	claim = testClaim("conformance-idempotent", "parent-idempotent-claim")
-	if _, err := ClaimStep(ctx, s, claim); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
 		t.Fatal(err)
 	}
 	results = run("idempotent")
@@ -459,7 +459,7 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	}
 
 	claim = testClaim("conformance-idempotency-conflict", "parent-conflict-claim")
-	if _, err := ClaimStep(ctx, s, claim); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
 		t.Fatal(err)
 	}
 	results = run("idempotency_conflict")
@@ -966,7 +966,7 @@ func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) er
 	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation(durableMixedProbeProduct, durableMixedProbeProduct+"-membership")); err != nil {
 		return fmt.Errorf("durable_mixed probe product: %w", err)
 	}
-	if _, err := ClaimStep(ctx, s, testClaim(durableMixedProbeOp, "mixed-probe-claim")); err != nil {
+	if _, err := ClaimStepAuthorized(ctx, s, testClaim(durableMixedProbeOp, "mixed-probe-claim"), nil); err != nil {
 		return fmt.Errorf("durable_mixed probe claim: %w", err)
 	}
 	seedResearchWork(t, s, durableMixedResearchOwner)

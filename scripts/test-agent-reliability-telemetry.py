@@ -6,8 +6,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 
@@ -74,6 +77,24 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
     def document(self) -> dict:
         self.connection.commit()
         return telemetry.measure(self.shard, 21)
+
+    def test_open_shard_keeps_uri_characters_literal_and_read_only(self) -> None:
+        names = ("plain", "shard#one", "shard#two", "shard?one", "shard%32", "shard2", "shard%", "space + café")
+        for name in names:
+            shard = self.shard / name
+            shard.mkdir()
+            with closing(sqlite3.connect(shard / "opencode.db")) as fixture:
+                fixture.execute("CREATE TABLE path_identity (name text NOT NULL)")
+                fixture.execute("INSERT INTO path_identity VALUES (?)", (name,))
+                fixture.commit()
+        for name in names:
+            with self.subTest(name=name):
+                shard = self.shard / name
+                with closing(telemetry.open_shard(shard)) as connection:
+                    self.assertEqual(connection.execute("PRAGMA database_list").fetchone()[2], str(shard / "opencode.db"))
+                    self.assertEqual(connection.execute("SELECT name FROM path_identity").fetchone()[0], name)
+                    with self.assertRaisesRegex(sqlite3.OperationalError, "readonly database"):
+                        connection.execute("DELETE FROM path_identity")
 
     def test_invalid_input_counts_per_tool_and_model(self) -> None:
         for _ in range(3):
@@ -147,6 +168,37 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         self.assertEqual(bucket["calls"], 1)
         self.assertEqual(bucket["invalid_input"], 1)
 
+    def test_cli_missing_baseline_refuses_without_creating_it(self) -> None:
+        baseline_path = self.shard / "missing-baseline.json"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--shard", str(self.shard), "--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(baseline_path), result.stderr)
+        self.assertIn("--write-baseline", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(baseline_path.exists())
+
+    def test_cli_baseline_bootstrap_is_explicit(self) -> None:
+        baseline_path = self.shard / "new-baseline.json"
+        command = [sys.executable, str(SCRIPT), "--shard", str(self.shard)]
+        measured = subprocess.run(command, capture_output=True, text=True, check=False, timeout=10)
+        self.assertEqual(measured.returncode, 0, measured.stderr)
+        self.assertIn("measures", json.loads(measured.stdout))
+        self.assertFalse(baseline_path.exists())
+        written = subprocess.run(
+            command + ["--baseline", str(baseline_path), "--write-baseline"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertIn("measures", json.loads(baseline_path.read_text()))
+        compared = subprocess.run(
+            command + ["--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertEqual(compared.returncode, 0, compared.stderr)
+
     def test_baseline_round_trip_and_regression(self) -> None:
         for _ in range(2):
             self.add(*refusal("concord_work_define", "invalid_input", "missing payload field reason"))
@@ -160,6 +212,57 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         regressed = self.document()
         findings = telemetry.compare(regressed, baseline_path, 0.0)
         self.assertTrue(findings and "concord_work_define" in findings[0])
+
+    def test_written_baseline_records_measurement_method(self) -> None:
+        document = self.document()
+        self.assertIsInstance(document.get("method_version"), str)
+        self.assertTrue(document["method_version"])
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(document, baseline_path)
+        self.assertEqual(json.loads(baseline_path.read_text())["method_version"], document["method_version"])
+        self.assertEqual(telemetry.compare(document, baseline_path, 0.0), [])
+
+    def test_compare_refuses_unknown_measurement_methods(self) -> None:
+        self.add(*refusal("concord_work_define", "invalid_input"))
+        document = self.document()
+        baseline_path = self.shard / "baseline.json"
+        for method in (None, "older-method", 1, True):
+            with self.subTest(method=method):
+                recorded = dict(document)
+                if method is None:
+                    recorded.pop("method_version", None)
+                else:
+                    recorded["method_version"] = method
+                telemetry.write_baseline(recorded, baseline_path)
+                original = baseline_path.read_bytes()
+                with self.assertRaisesRegex(SystemExit, "incomparable.*--write-baseline"):
+                    telemetry.compare(document, baseline_path, 1.0)
+                self.assertEqual(baseline_path.read_bytes(), original)
+
+    def test_cli_reports_incomparable_baseline_not_regression(self) -> None:
+        self.add(*refusal("concord_work_define", "invalid_input"))
+        recorded = self.document()
+        recorded.pop("method_version", None)
+        recorded["measures"]["invalid_input"]["concord_work_define"]["rate"] = 0.0
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(recorded, baseline_path)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--shard", str(self.shard), "--baseline", str(baseline_path)],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomparable", result.stderr)
+        self.assertNotIn("agent-reliability regression:", result.stdout + result.stderr)
+
+    def test_execute_regression_and_tolerance_with_matching_method(self) -> None:
+        self.add(*tool_part("execute", "completed"))
+        baseline_path = self.shard / "baseline.json"
+        telemetry.write_baseline(self.document(), baseline_path)
+        self.add(*tool_part("execute", "error", "unknown tool"))
+        document = self.document()
+        findings = telemetry.compare(document, baseline_path, 0.0)
+        self.assertEqual(findings, ["execute guess rate 0.5 above baseline 0.0"])
+        self.assertEqual(telemetry.compare(document, baseline_path, 0.5), [])
 
 
 if __name__ == "__main__":

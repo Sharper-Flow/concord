@@ -1085,6 +1085,11 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		// One ranked slot rides a terminal report's review block: the
 		// mixed 32-slot view spans generic, ranked, and research entries.
 		lane := BuiltinLaneDefinitions()[0]
+		ownerRef, actorErr := WorkflowActorRef(fixture.owner)
+		if actorErr != nil {
+			t.Fatal(actorErr)
+		}
+		recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-research-ranked", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-research-ranked", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1097,7 +1102,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
 			Payload: mustJSONValue(WorkerCompletedPayload{
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-				EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence,
+				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
+				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
 				Review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker"}}},
 			}),
 		}}}); err != nil {
@@ -1152,6 +1158,10 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		selections = append(selections, researchSelectionEntry(pack.PackID, 1, "f2", workContextTestChild))
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
+		startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
+		if startsBefore != 1 {
+			t.Fatalf("dispatch_worker starts before refusal = %d, want 1 from setup", startsBefore)
+		}
 		err := recordResearchDeclarationTx(t, fixture, map[string]any{
 			"finding_refs": refs, "context_findings": []map[string]any{}, "research_finding_refs": selections,
 		}, nil)
@@ -1165,8 +1175,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused 33-slot declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 0 {
-			t.Fatalf("dispatch_worker starts = %d, want zero behind the refusal", got)
+		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != startsBefore {
+			t.Fatalf("dispatch_worker starts after refusal = %d, want unchanged pre-refusal count %d", got, startsBefore)
 		}
 	})
 

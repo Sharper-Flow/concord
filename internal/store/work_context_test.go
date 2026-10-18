@@ -786,11 +786,16 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 	}
 	// A terminal report between the declarations contributes findings only
 	// while it is not superseded by a later declaration selecting nothing.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-1", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-1", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	reported := []WorkerContextFinding{{Kind: "observation", Statement: "the worker reported between declarations", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	completion := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-1", "attempt-ctx-1", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-1", "attempt-ctx-1", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("worker report with findings refused: %v", err)
 	}
@@ -804,11 +809,12 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatalf("anchor declaration refused: %v", err)
 	}
 	// A subsequent terminal report rides the current view.
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-2", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-2", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	subsequent := []WorkerContextFinding{{Kind: "contradiction", Statement: "the later worker contradicted the direction", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-2", "attempt-ctx-2", preferredModelForLane(lane), lane, subsequent, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-2", "attempt-ctx-2", preferredModelForLane(lane), lane, subsequent, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -958,11 +964,16 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("second declaration refused: %v", err)
 	}
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-overflow", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-overflow", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	retained := []WorkerContextFinding{{Kind: "observation", Statement: "retained but unselected", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-overflow", "attempt-ctx-overflow", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-overflow", "attempt-ctx-overflow", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("terminal report retention blocked by the view bound: %v", err)
 	}
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
@@ -1123,11 +1134,18 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("declaration refused: %v", err)
 	}
+	// The attempt's original dispatch authorization precedes the generic
+	// dispatch evidence, so the terminal report resolves its own Project.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-promote", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-promote", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	retained := []WorkerContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", "attempt-ctx-promote", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", "attempt-ctx-promote", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatal(err)
 	}
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
@@ -1281,6 +1299,14 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
+	// The attempt's own authorization precedes its generic dispatch, so the
+	// admitted completion resolves the original Project while the refused
+	// shapes keep their finding-domain refusals.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-domain-1", "repair", ownerRef)
 	dispatch("attempt-domain-1")
 	refusals := []struct {
 		name     string
@@ -1293,7 +1319,7 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 		{"child with rationale", finding(workContextTestChild, workContextRootRationale), KindInvalidPayload},
 	}
 	for index, refusal := range refusals {
-		completion := workerCompletedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-%d", index), "attempt-domain-1", model, lane, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-%d", index), "attempt-domain-1", model, lane, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); !hasFailureKind(err, refusal.want) {
 			t.Fatalf("completion %s error = %v, want %s", refusal.name, err, refusal.want)
 		}
@@ -1302,7 +1328,7 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 			t.Fatalf("failure %s error = %v, want %s", refusal.name, err, refusal.want)
 		}
 	}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("child-domain completion refused: %v", err)
 	}
 	dispatch("attempt-domain-2")

@@ -8,14 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -34,9 +35,6 @@ func run(args []string, out, errOut io.Writer) int {
 }
 
 func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
-	if filepath.Base(os.Args[0]) == "zl" {
-		return runZLForwarding(args, in, out, errOut)
-	}
 	if len(args) == 1 && args[0] == "--version" {
 		_, _ = fmt.Fprintln(out, version.Value)
 		return 0
@@ -48,7 +46,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == "--version" && args[1] == "--json" {
 		return writeCoreDescriptor(out, errOut)
 	}
-	if len(args) == 1 && args[0] == "--help" {
+	if len(args) == 1 && isHelpFlag(args[0]) {
 		writeUsage(out)
 		return 0
 	}
@@ -60,13 +58,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
 		writeUsage(errOut)
 		return 2
-	}
-	if len(args) > 0 && args[0] == "zl" {
-		return runZLForwarding(args[1:], in, out, errOut)
-	}
-	// Session boot derives continuity before OpenCode receives any prompt.
-	if len(args) > 0 && args[0] == "session" {
-		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
 	// Continuity block is a read-only transport for the adapter's per-turn
 	// hook. It must run before project and JSON routing so it does not
@@ -164,9 +155,12 @@ func invokeOperationEnums() string {
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) — born-failed terminal records only, and the assertion must be version 2 signing its canonical observation digest", Enums: "none"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, review, worker_job — required on a job-bound attempt, evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory — required on a new completion, base_comparison, review, worker_job — required on a job-bound attempt, evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
+	{Canonical: "worker-read", RequiredFields: requiredFields(field("work_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("ordinal"), field("offset"), field("length")), Optional: "none", Enums: "read-only host capability; original authorized packet only; ordinal and offset nonnegative; length 1-4096 raw bytes; data is base64; no path, ref, command, or workflow mutation"},
+	{Canonical: "worker-diff", RequiredFields: requiredFields(field("work_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("offset"), field("length")), Optional: "none", Enums: "read-only inspect_diff capability; original live review packet and pinned job scope only; first editing subject under the active contract to held review subject; offset nonnegative; length 1-4096 raw bytes; no caller-selected path or ref"},
+	{Canonical: "worker-control", RequiredFields: requiredFields(field("work_id"), field("project_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("control_id"), field("assertion")), Optional: "none", Enums: "private host ingress; signed actual child execution policy and original packet; recorded native control only; no caller-authored argv, cwd, runner, actor, or workflow mutation"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch"},
@@ -188,20 +182,18 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
-	{Canonical: "project-canonical-path", TwoWord: "project canonical-path", RequiredFields: requiredFields(field("project_id")), Optional: "none", Enums: "none"},
 	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout, with checkout_work_id naming the work that owns the checkout; read-only"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
+	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), size_inputs (paths and/or behavior, security, user_visible, blast_radius, estimated_production_lines; the model decides the size), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
-	{Canonical: "outside-repair", RequiredFields: requiredFields(field("work_id"), field("agent")), Optional: "none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
@@ -238,21 +230,48 @@ func routeCommand(args []string) (string, []string, bool) {
 	return spec.Canonical, rest, true
 }
 
+// verbUsages lists the verbs that route before the JSON-stdin command table,
+// in top-level usage order, with their usage lines. A verb that commandSpecs
+// also declares answers --help with its command section; the others answer
+// with these lines.
+var verbUsages = []struct {
+	Verb  string
+	Lines []string
+}{
+	{"continuity-block", []string{"continuity-block <directory>   # read-only continuity packet for the session directory"}},
+	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
+	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
+	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
+	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
+	{"recover-fold-guard", []string{"recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log"}},
+	{"ci-wait", []string{"ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)"}},
+}
+
+// isHelpFlag reports whether an argument asks for help; -h is an alias of
+// --help on every help route.
+func isHelpFlag(arg string) bool { return arg == "--help" || arg == "-h" }
+
+// writeVerbUsage writes one verb's usage lines and reports whether the verb
+// has any.
+func writeVerbUsage(out io.Writer, verb string) bool {
+	for _, usage := range verbUsages {
+		if usage.Verb == verb {
+			for _, line := range usage.Lines {
+				_, _ = fmt.Fprintln(out, "  concord "+line)
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume a session")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
-	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
-	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; session identity env required")
-	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
-	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
-	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
-	_, _ = fmt.Fprintln(out, "  concord upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness")
-	_, _ = fmt.Fprintln(out, "  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)")
-	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
-	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
+	for _, usage := range verbUsages {
+		writeVerbUsage(out, usage.Verb)
+	}
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Required-field refusals exit 64 before dispatch.")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
@@ -321,10 +340,12 @@ func writeGroupSections(out io.Writer, group string) {
 	}
 }
 
-// runCommandHelpRoute resolves '<command> --help' and the group words before
-// any stdin read or store open. '<command> --help' prints one section to
-// stdout and exits 0. A bare group word is a usage error that names the group
-// and lists its commands on stderr with exit 2, and '<group> --help' prints
+// runCommandHelpRoute resolves '<command> --help', '<verb> --help', and the
+// group words before any stdin read or store open; -h is the same flag.
+// '<command> --help' prints one section and '<verb> --help' its usage lines,
+// both to stdout with exit 0. A bare group word, or a group word followed by
+// a word that names none of its commands, is a usage error that names the
+// group and lists its commands on stderr with exit 2; '<group> --help' prints
 // the same sections to stdout. It reports whether it handled the arguments,
 // with the exit code to return.
 func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
@@ -332,11 +353,14 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 		return 0, false
 	}
 	if spec, rest, matched := matchCommandSpec(args); matched {
-		if len(rest) == 1 && rest[0] == "--help" {
+		if len(rest) == 1 && isHelpFlag(rest[0]) {
 			writeCommandSection(out, *spec)
 			return 0, true
 		}
 		return 0, false
+	}
+	if len(args) == 2 && isHelpFlag(args[1]) && writeVerbUsage(out, args[0]) {
+		return 0, true
 	}
 	group, ok := groupWord(args[0])
 	if !ok {
@@ -347,222 +371,15 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: %s names a command group, not a command; use 'concord %s --help' to list its commands", group, group))
 		writeGroupSections(errOut, group)
 		return 2, true
-	case len(args) == 2 && args[1] == "--help":
+	case len(args) == 2 && isHelpFlag(args[1]):
 		writeGroupSections(out, group)
 		return 0, true
+	case !isHelpFlag(args[1]):
+		writeDiagnostic(errOut, fmt.Sprintf("concord: %s has no command %s; use 'concord %s --help' to list its commands", group, args[1], group))
+		writeGroupSections(errOut, group)
+		return 2, true
 	}
 	return 0, false
-}
-
-func terminalStreams(in io.Reader, out io.Writer) bool {
-	input, inOK := in.(*os.File)
-	output, outOK := out.(*os.File)
-	if !inOK || !outOK {
-		return false
-	}
-	inInfo, inErr := input.Stat()
-	outInfo, outErr := output.Stat()
-	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
-}
-
-// parseZLForwarding splits zl arguments into the explicit --project selector
-// and the forwarded work-and-prompt tail. Parsing follows the flag convention
-// the Go flag package and POSIX utility syntax share: the first `--` ends
-// option parsing, so prompt words after the delimiter stay prompt text and
-// can never select a Project (CD-0182). A non-empty diagnostic is a usage
-// refusal; the caller prefixes it with the command name.
-func parseZLForwarding(args []string) (project string, forwarded []string, diagnostic string) {
-	forwarded = make([]string, 0, len(args))
-	for rest := args; len(rest) > 0; {
-		arg := rest[0]
-		rest = rest[1:]
-		if arg == "--" {
-			forwarded = append(forwarded, arg)
-			forwarded = append(forwarded, rest...)
-			return project, forwarded, ""
-		}
-		switch {
-		case arg == "--project":
-			if len(rest) == 0 {
-				return project, nil, "--project requires a Project ID"
-			}
-			project = rest[0]
-			rest = rest[1:]
-		case strings.HasPrefix(arg, "--project="):
-			project = strings.TrimPrefix(arg, "--project=")
-		default:
-			forwarded = append(forwarded, arg)
-		}
-	}
-	return project, forwarded, ""
-}
-
-func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
-	if len(args) == 1 {
-		if args[0] == "--resume-last" { // #nosec G602 -- args has length 1, checked by this branch.
-			work := os.Getenv("CONCORD_LAST_WORK_ID")
-			product := os.Getenv(selectedProductEnv)
-			if work == "" || product == "" {
-				writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
-				return 1
-			}
-			return launchForwardedSession(product, work, "", "", in, out, errOut)
-		}
-	}
-	// An explicit --project selector lands the session in that member
-	// Project of the work (CD-0182): the session runs in that Project's
-	// active worktree when one is usable, else its canonical path, and the
-	// landing Project also owns the session's Product scope. The selector
-	// changes the landing only; the default primary landing stays as
-	// CD-0093 and CD-0176 decide it.
-	project, forwarded, diagnostic := parseZLForwarding(args)
-	if diagnostic != "" {
-		writeDiagnostic(errOut, "concord zl: "+diagnostic)
-		return 2
-	}
-	if project != "" && len(forwarded) > 0 && forwarded[0] == "--resume-last" {
-		writeDiagnostic(errOut, "concord zl: --project does not combine with --resume-last")
-		return 2
-	}
-	if project != "" && !sessionIdentity.MatchString(project) {
-		writeDiagnostic(errOut, "concord zl: Project selection is missing or invalid")
-		return 2
-	}
-	if len(forwarded) < 1 || forwarded[0] == "--" { // #nosec G602 -- forwarded non-empty, checked by this branch.
-		writeDiagnostic(errOut, "concord zl: work ID is required")
-		return 2
-	}
-	work := forwarded[0]
-	prompt := ""
-	if len(forwarded) > 1 {
-		if forwarded[1] != "--" {
-			writeDiagnostic(errOut, "concord zl: prompt must follow --")
-			return 2
-		}
-		prompt = strings.Join(forwarded[2:], " ")
-	}
-	inherited := inheritedForwardedProduct()
-	if issueKey, issueURL, ok := linearIssueReference(work); ok {
-		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL, project, inherited)
-		if err != nil {
-			writeDiagnostic(errOut, "concord zl: "+err.Error())
-			return 1
-		}
-		work, product := resolvedWork, resolvedProduct
-		return forwardSession(product, work, prompt, project, in, out, errOut)
-	}
-	product, err := resolveForwardedProduct(work, project, inherited)
-	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
-		return 1
-	}
-	return forwardSession(product, work, prompt, project, in, out, errOut)
-}
-
-// forwardSession starts the forwarded session. Tests replace it to observe
-// the handoff runZLForwarding derives without executing a host.
-var forwardSession = launchForwardedSession
-
-// inheritedForwardedProduct reads the inherited Product selection.
-// runZLForwarding passes it to the landing-Project resolver, which honors it
-// only when it names one of the landing Project's Products; it never decides
-// the scope on its own.
-func inheritedForwardedProduct() string {
-	if product := os.Getenv(selectedProductEnv); product != "" {
-		return product
-	}
-	return os.Getenv("CONCORD_PRODUCT_ID")
-}
-
-var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
-
-func linearIssueReference(reference string) (key, issueURL string, ok bool) {
-	reference = strings.TrimSpace(reference)
-	if linearIssueKeyPattern.MatchString(reference) {
-		return reference, "", true
-	}
-	parsed, err := url.Parse(reference)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "linear.app" || parsed.User != nil {
-		return "", "", false
-	}
-	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	for i := 0; i+1 < len(segments); i++ {
-		if strings.EqualFold(segments[i], "issue") && linearIssueKeyPattern.MatchString(segments[i+1]) {
-			return segments[i+1], reference, true
-		}
-	}
-	return "", "", false
-}
-
-func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct string) (string, string, error) {
-	path, err := databasePath()
-	if err != nil {
-		return "", "", err
-	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return "", "", errors.New("no authority database is available")
-		}
-		return "", "", fmt.Errorf("database path is unavailable: %w", statErr)
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		return "", "", err
-	}
-	defer func() { _ = s.Close() }()
-	// Concord makes no Linear call (CD-0213 D7): an issue no work item
-	// records resolves nothing, and the agent records the identity first.
-	work, err := s.ResolveLinearIssueWork(context.Background(), issueKey, issueURL)
-	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindUnknownScope {
-			return "", "", fmt.Errorf("no work item records Linear issue %s; capture the work and record the issue with concord_work_define.issue_link_record", issueKey)
-		}
-		return "", "", err
-	}
-	product, err := s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
-	if err != nil {
-		return "", "", err
-	}
-	return work, product, nil
-}
-
-// resolveForwardedProduct derives the forwarded session's Product from the
-// landing Project: the Project the operator named, else the work's primary
-// Project. preferredProduct is the inherited selection; the
-// landing Project owns the scope, so it applies only when it names one of
-// that Project's Products.
-func resolveForwardedProduct(work, project, preferredProduct string) (string, error) {
-	path, err := databasePath()
-	if err != nil {
-		return "", err
-	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return "", errors.New("no authority database is available")
-		}
-		return "", fmt.Errorf("database path is unavailable: %w", statErr)
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = s.Close() }()
-	return s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
-}
-
-func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := sessionCommand(sessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: defaultSessionAgent})
-	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
-		return 1
-	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
-	if err := cmd.Run(); err != nil {
-		writeDiagnostic(errOut, "concord zl: "+err.Error())
-		return 1
-	}
-	return 0
 }
 
 const dbOverrideEnv = "CONCORD_DB_PATH"
@@ -594,7 +411,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 		return 1
 	}
 	if err := validateRequiredCommandFields(name, raw); err != nil {
-		writeOperatorDiagnostic(errOut, name, err.Error())
+		writeOperatorDiagnostic(errOut, name, diagnosticText(err))
 		return inputRefusalExit
 	}
 	return handler(raw, out, errOut)
@@ -613,7 +430,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return 1
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return inputRefusalExit
 	}
 	// Predecessor inventory reads only the operator-supplied snapshot file and
@@ -624,17 +441,17 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	}
 	path, err := databasePath()
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	defer func() {
 		if err := s.Close(); err != nil && exitCode == 0 {
-			writeDiagnostic(errOut, "concord: cannot close store: "+err.Error())
+			writeDiagnostic(errOut, "concord: cannot close store: "+diagnosticText(err))
 			exitCode = 1
 		}
 	}()
@@ -656,6 +473,14 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runInvoke(raw, s, service, out, errOut)
 	case "worker-dispatch", "worker-complete", "worker-fail", "worker-abandon":
 		return runWorkerCommand(command, raw, s, service, clock, out, errOut)
+	case "worker-read":
+		return runWorkerRead(raw, s.ReadWorkerReading, out, errOut)
+	case "worker-diff":
+		return runWorkerDiff(raw, s.ReadWorkerDiff, out, errOut)
+	case "worker-control":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runWorkerControl(ctx, raw, service.ExecuteWorkerControl, out, errOut)
 	case "work-bootstrap":
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "work-resume":
@@ -667,7 +492,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	case "work-shelve", "work-cancel":
 		var request store.WorkRemovalRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if command == "work-shelve" {
@@ -677,14 +502,12 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		}
 		receipt, err := s.RemoveWork(context.Background(), request)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionPrepareRegistry, hostOrchestratorIdentity, DeriveSessionBoot)
-	case "outside-repair":
-		return runOutsideRepairCommand(raw, s, defaultOutsideRepairDeps(), out, errOut)
 	case "receipt":
 		return runReceipt(raw, s, out, errOut)
 	default:
@@ -856,16 +679,16 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-dispatch":
 		var request workerDispatchRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		lane, err := store.LookupLane(request.LaneID, request.LaneVersion, request.LaneDigest)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ValidateWorkerHostProvenance(request.HostProvenance); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.HostProvenance == nil {
@@ -911,7 +734,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding.Version = attributionVersion
@@ -919,7 +742,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		if len(request.AuthorizedPacket) != 0 {
 			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
-				writeOperatorDiagnostic(errOut, command, err.Error())
+				writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 				writeWorkerEvidenceFailure(out, errOut, err, nil)
 				return 1
 			}
@@ -928,7 +751,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.EvidenceOrigin == "" {
@@ -947,12 +770,12 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-fail":
 		var request workerFailRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding := agent.WorkerEvidenceBinding{
@@ -969,12 +792,12 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	case "worker-abandon":
 		var request workerAbandonRequest
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		binding := agent.WorkerEvidenceBinding{
@@ -998,7 +821,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // A match appends nothing and consumes no second dispatch authorization.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
 	if err := s.RequireActionableWork(ctx, binding.WorkID, command); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		writeWorkerEvidenceFailure(out, errOut, err, nil)
 		return 1
 	}
@@ -1020,7 +843,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	if binding.Verb == agent.WorkerEvidenceVerbComplete {
 		preparation, preparationErr := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: binding.WorkID, AttemptID: binding.AttemptID, EventID: event.EventID})
 		if preparationErr != nil {
-			writeOperatorDiagnostic(errOut, command, preparationErr.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(preparationErr))
 			writeWorkerEvidenceFailure(out, errOut, preparationErr, nil)
 			return 1
 		}
@@ -1107,7 +930,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		return nil
 	})
 	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		// An uncertain durable commit can leave the very event a retry will
 		// reconcile. The typed result carries the event identities then, so
 		// the adapter reports a possible effect instead of a bare refusal.
@@ -1209,7 +1032,7 @@ func decodeObject(data []byte, value any) error {
 func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut io.Writer) int {
 	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return inputRefusalExit
 	}
 	return writeJSON(out, response, errOut)
@@ -1228,7 +1051,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		ExpectedVersion int64  `json:"expected_version"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	var result store.ApplyOperationResult
@@ -1255,7 +1078,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 		})
 	}
 	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1278,7 +1101,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
@@ -1292,7 +1115,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1306,7 +1129,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		caps := make([]agent.Capability, len(request.Capabilities))
@@ -1314,7 +1137,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			caps[i] = agent.Capability(v)
 		}
 		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1327,7 +1150,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		caps := make([]agent.Capability, len(request.Capabilities))
@@ -1335,7 +1158,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			caps[i] = agent.Capability(v)
 		}
 		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1346,7 +1169,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			PublicKey string `json:"public_key"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		key, err := base64.StdEncoding.DecodeString(request.PublicKey)
@@ -1355,7 +1178,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		if err := service.RotateClientKey(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key)}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1364,11 +1187,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ClientRef string `json:"client_ref"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := service.RevokeClient(ctx, request.ClientRef); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
@@ -1381,7 +1204,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64             `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		method := s.AddProjectLocator
@@ -1389,7 +1212,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			method = s.UpdateProjectLocator
 		}
 		if err := method(ctx, request.ProjectID, store.ProjectLocator{ID: request.LocatorID, Kind: request.Kind, Value: request.Value}, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1400,11 +1223,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := s.RemoveProjectLocator(ctx, request.ProjectID, request.LocatorID, request.ExpectedVersion); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1420,7 +1243,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			MembershipReason   string `json:"reason"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.CreateProductWithProject(ctx, store.ProductCreation{
@@ -1429,7 +1252,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
@@ -1453,7 +1276,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedProductVersion  int64           `json:"expected_product_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
@@ -1465,7 +1288,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			OwnerPurpose: request.OwnerPurpose, OwnerEnvironments: request.OwnerEnvironments,
 			ExpectedProductVersion: request.ExpectedProductVersion, Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1479,7 +1302,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedResourceVersion int64    `json:"expected_resource_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.AddManagedResourceConsumer(ctx, s, store.AddManagedResourceConsumerRequest{
@@ -1487,7 +1310,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Purpose: request.Purpose, Environments: request.Environments, ExpectedResourceVersion: request.ExpectedResourceVersion,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1500,7 +1323,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Attachments     []store.DomainProjectAttachment `json:"attachments"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ReplaceDomainProjectAttachments(ctx, s, store.DomainProjectAttachmentsRequest{
@@ -1508,7 +1331,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1521,7 +1344,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Attachments     []store.DomainResourceAttachment `json:"attachments"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if err := store.ReplaceDomainResourceAttachments(ctx, s, store.DomainResourceAttachmentsRequest{
@@ -1529,7 +1352,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion: request.ExpectedVersion, Attachments: request.Attachments,
 			Actor: "operator", OccurredAt: clock().UTC(),
 		}); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1543,7 +1366,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedProductVer int64  `json:"expected_product_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.CreateProjectForProduct(ctx, store.ProjectCreation{
@@ -1551,7 +1374,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Role: request.Role, Reason: request.Reason, ExpectedProductVersion: request.ExpectedProductVer,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}, {EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1564,7 +1387,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.AddProductProjectMembership(ctx, store.ProductMembershipAddition{
@@ -1572,7 +1395,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1587,7 +1410,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			ExpectedVersion         int64  `json:"expected_version"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		result, err := s.ChangeProductStage(ctx, store.ProductStageChange{
@@ -1595,7 +1418,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
@@ -1604,7 +1427,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Destination string `json:"destination"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.Destination == s.Path() {
@@ -1613,11 +1436,11 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		manifest, err := store.Backup(ctx, s, request.Destination)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, manifest, errOut)
@@ -1625,8 +1448,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runWorktreeLocate(raw, s, out, errOut)
 	case "project-resolve":
 		return runProjectResolve(raw, s, out, errOut)
-	case "project-canonical-path":
-		return runProjectCanonicalPath(raw, s, out, errOut)
 	case "cd-reservations":
 		return runCDReservations(raw, s, out, errOut)
 	case "restore":
@@ -1635,7 +1456,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Destination string `json:"destination"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		if request.Destination == s.Path() {
@@ -1644,7 +1465,9 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			// The source is a backup file, not a data root's store, so the
+			// refusal names no owner.
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		return writeJSON(out, report, errOut)
@@ -1664,7 +1487,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 		SnapshotPath string `json:"snapshot_path"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
 		return 1
 	}
 	if request.SnapshotPath == "" {
@@ -1677,7 +1500,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 			writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot file does not exist: %s", request.SnapshotPath))
 			return 1
 		}
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot path is unavailable: %s", statErr.Error()))
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", "snapshot path is unavailable: "+diagnosticText(statErr))
 		return 1
 	}
 	if info.IsDir() {
@@ -1686,7 +1509,7 @@ func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
 	}
 	snapshot, err := predecessor.Load(request.SnapshotPath)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", err.Error())
+		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
 		return 1
 	}
 	report := predecessor.Inventory(snapshot)
@@ -1718,7 +1541,7 @@ func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs
 	for _, ref := range refs {
 		version, err := s.EntityVersion(context.Background(), ref.EntityKind, ref.ID)
 		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
 		changed = append(changed, operatorChangedRef{EntityKind: string(ref.EntityKind), ID: ref.ID, Version: strconv.FormatInt(version, 10)})
@@ -1740,7 +1563,7 @@ func writeOperatorDiagnostic(out io.Writer, command, message string) {
 func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 	data, err := json.Marshal(value)
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	if len(data) > agent.MaxEnvelopeBytes {
@@ -1749,7 +1572,7 @@ func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 	}
 	_, err = fmt.Fprintln(out, string(data))
 	if err != nil {
-		writeDiagnostic(errOut, err.Error())
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	return 0
@@ -1759,4 +1582,20 @@ func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 // and a refusal that names every blocking session is only actionable in full.
 func writeDiagnostic(out io.Writer, message string) {
 	_, _ = fmt.Fprintln(out, message)
+}
+
+// diagnosticText renders an error for stderr. Failure.Error omits the recovery
+// the store decided, so a store refusal's recovery is added here as the last
+// line, once, however the refusal was wrapped. A route that has no refusal to
+// carry its recovery formats the line with recoveryLine.
+func diagnosticText(err error) string {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.RecoveryAction != "" {
+		return err.Error() + "\n" + recoveryLine(failure.RecoveryAction)
+	}
+	return err.Error()
+}
+
+func recoveryLine(action string) string {
+	return "recovery: " + action
 }

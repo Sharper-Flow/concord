@@ -64,7 +64,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 		}
 		// The rollback snapshot must be restorable. A source-only collision
 		// after verification exercises a later live migration failure.
-		db, err := sql.Open("sqlite", "file:"+source)
+		db, err := sql.Open("sqlite", store.SQLiteFileURI(source))
 		if err != nil {
 			return manifest, err
 		}
@@ -108,7 +108,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 
 func assertSnapshotLacksMigration(t *testing.T, snapshot string, migration int) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+snapshot+"?mode=ro")
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(snapshot)+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
 	}

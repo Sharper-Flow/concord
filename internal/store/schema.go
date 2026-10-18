@@ -6297,7 +6297,105 @@ ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(even
 `,
 	},
 	{
-		Version:  128,
+		Version: 128, Name: remoteLocatorUpgradeName, Breaking: true, FoldMaintained: "advance",
+		SQL: `ALTER TABLE project_locators ADD COLUMN normalization_version INTEGER NOT NULL DEFAULT 1 CHECK(normalization_version IN (1,2));`,
+	},
+	{
+		Version:  129,
+		Name:     "law_relations_carry_declarer",
+		Breaking: false,
+		// The knowledge rebuild, not the fold, writes this column: one INSERT
+		// per relation row records the manifest record that declared it, and
+		// no later write moves it. A row an older writer inserted keeps NULL,
+		// which the conflict check treats as an unknown declarer and the
+		// demand-driven freshness check rebuilds.
+		FoldMaintained: "origin",
+		SQL: `
+-- A conflicts_with pair is stored in ID order, so the row alone cannot say
+-- which record declared it, and only that record can withdraw it (CD-0015,
+-- CD-0159 D4). The declarer is always one of the row's two endpoints.
+ALTER TABLE law_relations ADD COLUMN declarer_law_id TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id));
+`,
+	},
+	{
+		Version:  130,
+		Name:     "knowledge_package_map_and_law_footprint",
+		Breaking: false,
+		SQL: `
+-- CD-0222 D2: the package map, and each law's evidence paths and coverage
+-- anchors, projected from the knowledge home at the scanned commit beside
+-- law_subjects. The rows are git-derived: a rebuild clears and rewrites
+-- them. Every package row carries the map's own content hash, so an absent
+-- map projects no row and no hash. None references law_subjects, so a
+-- binary that predates these tables still clears its own rows. Each
+-- rebuild that writes them writes the same home's watermark row in the same
+-- transaction, and that row's home-pair binding and locator delete guard
+-- cover the home.
+CREATE TABLE knowledge_package_domains (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    package_path       TEXT NOT NULL CHECK(length(package_path) BETWEEN 1 AND 256),
+    domain_id          TEXT NOT NULL CHECK(length(domain_id) > 0),
+    map_content_hash   TEXT NOT NULL CHECK(length(map_content_hash)=71 AND substr(map_content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, package_path, domain_id)
+);
+CREATE TABLE law_evidence_paths (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    path               TEXT NOT NULL CHECK(length(path) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, path)
+);
+CREATE INDEX law_evidence_paths_path ON law_evidence_paths(home_project_id, home_locator_id, path, law_id);
+CREATE TABLE law_coverage_anchors (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    ordinal            INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 31),
+    kind               TEXT NOT NULL CHECK(kind IN ('adapter_test','generated','go_test','scenario','validator')),
+    value              TEXT NOT NULL CHECK(length(value) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, ordinal)
+);
+CREATE TRIGGER knowledge_package_domains_guard_insert BEFORE INSERT ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_update BEFORE UPDATE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_delete BEFORE DELETE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_insert BEFORE INSERT ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_update BEFORE UPDATE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_delete BEFORE DELETE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_insert BEFORE INSERT ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_update BEFORE UPDATE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_delete BEFORE DELETE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version: 131,
+		Name:    "work_size_assessments",
+		SQL: `
+-- CD-0229 D4: each size decision for a work item, with the model version, the
+-- inputs, and the footprint snapshot it read. Fold-only; the work.sized fold
+-- recomputes the size from the inputs and owns every write. The current size
+-- is the highest sequence.
+CREATE TABLE work_size_assessments (
+    event_id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    sequence INTEGER NOT NULL CHECK(typeof(sequence)='integer' AND sequence >= 1),
+    model_version INTEGER NOT NULL CHECK(typeof(model_version)='integer' AND model_version >= 1),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
+    inputs_json TEXT NOT NULL CHECK(json_valid(inputs_json) AND json_type(inputs_json)='object'),
+    footprint_json TEXT NOT NULL CHECK(json_valid(footprint_json) AND json_type(footprint_json)='object'),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(work_id, sequence)
+);
+CREATE TRIGGER work_size_assessments_guard_insert BEFORE INSERT ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_assessments_guard_update BEFORE UPDATE ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_assessments_guard_delete BEFORE DELETE ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  132,
 		Name:     "workflow_contract_decision_domains",
 		Breaking: false,
 		// The contract fold writes this column once per contract INSERT and
@@ -6323,7 +6421,7 @@ ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_d
 		// supersedes keep demanding a reference. The rebuild copies
 		// migration 91's shape, and every existing row satisfies the new
 		// check unchanged.
-		Version:  129,
+		Version:  133,
 		Name:     "overlap_routine_resolution_carries_own_authority",
 		Breaking: true,
 		SQL: `
@@ -6587,7 +6685,7 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such column: breaking") {
-			return nil, false, unstampedManifestRefused()
+			return nil, false, unstampedManifestRefused(ctx, db)
 		}
 		return nil, false, err
 	}
@@ -6602,16 +6700,57 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
+// UnstampedMigrationRefusal is what an unstamped build read before it refused
+// to migrate an existing store (CD-0139): the applied head and the pending
+// tail this build defines. No manifest row names the release that applied it,
+// so the refusal carries no owner.
+type UnstampedMigrationRefusal struct {
+	SchemaVersion    int
+	HeadName         string
+	FirstPending     int
+	FirstPendingName string
+	Pending          int
+	PendingBreaking  int
+}
+
+// UnstampedRecovery is the isolation route every unstamped migration refusal
+// names (CD-0139 D4). The readiness plan blocks on the same rule without a
+// refusal, so the command layer names it from here.
+const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
+
 func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
-	version := 0
-	for appliedVersion := range applied {
-		if appliedVersion > version {
-			version = appliedVersion
+	refusal := unstampedRefusalFacts(applied)
+	return refusal.failure(fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking))
+}
+
+func (refusal UnstampedMigrationRefusal) failure(detail string) *Failure {
+	failure := newFailure(KindInvalidOperation, "open", detail, true, UnstampedRecovery)
+	failure.UnstampedMigration = &refusal
+	return failure
+}
+
+func unstampedRefusalFacts(applied map[int]appliedMigration) UnstampedMigrationRefusal {
+	var refusal UnstampedMigrationRefusal
+	for recorded := range applied {
+		refusal.SchemaVersion = max(refusal.SchemaVersion, recorded)
+	}
+	for _, m := range migrations {
+		if m.Version == refusal.SchemaVersion {
+			refusal.HeadName = m.Name
+		}
+		if _, done := applied[m.Version]; done {
+			continue
+		}
+		if refusal.Pending == 0 {
+			refusal.FirstPending, refusal.FirstPendingName = m.Version, m.Name
+		}
+		refusal.Pending++
+		if m.Breaking {
+			refusal.PendingBreaking++
 		}
 	}
-	return newFailure(KindInvalidOperation, "open",
-		fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d", version),
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+	return refusal
 }
 
 // openStopsBefore reports the breaking step an open-scoped pass may not
@@ -6703,7 +6842,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			applied, err := appliedMigrations(ctx, tx)
 			if err != nil {
 				if strings.Contains(err.Error(), "no such column: breaking") {
-					return rollback(unstampedManifestRefused())
+					return rollback(unstampedManifestRefused(ctx, tx))
 				}
 				return rollback(err)
 			}
@@ -6721,6 +6860,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 	}
 
+	if scope == migrateForUpgrade {
+		// Last-locator refusal must precede even manifest and schema writes.
+		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot create the schema manifest", true,
 			"check database permissions", err))
@@ -6738,6 +6883,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	}
 
 	var stopped *migration
+	remoteUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -6755,12 +6901,19 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		if err := applyMigration(ctx, tx, m); err != nil {
 			return rollback(err)
 		}
+		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
+		}
+	}
+	if remoteUpgrade {
+		// Event application and invariant checks require the complete head schema.
+		if err := upgradeRemoteLocators(ctx, tx, nowFromClock(firstClock(clock))); err != nil {
+			return rollback(err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -6773,10 +6926,14 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	return nil
 }
 
-func unstampedManifestRefused() *Failure {
-	return newFailure(KindInvalidOperation, "open",
-		"unstamped development build refuses to repair an existing store's schema manifest",
-		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+// unstampedManifestRefused reads the pre-column manifest through the caller's
+// queryer, the open transaction when there is one, and writes nothing.
+func unstampedManifestRefused(ctx context.Context, q queryer) error {
+	applied, err := legacyManifestMigrations(ctx, q)
+	if err != nil {
+		return err
+	}
+	return unstampedRefusalFacts(applied).failure("unstamped development build refuses to repair an existing store's schema manifest")
 }
 
 func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {

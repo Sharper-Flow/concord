@@ -81,7 +81,7 @@ Concord's outcome contract makes unrepresentable:
 - **The typed outcome contract (CD-0012):** every work item carries premise,
   required end-state, and candidate set, each with its own revision
   authority. A weaker delivered end-state fails completion
-  (`WF03-vacuous-end-state`, `WF04-weaker-delivery`); a changed premise
+  (`WF04-weaker-delivery`); a changed premise
   supersedes the item rather than silently re-scoping it
   (`WF11-end-state-supersession-audit`).
 - **Governing requirements at capture (CD-0035):** law captured with work is
@@ -167,7 +167,7 @@ Answering after shadow would mean shadow evaluated an unspecified system.
 - Each D-section cites a mechanism that exists and evidence that executes in
   the required workflow: `AJ8-approval-required` (scenario anchor),
   workflow-registry approval-route tests (go_test anchors),
-  `WF02`/`WF03`/`WF04`/`WF11` (scenario anchors), lesson publication and
+  `WF02`/`WF04`/`WF11` (scenario anchors), lesson publication and
   manifest rebuild tests (go_test anchors) — all already bound in
   `.concord/docs/floor-readiness.v1.json` and the coverage shards under
   `.concord/docs/knowledge/coverage/`, composed by `scripts/knowledge_index.py`.

@@ -42,8 +42,21 @@ func TestVerifyLeaseWatermarkMigrationIsAdditive(t *testing.T) {
 // lease recorded before it keeps its NULL watermark.
 func TestVerifyLeaseWatermarkMigrationKeepsOldLeasesNull(t *testing.T) {
 	t.Parallel()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "watermark.db"), len(migrations)-1)
+	index := -1
+	for i, m := range migrations {
+		if m.Name == "verify_lease_event_watermark" {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		t.Fatal("verify_lease_event_watermark migration is missing")
+	}
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "watermark.db"), index)
 	ctx := context.Background()
+	if present, err := columnPresent(ctx, db, "worktree_verify_leases", "event_watermark"); err != nil || present {
+		t.Fatalf("fixture already has watermark before its forward migration: present=%v err=%v", present, err)
+	}
 
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)

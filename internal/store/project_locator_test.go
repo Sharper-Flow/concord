@@ -159,6 +159,185 @@ func TestProjectLocatorResolutionRejectsUnknownAndAmbiguousRemote(t *testing.T) 
 	}
 }
 
+func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, remote string }{
+		{"https token", "https://TOKEN@github.com/o/r"},
+		{"https password", "https://user:pass@github.com/o/r"},
+		{"http token", "http://TOKEN@github.com/o/r"},
+		{"uppercase scheme", " HTTPS://TOKEN@github.com/o/r "},
+		{"ssh password", "ssh://git:pw@host/o/r"},
+		{"git password", "git://git:pw@host/o/r"},
+		{"other scheme password", "custom://git:pw@host/o/r"},
+		{"empty password", "ssh://git:@host/o/r"},
+	} {
+		for _, update := range []bool{false, true} {
+			name := "add/"
+			if update {
+				name = "update/"
+			}
+			t.Run(name+tc.name, func(t *testing.T) {
+				s := locatorReplayStore(t)
+				ctx := context.Background()
+				if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: "git@github.com:o/r.git"}, 1); err != nil {
+					t.Fatal(err)
+				}
+				var before int
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+					t.Fatal(err)
+				}
+				method := s.AddProjectLocator
+				id := "new-remote"
+				if update {
+					method, id = s.UpdateProjectLocator, "remote"
+				}
+				err := method(ctx, "project-a", ProjectLocator{ID: id, Kind: LocatorGitRemote, Value: tc.remote}, 2)
+				assertRemoteAdmissionFailure(t, err, tc.remote, "remove credentials from the remote URL; use a git credential helper")
+				assertTableCount(t, s, "domain_events", before)
+				locators, err := s.ProjectLocators(ctx, "project-a")
+				if err != nil || len(locators) != 1 || locators[0].Value != "git@github.com:o/r.git" {
+					t.Fatalf("locators changed after refusal: %+v, err=%v", locators, err)
+				}
+			})
+		}
+	}
+}
+
+func assertRemoteAdmissionFailure(t *testing.T, err error, remote, recovery string) {
+	t.Helper()
+	assertFailureKind(t, err, KindInvalidFilter)
+	var failure *Failure
+	errors.As(err, &failure)
+	if failure.RecoveryAction != recovery {
+		t.Errorf("recovery action=%q", failure.RecoveryAction)
+	}
+	if strings.Contains(err.Error(), strings.TrimSpace(remote)) {
+		t.Error("credential refusal exposes the remote")
+	}
+	for _, diagnostic := range []string{failure.Detail, failure.RecoveryAction} {
+		for _, credential := range []string{"TOKEN", "pw", "pass", "p#ss"} {
+			if strings.Contains(diagnostic, credential) {
+				t.Errorf("remote refusal diagnostic exposes %q", credential)
+			}
+		}
+	}
+}
+
+func TestResolveProjectHostRefusesRemoteCredentials(t *testing.T) {
+	t.Parallel()
+	for _, remote := range []string{"https://TOKEN@github.com/o/r", "https://user:pass@github.com/o/r", "ssh://git:pw@host/o/r"} {
+		t.Run(remote, func(t *testing.T) {
+			root := t.TempDir()
+			host, err := ResolveProjectHost(context.Background(), root, root, &locatorGitStub{root: root, remote: remote})
+			assertRemoteAdmissionFailure(t, err, remote, "remove credentials from the remote URL; use a git credential helper")
+			if host != (ResolvedProjectHost{}) {
+				t.Fatal("credential refusal returned host data")
+			}
+		})
+	}
+}
+
+func TestRemoteAdmissionRefusesURLParseErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, remote string }{
+		{"malformed userinfo", "https://user:p#ss@github.com/o/r"},
+		{"invalid port", "https://host:badport/o/r"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			ctx := context.Background()
+			var before int
+			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1)
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			assertTableCount(t, s, "domain_events", before)
+			assertTableCount(t, s, "project_locators", 0)
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})
+			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
+			if host != (ResolvedProjectHost{}) {
+				t.Fatal("parse-error refusal returned host data")
+			}
+		})
+	}
+}
+
+func TestRemoteURLFormClassification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		remote string
+		url    bool
+	}{
+		{"https://github.com/o/r", true},
+		{"HTTPS://TOKEN@github.com/o/r", true},
+		{"git+ssh://host/o/r", true},
+		{"g1.t-x://host/o/r", true},
+		{"host:o/r@v2.git", false},
+		{"git:pw@host:a://b", false},
+		{"git:pw@host:o/r.git", false},
+		{"1http://host/o/r", false},
+	} {
+		if got := remoteURLFormPattern.MatchString(tc.remote); got != tc.url {
+			t.Errorf("URL form for %q = %v, want %v", tc.remote, got, tc.url)
+		}
+	}
+}
+
+func TestRemoteAdmissionPreservesNormalizedIdentity(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ remote, normalized string }{
+		{"git@github.com:o/r.git", "ssh://git@github.com/o/r"},
+		{"ssh://git@host/o/r", "ssh://git@host/o/r"},
+		{"git://git@host/o/r", "git://git@host/o/r"},
+		{"https://github.com/o/r", "https://github.com/o/r"},
+		{"http://github.com/o/r", "http://github.com/o/r"},
+		{"host:o/r@v2.git", "ssh://host/o/r@v2"},
+		{"git:pw@host:a://b", "ssh://git/pw@host:a://b"},
+		{"git:pw@host:o/r.git", "ssh://git/pw@host:o/r"},
+	} {
+		t.Run(tc.remote, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			ctx := context.Background()
+			if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.UpdateProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 2); err != nil {
+				t.Fatal(err)
+			}
+			locators, err := s.ProjectLocators(ctx, "project-a")
+			if err != nil || len(locators) != 1 || locators[0].NormalizedValue != tc.normalized {
+				t.Fatalf("locators=%+v err=%v; want normalized=%q", locators, err, tc.normalized)
+			}
+			root := t.TempDir()
+			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})
+			if err != nil || host.Remote != tc.normalized || host.Host.GitRemote != tc.normalized {
+				t.Fatalf("host=%+v err=%v; want normalized=%q", host, err, tc.normalized)
+			}
+			resolved, err := s.MatchResolvedProjectHost(ctx, host)
+			if err != nil || resolved.ProjectID != "project-a" {
+				t.Fatalf("resolution=%+v err=%v", resolved, err)
+			}
+		})
+	}
+}
+
+func TestRecordedRemoteReplayPreservesAdmissionBoundary(t *testing.T) {
+	t.Parallel()
+	s := locatorReplayStore(t)
+	ctx := context.Background()
+	event := recordedLocatorEvent("recorded-remote", string(LocatorGitRemote), "https://TOKEN@github.com/o/r", "ssh://https/token@github.com/o/r")
+	insertHistoricalEvent(t, s, event)
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	locators, err := s.ProjectLocators(ctx, "project-a")
+	if err != nil || len(locators) != 1 || locators[0].Value != "https://TOKEN@github.com/o/r" || locators[0].NormalizedValue != "ssh://https/token@github.com/o/r" {
+		t.Fatalf("recorded locator changed during replay: %+v err=%v", locators, err)
+	}
+}
+
 func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -244,266 +423,6 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 	}
 	if resolved.ProjectID != "project-local" || resolved.Repository.CanonicalPath != mainRoot || resolved.Repository.WorktreePath != linked || resolved.MainWorktree || resolved.Repository.GitRemote != "" {
 		t.Fatalf("linked local resolution=%+v", resolved)
-	}
-}
-
-// TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput covers CD-0093 D1
-// and D3 at the read seam: the session directory is the canonical path of the
-// primary Project that owns the work, and a missing work, a missing primary
-// Project, or a missing canonical_path locator is a typed refusal rather than
-// a fallback directory.
-func TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-
-	if _, err := s.ResolveSessionDirectory(ctx, ""); err == nil {
-		t.Fatal("empty work ID resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-	}
-	if _, err := s.ResolveSessionDirectory(ctx, "work-unknown"); err == nil {
-		t.Fatal("work with no primary Project resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindUnknownScope)
-		if !strings.Contains(err.Error(), "no primary Project") {
-			t.Fatalf("unknown-work diagnostic=%q", err.Error())
-		}
-	}
-
-	createProductProject(t, s, "product-session", "project-session")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workCreatedEvent("work-session", "create-work-session"),
-		membershipEvent("membership-work-session", "work_project.added", SubjectWorkItem, "work-session", map[string]any{
-			"work_id": "work-session", "project_id": "project-session", "role": "primary", "reason": "test",
-			"expected_version": 1, "resulting_version": 2,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-session"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-
-	// The primary Project exists but registers no canonical_path locator.
-	if _, err := s.ResolveSessionDirectory(ctx, "work-session"); err == nil {
-		t.Fatal("Project without a canonical_path locator resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindUnknownScope)
-		if !strings.Contains(err.Error(), "no canonical_path locator") {
-			t.Fatalf("missing-locator diagnostic=%q", err.Error())
-		}
-	}
-
-	repo := t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-session", ProjectLocator{ID: "path-session", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := s.ResolveSessionDirectory(ctx, "work-session")
-	if err != nil {
-		t.Fatalf("registered locator did not resolve: %v", err)
-	}
-	if resolved.CanonicalPath != repo {
-		t.Fatalf("session directory=%q want the primary Project canonical path %q", resolved.CanonicalPath, repo)
-	}
-	// Work with no claim carries the canonical path and no worktree
-	// candidate (CD-0176).
-	if resolved.WorktreePath != "" {
-		t.Fatalf("work with no claim resolved a worktree path %q", resolved.WorktreePath)
-	}
-}
-
-// TestResolveSessionDirectoryCarriesTheActiveWorktree covers CD-0176: the
-// read carries the work's active worktree path in its primary Project next
-// to the canonical path, and carries no worktree candidate when the entry
-// is reclaimed, when the only active entry belongs to another Project, or
-// when the work holds no claim at all.
-func TestResolveSessionDirectoryCarriesTheActiveWorktree(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	createProductProject(t, s, "product-wt", "project-wt")
-	repo := t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-wt", ProjectLocator{ID: "path-wt", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workCreatedEvent("work-wt", "create-work-wt"),
-		membershipEvent("membership-work-wt", "work_project.added", SubjectWorkItem, "work-wt", map[string]any{
-			"work_id": "work-wt", "project_id": "project-wt", "role": "primary", "reason": "test",
-			"expected_version": 1, "resulting_version": 2,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-wt"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-
-	seedWorktreeClaim := func(t *testing.T, opID, projectID, path, state string) {
-		t.Helper()
-		base := strings.Repeat("a", 40)
-		branch := "work/" + projectID
-		claimState := "verified"
-		if state == "reclaimed" {
-			claimState = "reclaimed"
-		}
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'operator','req-wt','now','now')`,
-			opID, "work-wt", projectID, WorktreeSetID("work-wt"), "repo-"+projectID, branch, base, path, claimState); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,?,?,'{}')`,
-			WorktreeSetID("work-wt"), projectID, opID, branch, base, path, "repo-"+projectID, state, "now"); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	worktree := filepath.Join(t.TempDir(), "wt-active")
-	seedWorktreeClaim(t, "wt-op-active", "project-wt", worktree, "active")
-	resolved, err := s.ResolveSessionDirectory(ctx, "work-wt")
-	if err != nil {
-		t.Fatalf("active worktree did not resolve: %v", err)
-	}
-	if resolved.WorktreePath != filepath.Clean(worktree) {
-		t.Fatalf("worktree path=%q want %q", resolved.WorktreePath, filepath.Clean(worktree))
-	}
-	if resolved.CanonicalPath != repo {
-		t.Fatalf("canonical path=%q want %q", resolved.CanonicalPath, repo)
-	}
-
-	// A reclaimed entry is not a landing candidate.
-	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-wt'`, WorktreeSetID("work-wt")); err != nil {
-		t.Fatal(err)
-	}
-	fall, err := s.ResolveSessionDirectory(ctx, "work-wt")
-	if err != nil {
-		t.Fatalf("reclaimed worktree refused instead of falling back: %v", err)
-	}
-	if fall.WorktreePath != "" || fall.CanonicalPath != repo {
-		t.Fatalf("reclaimed resolution=%+v, want the canonical path only", fall)
-	}
-
-	// An active entry whose claim is reclaimed is not a landing candidate.
-	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='active' WHERE set_id=? AND project_id='project-wt'`, WorktreeSetID("work-wt")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_claims SET state='reclaimed' WHERE op_id='wt-op-active'`); err != nil {
-		t.Fatal(err)
-	}
-	diverged, err := s.ResolveSessionDirectory(ctx, "work-wt")
-	if err != nil {
-		t.Fatalf("reclaimed claim refused instead of falling back: %v", err)
-	}
-	if diverged.WorktreePath != "" || diverged.CanonicalPath != repo {
-		t.Fatalf("reclaimed-claim resolution=%+v, want the canonical path only", diverged)
-	}
-
-	// An active entry in a Project other than the primary one is not a
-	// landing candidate.
-	createProductProject(t, s, "product-wt-other", "project-wt-other")
-	other := filepath.Join(t.TempDir(), "wt-other")
-	seedWorktreeClaim(t, "wt-op-other", "project-wt-other", other, "active")
-	crossed, err := s.ResolveSessionDirectory(ctx, "work-wt")
-	if err != nil {
-		t.Fatalf("foreign-project worktree refused instead of falling back: %v", err)
-	}
-	if crossed.WorktreePath != "" || crossed.CanonicalPath != repo {
-		t.Fatalf("foreign-project resolution=%+v, want the canonical path only", crossed)
-	}
-}
-
-// TestResolveSessionDirectoryForProjectSelectsAMemberProject covers the
-// explicit-Project form of the landing read (CD-0182): the named Project
-// must be a member of the work, and the read carries that Project's
-// canonical path and the work's active worktree in it. A non-member Project
-// is a typed refusal, never a fallback directory.
-func TestResolveSessionDirectoryForProjectSelectsAMemberProject(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	createProductProject(t, s, "product-sel", "project-sel")
-	// The selected Project joins the same Product as a secondary member.
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "project-sel-created", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-two", Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Selected Two"}`)},
-		{EventID: "project-sel-added", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-sel", Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-sel","project_id":"project-two","role":"secondary","reason":"test","expected_version":2,"resulting_version":3}`)},
-		workCreatedEvent("work-sel", "create-work-sel"),
-		membershipEvent("membership-work-sel", "work_project.added", SubjectWorkItem, "work-sel", map[string]any{
-			"work_id": "work-sel", "project_id": "project-sel", "role": "primary", "reason": "test",
-			"expected_version": 1, "resulting_version": 2,
-		}),
-		membershipEvent("membership-work-sel-two", "work_project.added", SubjectWorkItem, "work-sel", map[string]any{
-			"work_id": "work-sel", "project_id": "project-two", "role": "secondary", "reason": "test",
-			"expected_version": 2, "resulting_version": 3,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-sel"): 2, VersionRef(SubjectProject, "project-two"): 0, VersionRef(SubjectWorkItem, "work-sel"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	primaryRepo, selectedRepo := t.TempDir(), t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-sel", ProjectLocator{ID: "path-sel", Kind: LocatorCanonicalPath, Value: primaryRepo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddProjectLocator(ctx, "project-two", ProjectLocator{ID: "path-two", Kind: LocatorCanonicalPath, Value: selectedRepo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	seedSelectedClaim := func(t *testing.T, opID, projectID, path, state string) {
-		t.Helper()
-		base := strings.Repeat("b", 40)
-		branch := "work/" + projectID
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'operator','req-sel','now','now')`,
-			opID, "work-sel", projectID, WorktreeSetID("work-sel"), "repo-"+projectID, branch, base, path, "verified"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,?,?,'{}')`,
-			WorktreeSetID("work-sel"), projectID, opID, branch, base, path, "repo-"+projectID, state, "now"); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if _, err := s.ResolveSessionDirectoryForProject(ctx, "", "project-two"); err == nil {
-		t.Fatal("empty work ID resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-	}
-	if _, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", ""); err == nil {
-		t.Fatal("empty Project ID resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-	}
-	// A Project the work does not hold refuses with the membership remedy.
-	if _, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-unknown"); err == nil {
-		t.Fatal("non-member Project resolved a session directory")
-	} else {
-		assertFailureKind(t, err, KindUnknownScope)
-		if !strings.Contains(err.Error(), "not a member of the work") {
-			t.Fatalf("non-member diagnostic=%q", err.Error())
-		}
-	}
-
-	// The member Project's canonical path and its own active worktree are
-	// the landing candidates.
-	selected := filepath.Join(t.TempDir(), "wt-selected")
-	seedSelectedClaim(t, "wt-op-selected", "project-two", selected, "active")
-	resolved, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-two")
-	if err != nil {
-		t.Fatalf("member Project did not resolve: %v", err)
-	}
-	if resolved.CanonicalPath != selectedRepo || resolved.WorktreePath != filepath.Clean(selected) {
-		t.Fatalf("resolution=%+v want canonical %q worktree %q", resolved, selectedRepo, filepath.Clean(selected))
-	}
-
-	// The primary form is unchanged: it still reads the primary Project and
-	// ignores the selected Project's worktree.
-	primary, err := s.ResolveSessionDirectory(ctx, "work-sel")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if primary.CanonicalPath != primaryRepo || primary.WorktreePath != "" {
-		t.Fatalf("primary resolution=%+v, want the primary canonical path only", primary)
-	}
-
-	// A reclaimed entry in the selected Project carries no worktree
-	// candidate, matching the CD-0176 fallback.
-	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-two'`, WorktreeSetID("work-sel")); err != nil {
-		t.Fatal(err)
-	}
-	fallback, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-two")
-	if err != nil {
-		t.Fatalf("reclaimed worktree refused instead of falling back: %v", err)
-	}
-	if fallback.WorktreePath != "" || fallback.CanonicalPath != selectedRepo {
-		t.Fatalf("fallback resolution=%+v, want the selected canonical path only", fallback)
 	}
 }
 
@@ -680,7 +599,9 @@ func TestRecordedCanonicalPathNegativeControls(t *testing.T) {
 func TestRecordedRemoteNormalizationDeterministic(t *testing.T) {
 	t.Parallel()
 	s := locatorReplayStore(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+	event := recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")
+	event.PayloadVersion = 2
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 	if err == nil || !strings.Contains(err.Error(), "normalization is not deterministic") {
 		t.Fatalf("tampered remote normalization err=%v", err)
 	}

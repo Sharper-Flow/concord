@@ -1,220 +1,133 @@
-# CD-0093: Session start resolves the Project directory
+# CD-0093: Session context resolves in the claimed work directory
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
-- **Scope:** What `concord session` resolves before it starts the host; the
-  working directory of a launcher-started session and everything that directory
-  governs; issues #661 and #664
+- **Scope:** The directory a managed session resolves; what `session-prepare`
+  probes, verifies, and refuses; the claimed directory that governs context,
+  identity, and registry verification
 - **Approval:** The operator raised the question on 2026-09-01 after a
   launcher-started session ran against the wrong repository. The pull request is
   the public record.
 - **Related:** CD-0078, CD-0079, CD-0031, CD-0049, CD-0088, issues #661, #664,
   and the closed #426, #428, #430, #466
+- **Amended:** CD-0176 (2026-09-24) landed work-selected sessions in the active
+  worktree, and CD-0189 (2026-09-28) configured the launch host command.
+  Concord (CON) issue CON-910 (2026-10-13) removes the launch landing and the configured launch
+  command under the Snowball coordinator's operator-delegated approval. The
+  surviving rule binds session-prepare and the claimed work directory.
 - **Preserves:** CD-0078 D1's host ownership of placement, CD-0031's
-  core-derived session boot, CD-0049 D4's refusal of a degraded start
-- **Amended:** CD-0176 (2026-09-24) lands work-selected sessions in the
-  active worktree; CD-0182 (2026-09-27) adds the explicit member-Project
-  selector; CD-0189 (2026-09-28) configures the host command through host
-  configuration (D4, D5)
+  core-derived session boot, CD-0049 D4's refusal of a degraded start, and
+  CD-0098 D4's session-prepare directory refusal
 
 ## Context
 
-The launcher spans a portfolio. An operator opens it from one directory and
-selects work that belongs to any Project in the Product.
+A host-started operator session enters managed work through
+`concord_work_start`, which claims the work's canonical worktree and moves the
+calling session into it (CD-0098). The claimed worktree, not a launch
+selection, is where the session's context, identity check, and registry probe
+must run.
 
-`concord session` does not carry that selection into the host. It builds
-`argv := []string{"opencode", "--agent", handle, "--prompt", prompt}` and runs
-it with the inherited environment and the inherited working directory
-(`cmd/concord/session.go:234`, `cmd/concord/session.go:169`). The session
-therefore opens wherever the launcher was started, which is the selected work's
-repository only by coincidence.
+The substitution defect this record closed did not begin as a managed-session
+question. A session asserted an agent identity against one registry while the
+host executed another, because the two steps ran in different directories.
+Issues #426, #428, #430, and #466 closed earlier instances of that class, and
+issue #664 recorded the cost: the refusal arrived only after the session had
+already started.
 
-The other host-start path disagrees. `concord invoke` bootstrap passes `--dir`
-from its input (`cmd/concord/work_bootstrap.go:273`). One product starts the
-host two ways with two different answers about where the work lives.
-
-Concord holds the fact both paths need. `project_locators` stores a
-`canonical_path` locator for each Project (`internal/store/schema.go:731`).
-
-Issue #661 raised a second question with the first: whether `concord session`
-should also resolve which host command to run, so an operator entry point can
-prepare a per-Project host environment after selection. CD-0078 settled the
-adjacent placement question and this record answers the remaining two.
-
-The working directory governs more than where files land. `concord session`
-binds three things to `os.Getwd()` and states nowhere that they must agree:
-
-1. Agent definition resolution searches `<cwd>/.opencode/agents` nearest-last
-   (`cmd/concord/agent_identity.go:111-119`), so a directory can override which
-   definition a handle resolves to.
-2. The host registry probe runs `opencode debug config` with `cmd.Dir = cwd`
-   (`cmd/concord/session.go:72`, `cmd/concord/agent_registry.go:90-91`), so the
-   registry Concord verifies is the one that directory resolves.
-3. Host execution inherits the process working directory
-   (`cmd/concord/session.go:169-174`).
-
-The three agree today only because all three read one unstated value. Issue #664
-reports what their disagreement looks like: a session asserts `concord-1`, the
-host executes its default agent, and the core refuses with
-`agent_identity_mismatch` after the session has already started. Issues #426,
-#428, #430, and #466 closed earlier instances of that substitution class.
-
-Moving execution alone would make that disagreement structural rather than
-incidental, because Concord would verify a registry in one directory and start
-the host in another. This record therefore governs the directory itself, not
-just the directory of execution.
+The launch landing this record once decided is removed. What survives is
+the directory discipline: one claimed directory governs the
+context read, the agent definition resolution, and the registry probe, and
+that directory is established before any of them runs.
 
 ## Decision
 
-### D1. The session directory comes from the selected work's Project
+### D1. Session context resolves from the active claim and its directory
 
-`concord session` resolves the canonical path of the Project that owns the
-selected work and starts the host in that directory. A session for work in one
-Project never opens in another Project's repository.
+A managed session's work resolves from the session's active claim and the
+directory it runs in. The continuity read binds the directory to the work's
+claimed worktree. There is no launcher directory selection, no fallback
+directory, and no second placement resolver. Cross-repository placement stays
+with CON-771's typed session placement detail and its registered-checkout
+restore.
 
-The mechanism is the child process working directory. The interactive host
-command takes a directory as a positional argument and carries no `--dir` flag;
-`--dir` belongs to the non-interactive `run` subcommand that
-`cmd/concord/work_bootstrap.go` uses. Setting the child's working directory
-covers both surfaces at once, because the host defaults its project to that
-directory and every relative path the session resolves starts there. The two
-paths reach the same outcome through the surface each one has.
+### D2. One claimed directory governs identity, verification, and context
 
-### D2. One resolved directory governs identity, verification, and execution
+The claimed worktree directory is the only directory `session-prepare` uses.
+Agent definition resolution, the calling-host registry probe, and the context
+read all take it. The probe is one bounded bare probe under the calling
+host's inherited environment (CD-0189 as amended). None of the three treats
+an inherited launch working directory as work authority.
 
-The directory D1 resolves is established first and is the only directory the
-session uses. Agent definition resolution, the host registry probe, and host
-execution all take it. None of the three reads `os.Getwd()`.
-
-This is the clause that closes #664. Concord may assert an agent identity only
-against the registry the host will actually resolve, and the registry a host
-resolves depends on where it runs. Verifying in one directory and starting in
-another asserts a property of a registry that never governs the session, which
-is indistinguishable from not verifying at all.
-
-The ordering is part of the decision. The Project directory resolves before
-identity verification, never after, because a verification that runs first
-constrains the wrong registry.
+The ordering is part of the decision. The claimed directory is established by
+the verified move before identity verification runs, because a verification
+that runs first constrains the wrong registry.
 
 ### D3. Resolution fails closed
 
-A missing Project, an absent `canonical_path` locator, or a path that does not
-resolve refuses the launch with a typed diagnostic. No session starts in a
-fallback directory.
+`session-prepare` refuses a directory other than the active claimed worktree
+with a typed diagnostic (CD-0098 D4). An unreadable registry document, a
+failed probe, or an interrupted probe refuses before managed action. No
+managed action starts on a fallback directory or a degraded probe.
 
-An agent handle the resolved directory's registry does not register refuses on
-the same terms, before the interactive session starts. CD-0049 D4 already admits
-no degraded start for agent identity, and #664 records the cost of learning about
-a substituted executor after the session is running rather than before.
+An agent handle the claimed directory's registry does not register refuses on
+the same terms. CD-0049 D4 already admits no degraded start for agent
+identity, and #664 records the cost of learning about a substituted executor
+after the session is running rather than before.
 
-A session that silently opens in the wrong repository is the same failure with a
-slower symptom, because the agent's file operations land somewhere the operator
-did not choose.
+### D4. Retired: the configured launch host command
 
-### D4. The host command is the operator's configured command, else the bare host
+The `concord session` launch and its configured host command are removed.
+The option, its argv form, its second-probe verification, and every Go-core
+launch obligation retire with the launch. Concord reads no launch option from
+host configuration and resolves no launch command.
 
-CD-0189 configures the host command. The operator names a `host_command`
-argv array in the options of the Concord plugin tuple in host OpenCode
-config, and Concord reads it from the `opencode debug config` document.
-Absent, `concord session` starts the bare `opencode` executable, which is
-the command this record first fixed. Present, every Go-core host invocation
-runs it: the Product/work launch, the Project-path launch, and the registry
-probe. A present but malformed value, or a configured command whose own
-document disagrees, refuses with a diagnostic naming `host_command`; no
-session starts through a fallback command.
+session-prepare keeps its probe obligation: one bare probe of the calling
+host in the claimed directory. A probe refusal stays typed.
 
-The original objection keeps its force for what it answered. Concord ships
-no wrapper name and hard-codes none: the released binary runs the bare host
-on every machine that names no command. CD-0078 rejected a pluggable
-terminal-placement strategy as "an abstraction with one real implementation
-on one machine"; the wrapper is operator configuration in host config, not a
-Concord strategy slot.
+### D5. Retired: the per-Project launch environment gap
 
-### D5. The per-Project host environment gap closes through host configuration
-
-D4's first form had a cost this record named rather than left to be
-discovered: an operator whose host entry point prepares a per-Project
-environment could not reach it through the Concord launch path.
-CD-0189 closes the gap through host configuration, not the store, because
-the wrapper varies per host, not per Project. A wrapper started after
-selection in the resolved directory derives any per-Project environment
-itself, and the store stays out of the host-command path.
-
-The surface is not an environment variable, and it is not `OPENCODE_BIN`,
-whose only consumers are `cmd/concord/work_bootstrap.go`,
-`adapter/opencode/concord.ts`, and the adapter test that sets it to a fake
-binary. That name is a test seam and acquires no operator meaning here.
+The launch-path environment gap closed with the launch. A host that prepares
+a per-Project environment does so for its own sessions before managed entry.
+The store stays out of the host path, and no Concord surface derives a
+per-Project host environment.
 
 ## Consequences
 
-- A launcher-started session operates on the repository that holds the selected
-  work, so the agent's file tools reach the right tree.
-- The two host-start paths agree about the working directory.
-- A Project with no canonical path cannot start a session until it has one,
-  which surfaces incomplete Project registration at launch rather than later.
-- An operator host environment that varies by Project reaches launcher-started
-  sessions through the configured wrapper, which derives it after selection in
-  the resolved directory (CD-0189).
-- CD-0079 already answers the directory-to-Project question with the read-only
-  `project-resolve` verb. This record runs the opposite direction, Project to
-  directory, and reads the store inside the session command. It opens no new
-  operator read path.
-- A Project carrying its own `.opencode/agents` definitions has them resolved
-  and verified, because the registry probe now runs where the session will run.
-  Under the previous behavior those definitions were invisible to verification
-  and still governed execution.
-- The agent substitution class #426, #428, #430, and #466 closed cannot reopen
-  through a directory change, because D2 removes the gap between the verified
-  registry and the executing one.
+- A managed session operates on the repository directory its claim verified,
+  so the agent's file tools reach the claimed tree.
+- A Project with no registered canonical path cannot claim a worktree, which
+  surfaces incomplete Project registration at claim time (CD-0008), not at a
+  launch.
+- The agent substitution class #426, #428, #430, and #466 closed stays
+  closed, because the verified move and the probe share one claimed
+  directory.
+- CD-0079 answers the directory-to-Project question with the read-only
+  `project-resolve` verb. This record opens no operator read path.
 
 ## Rejected alternatives
 
-**Honor `OPENCODE_BIN` in `concord session`.** Rejected because it is a test
-seam. Its non-test consumer sets it to a fake binary, and promoting a test hook
-to operator configuration gives one name two meanings that drift apart.
+**Verify in one directory and act in another.** Rejected because it asserts a
+property of a registry that never governs the session, which is
+indistinguishable from not verifying at all.
 
-**Add a configurable host command now.** Rejected under CD-0078's reasoning
-about one implementation on one machine. The gap D5 names is real, and a
-decision can reopen it when the evidence covers more than a single host.
-CD-0189 reopened it on that clause after operator evidence about host
-wrappers.
+**Fall back to an inherited working directory.** Rejected because a managed
+session's directory is its verified claim, and an inherited directory is the
+substitution class this record closes.
 
-**Move execution to the Project directory and leave verification on the
-launcher's.** Rejected because it converts #664's intermittent substitution into
-a structural one. Concord would assert an agent identity against a registry that
-never governs the session, and a Project holding its own `.opencode/agents`
-would resolve a different definition than the one recorded.
-
-**Prepare the host environment upstream and inherit it.** Rejected because it
-cannot work. The entry point runs before selection, so it cannot key on the
-Project the operator has not chosen. Inheriting one Project's environment for
-another Project's work is the defect D1 removes, moved to a different layer.
-
-**Pass the directory as the host's positional project argument.** Rejected
-because it is weaker than it appears. The positional names the project root the
-host loads. It leaves the child's own working directory as the launcher's, so a
-relative path the session resolves outside that notion still reaches the wrong
-tree. The child working directory covers the positional's effect and the rest.
-
-**Set the directory from the launcher's own working directory.** Rejected
-because it is the current behavior and it is what issue #661 reports.
+**A second placement resolver in the adapter.** Rejected because verified
+placement has one owner (CD-0098). Cross-repository answers are CON-771's
+typed placement detail and its registered-checkout restore, not a new
+resolver.
 
 ## Verification
 
-- A session for work whose Project resolves to a canonical path starts the host
-  in that path.
-- A session whose Project has no resolvable canonical path refuses with a typed
-  diagnostic and starts no host.
-- Agent definition resolution, the host registry probe, and host execution all
-  receive the resolved Project directory, and no one of them reads `os.Getwd()`.
-- A Project directory whose registry does not register the asserted handle
-  refuses before the interactive session starts.
-- The regression test drives the real host-selection and tool-context path
-  rather than an injected probe, so a substituted executor fails the test
-  (issue #664 acceptance).
-- The session argument vector names the resolved host command: the bare host
-  when no `host_command` is configured, the configured argv otherwise
-  (CD-0189).
+- `go test ./internal/store/ -run TestResolveContinuityWorkByDirectory` proves
+  D1: the continuity read binds the session's directory to its active claim.
+- `go test ./cmd/concord/ -run TestSessionPrepare` proves D2 and D3:
+  `session-prepare` probes the calling host once in the claimed directory and
+  refuses a directory other than the active claimed worktree.
+- `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
+  proves D3: probe and registry refusals are typed and deterministic.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
   and `python3 scripts/check-cd-allocation.py` pass.

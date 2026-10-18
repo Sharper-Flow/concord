@@ -46,15 +46,20 @@ no timer (CD-0166 D1/D4, CD-0028 D5).
 The plugin delivers the terminal report through the client the host handed
 the plugin, which reaches the server in process when no listener exists. The
 delivery is one `prompt_async` call with a synthetic text part and the
-session's persisted agent and model.
+session's persisted agent, model, and model variant. Every prompt the watcher
+posts carries that identity, because the host persists each prompt's choice
+for later turns.
 
 ### D3. Delivery survives the lost-wake defects
 
 The watcher delivers only to an idle session. After the injection it confirms
 that an assistant reply follows the injected message. Any failure to deliver
 or to confirm queues the report, and the next `chat.message` carries the
-queued report into the session as a synthetic part. The watcher logs every
-delivery failure and swallows none.
+queued report into the session as a synthetic part. Each queued report also
+gets one more try through the same confirmed delivery: at once when the host
+reports the session idle as the report is queued, and otherwise when the host
+next reports the session idle. A report that try does not confirm stays
+queued. The watcher logs every delivery failure and swallows none.
 
 ### D4. The utility is removed in this change, behind the live proof
 
@@ -97,10 +102,10 @@ upgrade.
 Scenario: A watch costs no model turns and wakes the session
   Given a coordinator session that started concord_ci_watch
   When the verb reports pending and then a terminal status
-  Then the tool call returned at once, no prompt ran before the terminal slice, and one synthetic wake carried the report with the session's agent and model
+  Then the tool call returned at once, no prompt ran before the terminal slice, and one synthetic wake carried the report with the session's agent, model, and model variant, and the session answered it
 
 Scenario: A lost wake is queued and delivered on the next message
-  Given a terminal report whose injection was refused, dropped, or unconfirmed
+  Given a terminal report still queued because its injection was refused, dropped, or unconfirmed
   When the session receives its next chat message
   Then the queued report joins that message as a synthetic part, and the queue drains exactly once
 

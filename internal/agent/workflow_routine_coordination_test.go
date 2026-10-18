@@ -28,6 +28,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest/projection"
 )
 
 // routineOverlapBinding is one destructive resolution request's complete
@@ -174,7 +175,7 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 			RequestID: "routine-coordination-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: actor}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *store.Transaction) error {
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
 			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 			return err
 		}); err != nil {
@@ -376,14 +377,14 @@ func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t
 			if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
 				t.Fatal(err)
 			}
-			before, err := store.WorkflowProjectionHash(ctx, s)
+			before, err := projection.Hash(ctx, s.DatabaseForTesting())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := store.RebuildFromLog(ctx, s); err != nil {
 				t.Fatalf("rebuild refused the event-owned destructive %s: %v", testCase.kind, err)
 			}
-			after, err := store.WorkflowProjectionHash(ctx, s)
+			after, err := projection.Hash(ctx, s.DatabaseForTesting())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -848,14 +849,14 @@ func routineOverlapRebuildWitness(t *testing.T, s *store.Store, label string) {
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
 		t.Fatal(err)
 	}
-	before, err := store.WorkflowProjectionHash(ctx, s)
+	before, err := projection.Hash(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild refused the %s: %v", label, err)
 	}
-	after, err := store.WorkflowProjectionHash(ctx, s)
+	after, err := projection.Hash(ctx, s.DatabaseForTesting())
 	if err != nil {
 		t.Fatal(err)
 	}

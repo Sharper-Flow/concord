@@ -144,8 +144,20 @@ class CDAllocationTests(RepoFixture):
         findings = checker.check(root=self.root, against="main", no_fetch=True)
 
         self.assertEqual(len(findings), 1)
-        self.assertIn("duplicate-new", findings[0])
-        self.assertIn("new CD id CD-0002 appears 2 times", findings[0])
+        self.assertIn("duplicate-id", findings[0])
+        self.assertIn("CD id CD-0002 appears 2 times", findings[0])
+
+    def test_duplicate_landed_id_is_reported(self) -> None:
+        self.start_branch()
+        (self.root / ".concord/docs/knowledge/records/CD-0001-copy.json").write_text(
+            json.dumps({"id": "CD-0001"}) + "\n", encoding="utf-8"
+        )
+
+        findings = checker.check(root=self.root, against="main", no_fetch=True)
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("duplicate-id", findings[0])
+        self.assertIn("CD id CD-0001 appears 2 times", findings[0])
 
     def test_non_cd_records_are_ignored(self) -> None:
         self.write_manifest(["CD-0001", "lesson-1", "lesson-1"])

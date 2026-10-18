@@ -18,7 +18,7 @@ import (
 // Placement: a core CLI verb rather than a host script, the same rationale
 // project-resolve carries — the reservation table and the worktree ownership
 // are authority data only the core can read. The verb is unauthenticated, as
-// project-resolve and project-canonical-path are (CD-0079 D2): the trust
+// project-resolve is (CD-0079 D2): the trust
 // boundary is filesystem access to the authority database, which a caller
 // able to exec this verb already holds. This is a read. It appends no event,
 // and CD-0021's rejection of a second write authority still binds.
@@ -32,7 +32,7 @@ func runCDReservations(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		Directory string `json:"directory"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "cd-reservations", err.Error())
+		writeOperatorDiagnostic(errOut, "cd-reservations", diagnosticText(err))
 		return 1
 	}
 	if request.Directory == "" {
@@ -42,12 +42,12 @@ func runCDReservations(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, request.Directory, request.Directory)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "cd-reservations", err.Error())
+		writeOperatorDiagnostic(errOut, "cd-reservations", diagnosticText(err))
 		return 1
 	}
 	_, productIDs, err := s.ScopeVersion(ctx, resolution.ProjectID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "cd-reservations", err.Error())
+		writeOperatorDiagnostic(errOut, "cd-reservations", diagnosticText(err))
 		return 1
 	}
 	if len(productIDs) != 1 {
@@ -56,12 +56,12 @@ func runCDReservations(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	reservations, err := s.LawAdditionReservations(ctx, productIDs[0])
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "cd-reservations", err.Error())
+		writeOperatorDiagnostic(errOut, "cd-reservations", diagnosticText(err))
 		return 1
 	}
 	owner, err := s.WorktreeOwnerWorkID(ctx, resolution.ProjectID, resolution.Repository.WorktreePath)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "cd-reservations", err.Error())
+		writeOperatorDiagnostic(errOut, "cd-reservations", diagnosticText(err))
 		return 1
 	}
 	return writeJSON(out, map[string]any{

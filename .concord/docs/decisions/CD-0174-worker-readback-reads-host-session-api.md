@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
+- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). Readback walks every page under a deadline and keeps only readback evidence.
 - **Scope:** OpenCode adapter worker completion and session readback
 - **Amends:** CD-0058 D2, CD-0102 D5
 - **Related:** CD-0017, CD-0059
@@ -18,19 +20,11 @@ into a missing executing-model evidence at completion, which stops the lane.
 
 ### D1. The readback source is the host session API
 
-The completion path reads the worker session in process through the host
-session API: one session record, then a bounded read of the message pages. The
-export subprocess path and its runner are removed. The assembled body holds
-the same `{info, messages}` shape, so the byte-exact opening packet check and
-the model and agent identity checks run unchanged over it.
+The completion path reads the worker session in process through the host session API: one session record, then message pages of at most 128 messages. The evidence body keeps every message's identity, role, time, and model and agent fields, the unchanged oldest message, and any retained Task part selected for reconciliation. Other message parts are not readback evidence and are not retained. The body keeps the `{info, messages}` shape, so the byte-exact opening packet, duplicate-message, model, and agent checks apply to the complete page walk. Its digest binds this evidence body, not discarded transcript parts.
 
-### D2. The bound is a message-page bound
+### D2. Readback bounds pages and time, not transcript length
 
-The messages read takes a bounded page and follows the host pagination cursor
-toward the oldest page, with a fixed page count bound. A transcript that
-exceeds the bound refuses with the typed `readback_message_bound` predicate.
-The former 8 MiB byte ceiling is removed; transcript size alone can no longer
-refuse a completion.
+The read follows the host pagination cursor to the oldest page. It has no fixed page-count limit. A 30-second readback deadline and caller cancellation bound the walk; either stops it as a transport failure that names reconciliation, without recording a terminal readback refusal. A repeated pagination cursor refuses with `session_read`. A finite transcript that reaches the oldest page is checked in full, regardless of its page count or byte size. No reduced identity proof, truncated opening packet, or replacement worker substitutes for that check.
 
 ### D3. The evidence contract is unchanged
 
@@ -54,10 +48,7 @@ readback with `dispatched_packet_identity`.
 
 ## Verification
 
-- The adapter suite proves the completion readback runs one session read and
-  one bounded page, admits a transcript larger than any pipe buffer, refuses
-  an unbounded transcript with the typed predicate, and retains the session
-  diagnostics and the worker result on the recorded failed attempt.
+- The adapter suite proves that completion reads every page of a transcript longer than sixteen pages, retains only readback evidence, and records a valid report. It proves that duplicate messages and conflicting model identities on different pages still refuse, that repeated cursors refuse, and that cancellation stops the walk without recording terminal failure. Session diagnostics and the worker result remain available on a recorded readback failure.
 - The adapter suite proves a packet that contains `@concord-implement`
   serializes with no `@` and decodes to the same packet, and that a host agent
   part beside the packet refuses.

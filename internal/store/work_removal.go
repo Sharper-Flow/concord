@@ -341,7 +341,7 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	var state string
 	err = tx.QueryRowContext(ctx, `SELECT state FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&state)
 	if err == nil {
-		stored, readErr := readWorkRemovalAuditQ(ctx, tx, "operation_id", req.OperationID)
+		stored, readErr := readWorkRemovalAuditQ(ctx, tx, req.OperationID)
 		if readErr != nil {
 			return WorkRemovalReceipt{}, readErr
 		}
@@ -600,7 +600,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
 	}
-	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
+	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_size_assessments", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
 		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list above and the work ID stays parameter-bound.
 		if deleteErr == nil {
@@ -670,27 +670,19 @@ func projectionDeleteFailure(table string, err error) error {
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("cannot remove %s projection", table), false, "reconcile the projection before removal", err)
 }
 
-// ReadWorkRemovalAudit returns the durable receipt without exposing a live
-// WorkItem or a resume action.
-func (s *Store) ReadWorkRemovalAudit(ctx context.Context, workID string) (WorkRemovalReceipt, error) {
-	if s == nil || s.db == nil {
-		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_audit", "store is not open", false, "open the authority database")
-	}
-	return readWorkRemovalAuditQ(ctx, s.db, "work_id", workID)
-}
-
+// readWorkRemovalAuditByOperation returns the durable receipt without
+// exposing a live WorkItem or a resume action.
 func (s *Store) readWorkRemovalAuditByOperation(ctx context.Context, operationID string) (WorkRemovalReceipt, error) {
 	if s == nil || s.db == nil {
 		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_audit", "store is not open", false, "open the authority database")
 	}
-	return readWorkRemovalAuditQ(ctx, s.db, "operation_id", operationID)
+	return readWorkRemovalAuditQ(ctx, s.db, operationID)
 }
 
-func readWorkRemovalAuditQ(ctx context.Context, q queryer, column, identity string) (WorkRemovalReceipt, error) {
+func readWorkRemovalAuditQ(ctx context.Context, q queryer, operationID string) (WorkRemovalReceipt, error) {
 	var receipt WorkRemovalReceipt
 	var handoff, linearRaw string
-	// column is selected only from the two fixed call sites above.
-	err := q.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE `+column+`=?`, identity).Scan(&receipt.OperationID, &receipt.IdempotencyKey, &receipt.WorkID, &receipt.ExpectedVersion, &receipt.Reason, &receipt.Actor, &receipt.ProductID, &linearRaw, &handoff, &receipt.HandoffDigest, &receipt.State, &receipt.EventID)
+	err := q.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE operation_id=?`, operationID).Scan(&receipt.OperationID, &receipt.IdempotencyKey, &receipt.WorkID, &receipt.ExpectedVersion, &receipt.Reason, &receipt.Actor, &receipt.ProductID, &linearRaw, &handoff, &receipt.HandoffDigest, &receipt.State, &receipt.EventID)
 	if err == sql.ErrNoRows {
 		return WorkRemovalReceipt{}, newFailure(KindProjectionNotFound, "work_removal_audit", "removal receipt does not exist", false, "supply a removed work identity")
 	}
@@ -739,24 +731,6 @@ type WorkLiveness struct {
 	Attempts     int      `json:"attempts"`
 	OpenWaits    int      `json:"open_waits"`
 	LastProgress string   `json:"last_progress,omitempty"`
-}
-
-func DeriveWorkLiveness(ctx context.Context, s *Store, workID string) (WorkLiveness, error) {
-	if s == nil || s.db == nil {
-		return WorkLiveness{}, newFailure(KindUnavailable, "work_liveness", "store is not open", false, "open the authority database")
-	}
-	var exists int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, workID).Scan(&exists); err != nil {
-		return WorkLiveness{}, err
-	}
-	if exists == 0 {
-		return WorkLiveness{}, newFailure(KindProjectionNotFound, "work_liveness", "work item does not exist", false, "supply an existing work item")
-	}
-	return deriveWorkLivenessQ(ctx, s.db, workID)
-}
-
-func (s *Store) ReadWorkLiveness(ctx context.Context, workID string) (WorkLiveness, error) {
-	return DeriveWorkLiveness(ctx, s, workID)
 }
 
 func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {

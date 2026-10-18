@@ -107,6 +107,9 @@ import (
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
 // the other five families outside that route.
+// The first composed heads (CD-0229 D2) are implementation 33, break_fix 30,
+// and research 20: each compiles from its composition and equals its
+// predecessor except for the order of the two definition-level action lists.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -254,6 +257,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "32"}:     "sha256:96e8b3f6bb0f5e157132512f476354e30f59e981e6b183135b3a371aa52831ff",
 	{"workflow.break_fix", "29"}:          "sha256:48671ba822356e8d97ecdb1025252621ce23fe5dd5faf441f451531873c5fec3",
 	{"workflow.research", "19"}:           "sha256:35209c6f6d321a3c663a265be940ef52e9911e9d9c195e4b1851aa81d89e2ec5",
+	{"workflow.implementation", "33"}:     "sha256:b5771bcb5a796249e7e090228d86947b193c3134d7ba30736bcc1909953157d3",
+	{"workflow.break_fix", "30"}:          "sha256:252af47b2f64825844595e4ec05dbafc223b9bbd254f621ddc2def5bb1756309",
+	{"workflow.research", "20"}:           "sha256:93c26a941ef7e76e2e6e75eac61ca4654fdc832f7c2340eb2f287dc7353b1d21",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -265,9 +271,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		implementationResearchContextV32(),
-		breakFixResearchContextV29(),
-		researchResearchContextV19(),
+		mustCompileWorkflowComposition(implementationCompositionV33()),
+		mustCompileWorkflowComposition(breakFixCompositionV30()),
+		mustCompileWorkflowComposition(researchCompositionV20()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -366,7 +372,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", singleForm); err != nil {
 		t.Fatalf("single-form verdict against the pinned version refused: %v", err)
 	}
-	batchedForm := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}]}`)
+	batchedForm := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`)
 	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", batchedForm); err == nil {
 		t.Fatal("the pinned version admitted the batched verdicts field; pinned instances would change behavior")
 	}
@@ -405,7 +411,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	// beside the batch refuses through the engine cross-field declaration
 	// the preflight enforces and publication branches from (CON-412);
 	// normalizeWorkflowVerdictEntries only decodes the wire shapes.
-	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one"}]}`)
+	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`)
 	if err := validateWorkflowActionPayload(current, "record_verdict", both); err == nil {
 		t.Fatal("validation admitted predicate_id beside verdicts")
 	}
@@ -413,7 +419,7 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current, "record_verdict", neither); err == nil {
 		t.Fatal("validation admitted a call with neither form")
 	}
-	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
+	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}],"evaluation_evidence":["evidence:one"]}`)
 	if err := validateWorkflowActionPayload(current, "record_verdict", bothAndEntry); err == nil {
 		t.Fatal("validation admitted an entry-level field beside the batch")
 	}
@@ -440,10 +446,10 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          29,
-		"workflow.implementation":     32,
+		"workflow.break_fix":          30,
+		"workflow.implementation":     33,
 		"workflow.generic_one_off":    16,
-		"workflow.research":           19,
+		"workflow.research":           20,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,

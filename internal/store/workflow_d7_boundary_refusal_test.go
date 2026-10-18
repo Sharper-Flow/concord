@@ -200,7 +200,7 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 		IdempotencyKey: "d7-" + actionID + "-" + workID, RequestID: "request:d7-" + actionID + "-" + workID,
 		ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 	}
-	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), execution)
 		return err
 	})
@@ -392,7 +392,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 			assertTableCount(t, s, "domain_events", eventsBefore)
 
 			// D7: read-only inspection remains available while the boundary refuses.
-			if _, err := ReadWorkflow(ctx, s, workID); err != nil {
+			if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {
 				t.Fatalf("read-only workflow inspection failed while the boundary refused: %v", err)
 			}
 			if err := InspectWorkflowDomainOverlap(ctx, s, otherID); err == nil {
@@ -447,10 +447,10 @@ func TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap(t *testing.T) {
 		AcceptedScopeSnapshot: `{"work_id":"` + workID + `"}`, PrincipalRef: "principal/operator", Tool: "concord_work_transition",
 		IdempotencyKey: "d7-claim", RequestID: "request:d7-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,
 	}
-	_, err := ClaimStep(ctx, s, request)
+	_, err := ClaimStepAuthorized(ctx, s, request, nil)
 	assertD7TypedRefusal(t, err, workID, otherID)
 	assertTableCount(t, s, "durable_operations", operationsBefore)
-	if _, err := ReadWorkflow(ctx, s, workID); err != nil {
+	if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {
 		t.Fatalf("read-only workflow inspection failed while the claim boundary refused: %v", err)
 	}
 }

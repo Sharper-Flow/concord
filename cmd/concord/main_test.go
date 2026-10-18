@@ -46,111 +46,6 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
-func TestLinearIssueReferenceAcceptsKeyAndURL(t *testing.T) {
-	for _, test := range []struct {
-		input string
-		want  string
-	}{
-		{input: "CON-30", want: "CON-30"},
-		{input: "https://linear.app/example/issue/CON-30/adopt-me", want: "CON-30"},
-	} {
-		key, issueURL, ok := linearIssueReference(test.input)
-		if !ok || key != test.want || (strings.HasPrefix(test.input, "http") && issueURL != test.input) {
-			t.Fatalf("linearIssueReference(%q) = %q, %q, %v", test.input, key, issueURL, ok)
-		}
-	}
-	if _, _, ok := linearIssueReference("https://example.com/issue/CON-30"); ok {
-		t.Fatal("non-Linear URL was classified as a Linear issue reference")
-	}
-	if _, _, ok := linearIssueReference("work-3b42fe43cb9d1c9816a8043b"); ok {
-		t.Fatal("work id was classified as a Linear issue reference")
-	}
-}
-
-// seedLinearCLIWork seeds a work item with primary membership in the
-// Product's project so launcher resolution derives exactly one Product.
-func seedLinearCLIWork(t *testing.T, dbPath, workID, projectID, title string) {
-	t.Helper()
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	intent, _ := json.Marshal(map[string]any{"title": title, "value_statement": "CLI launcher value statement", "kind": "task", "priority": 0, "urgency": "standard"})
-	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', ?, 'needed', 0, 'standard', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, workID, title, string(intent)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestResolveZLLinearReferenceUsesRecordedLink(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "linear-product", "linear-project")
-	seedLinearCLIWork(t, dbPath, "linear-work", "linear-project", "Linear work")
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"})
-		return err
-	}); err != nil {
-		s.Close()
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(dbOverrideEnv, dbPath)
-	work, product, err := resolveZLLinearReference("CON-30", "", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if work != "linear-work" || product != "linear-product" {
-		t.Fatalf("resolved work/product = %q/%q", work, product)
-	}
-}
-
-// CD-0213 D7: Concord makes no Linear call, so an issue no work item records
-// resolves nothing and names the record operation instead of adopting.
-func TestResolveZLLinearReferenceRefusesAnUnrecordedIssue(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "unlinked-product", "unlinked-project")
-	t.Setenv(dbOverrideEnv, dbPath)
-	_, _, err := resolveZLLinearReference("CON-30", "", "", "unlinked-product")
-	if err == nil || !strings.Contains(err.Error(), "concord_work_define.issue_link_record") {
-		t.Fatalf("unrecorded issue err = %v", err)
-	}
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var works int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&works); err != nil {
-		t.Fatal(err)
-	}
-	if works != 0 {
-		t.Fatalf("an unrecorded issue created %d work items", works)
-	}
-}
-
 func TestStampedBuildReportsVersion(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -442,34 +337,97 @@ func topLevelCommandSection(t *testing.T, topLevel, canonical string) string {
 	return topLevel[start : start+len(line)+end+1]
 }
 
-func TestCommandHelp(t *testing.T) {
+// topLevelVerbLines returns the byte-exact usage lines that the top-level
+// help's verb list gives one verb outside the JSON-stdin command sections.
+func topLevelVerbLines(t *testing.T, topLevel, verb string) string {
+	t.Helper()
+	preamble, _, _ := strings.Cut(topLevel, "\nRequired-field refusals")
+	var lines strings.Builder
+	for _, line := range strings.Split(preamble, "\n") {
+		if strings.HasPrefix(line, "  concord "+verb+" ") {
+			lines.WriteString(line + "\n")
+		}
+	}
+	if lines.Len() == 0 {
+		t.Fatalf("top-level usage lists no line for %s", verb)
+	}
+	return lines.String()
+}
+
+// topLevelGroupSections returns the sections of every command whose two-word
+// form starts with the group word, in top-level order.
+func topLevelGroupSections(t *testing.T, topLevel, group string) string {
+	t.Helper()
+	var sections strings.Builder
+	for _, spec := range commandSpecs {
+		if strings.HasPrefix(spec.TwoWord, group+" ") {
+			sections.WriteString(topLevelCommandSection(t, topLevel, spec.Canonical))
+		}
+	}
+	if sections.Len() == 0 {
+		t.Fatalf("group %s has no commands in commandSpecs", group)
+	}
+	return sections.String()
+}
+
+// TestEveryVerbHasAHelpRoute proves that every verb the top-level usage names,
+// every command form, and every group word answer
+// --help and -h with their own usage on stdout, exit 0, and never read stdin
+// or open the store.
+func TestEveryVerbHasAHelpRoute(t *testing.T) {
 	topLevel := topLevelHelp(t)
+	type verbCase struct {
+		name string
+		args []string
+		want string
+	}
+	cases := []verbCase{{name: "concord", want: topLevel}}
 	for _, spec := range commandSpecs {
 		for _, form := range []string{spec.Canonical, spec.TwoWord} {
-			if form == "" {
-				continue
+			if form != "" {
+				cases = append(cases, verbCase{name: form, args: strings.Fields(form), want: topLevelCommandSection(t, topLevel, spec.Canonical)})
 			}
-			t.Run(form, func(t *testing.T) {
+		}
+	}
+	for _, group := range commandGroups() {
+		cases = append(cases, verbCase{name: group, args: []string{group}, want: topLevelGroupSections(t, topLevel, group)})
+	}
+	preamble, _, _ := strings.Cut(topLevel, "\nRequired-field refusals")
+	var verbs []string
+	for _, line := range strings.Split(preamble, "\n") {
+		verb, _, _ := strings.Cut(strings.TrimPrefix(line, "  concord "), " ")
+		if !strings.HasPrefix(line, "  concord ") || strings.HasPrefix(verb, "-") || slices.Contains(verbs, verb) || slices.ContainsFunc(commandSpecs, func(spec commandSpec) bool { return spec.Canonical == verb }) {
+			continue
+		}
+		verbs = append(verbs, verb)
+		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
+	}
+	for _, want := range []string{"continuity-block", "repair", "recover-fold-guard"} {
+		if !slices.Contains(verbs, want) {
+			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
+		}
+	}
+	for _, tc := range cases {
+		for _, flag := range []string{"--help", "-h"} {
+			t.Run(tc.name+" "+flag, func(t *testing.T) {
 				dbPath := filepath.Join(t.TempDir(), "concord.db")
 				t.Setenv(dbOverrideEnv, dbPath)
 				var out, errOut bytes.Buffer
 				stdin := &countingStdin{}
-				args := append(strings.Fields(form), "--help")
-				if code := runWithInput(args, stdin, &out, &errOut); code != 0 {
-					t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", form, code, errOut.String())
+				if code := runWithInput(append(slices.Clone(tc.args), flag), stdin, &out, &errOut); code != 0 {
+					t.Fatalf("exit code = %d, want 0; stderr=%q", code, errOut.String())
 				}
 				if errOut.Len() != 0 {
-					t.Fatalf("%s --help stderr = %q, want empty", form, errOut.String())
+					t.Fatalf("stderr = %q, want empty", errOut.String())
 				}
 				if stdin.reads != 0 {
-					t.Fatalf("%s --help read stdin %d times, want 0", form, stdin.reads)
+					t.Fatalf("read stdin %d times, want 0", stdin.reads)
 				}
 				if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-					t.Fatalf("%s --help touched the store database at %s", form, dbPath)
+					t.Fatalf("touched the store database at %s", dbPath)
 				}
-				want := topLevelCommandSection(t, topLevel, spec.Canonical)
-				if out.String() != want {
-					t.Fatalf("%s --help output differs from its top-level usage section", form)
+				if out.String() != tc.want {
+					t.Fatalf("stdout = %q, want %q", out.String(), tc.want)
 				}
 			})
 		}
@@ -486,17 +444,7 @@ func TestGroupHelp(t *testing.T) {
 	}
 	for _, group := range groups {
 		t.Run(group, func(t *testing.T) {
-			var sections strings.Builder
-			prefix := group + " "
-			for _, spec := range commandSpecs {
-				if strings.HasPrefix(spec.TwoWord, prefix) {
-					sections.WriteString(topLevelCommandSection(t, topLevel, spec.Canonical))
-				}
-			}
-			wantSections := sections.String()
-			if wantSections == "" {
-				t.Fatalf("group %s has no commands in commandSpecs", group)
-			}
+			wantSections := topLevelGroupSections(t, topLevel, group)
 
 			var out, errOut bytes.Buffer
 			stdin := &countingStdin{}
@@ -516,19 +464,22 @@ func TestGroupHelp(t *testing.T) {
 				t.Fatalf("bare %q read stdin %d times, want 0", group, stdin.reads)
 			}
 
-			out.Reset()
-			errOut.Reset()
-			if code := runWithInput([]string{group, "--help"}, stdin, &out, &errOut); code != 0 {
-				t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", group, code, errOut.String())
-			}
-			if errOut.Len() != 0 {
-				t.Fatalf("%s --help stderr = %q, want empty", group, errOut.String())
-			}
-			if out.String() != wantSections {
-				t.Fatalf("%s --help output differs from the group sections", group)
-			}
-			if stdin.reads != 0 {
-				t.Fatalf("%s --help read stdin %d times, want 0", group, stdin.reads)
+			for _, args := range [][]string{{group, "bogus"}, {group, "bogus", "--help"}} {
+				out.Reset()
+				errOut.Reset()
+				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
+					t.Fatalf("%v exit code = %d, want 2", args, code)
+				}
+				if out.Len() != 0 {
+					t.Fatalf("%v stdout = %q, want empty", args, out.String())
+				}
+				diagnostic := fmt.Sprintf("concord: %s has no command bogus; use 'concord %s --help' to list its commands\n", group, group)
+				if errOut.String() != diagnostic+wantSections {
+					t.Fatalf("%v stderr = %q, want the group diagnostic and its sections", args, errOut.String())
+				}
+				if stdin.reads != 0 {
+					t.Fatalf("%v read stdin %d times, want 0", args, stdin.reads)
+				}
 			}
 		})
 	}
@@ -597,22 +548,6 @@ func TestTopLevelHelpUnchanged(t *testing.T) {
 	}
 	if string(want) != got {
 		t.Fatalf("concord --help differs from %s; regenerate with UPDATE_GOLDEN=1 only for an approved usage change", path)
-	}
-}
-
-func TestOutsideRepairHelpDeclaresJSONAndSeparateTTY(t *testing.T) {
-	in := &countingStdin{}
-	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"outside-repair", "--help"}, in, &out, &errOut); code != 0 {
-		t.Fatalf("help: %d %s", code, errOut.String())
-	}
-	for _, required := range []string{"concord outside-repair < JSON stdin", "required: work_id, agent", "controlling TTY", "exact directory and argv", "/dev/tty"} {
-		if !strings.Contains(out.String(), required) {
-			t.Errorf("help omits %q", required)
-		}
-	}
-	if in.reads != 0 {
-		t.Fatal("help consumed JSON input")
 	}
 }
 
@@ -1010,8 +945,12 @@ func TestRetiredPlanningCommandsRefuseBeforeStdinOrStore(t *testing.T) {
 				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
 					t.Fatalf("retired command exit code = %d, want 2; stderr=%q", code, errOut.String())
 				}
-				if out.Len() != 0 || !strings.Contains(errOut.String(), "unsupported arguments") {
-					t.Fatalf("retired command stdout=%q stderr=%q, want unsupported usage", out.String(), errOut.String())
+				want := "unsupported arguments"
+				if _, group := groupWord(args[0]); group {
+					want = "concord: " + args[0] + " has no command " + args[1] + ";"
+				}
+				if out.Len() != 0 || !strings.Contains(errOut.String(), want) {
+					t.Fatalf("retired command stdout=%q stderr=%q, want %q", out.String(), errOut.String(), want)
 				}
 				if stdin.reads != 0 {
 					t.Fatalf("retired command read stdin %d times, want 0", stdin.reads)
@@ -1961,7 +1900,7 @@ func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
-	reader, err := sql.Open("sqlite", "file:"+dbPath)
+	reader, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2433,63 +2372,5 @@ func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
 	}
 	if !strings.HasPrefix(errOut.String(), "concord client-policy-expand: ") {
 		t.Fatalf("diagnostic = %q, want the command-prefixed refusal", errOut.String())
-	}
-}
-
-// TestZLStopsOptionParsingAtPromptDelimiter covers the delimiter rule of the
-// CD-0182 selector: the first `--` ends option parsing, so prompt words after
-// it stay prompt text and can neither select a Project nor lose words.
-func TestZLStopsOptionParsingAtPromptDelimiter(t *testing.T) {
-	cases := []struct {
-		name          string
-		args          []string
-		wantProject   string
-		wantForwarded []string
-	}{
-		{"option-shaped prompt words stay prompt text", []string{"work-1", "--", "please use", "--project", "other"}, "", []string{"work-1", "--", "please use", "--project", "other"}},
-		{"selector before the delimiter still selects", []string{"--project", "project-2", "work-1", "--", "words --project other"}, "project-2", []string{"work-1", "--", "words --project other"}},
-		{"equals form before the delimiter still selects", []string{"work-1", "--project=project-2", "--", "words"}, "project-2", []string{"work-1", "--", "words"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			project, forwarded, diagnostic := parseZLForwarding(tc.args)
-			if diagnostic != "" {
-				t.Fatalf("diagnostic=%q, want none", diagnostic)
-			}
-			if project != tc.wantProject {
-				t.Fatalf("project=%q, want %q", project, tc.wantProject)
-			}
-			if !slices.Equal(forwarded, tc.wantForwarded) {
-				t.Fatalf("forwarded=%q, want %q", forwarded, tc.wantForwarded)
-			}
-		})
-	}
-}
-
-// TestZLProjectSelectorRefusals covers the CD-0182 selector grammar at the
-// zl boundary: a selector without a value, a selector that combines with
-// --resume-last, and an invalid Project ID each refuse with a diagnostic
-// before any session launch is prepared.
-func TestZLProjectSelectorRefusals(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	cases := []struct {
-		name    string
-		args    []string
-		wantErr string
-	}{
-		{"selector without a value", []string{"work-1", "--project"}, "--project requires a Project ID"},
-		{"selector with resume-last", []string{"--resume-last", "--project", "project-2"}, "--project does not combine with --resume-last"},
-		{"invalid Project ID", []string{"work-1", "--project=../escape"}, "Project selection is missing or invalid"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var out, errOut bytes.Buffer
-			if code := runZLForwarding(tc.args, strings.NewReader(""), &out, &errOut); code != 2 {
-				t.Fatalf("exit=%d stderr=%q, want 2", code, errOut.String())
-			}
-			if !strings.Contains(errOut.String(), "concord zl: "+tc.wantErr) {
-				t.Fatalf("diagnostic=%q, want %q", errOut.String(), tc.wantErr)
-			}
-		})
 	}
 }

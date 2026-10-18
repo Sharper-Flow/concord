@@ -114,7 +114,7 @@ func durableNeighborOperations() []neighborOperation {
 			actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 			payload := []byte(`{"problem":"A bounded problem.","affected":["The store."],"stakes":"The committed proposal survives.","user_outcomes":["A durable proposal."]}`)
 			run := func() error {
-				return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor}, nil, time.Time{}, nil, func(tx *Transaction) error {
+				return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor}, nil, func(tx *Transaction) error {
 					_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor, AcceptedInputsDigest: testDigest("neighbor"), IdempotencyIdentity: "neighbor-proposal", OperationID: "neighbor-proposal", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "neighbor-proposal", RequestID: "neighbor-request", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 					return err
 				})
@@ -144,7 +144,7 @@ func durableNeighborOperations() []neighborOperation {
 			claim := testClaim("neighbor-fence", "neighbor-claim")
 			var epoch int64
 			if name == "CompleteStep" {
-				claimed, err := ClaimStep(ctx, s, claim)
+				claimed, err := ClaimStepAuthorized(ctx, s, claim, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -11,14 +11,16 @@
 // Delivery survives the upstream promptAsync lost-wake defects (a busy
 // session persists the prompt but never schedules a turn; an idle session can
 // drop one). The protocol: deliver only to an idle session, carry the
-// session's persisted agent and model on the synthetic text part, identify the
-// persisted user message carrying the report, confirm actual assistant output
-// (non-empty text or tool activity) the host parented to that message, and
-// queue the report for the next
-// chat.message when any step fails. Watch admission bounds each session's
-// unresolved watches plus queued reports at the queue cap, so every accepted
-// report is retained and none is dropped to make room. Every delivery failure
-// is logged and queued; none is swallowed.
+// session's persisted agent, model, and variant in the prompt body, identify
+// the persisted user message carrying the report, confirm actual
+// assistant output (non-empty text or tool activity) the host parented to
+// that message, and queue the report when any step fails. A queued report gets
+// one more try through the same protocol, at once when its session is already
+// idle and otherwise when the session next goes idle, and the next
+// chat.message carries any report still queued. Watch admission bounds each
+// session's unresolved watches plus queued reports at the queue cap, so every
+// accepted report is retained and none is dropped to make room. Every delivery
+// failure is logged and queued; none is swallowed.
 
 import { randomUUID } from "node:crypto"
 import fs from "node:fs"
@@ -27,15 +29,18 @@ import path from "node:path"
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { concordBinaryPath } from "./dispatch"
 import { hostControlPlane, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type PluginClientHost, type RouteResult } from "./move-session"
+import { promptAndConfirm as deliverHostPrompt, readSessionIdentity as hostSessionIdentity, type SessionIdentity } from "./host-prompt"
 
 const SESSION_STATUS_ROUTE = "/session/status"
-const PROMPT_ASYNC_ROUTE = "/session/{id}/prompt_async"
 const LOG_ROUTE = "/log"
 
 // The part metadata key that marks a user message as this module's operator
 // notice. The plugin's chat.message hook reads it to skip the notice, so the
 // marker lives here where the notice is written.
 export const CI_WATCH_NOTICE_METADATA = "concord.ci_watch_notice"
+// An idle redelivery's text part lists the watch ids of the queued reports it
+// carries under this metadata key.
+const CI_WATCH_REDELIVERY_METADATA = "concord.ci_watch_redelivery"
 
 // The verb's own request contract (cmd/concord/ci_wait.go): one JSON object
 // on stdin, one JSON report on stdout, one bounded slice per invocation.
@@ -47,8 +52,6 @@ export type CiWatchArgs = {
 }
 
 type CiWaitReport = { status: string; reason?: string; state_file?: string; [key: string]: unknown }
-
-type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: string } }
 
 type ActiveWatch = {
   id: string
@@ -69,6 +72,9 @@ type ActiveWatch = {
   waiting: boolean
   heartbeatTimer?: ReturnType<typeof setInterval>
   heartbeat?: Promise<void>
+  // The idle check queueReport starts for this watch's report. It never
+  // rejects.
+  idleCheck?: Promise<void>
 }
 
 export type VerbSpawner = (
@@ -123,8 +129,11 @@ let routeClient: WatchRouteClient | null = null
 
 const activeWatches = new Map<string, ActiveWatch>()
 const watchKeys = new Map<string, string>()
-const queuedReports = new Map<string, Array<{ record: CiWatchRecord; text: string }>>()
+// idleTried records that a queued report has had its one idle redelivery.
+type QueuedReport = { record: CiWatchRecord; text: string; idleTried: boolean }
+const queuedReports = new Map<string, QueuedReport[]>()
 const settledWatches = new Map<string, Promise<void>>()
+const idleRedeliveries = new Map<string, Set<Promise<void>>>()
 
 type CiWatchCounts = { total: number; passing: number; failing: number; skipped: number; pending: number }
 type CiWatchObservation = {
@@ -239,6 +248,7 @@ export function configureCiWatch(
     watchKeys.clear()
     queuedReports.clear()
     settledWatches.clear()
+    idleRedeliveries.clear()
     resetCiWatchSnapshots()
     return
   }
@@ -256,10 +266,18 @@ export function bindCiWatchClient(source: PluginClientHost | WatchRouteClient | 
   routeClient = isRouteClient(source) ? source : routeClientOf(source.client)
 }
 
-// ciWatchSettled exposes the watch loop's completion to the test suite; a
-// watch id that never started answers null.
+// ciWatchSettled exposes the watch loop's completion, and the idle check its
+// queued report started, to the test suite; a watch id that never started
+// answers null.
 export function ciWatchSettled(watchID: string): Promise<void> | null {
   return settledWatches.get(watchID) ?? null
+}
+
+// ciWatchRedelivery exposes a session's in-flight idle redeliveries to the
+// test suite; a session with no try in flight answers null.
+export function ciWatchRedelivery(sessionID: string): Promise<void> | null {
+  const tries = idleRedeliveries.get(sessionID)
+  return tries ? Promise.all(tries).then(() => undefined) : null
 }
 
 function routeClientOf(source: unknown): WatchRouteClient | null {
@@ -598,11 +616,10 @@ function startWatch(watch: ActiveWatch): void {
     // escape from becoming an unhandled rejection.
     log("error", `ci-watch ${watch.id}: the watcher loop escaped: ${errorDetail(error)}`)
   })
-  settledWatches.set(watch.id, loop)
-  void loop.finally(() => {
-    settledWatches.delete(watch.id)
-    watchKeys.delete(watchKey(watch.sessionID, watch.args))
-  })
+  const settled = loop.then(() => watch.idleCheck)
+  settledWatches.set(watch.id, settled)
+  void loop.finally(() => watchKeys.delete(watchKey(watch.sessionID, watch.args)))
+  void settled.finally(() => settledWatches.delete(watch.id))
 }
 
 // --- The wait loop ---
@@ -763,7 +780,8 @@ function stopWatchHeartbeats(watch: ActiveWatch): void {
 
 async function postOperatorNotice(watch: ActiveWatch, identity: SessionIdentity, text: string): Promise<void> {
   const client = requireClient("post an operator notice")
-  const body: Record<string, unknown> = {
+  const body = {
+    ...identity,
     noReply: true,
     parts: [
       {
@@ -774,8 +792,6 @@ async function postOperatorNotice(watch: ActiveWatch, identity: SessionIdentity,
       },
     ],
   }
-  if (identity.agent !== undefined) body.agent = identity.agent
-  if (identity.model !== undefined) body.model = identity.model
   const result = await client.post({ url: SESSION_MESSAGES_ROUTE, path: { id: watch.sessionID }, body, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host session message route answered ${result.response.status}`)
 }
@@ -818,7 +834,8 @@ async function settle(watch: ActiveWatch, report: CiWaitReport, sliceObservation
   await watch.heartbeat
   const text = formatReport(watch, report)
   try {
-    const outcome = await deliverTerminalReport(watch, text)
+    await waitForIdle(watch.sessionID)
+    const outcome = await promptAndConfirm(watch.sessionID, text)
     if (outcome === "delivered") {
       updateCiDelivery(watch.id, "delivered")
       log("info", `ci-watch ${watch.id}: the terminal report was delivered and the assistant reply parented to it followed`)
@@ -832,16 +849,8 @@ async function settle(watch: ActiveWatch, report: CiWaitReport, sliceObservation
   }
 }
 
-async function deliverTerminalReport(watch: ActiveWatch, text: string): Promise<"delivered" | "unconfirmed"> {
-  await waitForIdle(watch.sessionID)
-  const identity = await readSessionIdentity(watch.sessionID)
-  await promptAsync(watch.sessionID, identity, text)
-  const injected = await injectedReportMessageID(watch.sessionID, text)
-  if (injected === null) {
-    throw new Error(`the host never persisted the injected report message for session ${watch.sessionID}`)
-  }
-  const confirmed = await confirmAssistantReply(watch.sessionID, injected)
-  return confirmed ? "delivered" : "unconfirmed"
+async function promptAndConfirm(sessionID: string, text: string, metadata?: Record<string, unknown>): Promise<"delivered" | "unconfirmed"> {
+  return deliverHostPrompt(requireClient("deliver the terminal report"), sessionID, text, config, metadata)
 }
 
 async function waitForIdle(sessionID: string): Promise<void> {
@@ -866,92 +875,7 @@ async function readSessionStatus(sessionID: string): Promise<string> {
 }
 
 async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> {
-  const client = requireClient("read the session record")
-  const result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host session record answered ${result.response.status}`)
-  const record = (result.data ?? {}) as { agent?: unknown; model?: unknown }
-  const identity: SessionIdentity = {}
-  if (typeof record.agent === "string" && record.agent.length > 0) identity.agent = record.agent
-  if (record.model !== null && typeof record.model === "object") {
-    // The host session record carries the selected model as { id, providerID,
-    // variant? }; the prompt payload's model reference names the same pair
-    // { providerID, modelID }, so the host id maps onto modelID.
-    const model = record.model as { id?: unknown; providerID?: unknown }
-    if (typeof model.providerID === "string" && model.providerID.length > 0 && typeof model.id === "string" && model.id.length > 0) {
-      identity.model = { providerID: model.providerID, modelID: model.id }
-    }
-  }
-  return identity
-}
-
-async function promptAsync(sessionID: string, identity: SessionIdentity, text: string): Promise<void> {
-  const client = requireClient("deliver the terminal report")
-  const body: Record<string, unknown> = { parts: [{ type: "text", text, synthetic: true }] }
-  if (identity.agent !== undefined) body.agent = identity.agent
-  if (identity.model !== undefined) body.model = identity.model
-  const result = await client.post({ url: PROMPT_ASYNC_ROUTE, path: { id: sessionID }, body, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host prompt_async route answered ${result.response.status}`)
-}
-
-type SessionMessage = {
-  info?: { id?: unknown; role?: unknown; parentID?: unknown; error?: unknown }
-  parts?: Array<{ type?: unknown; text?: unknown }>
-}
-
-async function sessionMessages(sessionID: string): Promise<SessionMessage[]> {
-  const client = requireClient("read the session messages")
-  const result = await client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query: { limit: "20" }, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host session messages route answered ${result.response.status}`)
-  return Array.isArray(result.data) ? (result.data as SessionMessage[]) : []
-}
-
-// The prompt_async route answers 204 before the host's forked prompt persists
-// anything and its response carries no message id, so the injected report is
-// identified by its own text on the session's user messages.
-async function injectedReportMessageID(sessionID: string, text: string): Promise<string | null> {
-  const deadline = Date.now() + config.confirmWindowMs
-  for (;;) {
-    for (const message of await sessionMessages(sessionID)) {
-      const info = message.info
-      if (info === null || typeof info !== "object" || info.role !== "user" || typeof info.id !== "string") continue
-      const parts = Array.isArray(message.parts) ? message.parts : []
-      const carries = parts.some((part) => part !== null && typeof part === "object" && part.type === "text" && part.text === text)
-      if (carries) return info.id
-    }
-    if (Date.now() + config.confirmPollMs > deadline) return null
-    await sleep(config.confirmPollMs)
-  }
-}
-
-// Delivery is proven only by actual assistant output (a non-empty text part
-// or tool activity) on the non-error assistant record the host parented to
-// the injected report message (the host's Assistant schema requires
-// parentID). The host persists that record before the model streams anything
-// and finalizes an interrupted record with an error, so a parented placeholder
-// or an errored record proves no turn ran and must not count as a reply. Any
-// other assistant message is concurrent traffic, not the wake.
-function assistantRecordProvesReply(message: SessionMessage, injectedMessageID: string): boolean {
-  const info = message.info
-  if (info === null || typeof info !== "object") return false
-  if (info.role !== "assistant" || info.parentID !== injectedMessageID) return false
-  if (info.error !== undefined && info.error !== null) return false
-  const parts = Array.isArray(message.parts) ? message.parts : []
-  return parts.some((part) => {
-    if (part === null || typeof part !== "object") return false
-    if (part.type === "tool") return true
-    return part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0
-  })
-}
-
-async function confirmAssistantReply(sessionID: string, injectedMessageID: string): Promise<boolean> {
-  const deadline = Date.now() + config.confirmWindowMs
-  for (;;) {
-    for (const message of await sessionMessages(sessionID)) {
-      if (assistantRecordProvesReply(message, injectedMessageID)) return true
-    }
-    if (Date.now() + config.confirmPollMs > deadline) return false
-    await sleep(config.confirmPollMs)
-  }
+  return hostSessionIdentity(requireClient("read the session record"), sessionID)
 }
 
 // unresolvedSessionDeliveries counts the session's accepted watches that can
@@ -977,25 +901,121 @@ function queueReport(watch: ActiveWatch, text: string): void {
     // prevent.
     log("error", `ci-watch ${watch.id}: session ${watch.sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
   }
-  queue.push({ record: { ...ciWatchRecord(watch), phase: "queued" }, text })
+  queue.push({ record: { ...ciWatchRecord(watch), phase: "queued" }, text, idleTried: false })
   queuedReports.set(watch.sessionID, queue)
   updateCiDelivery(watch.id, "queued")
+  watch.idleCheck = redeliverIfIdle(watch.sessionID)
+  trackIdleTry(watch.sessionID, watch.idleCheck)
 }
 
-// drainQueuedCiReports injects every queued terminal report into the message
-// the host is about to create, so a wake the confirmation protocol could not
-// prove still reaches the model on the next turn. The host validates every
-// part against the stored part schema before save, so each drained part is
-// complete: a fresh `prt_` id, the session and message it belongs to, and the
-// synthetic flag. It never throws: a drained queue can only append parts.
+// redeliverIfIdle starts the idle try at once for a report queued while its
+// session is already idle. That session's idle event has passed, and no other
+// comes until a later turn ends. A busy session's reports wait for its idle
+// event instead.
+async function redeliverIfIdle(sessionID: string): Promise<void> {
+  let status: string
+  try {
+    status = await readSessionStatus(sessionID)
+  } catch (error) {
+    log("warn", `ci-watch: could not read whether session ${sessionID} is idle (${errorDetail(error)}); its queued reports wait for its next idle event or message`)
+    return
+  }
+  if (status !== "idle") return
+  const tried = claimIdleTry(sessionID)
+  if (tried.length > 0) await redeliverQueuedReports(sessionID, tried)
+}
+
+// redeliverQueuedCiReports gives a session's unclaimed queued reports their
+// one idle try when the host reports that session idle; a busy session's
+// report otherwise waits for a message an idle session never receives. The
+// caller does not wait for the try, because the confirm window must not hold
+// the host's event dispatch, and it never throws.
+export function redeliverQueuedCiReports(event: unknown): void {
+  if (event === null || typeof event !== "object") return
+  const { type, properties } = event as { type?: unknown; properties?: unknown }
+  if (type !== "session.idle" || properties === null || typeof properties !== "object") return
+  const sessionID = (properties as { sessionID?: unknown }).sessionID
+  if (typeof sessionID !== "string") return
+  const tried = claimIdleTry(sessionID)
+  if (tried.length > 0) trackIdleTry(sessionID, redeliverQueuedReports(sessionID, tried))
+}
+
+// claimIdleTry marks the session's queued reports that have not had their idle
+// try, so no later trigger repeats it, and returns them.
+function claimIdleTry(sessionID: string): QueuedReport[] {
+  const tried = (queuedReports.get(sessionID) ?? []).filter((entry) => !entry.idleTried)
+  for (const entry of tried) entry.idleTried = true
+  return tried
+}
+
+function trackIdleTry(sessionID: string, attempt: Promise<void>): void {
+  const tries = idleRedeliveries.get(sessionID) ?? new Set<Promise<void>>()
+  const tracked: Promise<void> = attempt.finally(() => {
+    tries.delete(tracked)
+    if (tries.size === 0 && idleRedeliveries.get(sessionID) === tries) idleRedeliveries.delete(sessionID)
+  })
+  tries.add(tracked)
+  idleRedeliveries.set(sessionID, tries)
+}
+
+async function redeliverQueuedReports(sessionID: string, tried: QueuedReport[]): Promise<void> {
+  let carried: QueuedReport[] = []
+  let outcome: "delivered" | "unconfirmed"
+  try {
+    await waitForIdle(sessionID)
+    // A chat.message during the wait already carried the reports it drained.
+    const queue = queuedReports.get(sessionID) ?? []
+    carried = tried.filter((entry) => queue.includes(entry))
+    if (carried.length === 0) return
+    // The fresh header keeps an earlier unanswered copy of a report from
+    // matching the injected message this try confirms against.
+    const text = [`[concord ci-watch queued delivery ${randomUUID()}]`, ...carried.map((entry) => entry.text)].join("\n\n")
+    outcome = await promptAndConfirm(sessionID, text, { [CI_WATCH_REDELIVERY_METADATA]: carried.map((entry) => entry.record.watch_id) })
+  } catch (error) {
+    log("error", `ci-watch: the idle redelivery for session ${sessionID} failed (${errorDetail(error)}); any of its reports not yet drained stay queued for the next message`)
+    return
+  }
+  const count = `${carried.length} queued report(s) for session ${sessionID}`
+  if (outcome === "unconfirmed") {
+    log("warn", `ci-watch: no assistant reply parented to the idle redelivery of ${count} followed within ${Math.round(config.confirmWindowMs / 1000)}s; any not yet drained stay queued for the next message`)
+    return
+  }
+  for (const entry of carried) updateCiDelivery(entry.record.watch_id, "delivered")
+  const remaining = (queuedReports.get(sessionID) ?? []).filter((entry) => !carried.includes(entry))
+  if (remaining.length === 0) queuedReports.delete(sessionID)
+  else queuedReports.set(sessionID, remaining)
+  log("info", `ci-watch: the idle redelivery of ${count} was delivered and the assistant reply parented to it followed`)
+}
+
+// drainQueuedCiReports injects every queued terminal report the message does
+// not already carry into the message the host is about to create, so a wake the
+// confirmation protocol could not prove still reaches the model on the next
+// turn. The host validates every part against the stored part schema before
+// save, so each drained part is complete: a fresh `prt_` id, the session and
+// message it belongs to, and the synthetic flag. It never throws: a drained
+// queue can only append parts.
 export function drainQueuedCiReports(sessionID: string, messageID: string, output: { parts: unknown[] }): void {
-  const queue = queuedReports.get(sessionID)
-  if (queue === undefined || queue.length === 0) return
-  for (const { record, text } of queue) {
+  const drained = drainableReports(sessionID, output.parts)
+  if (drained.length === 0) return
+  for (const { record, text } of drained) {
     updateCiDelivery(record.watch_id, "drained")
     output.parts.push({ id: `prt_ciwatch-${randomUUID()}`, sessionID, messageID, type: "text", text, synthetic: true })
   }
-  queuedReports.delete(sessionID)
+  const kept = (queuedReports.get(sessionID) ?? []).filter((entry) => !drained.includes(entry))
+  if (kept.length === 0) queuedReports.delete(sessionID)
+  else queuedReports.set(sessionID, kept)
+}
+
+// An idle redelivery's own prompted message reaches chat.message too, and its
+// marked part already carries the reports it lists, so the drain skips those.
+function drainableReports(sessionID: string, parts: unknown[]): QueuedReport[] {
+  const carried = new Set<unknown>()
+  for (const part of parts) {
+    const metadata = part !== null && typeof part === "object" ? (part as { metadata?: unknown }).metadata : undefined
+    const listed = metadata !== null && typeof metadata === "object" ? (metadata as Record<string, unknown>)[CI_WATCH_REDELIVERY_METADATA] : undefined
+    if (Array.isArray(listed)) for (const watchID of listed) carried.add(watchID)
+  }
+  return (queuedReports.get(sessionID) ?? []).filter((entry) => !carried.has(entry.record.watch_id))
 }
 
 // drainQueuedCiReportsForMessage resolves the drain identity the way the host
@@ -1009,8 +1029,8 @@ export function drainQueuedCiReportsForMessage(
   output: { message?: { id?: unknown }; parts?: unknown[] },
 ): void {
   if (!Array.isArray(output?.parts)) return
-  const queued = queuedReports.get(sessionID)
-  if (queued === undefined || queued.length === 0) return
+  const queued = drainableReports(sessionID, output.parts)
+  if (queued.length === 0) return
   const message = output.message
   const messageID =
     inputMessageID ??

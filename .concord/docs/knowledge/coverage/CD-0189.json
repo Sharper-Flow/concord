@@ -2,51 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandDefaultsToTheBareHost"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandReadsTheConcordTupleAndVerifiesThroughIt"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandIgnoresForeignTuplesAndBareEntries"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandRefusesAMalformedValue"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandRefusesASecondDocumentThatDisagrees"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestResolveHostCommandRefusesAnUnreadableBootstrapDocument"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionLaunchesAConfiguredHostCommand"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionLaunchesTheConfiguredHostCommand"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestProjectSessionLaunchesTheConfiguredHostCommand"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionRefusesWhenTheHostCommandResolutionRefuses"
-    },
-    {
-      "kind": "go_test",
       "value": "cmd/concord.TestSessionPrepareProbesTheCallingHostOnce"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestHostRegistrationReadsTheDocumentTheConfiguredCommandResolved"
+      "value": "cmd/concord.TestDeterministicHostRegistryRefusalsExit2"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionPrepareReportsAKilledRegistryProbeAsRetryable"
     }
   ],
   "id": "CD-0189",

@@ -272,7 +272,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 	}
-	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job})
+	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerDirectory: sessionWorktree, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -307,10 +307,14 @@ def claim_corpus_args():
 def start_corpus_args():
     """The shared start corpus as driven tool args, in execution order: the
     adapter's input boundary answers every member except the corrected resume
-    and the valid capture before any effect."""
+    and the valid capture before any effect. start-project-selector is the
+    Project selector the resume branch refuses: the branch carries work_id
+    alone, so the generated contract refuses the argument before any effect
+    on both boundaries."""
     return {
         "start-mixed": {"work_id": WORK, "title": "Both shapes at once"},
         "start-corrected": {"work_id": WORK},
+        "start-project-selector": {"work_id": WORK, "project_id": "synthetic-foreign-project"},
         "cap-blank": capture_start_args(EMPTY_IDEMPOTENCY_KEY),
         "cap-whitespace": capture_start_args(WHITESPACE_IDEMPOTENCY_KEY),
         "cap-oversize": capture_start_args(OVERSIZE_IDEMPOTENCY_KEY),

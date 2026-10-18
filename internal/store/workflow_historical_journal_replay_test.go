@@ -2,15 +2,12 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store/storetest/projection"
 )
 
 // The WHISTORY replay proof. Each frozen journal (see
@@ -111,54 +108,9 @@ func frozenJournalFixtures() []struct {
 
 // workflowProjectionLayout is one hashed projection table with its column
 // order. Production layouts are discovered from the store; a pinned historical
-// layout is a caller-supplied input only verification code builds.
-type workflowProjectionLayout struct {
-	table   string
-	columns []string
-}
-
-// hashWorkflowProjectionLayouts encodes each layout's rows: the table marker,
-// then per row the per-column name and value encoding in column order. Empty
-// tables still contribute their marker. The encoding is byte-stable across
-// discovered and pinned layouts.
-func hashWorkflowProjectionLayouts(ctx context.Context, db *sql.DB, layouts []workflowProjectionLayout) (string, error) {
-	h := sha256.New()
-	for _, layout := range layouts {
-		quotedColumns := make([]string, len(layout.columns))
-		for i, column := range layout.columns {
-			quotedColumns[i] = quoteSQLiteIdentifier(column)
-		}
-		query := "SELECT " + strings.Join(quotedColumns, ",") + " FROM " + quoteSQLiteIdentifier(layout.table) + " ORDER BY " + strings.Join(quotedColumns, ",") //nolint:gosec // every dynamic fragment is quoted as a SQLite identifier and no value is concatenated.
-		rows, err := db.QueryContext(ctx, query)
-		if err != nil {
-			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
-		}
-		writeHashf(h, "table:%d:%s\x00", len(layout.table), layout.table)
-		for rows.Next() {
-			values := make([]any, len(layout.columns))
-			pointers := make([]any, len(values))
-			for i := range values {
-				pointers[i] = &values[i]
-			}
-			if err := rows.Scan(pointers...); err != nil {
-				rows.Close()
-				return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot scan "+layout.table, true, "retry once the database is readable", err)
-			}
-			for i, value := range values {
-				writeHashf(h, "%d:%s=", len(layout.columns[i]), layout.columns[i])
-				writeHashValue(h, value)
-				writeHashf(h, "%c", byte(0))
-			}
-			writeHashf(h, "%c", byte(0))
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return "", wrapFailure(KindUnavailable, "workflow_projection_hash", "cannot read "+layout.table, true, "retry once the database is readable", err)
-		}
-		rows.Close()
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
-}
+// layout is a caller-supplied input only verification code builds. The
+// encoding itself lives once in the leaf test-support oracle.
+type workflowProjectionLayout = projection.Layout
 
 // frozenJournalProjectionLayouts is the projection layout the frozen journals
 // were captured against: the hashed tables in hash order with their baseline
@@ -349,7 +301,7 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			// it compares against that pinned layout alone; the discovered
 			// current layout keeps covering every present column and proves
 			// rebuild stability below.
-			pinned, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			pinned, err := projection.HashLayouts(ctx, s.DatabaseForTesting(), frozenJournalProjectionLayouts())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -357,15 +309,15 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			// over the discovered current layout it must reproduce the
 			// production hash, so the frozen baseline still binds the
 			// production encoding.
-			current := make([]workflowProjectionLayout, 0, len(workflowProjectionTables))
-			for _, table := range workflowProjectionTables {
-				columns, err := projectionColumns(ctx, s.DatabaseForTesting(), table)
+			current := make([]workflowProjectionLayout, 0, len(projection.Tables()))
+			for _, table := range projection.Tables() {
+				columns, err := projection.Columns(ctx, s.DatabaseForTesting(), table)
 				if err != nil {
 					t.Fatal(err)
 				}
-				current = append(current, workflowProjectionLayout{table: table, columns: columns})
+				current = append(current, workflowProjectionLayout{Table: table, Columns: columns})
 			}
-			discovered, err := hashWorkflowProjectionLayouts(ctx, s.DatabaseForTesting(), current)
+			discovered, err := projection.HashLayouts(ctx, s.DatabaseForTesting(), current)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -408,7 +360,7 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if reopenHash != after {
 				t.Fatalf("reopened projection hash %s does not reproduce the pre-reopen full hash %s", reopenHash, after)
 			}
-			reopenPinned, err := hashWorkflowProjectionLayouts(ctx, reopened.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			reopenPinned, err := projection.HashLayouts(ctx, reopened.DatabaseForTesting(), frozenJournalProjectionLayouts())
 			if err != nil {
 				t.Fatal(err)
 			}

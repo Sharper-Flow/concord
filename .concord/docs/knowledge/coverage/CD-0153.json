@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOverlapContentNeutralSuccessorKeepsOriginalJudgment"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOverlapJudgedFieldsAndSetOrder"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOverlapSupersessionPayloadHistoryRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOverlapReadAndGuardPairPopulationAgree"
+    }
+  ],
   "id": "CD-0153",
-  "reason": "This amendment has no runtime implementation slice.",
-  "state": "unmeasured"
+  "state": "satisfied"
 }

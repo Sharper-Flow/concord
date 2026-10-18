@@ -45,8 +45,11 @@ type captureMutationInput struct {
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
-	GoverningRequirements []string       `json:"governing_requirements"`
-	Approval              *approvalInput `json:"approval"`
+	GoverningRequirements []string `json:"governing_requirements"`
+	// SizeInputs is what the change will touch, for the work-size model
+	// (CD-0229 D4). It carries no size: the model decides it.
+	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
+	Approval   *approvalInput              `json:"approval"`
 }
 type reviseMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -476,14 +479,25 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if r.Tool != "concord_work_compact" {
 		var refs []ChangedRef
 		_ = json.Unmarshal([]byte(changed), &refs)
-		replayedPayload, intents, enrichErr := r.enrichMutationPayloadRead(ctx, json.RawMessage(payload), refs)
+		var replayedPayload json.RawMessage
+		var intents []NextIntent
+		var pinless []string
+		var enrichErr error
+		if op.ID == "concord_work_transition.worktree_audit_reclaim" {
+			replayedPayload, intents, pinless, enrichErr = r.replayMutationPayload(ctx, json.RawMessage(payload), refs)
+		} else {
+			var eventIDs []string
+			_ = json.Unmarshal([]byte(record.ResultEventIDs), &eventIDs)
+			replayedPayload, intents, pinless, enrichErr = r.enrichMutationPayloadRead(ctx, json.RawMessage(payload), refs, eventIDs...)
+		}
 		if enrichErr != nil {
 			return Envelope{}, false, enrichErr
 		}
 		if evidence, completed := completionEvidenceRefs(raw); completed {
 			base.EvidenceRefs = append([]EvidenceRef{}, evidence...)
 		}
-		response := r.mutationResult(base, replayedPayload, refs, intents)
+		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+		response := r.mutationResult(base, replayedPayload, refs, intents, pinless...)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -495,11 +509,12 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	if step.ResultKind == store.ResultCompleted {
 		refs := decodeChangedRefs(step.ChangedRefs)
-		replayedPayload, intents, enrichErr := r.enrichMutationPayloadRead(ctx, json.RawMessage(step.ResultPayload), refs)
+		replayedPayload, intents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(step.ResultPayload), refs)
 		if enrichErr != nil {
 			return Envelope{}, false, enrichErr
 		}
-		response := r.mutationResult(base, replayedPayload, refs, intents)
+		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+		response := r.mutationResult(base, replayedPayload, refs, intents, pinless...)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -533,11 +548,12 @@ func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step s
 		return response, nil
 	}
 	changed := *response.ChangedRefs
-	payload, intents, err := r.enrichMutationPayloadRead(ctx, response.Result, changed)
+	payload, intents, pinless, err := r.enrichMutationPayloadRead(ctx, response.Result, changed)
 	if err != nil {
 		return Envelope{}, err
 	}
-	return r.mutationResult(response, payload, changed, intents), nil
+	response.Omissions = append(response.Omissions, mutationPinOmissions(pinless)...)
+	return r.mutationResult(response, payload, changed, intents, pinless...), nil
 }
 
 // workflowActionReplayResult classifies the retained operation independently
@@ -871,11 +887,12 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 		return response, nil
 	}
 	changed := *response.ChangedRefs
-	payload, intents, err := r.enrichMutationPayloadTx(ctx, tx, response.Result, changed)
+	payload, intents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, response.Result, changed)
 	if err != nil {
 		return Envelope{}, err
 	}
-	return r.mutationResult(response, payload, changed, intents), nil
+	response.Omissions = append(response.Omissions, mutationPinOmissions(pinless)...)
+	return r.mutationResult(response, payload, changed, intents, pinless...), nil
 }
 
 func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
@@ -911,6 +928,33 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 		}
 		return true, nil
 	}
+}
+
+// supersededAttemptBindings reads the attempt a fenced action would
+// supersede and binds it into the approval challenge. A worker dispatch after
+// a failed attempt below the convergence wall binds that failed attempt
+// (CD-0148); the store checks escalated convergence at dispatch. A fenced
+// start, a worker dispatch among them, over an unfinished attempt another
+// actor holds binds the held holder and epoch (CD-0013 criterion 25).
+func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.DefinitionRegistry, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowRetryApprovalBinding, *store.WorkflowStartTakeover, error) {
+	var retry *store.WorkflowRetryApprovalBinding
+	if action.ID == "dispatch_worker" {
+		binding, err := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, workID)
+		if err != nil {
+			return nil, nil, err
+		}
+		retry = binding
+	}
+	if !store.WorkflowActionOpensHeldAttempt(action) {
+		return retry, nil, nil
+	}
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	if err != nil || takeover == nil {
+		return retry, nil, err
+	}
+	scope["held_attempt_holder"] = takeover.HolderActorRef
+	versions["held_attempt_epoch"] = takeover.HeldEpoch
+	return retry, takeover, nil
 }
 
 // applyRetryApprovalBinding installs the retry-approval scope bindings a
@@ -1092,24 +1136,19 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		contractVersion = version
 		versions["contract"] = contractVersion
 	}
-	retryApproval := false
-	if in.ActionID == "dispatch_worker" {
-		binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, in.WorkID)
-		if bindingErr != nil {
-			return failureEnvelope(base, bindingErr), nil
-		}
-		if binding != nil {
-			// Only failed retries below the convergence wall need an exact
-			// approval. The store checks escalated convergence at dispatch.
-			retryApproval = true
-			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
-		}
+	retryBinding, takeover, err := r.supersededAttemptBindings(ctx, registry, action, in.WorkID, grant, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	retryApproval := retryBinding != nil
+	if retryApproval {
+		contractVersion = applyRetryApprovalBinding(scope, versions, retryBinding)
 	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
 	}
-	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval
+	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval || takeover != nil
 	// Approval admission uses the same execution history as the store's
 	// self-evaluation refusal, including execution before lease rotation.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
@@ -1205,7 +1244,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1237,7 +1276,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if in.ActionID == "dispatch_worker" {
 			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {
 				return err
@@ -1247,7 +1286,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval || takeover != nil})
 			if err != nil {
 				return err
 			}
@@ -1290,11 +1329,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
 			return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 		}
-		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed)
+		resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
 		if enrichErr != nil {
 			return enrichErr
 		}
-		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
+		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+		result = r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
@@ -1494,6 +1534,18 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
+	// The size reads one Product's knowledge home, so a sized capture names
+	// Projects of exactly one Product.
+	var sizePlan *store.WorkSizePlan
+	if in.SizeInputs != nil {
+		if len(productIDs) != 1 {
+			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
+		}
+		var sizeErr error
+		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
+			return failureEnvelope(base, sizeErr), nil, true
+		}
+	}
 	for _, products := range productsByProject {
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
@@ -1503,7 +1555,6 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_captured_work"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		priority := in.Priority
 		urgency := in.Urgency
@@ -1544,8 +1595,17 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
 			return nil, nil, nil, err
 		}
+		eventIDs := result.EventIDs
+		if sizePlan != nil {
+			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			eventIDs = append(eventIDs, sized...)
+		}
+		// work.sized does not change the work item's version.
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), eventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }
@@ -1982,7 +2042,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 			}
 			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				return err
 			}
 		}
@@ -3110,7 +3170,25 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		"changed_refs":       mutationResultChangedRefs(changed),
 		"next_valid_intents": mutationResultIntents(intents),
 	})
-	payload, derivedIntents, err := r.enrichMutationPayloadRead(ctx, payload, changed)
+	pins := make([]store.WorkPin, 0, len(changed))
+	var pinless []string
+	reported := 0
+	for _, row := range result.Rows {
+		if row.Outcome != store.WorktreeAuditReclaimed {
+			continue
+		}
+		if reported == len(changed) {
+			break
+		}
+		reported++
+		if row.WorkPin != nil {
+			pins = append(pins, *row.WorkPin)
+		} else {
+			pinless = append(pinless, row.WorkID)
+		}
+	}
+	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+	payload, derivedIntents, err := enrichMutationPayload(payload, pins)
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
 	}
@@ -3120,7 +3198,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	base.ResolvedScope = scopeFromMap(scope)
 	payload, paged := compactAuditReclaimReport(base, payload, changed, intents)
 	base.Omissions = append(base.Omissions, paged...)
-	response := r.mutationResult(base, payload, changed, intents)
+	response := r.mutationResult(base, payload, changed, intents, pinless...)
 	if response.Outcome == OutcomeError {
 		return auditReclaimPostCommitFailure(base, changed, response), nil
 	}
@@ -3311,7 +3389,7 @@ func compactAuditReclaimReport(base Envelope, payload json.RawMessage, changed [
 // envelope law is the same at producer and adapter).
 func auditReclaimEnvelopeBytes(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent, notices []Notice) int {
 	candidate := base
-	candidate.Omissions = notices
+	candidate.Omissions = append(append([]Notice{}, base.Omissions...), notices...)
 	response := NewOKMutation(candidate, payload, changed, intents)
 	type wire Envelope
 	encoded, err := json.Marshal(wire(response))
@@ -3609,7 +3687,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		_, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck)
 		if approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -3808,7 +3886,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -3921,7 +3999,6 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_id"] = r.Envelope.SelectedProductID
-	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "inspect_corrected_delivery", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if in.Approval != nil {
 			if consumedRef, _ := plan.scope["approval_ref"].(string); consumedRef == "" {
@@ -4179,6 +4256,37 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
+	var changed []ChangedRef
+	var resultPayload json.RawMessage
+	var result Envelope
+	captureResult := func(tx *store.Transaction) error {
+		pin, available, pinErr := store.ReadMutationWorkPinTx(ctx, tx, workID, nil)
+		if pinErr != nil {
+			return pinErr
+		}
+		// Compaction archives a note without advancing the live work version.
+		changed = []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}}
+		var pins []store.WorkPin
+		var pinless []string
+		if available {
+			pins = []store.WorkPin{pin}
+		} else {
+			pinless = []string{workID}
+		}
+		var intents []NextIntent
+		var err error
+		resultPayload, intents, err = enrichMutationPayload(mutationPayload(changed, nil), pins)
+		if err != nil {
+			return err
+		}
+		resultBase := base
+		resultBase.Omissions = append(resultBase.Omissions, mutationPinOmissions(pinless)...)
+		result = r.mutationResult(resultBase, resultPayload, changed, intents, pinless...)
+		if result.Outcome == OutcomeError {
+			return errors.New(result.Error.Message)
+		}
+		return nil
+	}
 	if op.ID == "concord_work_compact.publish" {
 		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
 			challengeScope := boundedApprovalScope(scope)
@@ -4196,13 +4304,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest}
 			return response, nil
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(publish.ExpectedVersion+1, 10)}}
-		payload := mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
 		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-		result := r.mutationResult(base, payload, changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
-		if result.Outcome == OutcomeError {
-			return result, nil
-		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			// CD-0222 D7: publication is consequential, so the claim refuses
@@ -4224,11 +4326,12 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			changed := decodeChangedRefs(claim.ChangedRefs)
 			base.Replayed = claim.Replayed
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-			resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, mutationPayload(changed, nil), changed)
+			resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(claim.ResultPayload), changed)
 			if enrichErr != nil {
 				return failureEnvelope(base, enrichErr), nil
 			}
-			return r.mutationResult(base, resultPayload, changed, derivedIntents), nil
+			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+			return r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...), nil
 		}
 		var committed store.CommittedNote
 		var verified store.VerifiedNote
@@ -4242,22 +4345,11 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 				return err
 			}},
 			{ID: "sqlite_link", Phase: "record_locator", Run: func() error {
-				return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish"})
+				return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish", WithinTx: captureResult})
 			}},
 		})
 		if publishErr != nil {
 			return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
-		}
-		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, payload, changed)
-		if enrichErr != nil {
-			return failureEnvelope(base, enrichErr), nil
-		}
-		if derivedIntents == nil {
-			derivedIntents = []NextIntent{}
-		}
-		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
-		if result.Outcome == OutcomeError {
-			return result, nil
 		}
 		changedJSON, _ := json.Marshal(changed[0])
 		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
@@ -4306,11 +4398,12 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 				changed = append(changed, ref)
 			}
 		}
-		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, mutationPayload(changed, nil), changed)
+		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(ctx, json.RawMessage(step.ResultPayload), changed)
 		if enrichErr != nil {
 			return failureEnvelope(base, enrichErr), nil
 		}
-		return r.mutationResult(base, resultPayload, changed, derivedIntents), nil
+		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+		return r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...), nil
 	}
 	claimScope = map[string]any{}
 	_ = json.Unmarshal([]byte(step.AcceptedScopeSnapshot), &claimScope)
@@ -4344,25 +4437,13 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if workVersion <= 0 {
 		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
-	changed := []ChangedRef{{EntityKind: "work_item", ID: reconcile.WorkID, Version: strconv.FormatInt(workVersion+1, 10)}}
-	payload := mutationPayload(changed, nil)
+	workID = reconcile.WorkID
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
 	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
-	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
+	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt, WithinTx: captureResult}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
-	}
-	resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, payload, changed)
-	if enrichErr != nil {
-		return failureEnvelope(base, enrichErr), nil
-	}
-	if derivedIntents == nil {
-		derivedIntents = []NextIntent{}
-	}
-	result := r.mutationResult(base, resultPayload, changed, derivedIntents)
-	if result.Outcome == OutcomeError {
-		return result, nil
 	}
 	changedJSON, _ := json.Marshal(changed[0])
 	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
@@ -4516,12 +4597,14 @@ func workItemRefs(changed []ChangedRef) []ChangedRef {
 }
 
 func enrichMutationPayload(payload json.RawMessage, pins []store.WorkPin) (json.RawMessage, []NextIntent, error) {
-	if len(pins) == 0 {
-		return payload, nil, nil
-	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
 		return nil, nil, fmt.Errorf("mutation result is not an object: %w", err)
+	}
+	if len(pins) == 0 {
+		delete(object, "work_pins")
+		enriched, err := json.Marshal(object)
+		return enriched, nil, err
 	}
 	encodedPins, err := json.Marshal(pins)
 	if err != nil {
@@ -4538,67 +4621,147 @@ func enrichMutationPayload(payload json.RawMessage, pins []store.WorkPin) (json.
 	return enriched, intents, err
 }
 
-func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transaction, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, error) {
+func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transaction, payload json.RawMessage, changed []ChangedRef, ownEventIDs ...string) (json.RawMessage, []NextIntent, []string, error) {
 	refs := workItemRefs(changed)
 	if len(refs) == 0 {
-		return payload, nil, nil
+		return payload, nil, nil, nil
 	}
 	pins := make([]store.WorkPin, 0, len(refs))
+	var pinless []string
 	for _, ref := range refs {
-		pin, err := store.ReadWorkPinTransactionTx(ctx, tx, ref.ID)
+		pin, available, err := store.ReadMutationWorkPinTx(ctx, tx, ref.ID, ownEventIDs)
 		if err != nil {
-			var failure *store.Failure
-			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-				return payload, nil, nil
-			}
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		version, _ := strconv.ParseInt(ref.Version, 10, 64)
 		if pin.Version != version {
-			return nil, nil, fmt.Errorf("work pin version %d does not match changed ref %s", pin.Version, ref.Version)
+			return nil, nil, nil, fmt.Errorf("work pin version %d does not match changed ref %s", pin.Version, ref.Version)
+		}
+		if !available {
+			pinless = append(pinless, ref.ID)
+			continue
 		}
 		pins = append(pins, pin)
 	}
-	return enrichMutationPayload(payload, pins)
+	enriched, intents, err := enrichMutationPayload(payload, pins)
+	return enriched, intents, pinless, err
 }
 
-func (r runtime) enrichMutationPayloadRead(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, error) {
-	refs := workItemRefs(changed)
-	if len(refs) == 0 {
-		return payload, nil, nil
+func (r runtime) enrichMutationPayloadRead(ctx context.Context, payload json.RawMessage, changed []ChangedRef, ownEventIDs ...string) (json.RawMessage, []NextIntent, []string, error) {
+	var enriched json.RawMessage
+	var intents []NextIntent
+	var pinless []string
+	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		enriched, intents, pinless, err = r.enrichMutationPayloadTx(ctx, tx, payload, changed, ownEventIDs...)
+		return err
+	})
+	return enriched, intents, pinless, err
+}
+
+// Compaction and audit replays retain the original transaction's snapshot.
+func (r runtime) replayMutationPayload(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, []string, error) {
+	var result struct {
+		Pins []store.WorkPin `json:"work_pins"`
 	}
-	pins := make([]store.WorkPin, 0, len(refs))
-	for i := range refs {
-		pin, err := store.ReadWorkPin(ctx, r.Store, refs[i].ID)
-		if err != nil {
-			var failure *store.Failure
-			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-				return payload, nil, nil
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return nil, nil, nil, err
+	}
+	pinless := pinlessMutationWorkIDs(changed, result.Pins)
+	if len(pinless) > 0 {
+		if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+			for _, id := range pinless {
+				_, available, err := store.ReadMutationWorkPinTx(ctx, tx, id, nil)
+				if err != nil {
+					return err
+				}
+				if available {
+					return fmt.Errorf("recorded work pin is missing for changed ref %s", id)
+				}
 			}
-			return nil, nil, err
+			return nil
+		}); err != nil {
+			return nil, nil, nil, err
 		}
-		refs[i].Version = strconv.FormatInt(pin.Version, 10)
-		for changedIndex := range changed {
-			if changed[changedIndex].EntityKind == "work_item" && changed[changedIndex].ID == refs[i].ID {
-				changed[changedIndex].Version = refs[i].Version
+	}
+	var intents []NextIntent
+	if len(result.Pins) > 0 {
+		intents = nextIntentsFromPin(result.Pins[0])
+	}
+	return payload, intents, pinless, nil
+}
+
+func pinlessMutationWorkIDs(changed []ChangedRef, pins []store.WorkPin) []string {
+	missing := []string{}
+	for _, ref := range workItemRefs(changed) {
+		found := false
+		for _, pin := range pins {
+			found = found || pin.WorkID == ref.ID
+		}
+		if !found {
+			missing = append(missing, ref.ID)
+		}
+	}
+	return missing
+}
+
+func mutationPinOmissions(pinless []string) []Notice {
+	if len(pinless) == 0 {
+		return nil
+	}
+	ids := map[string]struct{}{}
+	for _, id := range pinless {
+		ids[id] = struct{}{}
+	}
+	return []Notice{{Kind: "work_pin_unavailable", Count: int64(len(ids))}}
+}
+
+func validateMutationPins(changed []ChangedRef, pins []store.WorkPin, allowedPinless []string, omissions []Notice) error {
+	allowed := map[string]bool{}
+	for _, id := range allowedPinless {
+		allowed[id] = true
+	}
+	missing := pinlessMutationWorkIDs(changed, pins)
+	if len(missing) != len(allowed) {
+		return fmt.Errorf("work pin omissions do not match the allowed pinless work items")
+	}
+	for _, id := range missing {
+		if !allowed[id] {
+			return fmt.Errorf("work pin is missing for changed ref %s", id)
+		}
+	}
+	noticeCount := 0
+	for _, notice := range omissions {
+		if notice.Kind == "work_pin_unavailable" {
+			noticeCount++
+			if notice.Count != int64(len(missing)) || notice.SourceID != "" || len(notice.Details) != 0 {
+				return fmt.Errorf("work pin omission does not match the pinless work items")
 			}
 		}
-		pins = append(pins, pin)
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
-		return nil, nil, fmt.Errorf("mutation result is not an object: %w", err)
+	if (len(missing) == 0 && noticeCount != 0) || (len(missing) > 0 && noticeCount != 1) {
+		return fmt.Errorf("work pin omissions require one notice per pinless result")
 	}
-	encodedRefs, err := json.Marshal(mutationResultChangedRefs(changed))
-	if err != nil {
-		return nil, nil, err
+	for _, ref := range changed {
+		if ref.EntityKind != "work_item" {
+			continue
+		}
+		want, err := strconv.ParseInt(ref.Version, 10, 64)
+		present, matching := false, false
+		for _, pin := range pins {
+			if pin.WorkID == ref.ID {
+				present = true
+				matching = matching || (err == nil && pin.Version == want)
+			}
+		}
+		if !present {
+			continue
+		}
+		if !matching {
+			return fmt.Errorf("work pin does not match changed ref %s at version %s", ref.ID, ref.Version)
+		}
 	}
-	object["changed_refs"] = encodedRefs
-	payload, err = json.Marshal(object)
-	if err != nil {
-		return nil, nil, err
-	}
-	return enrichMutationPayload(payload, pins)
+	return nil
 }
 
 type mutationResultChangedRef struct {
@@ -4667,9 +4830,23 @@ func currentLifecycle(ctx context.Context, tx *store.Transaction, id string) (st
 // mutationResult is the sole producer for inline and replayed mutation success.
 // It validates the exact tool/operation result before the envelope can cross the
 // agent boundary, including the canonical envelope cap.
-func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) Envelope {
+func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent, allowedPinless ...string) Envelope {
 	if err := ValidateOperationPayload(r.Tool, r.Operation, payload, true); err != nil {
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result failed closed-schema validation: %v", err), "contact_operator", false)
+	}
+	var projected struct {
+		Pins []store.WorkPin            `json:"work_pins"`
+		Refs []mutationResultChangedRef `json:"changed_refs"`
+	}
+	if err := json.Unmarshal(payload, &projected); err != nil {
+		return coreError(base, "malformed_response", err.Error(), "contact_operator", false)
+	}
+	refs := append([]ChangedRef{}, changed...)
+	for _, ref := range projected.Refs {
+		refs = append(refs, ChangedRef{EntityKind: ref.EntityKind, ID: ref.ID, Version: strconv.FormatInt(ref.Version, 10)})
+	}
+	if err := validateMutationPins(refs, projected.Pins, allowedPinless, base.Omissions); err != nil {
+		return coreError(base, "malformed_response", err.Error(), "contact_operator", false)
 	}
 	response := NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {
@@ -4818,7 +4995,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
 			_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck)
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				resultRejected = true
 				return errors.New("approval invalid")
 			}
@@ -4830,13 +5007,14 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return err
 		}
-		payload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, payload, changed)
+		payload, derivedIntents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, payload, changed, eventIDs...)
 		if err != nil {
 			return err
 		}
 		if derivedIntents != nil {
 			intents = derivedIntents
 		}
+		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
 		base.ResolvedScope = scopeFromMap(scope)
 		if base.ResolvedScope == nil {
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
@@ -4844,7 +5022,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if replay {
 			base.Replayed = true
 		}
-		response = r.mutationResult(base, payload, changed, intents)
+		response = r.mutationResult(base, payload, changed, intents, pinless...)
 		if response.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
@@ -4983,14 +5161,17 @@ func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transacti
 	_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
 	base.Replayed = true
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-	replayedPayload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+	var eventIDs []string
+	_ = json.Unmarshal([]byte(prior.ResultEventIDs), &eventIDs)
+	replayedPayload, derivedIntents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed, eventIDs...)
 	if err != nil {
 		return Envelope{}, false, err
 	}
 	if derivedIntents != nil {
 		intents = derivedIntents
 	}
-	response := r.mutationResult(base, replayedPayload, changed, intents)
+	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+	response := r.mutationResult(base, replayedPayload, changed, intents, pinless...)
 	if response.Outcome == OutcomeError {
 		return response, true, errors.New("mutation result rejected")
 	}
@@ -5116,7 +5297,7 @@ func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProject
 func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, _ Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
-		return operator, "", fmt.Errorf("signed host approval assertion is required")
+		return operator, "", approvalInvalid("signed host approval assertion is required")
 	}
 	approvalRef, err := r.Authority.AcceptHostApprovalTx(ctx, tx, host, inv, *r.Envelope.HostApproval, check)
 	if err != nil {
@@ -5134,7 +5315,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

@@ -231,8 +231,8 @@ func TestExpiredIssuedApprovalRefusesHostExchange(t *testing.T) {
 		_, err := service.AcceptHostApprovalTx(ctx, tx, probedHost(), inv, assertion, check)
 		return err
 	})
-	// The exchange owner returns the approval-consume refusal as a plain
-	// typed error; the mutation boundary renders it approval_invalid.
+	// The exchange owner refuses the expired issued approval as
+	// approval_invalid; its message names the failed binding.
 	if err == nil || err.Error() != "approval binding invalid" {
 		t.Fatalf("expired issued approval refusal = %v", err)
 	}

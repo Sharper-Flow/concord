@@ -95,7 +95,7 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, id, 1, "root"), f.owner, f.operator); err != nil {
 		t.Fatal(err)
 	}
-	ready, err := s.ReadyWorkerJobRevisions(context.Background(), id)
+	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	revisions, err := s.WorkerJobRevisions(context.Background(), id)
+	revisions, err := readWorkerJobRevisions(context.Background(), s.db, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), id)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestWitnessCombinedAcceptRejectsPreResultIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	views, err := s.WorkerJobRevisions(context.Background(), id)
+	views, err := readWorkerJobRevisions(context.Background(), s.db, id)
 	if err != nil {
 		t.Fatal(err)
 	}

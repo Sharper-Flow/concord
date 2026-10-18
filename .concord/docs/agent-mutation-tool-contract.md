@@ -1,6 +1,7 @@
 # Concord Agent Mutation-Tool Contract (TS4)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
 > **Binding inputs:** accepted PM3–PM7 domain operations, TS1 jobs/scenarios,
@@ -26,7 +27,7 @@ architecture binding for Product-changing work; CD-0213 removes planning writes;
 generated manifest the only pre-go-live surface identity.
 ## Contract
 
-Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent; destructive identity replacement, cancellation, removal, authority expansion, cross-Product scope, outside repair, and physical research deletion retain it. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent. `merged_into`, `supersedes`, cancellation, removal, authority-expanding Product or client-policy changes, explicit cross-Product mutations, outside repair and both reconciliation modes, and physical research-pack deletion retain operator approval as listed gaps without a new class assignment. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
 
 
 The binding contract is sections 1 through 4: the four-tool decision with the

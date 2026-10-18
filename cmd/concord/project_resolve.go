@@ -33,7 +33,7 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		Worktree  string `json:"worktree"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	if request.Directory == "" {
@@ -51,12 +51,12 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 
 	resolution, err := s.ResolveProject(ctx, request.Directory, worktree)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	scopeVersion, productIDs, err := s.ScopeVersion(ctx, resolution.ProjectID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "project-resolve", err.Error())
+		writeOperatorDiagnostic(errOut, "project-resolve", diagnosticText(err))
 		return 1
 	}
 	if productIDs == nil {
@@ -81,46 +81,5 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			"git_remote":     resolution.Repository.GitRemote,
 		},
 		"locators": locators,
-	}, errOut)
-}
-
-// runProjectCanonicalPath answers "where does this Project's repository
-// live" with the one fact the question needs: the Project's registered
-// canonical_path locator, normalized. The adapter's second-session routing
-// compares two Projects' canonical paths (CD-0182), and that comparison
-// needs no git fact, so the read resolves no default branch and no commit.
-// worktree-locate stays the owner of branch, base, and path derivation;
-// a Project whose repository cannot resolve a default ref
-// still answers here.
-//
-// Placement: a core CLI verb rather than a host script, the same rationale
-// worktree-locate carries — the value is registered locator data only the
-// core can read. Recorded in .concord/docs/capability-placement.md §6.
-//
-// The verb is unauthenticated, as worktree-locate and project-resolve are.
-// CD-0079 D2 records why: the trust boundary is filesystem access to the
-// authority database, which a caller able to exec this verb already holds.
-// This is a read. It appends no event, and CD-0021's rejection of a second
-// write authority still binds.
-func runProjectCanonicalPath(raw []byte, s *store.Store, out, errOut io.Writer) int {
-	var request struct {
-		ProjectID string `json:"project_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "project-canonical-path", err.Error())
-		return 1
-	}
-	if request.ProjectID == "" {
-		writeOperatorDiagnostic(errOut, "project-canonical-path", "project_id is required")
-		return 1
-	}
-	path, err := s.ProjectCanonicalPath(context.Background(), request.ProjectID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, "project-canonical-path", err.Error())
-		return 1
-	}
-	return writeJSON(out, map[string]string{
-		"project_id":     request.ProjectID,
-		"canonical_path": path,
 	}, errOut)
 }

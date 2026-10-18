@@ -479,9 +479,10 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 		if !singlePresent || predicateID == "" {
 			return nil, nil
 		}
+		kind, _ := workflowFieldString(fields, "verdict_kind")
 		return []workflowVerdictBatchEntry{{
 			PredicateID:              predicateID,
-			VerdictKind:              workflowFieldStringDefault(fields, "verdict_kind", "ok"),
+			VerdictKind:              kind,
 			EvaluationEvidence:       workflowFieldStrings(fields, "evaluation_evidence"),
 			IncomparableWithApproved: workflowFieldBool(fields, "incomparable_with_approved"),
 		}}, nil
@@ -506,11 +507,7 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 		if item.PredicateID == "" || !ValidReference(item.PredicateID) {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict verdicts entry predicate_id must satisfy the reference rule: 2 to 128 bytes with no whitespace", false, "name an approved contract predicate in every entry")
 		}
-		kind := item.VerdictKind
-		if kind == "" {
-			kind = "ok"
-		}
-		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: kind, EvaluationEvidence: item.EvaluationEvidence, IncomparableWithApproved: item.IncomparableWithApproved})
+		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: item.VerdictKind, EvaluationEvidence: item.EvaluationEvidence, IncomparableWithApproved: item.IncomparableWithApproved})
 	}
 	return entries, nil
 }

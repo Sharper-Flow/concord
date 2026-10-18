@@ -137,6 +137,8 @@ ADAPTER_FILES = (
     "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
+    "host-prompt.ts",
+    "lane_capabilities.ts",
     "lane_completion.ts",
     "lane_dispatch.ts",
     "manifest-pin.ts",
@@ -148,8 +150,13 @@ ADAPTER_FILES = (
     "project-link.ts",
     "task-result.ts",
     "turn-move-boundary.ts",
+    "work-start-continuation.ts",
     "worker-report-protocol.js",
+    "worker_control.ts",
+    "worker_diff.ts",
     "worker_recovery.ts",
+    "worker_source.ts",
+    "worker_subject.ts",
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (
@@ -2100,6 +2107,25 @@ def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths
         return ""
     return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
 
+def runtime_preflight(paths: Paths) -> None:
+    """Check host usability before install or repair, not after migration."""
+    failures: list[str] = []
+    for command, consequence in (
+        ("git", "host resolution will not work without Git"),
+        ("opencode", "the global Concord custom tool cannot be used without OpenCode"),
+        ("secret-tool", "worker evidence signing fails closed because Concord cannot read the client signing key"),
+    ):
+        if command_status(command) is None:
+            failures.append(f"missing command {command}; {consequence}")
+    if str(paths.bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
+        failures.append(
+            f"{paths.bin_dir} is not on PATH; the adapter's default concord command will not resolve. "
+            f"Add {paths.bin_dir} to PATH and re-run"
+        )
+    if failures:
+        raise InstallerError("Preflight refused installation:\n- " + "\n- ".join(failures))
+
+
 def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None, staged_adapters: dict[str, str] | None = None) -> ConfigPlan:
     failures: list[str] = []
     failures.extend(
@@ -2125,9 +2151,6 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     if machine not in {"x86_64", "amd64"}:
         failures.append(f"architecture is {platform.machine()}; Linux amd64 is required")
     for command, consequence in (
-        ("git", "host resolution will not work without Git"),
-        ("opencode", "the global Concord custom tool cannot be used without OpenCode"),
-        ("secret-tool", "worker evidence signing fails closed because Concord cannot read the client signing key"),
         ("gnome-keyring-daemon", "the Secret Service provider holding the client signing key is missing"),
         ("busctl", "noninteractive Secret Service inspection is unavailable"),
         ("dbus-run-session", "the headless login collection cannot be initialized safely"),
@@ -2138,11 +2161,6 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     service_ok, service_reason = secret_service_status()
     if not service_ok:
         failures.append(f"Secret Service unavailable: {service_reason}; worker evidence signing will not work")
-    if str(paths.bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
-        failures.append(
-            f"{paths.bin_dir} is not on PATH; the adapter's default concord command will not resolve. "
-            f"Add {paths.bin_dir} to PATH and re-run"
-        )
     target_root = paths.data_root / version
     if target_root.exists() and old_manifest is None:
         failures.append(f"refusing existing unmanaged installation path {target_root}")
@@ -3737,6 +3755,7 @@ def install(args: argparse.Namespace) -> int:
     recover_pending_project_links(paths)
     manifest = load_manifest(paths)
     prepared = load_prepared_release(paths)
+    runtime_preflight(paths)
     config_plan = preflight(paths, version, manifest)
     if manifest and manifest.get("version") == version:
         records = manifest.get("version_files")
@@ -4112,6 +4131,8 @@ def activate(args: argparse.Namespace) -> int:
     )
     require_owned_fence(paths, fence, {version_root_resolved})
     prepared = record_boundary_ownership(paths, prepared, str(fence["fence_id"]), version)
+    # Runtime usability cannot veto completing a committed migration.
+    # Managed-path, credential and configuration safety still apply.
     config_plan = preflight(paths, version, manifest)
     with tempfile.TemporaryDirectory(prefix="concord-activator-") as temporary:
         source_stage = Path(temporary) / "version"
@@ -4354,6 +4375,7 @@ def repair(args: argparse.Namespace) -> int:
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
         }
+        runtime_preflight(paths)
         config_plan = preflight(paths, installed, manifest, staged_adapters=adapter_stage_records)
         repairs = plan_repair(paths, manifest, config_plan, version_records, adapter_stage_records, agent_stage_records)
         credential_directory_owned = ensure_secret_service_ready(paths, manifest)

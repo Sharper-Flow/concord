@@ -74,7 +74,7 @@ func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
 	var response Envelope
 	var rejected, mutated bool
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, nil, fixedTime(), r.workflowActionReplayPreflight(ctx, NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -252,7 +252,7 @@ func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw jso
 	base := NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
 	var response Envelope
 	var rejected, mutated bool
-	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, nil, fixedTime(), r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -670,9 +670,9 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
-	resultPayload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":5}],"next_valid_intents":[],"operation_id":"` + opID + `"}`
+	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workflowReplayWorkVersion(t, s), 10) + `}`
+	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	idempotencyChanged := "[]"
-	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
@@ -796,9 +796,13 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if step != "execution" {
 		t.Fatalf("approved action current step=%s, want execution", step)
 	}
-	projection, err := store.ReadWorkflowProjection(context.Background(), s, store.WorkflowReadRequest{WorkID: "work-1"})
+	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	projection := workflowRead.Workflow
+	if projection == nil {
+		t.Fatal("Q7 omitted the recorded workflow")
 	}
 	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.DomainRegistryContentHash != pm1fixture.FixtureDomainRegistryContentHash || projection.ArchitectureBinding.HomeDomainID != pm1fixture.FixtureRootDomainID {
 		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)

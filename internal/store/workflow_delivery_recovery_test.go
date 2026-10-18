@@ -70,17 +70,17 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	s := fixture.store
 
 	at := int64(100)
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 	repairedAttempt := "attempt:" + workID + ":repair-1"
 	ownerRef, ownerErr := WorkflowActorRef(fixture.owner)
 	if ownerErr != nil {
 		t.Fatal(ownerErr)
 	}
-	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+	repairedEpoch := reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", reviewGateLane(t, "implementation"), ownerRef, at)
 
 	// The historical crossing replays unchanged: the accept advances the
 	// pinned instance into the gate with the review debt outstanding.
-	reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, refineEpoch, reviewGateAcceptor(workID))
+	reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, repairedEpoch, reviewGateAcceptor(workID))
 	reviewGateRequireStep(t, s, workID, "delivery")
 
 	// Released definition content is unchanged: the instance stays pinned to
@@ -184,21 +184,21 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	review := reviewGateLane(t, "review")
 	at := int64(100)
 
-	repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	repairAttempt := "attempt:" + workID + ":repair"
-	reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", reviewGateLane(t, "implementation"), ownerRef, at)
 	at += 2
 	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
 		t.Fatalf("accept repair: %v", err)
 	}
 
-	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	reviewAttempt := "attempt:" + workID + ":review"
-	reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", refineEpoch, review, ownerRef, at)
+	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, at)
 	// The reviewed change exits refine through the combined accept the
 	// current version admits (CD-0198 D4), which asserts the delivery and
 	// advances into the gate with no review debt outstanding.
-	if err := acceptRefineResult(t, s, workID, reviewAttempt, refineEpoch, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
 		t.Fatalf("accept review: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

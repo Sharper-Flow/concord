@@ -17,7 +17,7 @@ import (
 // TestSQLiteNeighborProcess is the re-exec entry the neighbor fixture's Start
 // targets in this package's own test binary. The fixture returns immediately
 // outside a neighbor role, so a direct run of this package is unaffected.
-func TestSQLiteNeighborProcess(t *testing.T) { neighbor.Child(t) }
+func TestSQLiteNeighborProcess(t *testing.T) { neighbor.Child(t, store.SQLiteFileURI) }
 
 // cliNeighborFixture is one row's prepared state: the database path the
 // neighbor pins, an optional reader-mode fast-fail pragma, the command run

@@ -23,6 +23,7 @@
 // the session title.
 
 import { execFileSync } from "node:child_process"
+import { promptAndConfirm } from "./host-prompt"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
@@ -70,7 +71,7 @@ export type RouteResult = { data?: unknown; response: Response }
 // generated methods omit while keeping the host's transport and headers.
 export type RouteClient = {
   get: (options: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown>; signal?: AbortSignal }) => Promise<RouteResult>
-  post: (options: { url: string; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
+  post: (options: { url: string; path?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
   patch?: (options: { url: string; path?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
 }
 
@@ -119,6 +120,11 @@ export class HostControlPlane {
     return this.#client !== null
   }
 
+  async promptSession(sessionID: string, text: string, metadata: Record<string, unknown>, beforePost: () => Promise<boolean>): Promise<"delivered" | "unconfirmed"> {
+    return promptAndConfirm(this.#require("the native session prompt route is unavailable"), sessionID, text,
+      { confirmWindowMs: 30_000, confirmPollMs: 100 }, metadata, beforePost)
+  }
+
   // sessionReader exposes the host session API the worker readback reads
   // through: the session record and the bounded message pages. A host that
   // handed the plugin no client answers null, and the readback refuses closed
@@ -135,6 +141,42 @@ export class HostControlPlane {
         if (before !== undefined) query.before = before
         return client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query, signal })
       },
+    }
+  }
+
+  // noReply persists the subtask without re-entering the parent's active loop.
+  // That loop consumes the part through the host's native Task executor after
+  // the dispatch tool returns, including its normal hooks and cancellation.
+  async queueSubtask(sessionID: string, parentAgent: string, task: { agent: string; description: string; prompt: string }, signal?: AbortSignal): Promise<void> {
+    const client = this.#require("cannot queue the native subtask: this host handed the plugin no client")
+    const parent = await this.#sessionRecord(sessionID, "cannot read the native subtask's parent", signal)
+    if (!isRecord(parent) || parent.id !== sessionID || (parent.agent !== undefined && parent.agent !== parentAgent)) {
+      throw new MoveSessionRefused("the native subtask's parent agent changed before queueing")
+    }
+    let selection: { model?: { providerID: string; modelID: string }; variant?: string } = {}
+    if (parent.model !== undefined) {
+      const model = parent.model
+      if (!isRecord(model) || typeof model.providerID !== "string" || model.providerID.length === 0 || typeof model.id !== "string" || model.id.length === 0 || (model.variant !== undefined && typeof model.variant !== "string")) {
+        throw new MoveSessionRefused("cannot preserve the host model selection for the native subtask's parent")
+      }
+      selection = { model: { providerID: model.providerID, modelID: model.id }, ...(typeof model.variant === "string" ? { variant: model.variant } : {}) }
+    }
+    const result = await client.post({
+      url: SESSION_MESSAGES_ROUTE,
+      path: { id: sessionID },
+      body: { agent: parentAgent, ...selection, noReply: true, parts: [{ type: "subtask", ...task }] },
+      signal,
+    })
+    if (!result.response.ok) {
+      throw new MoveSessionRefused(`the host refused the native subtask with status ${result.response.status}: ${await refusalText(result)}`)
+    }
+    const value = result.data
+    if (!isRecord(value) || !isRecord(value.info) || value.info.sessionID !== sessionID || value.info.agent !== parentAgent || typeof value.info.id !== "string" || value.info.id.length === 0 || !Array.isArray(value.parts) || value.parts.length !== 1) {
+      throw new MoveSessionRefused("the host did not acknowledge the intended parent and native subtask")
+    }
+    const queued = value.parts[0]
+    if (!isRecord(queued) || queued.type !== "subtask" || queued.agent !== task.agent || queued.description !== task.description || queued.prompt !== task.prompt) {
+      throw new MoveSessionRefused("the host did not acknowledge the exact native subtask")
     }
   }
 

@@ -90,4 +90,30 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	if eventPayload.Linear == nil || eventPayload.Linear.RemoteIssueUUID != "remote-removal-1" {
 		t.Fatalf("work.removed payload linear confirmation = %+v", eventPayload.Linear)
 	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_instances WHERE work_id='work-1'`) != 0 {
+		t.Fatal("removal must delete the live item and its workflow instance")
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='remove-linear-op' AND state='committed' AND event_id='work.removed:remove-linear-op'`) != 1 {
+		t.Fatal("removal must retain its committed receipt")
+	}
+	var result struct {
+		Pins []store.WorkPin `json:"work_pins"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil || len(result.Pins) != 0 {
+		t.Fatalf("removed work has no post-state pin: pins=%+v error=%v", result.Pins, err)
+	}
+	if len(response.Omissions) != 1 || response.Omissions[0].Kind != "work_pin_unavailable" || response.Omissions[0].Count != 1 || response.Omissions[0].SourceID != "" || len(response.Omissions[0].Details) != 0 {
+		t.Fatalf("own removal must explicitly report its absent pin: %+v", response.Omissions)
+	}
+	changed := *response.ChangedRefs
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, _, _, err := (runtime{}).enrichMutationPayloadTx(ctx, tx, mutationPayload(changed, nil), changed)
+		return err
+	}); err == nil {
+		t.Fatal("a later undeclared missing work item must not inherit the old removal's exception")
+	}
+	replay, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("own removal receipt must support replay: response=%+v error=%v", replay.Error, err)
+	}
 }

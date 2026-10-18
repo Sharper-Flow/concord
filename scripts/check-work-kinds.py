@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+from migration_source import migration_sql
+from vocabulary_utils import generator_freshness, load_json_finding
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,23 +18,6 @@ SCHEMA_SOURCE = Path("internal/store/schema.go")
 SCENARIO_SCHEMA = Path("contracts/workflow-engine-scenarios.schema.json")
 RUNTIME_SOURCE = Path("internal/store")
 
-
-def load_json(root: Path, relative: Path, findings: list[str]):
-    try:
-        return json.loads((root / relative).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        findings.append(f"json-load: {relative}: invalid JSON: {exc}")
-        return None
-
-
-def run_generator(root: Path, findings: list[str]) -> None:
-    result = subprocess.run(
-        [sys.executable, str(root / "scripts/generate-work-kinds.py"), "--check"],
-        cwd=root, capture_output=True, text=True, check=False,
-    )
-    if result.returncode:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
-        findings.append(f"generator-freshness: {detail.replace(chr(10), ' ')}")
 
 
 def enum_at(surface: object, path: list[str], findings: list[str]) -> list[str]:
@@ -47,11 +31,6 @@ def enum_at(surface: object, path: list[str], findings: list[str]) -> list[str]:
         findings.append(f"schema-enum: {'/'.join(path)}: missing string array")
         return []
     return value
-
-
-def migration_block(source: str) -> str | None:
-    match = re.search(r'Version:\s+49,\s+Name:\s+"work_kind_and_native_run_vocabularies",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},', source, re.S)
-    return match.group("sql") if match else None
 
 
 def migration_rows(sql: str, table: str) -> dict[tuple[str, ...], tuple[int, ...]]:
@@ -98,10 +77,10 @@ def check_runtime_work_kind_literals(root: Path, stored: set[str], findings: lis
 
 def check(root: Path) -> list[str]:
     findings: list[str] = []
-    run_generator(root, findings)
-    vocabulary = load_json(root, VOCABULARY, findings)
-    surface = load_json(root, SURFACE_SCHEMA, findings)
-    scenario = load_json(root, SCENARIO_SCHEMA, findings)
+    generator_freshness(root, "generate-work-kinds.py", findings)
+    vocabulary = load_json_finding(root, VOCABULARY, findings)
+    surface = load_json_finding(root, SURFACE_SCHEMA, findings)
+    scenario = load_json_finding(root, SCENARIO_SCHEMA, findings)
     if not isinstance(vocabulary, dict) or not isinstance(surface, dict) or not isinstance(scenario, dict):
         return findings
     kinds = vocabulary.get("kinds")
@@ -168,10 +147,11 @@ def check(root: Path) -> list[str]:
     except OSError as exc:
         findings.append(f"migration-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
-    sql = migration_block(source)
-    if sql is None:
+    migration = migration_sql(source, 49, "work_kind_and_native_run_vocabularies")
+    if migration is None:
         findings.append("migration-coverage: missing migration 49 work_kind_and_native_run_vocabularies")
         return findings
+    sql = migration.sql
     rows = migration_rows(sql, "work_kinds")
     expected_rows = { (name,): values for name, values in expected.items() }
     if rows != expected_rows:

@@ -220,15 +220,15 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 
 func TestOutsideRepairHoldWaitsForFailedActionSettlement(t *testing.T) {
 	work := "outside-failed-action"
-	s, _, owner, attempt := seedWorkerAtExecution(t, work)
-	failWorkerAttempt(t, s, work, attempt)
+	s, owner, _, _ := seedFailedLaneAtExecution(t, work)
+	attempt := "attempt:" + work
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	before := outsideRepairDatabaseSnapshot(t, s)
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("open action hold changed the database")
 	}
-	applyRecordWorkerFailureForTest(t, s, work, owner, attempt, 1, readWorkVersion(t, s, work), "outside-settle-failure")
+	applyRecordWorkerFailureForTest(t, s, work, owner, attempt, latestStepStartEpoch(t, s, work, "execution"), readWorkVersion(t, s, work), "outside-settle-failure")
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "settled-hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatalf("failed closed attempt/action cannot strand outside repair: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestOutsideRepairHoldRefusesPendingDurableOperation(t *testing.T) {
 	seedOutsideRepairTestWork(t, s, work)
 	claim := testClaim("outside-pending", "outside-pending-key")
 	claim.WorkID = work
-	if _, err := ClaimStep(context.Background(), s, claim); err != nil {
+	if _, err := ClaimStepAuthorized(context.Background(), s, claim, nil); err != nil {
 		t.Fatal(err)
 	}
 	req := outsideRepairTestRequest(t, s, work, "hold")

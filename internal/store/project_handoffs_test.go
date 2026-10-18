@@ -924,8 +924,9 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 	version := fixtureWorkVersion(t, f.store, f.workID)
 	lane := BuiltinLaneDefinitions()[0]
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
+	identity := workerFixtureWorktreeIdentity(t, f.store, f.workID)
 	started := workflowEventWithActor("ph-dispatch-start-"+attemptID, WorkflowActionStarted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch:" + attemptID, "actor_ref": actorRef, "execution_model": preferredModelForLane(lane)})
-	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": f.sourceTree, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
+	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
 	// The dispatch completion carries its worker bindings on payload
 	// version 3, the registered current version.
 	completed.PayloadVersion = 3
@@ -948,7 +949,7 @@ func completeWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT report_schema_version FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&reportSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion})}
+	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1129,7 +1130,10 @@ func TestRetirementUnknownWorkerAttributionBlocksReadiness(t *testing.T) {
 	}
 	// Another session's positively identified open worker is not this
 	// session's worker: the real dispatch chain attributes the attempt to
-	// the foreign session's authenticated actor.
+	// the foreign session's authenticated actor. Settle the orphan only after
+	// proving its unknown attribution, without recording a second dispatch.
+	sourceActor := recordHandoffSessionActor(t, f, f.sourceSession)
+	appendWorkerFixtureDispatchAuthorization(t, f.store, f.workID, "ph-attempt-unknown", currentStep(t, f.store, f.workID), sourceActor)
 	completeWorkerAttempt(t, f.store, f.workID, "ph-attempt-unknown")
 	seedSessionOwnedDispatchedAttempt(t, f, "session/foreign", "ph-attempt-foreign")
 	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)

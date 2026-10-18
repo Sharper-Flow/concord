@@ -165,6 +165,11 @@
       "authority": "check"
     },
     {
+      "table": "law_coverage_anchors",
+      "column": "kind",
+      "authority": "check"
+    },
+    {
       "table": "law_cross_source_relations",
       "column": "kind",
       "authority": "check"
@@ -286,6 +291,12 @@
       "table": "work_removal_operations",
       "column": "state",
       "authority": "check"
+    },
+    {
+      "table": "work_size_assessments",
+      "column": "size_class",
+      "authority": "contract",
+      "validator": "scripts/check-work-sizes.py"
     },
     {
       "table": "worker_attempts",

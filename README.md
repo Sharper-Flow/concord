@@ -228,10 +228,10 @@ bounded JSON result.
 ```sh
 concord --version
 concord --help
-concord zl WORK_ID
 ```
 
-Replace `WORK_ID` with an existing work item's ID to open its coordinator session.
+You start each session with your host tooling. Inside a session, agents enter
+managed work through the adapter's `concord_work_start` tool.
 
 ## Learn more
 

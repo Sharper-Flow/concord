@@ -16,10 +16,6 @@ Put the task identity, scope, and stop conditions in the assignment. A delegatio
 prompt names the agent's role and points to that assignment instead of restating
 it. Move added context into its owning file rather than expanding the prompt.
 
-A pull request body names the planning record it serves. Give the issue key or
-the work identifier, so a reader who arrives from the repository reaches the
-planning record without the conversation that produced the change.
-
 State what you observed before you state what it means. An observation is
 checkable and a conclusion is not. A reader who doubts your conclusion can still
 use your observation, so the record keeps its worth even when you were wrong.
@@ -62,12 +58,20 @@ coordinator exists. Report blockers and safety risks at the next permitted
 reporting point. Include other findings in the next handoff or final response.
 Give the record reference when one exists.
 
-The coordinator turns each unresolved finding into a ticket in the planning
-system, so that an optimized solution can be built. Reuse an existing ticket for
-the same inefficiency and add the new evidence. Put the evidence, observed cost,
+The coordinator turns each unresolved finding about a production tool into a
+ticket in the planning system, so that an optimized solution can be built.
+Production tools are what agents use to deliver work: Concord, its adapters and
+CLIs, the host launch and session tools, and the repository's CI. Do not file a
+ticket for friction in an operation's own coordination, such as its status
+updates, runbook, rules file, or coordinator procedure. Record that friction in
+the work record and the handoff only. Reuse an existing ticket for the same
+inefficiency and add the new evidence. Put the evidence, observed cost,
 workaround, and open questions in the ticket, and report the ticket reference to
 the user. An agent without a coordinator gives the user the ticket text instead.
 
 Keep safe work moving within the current role and approved scope. Recording an
 inefficiency or filing a ticket does not authorize a repair, a bypass of a
 refusal, or a new task.
+
+A filed ticket goes to the backlog. It does not block the current work, and it
+joins a milestone only when the operator places it there.

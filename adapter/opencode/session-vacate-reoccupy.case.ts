@@ -124,7 +124,7 @@ afterEach(async () => {
 afterAll(() => configureHostLease({ reset: true }))
 
 const connected =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 

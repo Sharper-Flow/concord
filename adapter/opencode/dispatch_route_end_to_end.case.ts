@@ -181,7 +181,7 @@ function requiredFields(value: JSONRecord, fields: string[]): void {
 // CONCORD_BIN nor a Go toolchain can produce one, so a suite run without the
 // toolchain reports a skip, never a silent pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 

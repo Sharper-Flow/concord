@@ -34,6 +34,7 @@ func TestWorkerCompletionCarriesBaseComparisonDurably(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	attemptID := "base-comparison-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "base-comparison", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +86,7 @@ func TestWorkerCompletionAdmitsBaseComparisonSchemaBounds(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "base-comparison-bound-attempt"
+			authorizeWorkerFixtureDispatch(t, s, "base-comparison-bound", attemptID)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-bound", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
@@ -163,6 +165,7 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "no-comparison-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "no-comparison", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("no-comparison", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

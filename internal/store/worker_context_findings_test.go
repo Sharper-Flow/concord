@@ -190,6 +190,11 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
 	findings := []WorkerContextFinding{contextFindingFixture(), {Kind: "direction", Statement: "the reader joins declarations without parsing narrative", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{"a", "b"}, DomainID: workContextTestRoot, ProductWideRationale: workContextRootRationale}}
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-findings-complete", "repair", ownerRef)
 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-complete", lane, nil)}}); err != nil {
 		t.Fatal(err)
@@ -245,6 +250,11 @@ func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-findings-claims", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-claims", "attempt-findings-claims", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +265,7 @@ func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	}
 	payload.Evidence = payload.Evidence[:1]
 	short.Payload = mustJSONValue(payload)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{short}})
+	err = ApplyOperation(context.Background(), s, Operation{Events: []Event{short}})
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "undischarged") {
 		t.Fatalf("findings beside undischarged obligations error = %v, want an undischarged-obligation refusal", err)
 	}
@@ -356,6 +366,7 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)
+		authorizeWorkerFixtureDispatch(t, s, "work-rebuild", "attempt-rebuild")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild", "attempt-rebuild", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -382,6 +393,11 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)
 		findings := []WorkerContextFinding{contextFindingFixture()}
+		ownerRef, err := WorkflowActorRef(fixture.owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-rebuild-findings", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}

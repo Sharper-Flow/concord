@@ -216,9 +216,9 @@ func reviewGateDriveRejectionAt(t *testing.T, f acceptDeliveryFixture, workID st
 	implement := reviewGateLane(t, "implementation")
 	review := reviewGateLane(t, "review")
 
-	repairEpoch := reviewGateStartStep(t, s, workID, f.verdictStep, f.startAction, f.fixture.owner)
+	reviewGateStartStep(t, s, workID, f.verdictStep, f.startAction, f.fixture.owner)
 	repairAttempt := "attempt:" + workID + ":repair"
-	reviewGateRunAttempt(t, s, workID, repairAttempt, f.verdictStep, repairEpoch, implement, ownerRef, *at)
+	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, f.verdictStep, implement, ownerRef, *at)
 	*at += 2
 	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
 		t.Fatalf("accept repair: %v", err)
@@ -226,11 +226,11 @@ func reviewGateDriveRejectionAt(t *testing.T, f acceptDeliveryFixture, workID st
 
 	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
 	reviewAttempt := "attempt:" + workID + ":review-1"
-	reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", refineEpoch, review, ownerRef, *at)
+	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, *at)
 	*at += 2
-	reviewGateRejectResult(t, s, workID, reviewAttempt, refineEpoch, acceptor)
+	reviewGateRejectResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor)
 	repairedAttempt := "attempt:" + workID + ":repair-1"
-	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, implement, ownerRef, *at)
+	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", implement, ownerRef, *at)
 	*at += 2
 	return refineEpoch
 }
@@ -255,12 +255,11 @@ func TestCombinedAcceptDeliversAtomically(t *testing.T) {
 			// The step start, the completed attempt, and the green run stand
 			// before the combined accept; the accept records everything else.
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-			epoch := latestStepStartEpoch(t, s, workID, "refine")
 			ownerRef, err := WorkflowActorRef(f.fixture.owner)
 			if err != nil {
 				t.Fatal(err)
 			}
-			reviewGateRunAttempt(t, s, workID, attempt, "refine", epoch, reviewGateLane(t, "implementation"), ownerRef, 100)
+			epoch := reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
 			if err := acceptRefineResult(t, s, workID, attempt, epoch, acceptor); err != nil {
 				t.Fatalf("combined accept at refine: %v", err)
 			}
@@ -378,24 +377,37 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				for _, route := range deliveryEntryRoutes() {
 					t.Run(testCase.name+"/"+route.name, func(t *testing.T) {
 						const workID = "accept-delivery-refusal"
-						f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, testCase.fixtureAt, family.startAction)
+						fixtureAt := testCase.fixtureAt
+						if testCase.name == "missing-step-start" && route.name == "accept_worker_result" {
+							fixtureAt = family.verdictStep
+						}
+						f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, fixtureAt, family.startAction)
 						s := f.fixture.store
 						acceptor := reviewGateAcceptor(workID)
-						testCase.seed(t, f, workID)
 						attemptID := "attempt:" + workID + ":r1"
-						epoch := latestStepStartEpoch(t, s, workID, "refine")
-						if testCase.name == "missing-step-start" {
-							epoch = 1
-						}
 						if route.name == "accept_worker_result" && testCase.fixtureAt == "refine" {
 							// The combined accept dispositions a completed
 							// attempt at the step, so the equivalence case
-							// stands one up before the exit.
+							// stands one up before the exit — before the seed
+							// binds its runs, so they sit in the attempt's
+							// epoch and each disqualifier stays readable.
 							ownerRef, ownerErr := WorkflowActorRef(f.fixture.owner)
 							if ownerErr != nil {
 								t.Fatal(ownerErr)
 							}
-							reviewGateRunAttempt(t, s, workID, attemptID, "refine", epoch, reviewGateLane(t, "implementation"), ownerRef, 100)
+							reviewGateRunAttempt(t, s, workID, attemptID, fixtureAt, reviewGateLane(t, "implementation"), ownerRef, 100)
+							if fixtureAt != "refine" {
+								priorPass := "attempt:" + workID + ":prior-pass"
+								priorEpoch := reviewGateRunAttempt(t, s, workID, priorPass, fixtureAt, reviewGateLane(t, "implementation"), ownerRef, 102)
+								if err := reviewGateAcceptResult(t, s, workID, priorPass, priorEpoch, acceptor); err != nil {
+									t.Fatal(err)
+								}
+							}
+						}
+						testCase.seed(t, f, workID)
+						epoch := latestStepStartEpoch(t, s, workID, "refine")
+						if testCase.name == "missing-step-start" {
+							epoch = 1
 						}
 						err := route.exit(t, s, workID, attemptID, epoch, acceptor, testCase.tooling, testCase.seedRun)
 						var failure *Failure
@@ -456,7 +468,7 @@ func TestRefineExitExclusivityOnDeliveryAcceptVersions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			reviewGateRunAttempt(t, s, workID, attempt, "refine", epoch, reviewGateLane(t, "implementation"), ownerRef, 100)
+			reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
 			refineProofSeedGreenRun(t, s, workID, strings.Repeat("9", 64))
 			err = runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attempt+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, acceptor)
 			var remedy *Failure
@@ -476,13 +488,13 @@ func TestRefineExitExclusivityOnDeliveryAcceptVersions(t *testing.T) {
 			if ownerErr != nil {
 				t.Fatal(ownerErr)
 			}
-			reviewGateRunAttempt(t, work.fixture.store, workIDWork, workAttempt, family.verdictStep, workEpoch, reviewGateLane(t, "implementation"), workOwnerRef, 120)
+			workAuthEpoch := reviewGateRunAttempt(t, work.fixture.store, workIDWork, workAttempt, family.verdictStep, reviewGateLane(t, "implementation"), workOwnerRef, 120)
 			err = runVerdictActionAs(t, work.fixture.store, workIDWork, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+workAttempt+`","attempt_epoch":`+fmt.Sprint(workEpoch)+`,"delivery_artifact":"artifact:misplaced","delivery_state":"asserted"}`), 0, reviewGateAcceptor(workIDWork))
 			var misplaced *Failure
 			if err == nil || !failureAs(err, &misplaced) || misplaced.Kind != KindInvalidOperation || !strings.Contains(misplaced.Detail, "carries delivery fields only at the delivery-admitting refinement step") {
 				t.Fatalf("accept with delivery fields at %s = %v, want the misplaced-fields refusal", family.verdictStep, err)
 			}
-			if err := reviewGateAcceptResult(t, work.fixture.store, workIDWork, workAttempt, workEpoch, reviewGateAcceptor(workIDWork)); err != nil {
+			if err := reviewGateAcceptResult(t, work.fixture.store, workIDWork, workAttempt, workAuthEpoch, reviewGateAcceptor(workIDWork)); err != nil {
 				t.Fatalf("plain accept at %s: %v", family.verdictStep, err)
 			}
 
@@ -497,13 +509,13 @@ func TestRefineExitExclusivityOnDeliveryAcceptVersions(t *testing.T) {
 			if priorErr != nil {
 				t.Fatal(priorErr)
 			}
-			reviewGateRunAttempt(t, prior.fixture.store, priorID, priorAttempt, "refine", priorStart, reviewGateLane(t, "implementation"), priorOwnerRef, 100)
+			priorAuthEpoch := reviewGateRunAttempt(t, prior.fixture.store, priorID, priorAttempt, "refine", reviewGateLane(t, "implementation"), priorOwnerRef, 100)
 			err = runVerdictActionAs(t, prior.fixture.store, priorID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+priorAttempt+`","attempt_epoch":`+fmt.Sprint(priorStart)+`,"delivery_artifact":"artifact:prior","delivery_state":"asserted"}`), 0, reviewGateAcceptor(priorID))
 			var priorFailure *Failure
 			if err == nil || !failureAs(err, &priorFailure) || priorFailure.Kind != KindInvalidPayload || !strings.Contains(priorFailure.Detail, "delivery_artifact") || !strings.Contains(priorFailure.Detail, "not declared") {
 				t.Fatalf("combined accept on %s v%d = %v, want the undeclared-field refusal", family.ref, family.prior, err)
 			}
-			if err := reviewGateAcceptResult(t, prior.fixture.store, priorID, priorAttempt, priorStart, reviewGateAcceptor(priorID)); err != nil {
+			if err := reviewGateAcceptResult(t, prior.fixture.store, priorID, priorAttempt, priorAuthEpoch, reviewGateAcceptor(priorID)); err != nil {
 				t.Fatalf("plain accept at refine on v%d: %v", family.prior, err)
 			}
 			reviewGateRequireStep(t, prior.fixture.store, priorID, "delivery")
@@ -520,13 +532,12 @@ func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
 	s := f.fixture.store
 	acceptor := reviewGateAcceptor(workID)
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-	epoch := latestStepStartEpoch(t, s, workID, "refine")
 	attempt := "attempt:" + workID + ":r1"
 	ownerRef, err := WorkflowActorRef(f.fixture.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewGateRunAttempt(t, s, workID, attempt, "refine", epoch, reviewGateLane(t, "implementation"), ownerRef, 100)
+	epoch := reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
 	if err := acceptRefineResult(t, s, workID, attempt, epoch, acceptor); err != nil {
 		t.Fatalf("combined accept: %v", err)
 	}

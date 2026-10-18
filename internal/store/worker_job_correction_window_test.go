@@ -908,7 +908,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatal(err)
 			}
 			unbound := "attempt:" + workID + ":unbound-review"
-			reviewGateRunAttempt(t, s, workID, unbound, "refine", epoch(), reviewGateLane(t, "review"), ownerRef, 200)
+			reviewGateRunAttempt(t, s, workID, unbound, "refine", reviewGateLane(t, "review"), ownerRef, 200)
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": unbound, "attempt_epoch": epoch()}), 0, acceptor); err == nil || !strings.Contains(err.Error(), "exits only through an admitted delivery assertion") {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}

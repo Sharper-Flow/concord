@@ -471,9 +471,12 @@ func seedWrongTreeAcceptedDelivery(t *testing.T, s *Store, f workContextFixture,
 	if subjectErr != nil || subject == "" {
 		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
 	}
+	// The completion reports the same other claim its dispatch authorization
+	// recorded, so the terminal ingest validates the attempt against its own
+	// Project claim instead of the fixture's first claimed worktree.
 	completion := Event{EventID: "complete-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-		EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job, WorkerDirectory: sessionWorktree,
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {

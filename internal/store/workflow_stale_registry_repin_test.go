@@ -86,6 +86,10 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	}
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
+	// The completion below resolves the attempt's original dispatch Project
+	// through its authorization window, so the window opens before the
+	// generic dispatch records the worker's own evidence.
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "repair", ownerRef)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "repin-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
@@ -100,7 +104,7 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	return attemptID, 1
+	return attemptID, latestStepStartEpoch(t, s, workID, "repair")
 }
 
 // registryRepinSuccessorPayload is the fully supplied operator-approved
@@ -493,10 +497,9 @@ func TestStaleRegistryRePinRefusesWithoutRegistry(t *testing.T) {
 
 // seedStaleRegistryCompleteStepAttempt leaves a completed, undisposed worker
 // attempt on an implementation instance parked at its pinned complete-declaring
-// step. The attempt carries the durable dispatch and report facts only: the
-// complete step declares no attempt-opening action, which is exactly the
-// POKE-79 shape a review attempt stranded when the instance advanced past the
-// confirmation checkpoint.
+// step. Its authorization belongs to the preceding confirmation checkpoint:
+// the complete step declares no attempt-opening action. The dispatch and
+// report may still arrive after the instance advances past that checkpoint.
 func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
@@ -530,9 +533,17 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 // disposition reaches the step gate, not the marker.
 func TestStaleRegistryRescanReleasesTheEnclosedCompleteStepAttempt(t *testing.T) {
 	const workID = "stale-registry-complete-attempt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "release")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	defer s.Close()
+	ownerRef, actorErr := WorkflowActorRef(owner)
+	if actorErr != nil {
+		t.Fatal(actorErr)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, "attempt:"+workID, "acceptance", ownerRef)
+	if err := advanceWorkflowTestInstanceToStep(context.Background(), s, workID, "release", ownerRef); err != nil {
+		t.Fatal(err)
+	}
 	if got := currentStep(t, s, workID); got != "release" {
 		t.Fatalf("fixture step = %q, want release", got)
 	}

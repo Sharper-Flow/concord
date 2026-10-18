@@ -124,6 +124,7 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		workID := "work-worker-directory-match"
 		attemptID := "attempt-worker-directory-match"
 		insertWorkerWorktreeEntry(t, s, workID, claimed)
+		authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)

@@ -36,7 +36,7 @@ func TestInitialNoShipReviewHoldsDeliveryBehindTheObligation(t *testing.T) {
 			s := f.store
 			definition := mustDefinitionForPin(t, pin.ref, pin.version)
 			attemptID := "attempt:" + workID + ":review"
-			reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
+			noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
 			outstanding, err := workflowPostRejectionReviewOutstanding(context.Background(), s.db, workID, definition, "initial_review_test")
 			if err != nil || outstanding {
 				t.Fatalf("the lane report alone opened a coordinator obligation: outstanding=%v, err=%v", outstanding, err)
@@ -53,7 +53,7 @@ func TestInitialNoShipReviewHoldsDeliveryBehindTheObligation(t *testing.T) {
 				t.Fatal("negative review acceptance carried a delivery assertion")
 			}
 			refineProofSeedGreenRun(t, s, workID, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
-			if err := reviewGateAcceptResult(t, s, workID, attemptID, epoch, reviewGateAcceptor(workID)); err != nil {
+			if err := reviewGateAcceptResult(t, s, workID, attemptID, noShipEpoch, reviewGateAcceptor(workID)); err != nil {
 				t.Fatalf("accept the completed negative review: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")
@@ -72,17 +72,17 @@ func TestInitialNoShipReviewHoldsDeliveryBehindTheObligation(t *testing.T) {
 				t.Fatalf("typed correction behind the accepted negative review: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, pin.target)
-			repairEpoch := reviewGateStartStep(t, s, workID, pin.target, pin.startAction, f.owner)
+			reviewGateStartStep(t, s, workID, pin.target, pin.startAction, f.owner)
 			repairAttempt := "attempt:" + workID + ":repair"
-			reviewGateRunAttempt(t, s, workID, repairAttempt, pin.target, repairEpoch, reviewGateLane(t, "implementation"), ownerRef, 110)
+			repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, pin.target, reviewGateLane(t, "implementation"), ownerRef, 110)
 			if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, reviewGateAcceptor(workID)); err != nil {
 				t.Fatalf("accept the repaired result: %v", err)
 			}
-			refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", f.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", f.owner)
 			settling := "attempt:" + workID + ":settling"
-			reviewGateRunAttemptWithVerdict(t, s, workID, settling, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", 120)
+			settlingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, settling, reviewGateLane(t, "review"), ownerRef, "ship", 120)
 			refineProofSeedGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-			if err := acceptRefineResult(t, s, workID, settling, refineEpoch, reviewGateAcceptor(workID)); err != nil {
+			if err := acceptRefineResult(t, s, workID, settling, settlingEpoch, reviewGateAcceptor(workID)); err != nil {
 				t.Fatalf("fresh settling review did not resolve the obligation: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")
@@ -131,11 +131,11 @@ func initialReviewHistoricalAccept(t *testing.T, f workflowReturnRouteFixture, w
 
 func TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection(t *testing.T) {
 	const workID = "initial-no-ship-delivery"
-	f, ownerRef, epoch := initialReviewFixture(t, workID, "workflow.implementation", 19)
+	f, ownerRef, _ := initialReviewFixture(t, workID, "workflow.implementation", 19)
 	s := f.store
 	attemptID := "attempt:" + workID + ":review"
-	reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
-	initialReviewHistoricalAccept(t, f, workID, attemptID, epoch)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
+	initialReviewHistoricalAccept(t, f, workID, attemptID, noShipEpoch)
 	var rejections int
 	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil || rejections != 0 {
 		t.Fatalf("fixture must contain no coordinator rejection: count=%d, err=%v", rejections, err)
@@ -169,14 +169,15 @@ func TestInitialSettlingReviewDoesNotOpenHistoricalDeliveryCorrection(t *testing
 	for _, verdict := range []string{"ship", ""} {
 		t.Run(verdict, func(t *testing.T) {
 			const workID = "initial-settling-review"
-			f, ownerRef, epoch := initialReviewFixture(t, workID, "workflow.implementation", 19)
+			f, ownerRef, _ := initialReviewFixture(t, workID, "workflow.implementation", 19)
 			attemptID := "attempt:" + workID + ":review"
+			var acceptEpoch int64
 			if verdict == "" {
-				reviewGateRunAttempt(t, f.store, workID, attemptID, "refine", epoch, reviewGateLane(t, "review"), ownerRef, 100)
+				acceptEpoch = reviewGateRunAttempt(t, f.store, workID, attemptID, "refine", reviewGateLane(t, "review"), ownerRef, 100)
 			} else {
-				reviewGateRunAttemptWithVerdict(t, f.store, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, verdict, 100)
+				acceptEpoch = reviewGateRunAttemptWithVerdict(t, f.store, workID, attemptID, reviewGateLane(t, "review"), ownerRef, verdict, 100)
 			}
-			initialReviewHistoricalAccept(t, f, workID, attemptID, epoch)
+			initialReviewHistoricalAccept(t, f, workID, attemptID, acceptEpoch)
 			pin, err := ReadWorkPin(context.Background(), f.store, workID)
 			if err != nil || workPinContainsAction(pin.NextValidIntents, "request_correction") {
 				t.Fatalf("ordinary delivery gained negative-review correction: %#v, err=%v", pin, err)
@@ -215,16 +216,16 @@ func TestPendingNoShipReviewDoesNotOutliveAFreshSettlingShip(t *testing.T) {
 				t.Fatal(err)
 			}
 			at := int64(100)
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			pending := "attempt:" + workID + ":pending-no-ship"
-			reviewGateRunAttemptWithVerdict(t, s, workID, pending, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+			pendingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, pending, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 			at += 2
 			settling := "attempt:" + workID + ":settling-ship"
-			reviewGateRunAttemptWithVerdict(t, s, workID, settling, epoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
-			if err := reviewGateAcceptResult(t, s, workID, pending, epoch, reviewGateAcceptor(workID)); err == nil {
+			settlingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, settling, reviewGateLane(t, "review"), ownerRef, "ship", at)
+			if err := reviewGateAcceptResult(t, s, workID, pending, pendingEpoch, reviewGateAcceptor(workID)); err == nil {
 				t.Fatal("an older pending no_ship rode ahead of the newer completed review")
 			}
-			if err := acceptRefineResult(t, s, workID, settling, epoch, reviewGateAcceptor(workID)); err != nil {
+			if err := acceptRefineResult(t, s, workID, settling, settlingEpoch, reviewGateAcceptor(workID)); err != nil {
 				t.Fatalf("fresh settling ship after a pending no_ship failed: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")
@@ -244,11 +245,11 @@ func TestRenewedNoShipObligationCarriesItsOwnEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := int64(100)
-	epoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 	oldShip := "attempt:" + workID + ":old-ship"
-	reviewGateRunAttemptWithVerdict(t, s, workID, oldShip, epoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	oldShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, oldShip, reviewGateLane(t, "review"), ownerRef, "ship", at)
 	at += 2
-	reviewGateSeedAcceptAtRefine(t, s, workID, oldShip, epoch, reviewGateAcceptor(workID))
+	reviewGateSeedAcceptAtRefine(t, s, workID, oldShip, oldShipEpoch, reviewGateAcceptor(workID))
 	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 	settled, err := workflowPostRejectionReviewOutstanding(context.Background(), s.db, workID, def, "initial_review_test")
 	if err != nil || settled {
@@ -267,18 +268,18 @@ func TestRenewedNoShipObligationCarriesItsOwnEvidence(t *testing.T) {
 		t.Fatalf("typed correction after a settled rejection: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "repair")
-	repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	repairAttempt := "attempt:" + workID + ":repair-2"
-	reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", reviewGateLane(t, "implementation"), ownerRef, at)
 	at += 2
 	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, reviewGateAcceptor(workID)); err != nil {
 		t.Fatalf("accept the repaired result: %v", err)
 	}
-	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	noShip := "attempt:" + workID + ":later-no-ship"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShip, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShip, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 	at += 2
-	reviewGateSeedAcceptAtRefine(t, s, workID, noShip, refineEpoch, reviewGateAcceptor(workID))
+	reviewGateSeedAcceptAtRefine(t, s, workID, noShip, noShipEpoch, reviewGateAcceptor(workID))
 	renewed, err := workflowPostRejectionReviewOutstanding(context.Background(), s.db, workID, def, "initial_review_test")
 	if err != nil || !renewed {
 		t.Fatalf("later no_ship did not renew the obligation: outstanding=%v, err=%v", renewed, err)
@@ -294,11 +295,11 @@ func TestRenewedNoShipObligationCarriesItsOwnEvidence(t *testing.T) {
 
 func TestAcceptedNonReviewReportDoesNotOpenReviewObligation(t *testing.T) {
 	const workID = "non-review-negative-report"
-	f, ownerRef, epoch := initialReviewFixture(t, workID, "workflow.implementation", 19)
+	f, ownerRef, _ := initialReviewFixture(t, workID, "workflow.implementation", 19)
 	s := f.store
 	attemptID := "attempt:" + workID + ":implement"
-	reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "implementation"), ownerRef, "no_ship", 100)
-	initialReviewHistoricalAccept(t, f, workID, attemptID, epoch)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "implementation"), ownerRef, "no_ship", 100)
+	initialReviewHistoricalAccept(t, f, workID, attemptID, noShipEpoch)
 	seq, raw, err := workflowRefinementReviewFailure(context.Background(), s.db, workID, mustDefinitionForPin(t, "workflow.implementation", 19), "initial_review_test")
 	if err != nil || seq != 0 || raw != nil {
 		t.Fatalf("non-review capability gained review authority: seq=%d, err=%v", seq, err)
@@ -331,41 +332,35 @@ func TestOutOfOrderCompletionRetiresTheReadyReview(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", f.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", f.owner)
 			lane := reviewGateLane(t, "review")
 			// A delayed review dispatches before the rejection, but its
 			// report completes after the ready review: the newest completion
 			// is pre-frontier evidence the ready fold refuses to name.
 			delayed := "attempt:" + workID + ":delayed"
-			version := verdictItemVersion(t, s, workID)
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
-				EventID: "out-of-order-delayed-action", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(100, 0).UTC(), PayloadVersion: 2,
-				Payload: mustJSONValue(map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": delayed, "actor_ref": ownerRef}),
-			}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-				t.Fatal(err)
-			}
+			recordWorkerFixtureDispatchAuthorization(t, s, workID, delayed, "refine", ownerRef)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 				EventID: "out-of-order-delayed-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(100, 0).UTC(), PayloadVersion: 2,
 				Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: delayed, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
 			}}}); err != nil {
 				t.Fatal(err)
 			}
-			reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":reject", epoch, lane, ownerRef, "no_ship", 102)
-			reviewGateRejectResult(t, s, workID, "attempt:"+workID+":reject", epoch, reviewGateAcceptor(workID))
+			rejectEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":reject", lane, ownerRef, "no_ship", 102)
+			reviewGateRejectResult(t, s, workID, "attempt:"+workID+":reject", rejectEpoch, reviewGateAcceptor(workID))
 			ready := "attempt:" + workID + ":ready"
-			reviewGateRunAttemptWithVerdict(t, s, workID, ready, epoch, lane, ownerRef, "no_ship", 104)
+			readyEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, ready, lane, ownerRef, "no_ship", 104)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
 				workerCompleteEventForLane(workID, "out-of-order-delayed-complete", delayed, lane, time.Unix(106, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 			}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := reviewGateAcceptResult(t, s, workID, ready, epoch, reviewGateAcceptor(workID)); err == nil {
+			if err := reviewGateAcceptResult(t, s, workID, ready, readyEpoch, reviewGateAcceptor(workID)); err == nil {
 				t.Fatal("the ready review was accepted while a newer completed review existed")
 			}
 			fresh := "attempt:" + workID + ":fresh"
-			reviewGateRunAttemptWithVerdict(t, s, workID, fresh, epoch, lane, ownerRef, "ship", 108)
+			freshEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, fresh, lane, ownerRef, "ship", 108)
 			refineProofSeedGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-			if err := acceptRefineResult(t, s, workID, fresh, epoch, reviewGateAcceptor(workID)); err != nil {
+			if err := acceptRefineResult(t, s, workID, fresh, freshEpoch, reviewGateAcceptor(workID)); err != nil {
 				t.Fatalf("the newest completed review did not resolve the obligation: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")

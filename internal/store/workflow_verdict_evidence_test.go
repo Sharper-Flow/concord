@@ -102,6 +102,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("e", 64)})}
 	var preparedEvents []Event
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -127,7 +128,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 			t.Fatalf("bind review evidence: %v", err)
 		}
 	}
-	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2})), 0); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return s, owner, reviewer

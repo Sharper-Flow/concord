@@ -41,6 +41,7 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	attemptID := "evidence-covered-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-covered", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-covered", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +77,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-undischarged-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-undischarged", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-undischarged", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +116,7 @@ func TestWorkerCompletionNamingObligationOutsideItsLaneIsRefused(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[3]
 	foreign := BuiltinLaneDefinitions()[0].EvidenceObligations[0]
 	attemptID := "evidence-foreign-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-foreign", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-foreign", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +192,7 @@ func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *tes
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-legacy-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "evidence-legacy", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-legacy", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

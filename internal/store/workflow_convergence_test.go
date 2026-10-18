@@ -57,9 +57,15 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "convergence-findings-" + tc.name
-			s, owner, first, _ := seedOldDefinitionWorker(t, workID)
+			s, owner, first, _ := seedOldDefinitionWorkAtRepair(t, workID)
 			defer s.Close()
 			worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			workerRef, actorErr := WorkflowActorRef(worker)
+			if actorErr != nil {
+				t.Fatal(actorErr)
+			}
+			recordWorkerFixtureDispatchAuthorization(t, s, workID, first, "repair", workerRef)
+			dispatchOldDefinitionWorker(t, s, workID, first)
 			for n, findings := range [][]string{{"finding:a", "finding:b"}, {"finding:a", "finding:b"}, tc.latest} {
 				attemptID := first
 				if n > 0 {

@@ -95,6 +95,9 @@ func TestWorkContextCloseGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	lane := BuiltinLaneDefinitions()[0]
+	// The attempt's original dispatch authorization precedes the generic
+	// dispatch evidence and names the active claim the completion reports.
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, "close-git-attempt", "execution", ownerRef)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent(workID, "close-git-attempt", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

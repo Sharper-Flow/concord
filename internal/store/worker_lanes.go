@@ -1547,7 +1547,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	// reclaimed worktrees no longer resolve, so replay trusts the recorded
 	// dispatch evidence instead.
 	if !isWorkflowReplay(ctx) {
-		if err := validateWorkerDispatchWorktree(ctx, tx, event.SubjectID, payload.WorkerDirectory); err != nil {
+		if err := validateWorkerCompletionWorktree(ctx, tx, event.SubjectID, payload.AttemptID, payload.WorkerDirectory); err != nil {
 			return err
 		}
 	}

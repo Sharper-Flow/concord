@@ -2090,6 +2090,11 @@ func replayWorkflowCorpusSetup(ctx context.Context, t *testing.T, s *Store, setu
 			return workflowScenarioGap{"setup event has an invalid occurred_at timestamp"}
 		}
 		event.OccurredAt = occurred.UTC()
+		if input.Kind == WorkflowActionCompleted && input.Payload["action_id"] == "dispatch_worker" {
+			if _, supplied := input.Payload["worker_worktree_identity"]; !supplied {
+				event = workerDispatchAuthorizationAtClaim(t, s, event)
+			}
+		}
 		if input.Kind == "work.created" {
 			membership := operationEvent("workflow-corpus-membership:"+input.WorkID, "work_project.added", SubjectWorkItem, input.WorkID, map[string]any{"work_id": input.WorkID, "project_id": "project", "role": "primary", "reason": "workflow corpus", "expected_version": 1, "resulting_version": 2})
 			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, input.WorkID): 0}}); err != nil {

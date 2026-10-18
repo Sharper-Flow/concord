@@ -197,6 +197,16 @@ type WorkItem struct {
 	// and value statement (the scope read and the full-detail list); bounded
 	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
+	// Size is the current size record (CD-0229 D4). It rides the same
+	// authoritative intent reads; unsized work carries none.
+	Size *WorkSizeSummary `json:"size,omitempty"`
+}
+
+// WorkSizeSummary is the read projection of a work item's current size.
+type WorkSizeSummary struct {
+	Size         WorkSize `json:"size"`
+	ModelVersion int      `json:"model_version"`
+	RecordedAt   string   `json:"recorded_at"`
 }
 
 type Q4Result struct {
@@ -820,7 +830,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each
 // item: task, value statement, tags, and workflow type reference from the
-// stored intent projection. Only the authoritative intent reads call it, so
+// stored intent projection, and the current size record. Only the authoritative intent reads call it, so
 // bounded summary and preview reads never carry intent detail. A tag array
 // the intent recorded as empty stays the empty array; a null or absent array
 // stays nil.
@@ -852,7 +862,28 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 			}
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "query", "cannot read the recorded work intent", true, "retry once the database is readable", err)
+	}
+	for i := range items {
+		if err := attachWorkSize(ctx, tx, &items[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// attachWorkSize copies the item's current size record, when it has one.
+func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
+	record, ok, err := readWorkSize(ctx, q, item.ID)
+	if err != nil || !ok {
+		return err
+	}
+	item.Size = &WorkSizeSummary{Size: record.Size, ModelVersion: record.ModelVersion, RecordedAt: record.RecordedAt}
+	return nil
 }
 
 // decodeRecordedIntent projects the intent fields a carrying revision needs
@@ -1281,7 +1312,7 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	// The bounded narrative rides the single-record read only. The recorded
 	// mutable-intent detail (task, value statement, tags, workflow type
-	// reference) rides with it so a coordinator can carry the complete
+	// reference) and the current size ride with it so a coordinator can carry the complete
 	// revisable intent off this one authoritative read; list queries keep
 	// their column-only shape.
 	var narrative, intentJSON string
@@ -1290,6 +1321,9 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	items[0].Narrative = narrative
 	if err := decodeRecordedIntent(&items[0], intentJSON); err != nil {
+		return WorkItem{}, err
+	}
+	if err := attachWorkSize(ctx, tx, &items[0]); err != nil {
 		return WorkItem{}, err
 	}
 	return items[0], nil

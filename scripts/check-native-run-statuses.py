@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from migration_source import migration_sql
+from vocabulary_utils import generator_freshness, load_json_finding
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,23 +20,6 @@ SCHEMA_SOURCE = Path("internal/store/schema.go")
 
 NativeStatusLoader = Callable[[Path, list[str]], list[str] | None]
 
-
-def load_json(root: Path, relative: Path, findings: list[str]):
-    try:
-        return json.loads((root / relative).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        findings.append(f"json-load: {relative}: invalid JSON: {exc}")
-        return None
-
-
-def run_generator(root: Path, findings: list[str]) -> None:
-    result = subprocess.run(
-        [sys.executable, str(root / "scripts/generate-native-run-statuses.py"), "--check"],
-        cwd=root, capture_output=True, text=True, check=False,
-    )
-    if result.returncode:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
-        findings.append(f"generator-freshness: {detail.replace(chr(10), ' ')}")
 
 
 def trigger_block(sql: str, name: str) -> str | None:
@@ -77,9 +61,9 @@ def load_native_statuses(root: Path, findings: list[str]) -> list[str] | None:
 
 def check(root: Path, load_statuses: NativeStatusLoader | None = None) -> list[str]:
     findings: list[str] = []
-    run_generator(root, findings)
+    generator_freshness(root, "generate-native-run-statuses.py", findings)
     loader = load_statuses or load_native_statuses
-    vocabulary = load_json(root, VOCABULARY, findings)
+    vocabulary = load_json_finding(root, VOCABULARY, findings)
     if not isinstance(vocabulary, dict):
         return findings
     phases = vocabulary.get("phases")

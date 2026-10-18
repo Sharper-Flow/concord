@@ -228,19 +228,11 @@ func (s *Store) QueryDomainFootprint(ctx context.Context, req DomainFootprintReq
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, footprintQueryID, "store is not open", false, "open a store before reading Domains")
 	}
-	paths, err := validateDomainFootprintRequest(req)
-	if err != nil {
-		return out, err
-	}
 	limit, err := queryLimit(req.Limit)
 	if err != nil {
 		return out, err
 	}
-	home, err := resolveKnowledgeQueryHome(ctx, s.db, req.Product, "", KnowledgeHome{}, footprintQueryID)
-	if err != nil {
-		return out, err
-	}
-	behaviorLaws, behaviorCommit, err := footprintBehaviorLaws(ctx, s, home, req.Behavior)
+	prepared, err := s.prepareDomainFootprint(ctx, req)
 	if err != nil {
 		return out, err
 	}
@@ -249,7 +241,40 @@ func (s *Store) QueryDomainFootprint(ctx context.Context, req DomainFootprintReq
 		return out, wrapFailure(KindUnavailable, footprintQueryID, "cannot open the footprint snapshot", true, "retry once the database is readable", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	return queryDomainFootprintTx(ctx, tx, req, home, paths, behaviorLaws, behaviorCommit, limit)
+	return prepared.queryTx(ctx, tx, limit)
+}
+
+// preparedDomainFootprint is the part of a footprint read that must run
+// outside a transaction: the validated request, the resolved knowledge home,
+// and the behavior match, which probes git. queryTx finishes the read inside
+// any transaction and refuses stale_context when the knowledge commit moved
+// since the behavior match.
+type preparedDomainFootprint struct {
+	req            DomainFootprintRequest
+	home           KnowledgeHome
+	paths          []string
+	behaviorLaws   []string
+	behaviorCommit string
+}
+
+func (s *Store) prepareDomainFootprint(ctx context.Context, req DomainFootprintRequest) (preparedDomainFootprint, error) {
+	paths, err := validateDomainFootprintRequest(req)
+	if err != nil {
+		return preparedDomainFootprint{}, err
+	}
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, req.Product, "", KnowledgeHome{}, footprintQueryID)
+	if err != nil {
+		return preparedDomainFootprint{}, err
+	}
+	behaviorLaws, behaviorCommit, err := footprintBehaviorLaws(ctx, s, home, req.Behavior)
+	if err != nil {
+		return preparedDomainFootprint{}, err
+	}
+	return preparedDomainFootprint{req: req, home: home, paths: paths, behaviorLaws: behaviorLaws, behaviorCommit: behaviorCommit}, nil
+}
+
+func (p preparedDomainFootprint) queryTx(ctx context.Context, q queryer, limit int) (DomainFootprintResult, error) {
+	return queryDomainFootprintTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, limit)
 }
 
 // footprintBehaviorLaws runs Q9 over the designated home's indexed law kinds

@@ -6370,6 +6370,30 @@ CREATE TRIGGER law_coverage_anchors_guard_update BEFORE UPDATE ON law_coverage_a
 CREATE TRIGGER law_coverage_anchors_guard_delete BEFORE DELETE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 131,
+		Name:    "work_size_assessments",
+		SQL: `
+-- CD-0229 D4: each size decision for a work item, with the model version, the
+-- inputs, and the footprint snapshot it read. Fold-only; the work.sized fold
+-- recomputes the size from the inputs and owns every write. The current size
+-- is the highest sequence.
+CREATE TABLE work_size_assessments (
+    event_id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    sequence INTEGER NOT NULL CHECK(typeof(sequence)='integer' AND sequence >= 1),
+    model_version INTEGER NOT NULL CHECK(typeof(model_version)='integer' AND model_version >= 1),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
+    inputs_json TEXT NOT NULL CHECK(json_valid(inputs_json) AND json_type(inputs_json)='object'),
+    footprint_json TEXT NOT NULL CHECK(json_valid(footprint_json) AND json_type(footprint_json)='object'),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(work_id, sequence)
+);
+CREATE TRIGGER work_size_assessments_guard_insert BEFORE INSERT ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_assessments_guard_update BEFORE UPDATE ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_assessments_guard_delete BEFORE DELETE ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

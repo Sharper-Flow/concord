@@ -1302,6 +1302,9 @@
         },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
+        },
+        "size": {
+          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -5137,6 +5140,9 @@
         "defect_intake": {
           "$ref": "#/$defs/defect_intake",
           "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
+        },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs"
         }
       }
     },
@@ -12629,6 +12635,89 @@
         "root_cause_work_id": {
           "$ref": "#/$defs/id",
           "description": "The completed workflow.research cluster RCA that admits a recurrent bug capture. Required once the core computes an earlier same-shape sibling; checked whenever a bug supplies it. Research captures must omit it."
+        }
+      }
+    },
+    "work_size_inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
+      "required": [
+        "security",
+        "user_visible",
+        "blast_radius",
+        "estimated_production_lines"
+      ],
+      "properties": {
+        "paths": {
+          "description": "Repository-relative files or directories the change will edit.",
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "behavior": {
+          "description": "A phrase for the behavior the change will alter, when the files are not known yet.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "security": {
+          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
+          "type": "boolean"
+        },
+        "user_visible": {
+          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
+          "type": "boolean"
+        },
+        "blast_radius": {
+          "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
+          "type": "string",
+          "enum": [
+            "contained",
+            "package",
+            "cross_package",
+            "external"
+          ]
+        },
+        "estimated_production_lines": {
+          "description": "Production lines you expect to add or change, tests excluded.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        }
+      }
+    },
+    "work_size_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The work item's current size record: the size the versioned model decided, the model version, and when it was recorded. Absent when the work was never sized.",
+      "required": [
+        "size",
+        "model_version",
+        "recorded_at"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": [
+            "small",
+            "larger",
+            "crucial"
+          ]
+        },
+        "model_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },

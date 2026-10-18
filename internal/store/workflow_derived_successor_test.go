@@ -1,0 +1,134 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name     string
+		modifies []string
+		refused  bool
+	}{
+		{name: "derived revision", modifies: []string{"spec:two"}},
+		{name: "empty modification control", modifies: []string{}},
+		{name: "legislated revision refused", modifies: []string{"spec:legislated"}, refused: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := openTemp(t)
+			const workID = "research-law-successor"
+			actor := WorkflowActor{PrincipalRef: "principal:law-successor", ClientRef: "client:law-successor", AgentRef: "agent:law-successor", SessionRef: "session:law-successor", ActorClass: ActorAgent}
+			operator := WorkflowActor{PrincipalRef: "principal:operator-law-successor", ClientRef: "client:operator-law-successor", AgentRef: "agent:operator-law-successor", SessionRef: "session:operator-law-successor", ActorClass: ActorOperator}
+			seedWork(t, s, workID)
+			seedWorkflowLaw(t, s)
+			seedDerivedLawExtension(t, s)
+			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
+			fields := map[string]any{
+				"premise":      "Revise the derived record inside this contract.",
+				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
+				"outcome_predicates": []map[string]any{{
+					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
+					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
+				}},
+			}
+			if err := runDerivedLawApproval(t, s, workID, version, actor, mustJSONValue(fields)); err != nil {
+				t.Fatalf("live approval: %v", err)
+			}
+			// The accepted successor law makes the real recovery action reachable.
+			cutoverLawProjection(t, s)
+			fields["contract_version"] = 2
+			fields["spec_mandate"] = []string{"spec:two"}
+			fields["law_modifies"] = scenario.modifies
+			fields["required_evidence"] = []string{"verification"}
+			fields["route_conventions"] = []string{}
+			fields["rigor_class"] = "prototype_internal"
+			fields["supersede_reason"] = "Revise the contract under the accepted successor law."
+			fields["audit_evidence"] = []string{"evidence:law-successor"}
+			if scenario.refused {
+				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
+			}
+			version = readWorkVersion(t, s, workID)
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor, OperatorActor: &operator,
+				AcceptedInputsDigest: "sha256:derived-successor", IdempotencyIdentity: "supersede-derived", OperationID: "supersede-derived",
+				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-derived",
+				RequestID: "request:supersede-derived", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+			})
+			if scenario.refused {
+				tx.Rollback()
+				var failure *Failure
+				if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "may revise only derived law") {
+					t.Fatalf("legislated successor did not meet the tier refusal: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("live successor action: %v", err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			assertSuccessor := func() {
+				t.Helper()
+				var stored string
+				if err := s.DatabaseForTesting().QueryRow(`SELECT law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=2 AND superseded_by IS NULL`, workID).Scan(&stored); err != nil {
+					t.Fatal(err)
+				}
+				want := workflowJSON(scenario.modifies)
+				if stored != want {
+					t.Errorf("active successor law_modifies=%s, want %s", stored, want)
+				}
+				revisions, err := readWorkflowLawRevisions(ctx, s.DatabaseForTesting(), workID, 2)
+				wantPins := []WorkflowLawRevision{{LawID: "spec:two", ContentHash: "sha256:" + strings.Repeat("b", 64)}}
+				if err != nil || !slices.Equal(revisions, wantPins) {
+					t.Fatalf("successor pins=%v, want %v: %v", revisions, wantPins, err)
+				}
+				var supersededBy int64
+				if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil || supersededBy != 2 {
+					t.Fatalf("predecessor superseded_by=%d, want 2: %v", supersededBy, err)
+				}
+			}
+			assertSuccessor()
+			var payload string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&payload); err != nil {
+				t.Fatal(err)
+			}
+			var event struct {
+				Successor map[string]json.RawMessage `json:"successor_contract"`
+			}
+			if err := json.Unmarshal([]byte(payload), &event); err != nil {
+				t.Fatal(err)
+			}
+			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
+				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
+			}
+			var seq int64
+			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&seq); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := ReconstructSubjectAt(ctx, s, SubjectRef{Type: SubjectWorkItem, ID: workID}, seq, PurposeDiagnosis)
+			if err != nil {
+				t.Errorf("reconstruct admitted successor: %v", err)
+			} else if snapshot.Work == nil || snapshot.Work.ID != workID {
+				t.Errorf("wrong reconstructed subject: %+v", snapshot)
+			}
+			if err := RebuildFromLog(ctx, s); err != nil {
+				t.Fatalf("rebuild admitted successor: %v", err)
+			}
+			assertSuccessor()
+		})
+	}
+}

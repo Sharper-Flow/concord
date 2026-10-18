@@ -10412,6 +10412,10 @@ const GeneratedPayloadSchemaDocument = `{
               "actor": {
                 "$ref": "#/$defs/id"
               },
+              "attempt_id": {
+                "minLength": 1,
+                "type": "string"
+              },
               "contract_version": {
                 "$ref": "#/$defs/version"
               },

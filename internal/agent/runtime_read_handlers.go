@@ -781,6 +781,13 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
+	// Only Product-scoped law lookups demand the current source set; other
+	// reads retain Q10's recorded-home semantics (CD-0200).
+	if in.KnowledgeID != "" && r.Envelope.SelectedProductID != "" {
+		if err := r.freshenProductKnowledge(ctx, r.Envelope.SelectedProductID); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+	}
 	q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}})
 	if err != nil {
 		return failureEnvelope(base, err), nil

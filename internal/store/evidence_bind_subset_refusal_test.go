@@ -15,7 +15,7 @@ import (
 func runBindAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, evidenceRefs []string, evidenceKinds ...string) error {
 	t.Helper()
 	if version == 0 {
-		version = verdictItemVersion(t, s, workID)
+		version = readWorkVersion(t, s, workID)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -98,12 +98,12 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	const workID = "evidence-bind-per-kind"
 	s := seedMandateRecoveryItem(t, workID)
 	const subject = "ci:run/777"
-	before := verdictItemVersion(t, s, workID)
+	before := readWorkVersion(t, s, workID)
 
 	if err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{subject}, "verification", "review"); err != nil {
 		t.Fatalf("two-kind bind of one subject refused: %v", err)
 	}
-	if after := verdictItemVersion(t, s, workID); after <= before {
+	if after := readWorkVersion(t, s, workID); after <= before {
 		t.Fatalf("two-kind bind did not advance the work version: %d to %d", before, after)
 	}
 	// accept_worker_result also mints a bound event for the attempt id, so

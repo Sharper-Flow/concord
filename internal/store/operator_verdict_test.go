@@ -42,7 +42,7 @@ func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, Workflo
 		t.Fatalf("bind review evidence: %v", err)
 	}
 	// No lane or attempt window exists for this delivery.
-	delivery := workflowActionCompletedFixture("delivery-"+workID, workID, ownerRef, verdictItemVersion(t, s, workID), "execution", "record_delivery")
+	delivery := workflowActionCompletedFixture("delivery-"+workID, workID, ownerRef, readWorkVersion(t, s, workID), "execution", "record_delivery")
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{delivery}}); err != nil {
 		t.Fatalf("record delivery exit: %v", err)
 	}
@@ -73,7 +73,7 @@ func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner
 
 func runOperatorVerdictForPredicate(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, predicateID, evidenceRef string) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -345,7 +345,7 @@ func testOperatorCompleteAfterDelivery(t *testing.T, seed func(*testing.T, strin
 		t.Fatalf("operator verdict after delivery refused: %v", err)
 	}
 	operatorRef, _ := WorkflowActorRef(operator)
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRecorded := workflowEvent("operator-complete-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("operator-complete-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	premiseCompleted := workflowActionCompletedFixture("operator-complete-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
@@ -353,7 +353,7 @@ func testOperatorCompleteAfterDelivery(t *testing.T, seed func(*testing.T, strin
 		t.Fatalf("premise confirmation: %v", err)
 	}
 
-	completeVersion := verdictItemVersion(t, s, workID)
+	completeVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -389,7 +389,7 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 	operator := operatorVerdictActor(t, workID)
 
 	// Advance past acceptance so complete is the declared action.
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRef, _ := WorkflowActorRef(operator)
 	operatorRecorded := workflowEvent("operator-cond-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("operator-cond-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
@@ -397,7 +397,7 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -516,7 +516,7 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 		t.Fatalf("operator verdict after delivery refused: %v", err)
 	}
 	operatorRef, _ := WorkflowActorRef(operator)
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRecorded := workflowEvent("first-seen-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("first-seen-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	premiseCompleted := workflowActionCompletedFixture("first-seen-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
@@ -527,7 +527,7 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 	// The restarted session: same principal and client, new agent and
 	// session identity, never recorded on this work item before.
 	restarted := WorkflowActor{PrincipalRef: owner.PrincipalRef, ClientRef: owner.ClientRef, AgentRef: "agent/owner-restarted", SessionRef: "session/" + workID + "-restarted", ActorClass: ActorAgent}
-	completeVersion := verdictItemVersion(t, s, workID)
+	completeVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

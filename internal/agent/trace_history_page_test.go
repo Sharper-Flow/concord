@@ -160,7 +160,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "history-selector-approve"); approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)

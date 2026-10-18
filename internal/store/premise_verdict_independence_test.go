@@ -37,7 +37,7 @@ func TestConfirmPremiseRefusesVerdictWhoseActorExecutedAfterIt(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, reviewer); err != nil {
 		t.Fatalf("reviewer start_execution refused: %v", err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	delivery := workflowEventWithActor("redelivery-"+workID, WorkflowActionCompleted, workID, reviewerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "execution", "action_id": "record_delivery", "attempt_epoch": 2,
@@ -81,7 +81,7 @@ func TestConfirmPremiseRefusesVerdictWhoseActorExecutedAfterIt(t *testing.T) {
 func runOperatorPremiseAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner, operator WorkflowActor) error {
 	t.Helper()
 	ctx := context.Background()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err

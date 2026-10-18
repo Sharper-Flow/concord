@@ -486,7 +486,7 @@ func TestRecordWorkContextAppendsTypedDeclaration(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-action-declaration")
 	defer fixture.store.Close()
-	versionBefore := verdictItemVersion(t, fixture.store, fixture.workID)
+	versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 	if err := fixture.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{
 			workContextRepoReading(workContextTestRoot, workContextRootRationale),
@@ -507,7 +507,7 @@ func TestRecordWorkContextAppendsTypedDeclaration(t *testing.T) {
 	if !strings.Contains(stored, "the unbounded log scan was rejected") || !strings.Contains(stored, "the reading carries the bounded reason") {
 		t.Fatalf("declaration payload lost authored content: %s", stored)
 	}
-	if got := verdictItemVersion(t, fixture.store, fixture.workID); got <= versionBefore {
+	if got := readWorkVersion(t, fixture.store, fixture.workID); got <= versionBefore {
 		t.Fatalf("work version after declaration = %d, want past %d", got, versionBefore)
 	}
 	if got := currentStep(t, fixture.store, fixture.workID); got != "repair" {
@@ -722,7 +722,7 @@ func TestRecordWorkContextCombinedBoundRefuses(t *testing.T) {
 		"context_findings": overPayload["context_findings"],
 	}
 	raw := fixture.rawWorkContextEvent(t, foldView)
-	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{raw}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): verdictItemVersion(t, fixture.store, fixture.workID)}}); !hasFailureKind(err, KindLimitExceeded) {
+	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{raw}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): readWorkVersion(t, fixture.store, fixture.workID)}}); !hasFailureKind(err, KindLimitExceeded) {
 		t.Fatalf("fold-level combined bound error = %v, want %s", err, KindLimitExceeded)
 	}
 }
@@ -1035,7 +1035,7 @@ func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
 	// The fold's own closed bounds: a tampered raw event refuses regardless
 	// of the registry.
 	tampered := fixture.rawWorkContextEvent(t, map[string]any{"context_findings": []map[string]any{workContextFinding(workContextTestChild, "vibes", "unknown kind", "")}})
-	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{tampered}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): verdictItemVersion(t, fixture.store, fixture.workID)}}); !hasFailureKind(err, KindInvalidPayload) {
+	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{tampered}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): readWorkVersion(t, fixture.store, fixture.workID)}}); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("tampered declaration error = %v, want %s", err, KindInvalidPayload)
 	}
 }
@@ -1049,7 +1049,7 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	resulting := version + 1
 	var stepID, workflowRef, digest string
 	var definitionVersion, attemptEpoch int64
@@ -1171,7 +1171,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, fixture.store, fixture.workID)
+	version := readWorkVersion(t, fixture.store, fixture.workID)
 	reviewerEvent := workflowEventWithActor("ctx-reviewer-"+fixture.workID, WorkflowActorRecorded, fixture.workID, reviewerRef, map[string]any{
 		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1,
 		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
@@ -1180,7 +1180,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
 		t.Fatalf("record reviewer: %v", err)
 	}
-	version = verdictItemVersion(t, fixture.store, fixture.workID)
+	version = readWorkVersion(t, fixture.store, fixture.workID)
 	verdict := workflowEventWithActor("ctx-verdict-"+fixture.workID, WorkflowVerdictRecorded, fixture.workID, reviewerRef, map[string]any{
 		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1,
 		"predicate_id": "predicate:work-context", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef,
@@ -1190,7 +1190,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
 		t.Fatalf("record reviewer verdict: %v", err)
 	}
-	version = verdictItemVersion(t, fixture.store, fixture.workID)
+	version = readWorkVersion(t, fixture.store, fixture.workID)
 	completion := workflowEventWithActor("ctx-completed-"+fixture.workID, WorkflowCompleted, fixture.workID, reviewerRef, map[string]any{
 		"work_id": fixture.workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{fixture.workID}), "impact_verdict": "non-breaking",
 	})
@@ -1201,7 +1201,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	// Closing the lifecycle keeps the context as claims: the closed item
 	// still answers every declared and worker-reported finding verbatim,
 	// each still reported, and the reading reference unchanged.
-	version = verdictItemVersion(t, fixture.store, fixture.workID)
+	version = readWorkVersion(t, fixture.store, fixture.workID)
 	closePayload := mustJSONValue(map[string]any{"from": "in_progress", "to": "completed", "reason": "the work context stays claims at close", "expected_version": version, "resulting_version": version + 1})
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{EventID: "ctx-close-" + fixture.workID, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: closePayload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
 		t.Fatalf("close the lifecycle after the terminal completion: %v", err)

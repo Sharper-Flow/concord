@@ -536,7 +536,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		dispatchActionID = dispatchActionID + "-" + label
 		startIdentity = startIdentity + ":" + label
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	attemptEpoch := latestStepStartEpoch(t, s, workID, effectStep) + 1
 	start := workflowEventWithActor(startID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": effectStep, "action_id": startAction, "attempt_epoch": attemptEpoch,
@@ -565,7 +565,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	// engine records dispatch_worker when it dispatches the attempt, and
 	// the artifact-staleness production frontier binds accepted deliveries
 	// to it (CD-0201 D5) — the dispatch origin at the declared target.
-	dispatchVersion := verdictItemVersion(t, s, workID)
+	dispatchVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
 		EventID: dispatchActionID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
@@ -718,7 +718,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 			t.Fatalf("record non-ok verdict: %v", err)
 		}
 		assertStale(true)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		before := contractCorrectionEffectSnapshot(t, s, workID)
 		err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
 		var failure *Failure
@@ -814,12 +814,12 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 		t.Fatal(err)
 	}
 	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
 		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 	}); err != nil {
 		t.Fatalf("dispatch_worker preflight at returned refine: %v", err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	before := contractCorrectionEffectSnapshot(t, s, workID)
 	completion := workflowEventWithActor("return-completion-"+workID, WorkflowCompleted, workID, operatorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
@@ -882,7 +882,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":verify-review"
 	packet := joinPacketFor(t, fixture.store, workID, "verify", attemptID, "review", laneVersion, laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, fixture.store, workID, readWorkVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
 	var packetDigest string

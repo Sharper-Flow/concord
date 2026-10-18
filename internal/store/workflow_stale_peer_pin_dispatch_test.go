@@ -55,7 +55,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 			t.Fatalf("marshal dispatch fields: %v", err)
 		}
 		_, invokeErr := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "dispatch_worker",
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
 			Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 			Actor: owner, AcceptedInputsDigest: cd0059TestDigest(t, "peer-stale-inputs"),
 			IdempotencyIdentity: operationID, OperationID: "op-" + operationID, PrincipalRef: owner.PrincipalRef,
@@ -94,7 +94,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	// resolve_overlap is the D7-exempt recovery route and the declarer's own
 	// pin is current, so the operator clears the pair by recording a
 	// resolution that names the stranded peer.
-	subjectVersion := verdictItemVersion(t, s, workID)
+	subjectVersion := readWorkVersion(t, s, workID)
 	peerVersion := readWorkVersion(t, s, peerID)
 	if err := s.Transact(ctx, func(transaction *Transaction) error {
 		_, txErr := ResolveWorkflowDomainOverlapTx(ctx, transaction, WorkflowDomainOverlapResolutionRequest{

@@ -104,7 +104,7 @@ func mustDefinitionForPin(t *testing.T, ref string, version int64) WorkflowDefin
 
 func initialReviewHistoricalAccept(t *testing.T, f workflowReturnRouteFixture, workID, attemptID string, epoch int64) {
 	t.Helper()
-	version := verdictItemVersion(t, f.store, workID)
+	version := readWorkVersion(t, f.store, workID)
 	acceptor := reviewGateAcceptor(workID)
 	acceptorRef, err := WorkflowActorRef(acceptor)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection(t *testing.T) {
 		t.Fatalf("negative findings misclassified or missing: %#v, err=%v", correction, err)
 	}
 	payload := reviewGateCorrectionPayload("evidence:return-route-verification")
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "request_correction", Payload: payload, Actor: f.owner}); err != nil {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "request_correction", Payload: payload, Actor: f.owner}); err != nil {
 		t.Fatalf("preflight hid the corrective return: %v", err)
 	}
 	missing := reviewGateCorrectionPayload("evidence:not-bound")

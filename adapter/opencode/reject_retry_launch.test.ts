@@ -17,31 +17,12 @@ import { hostControlPlane, SESSION_MESSAGES_ROUTE } from "./move-session"
 import { abandonWorkerAttempt, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { fakeTool } from "./plugin-tool.fixture"
 
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord")
 
-function schemaBuilder(kind: string, ...args: unknown[]) {
-  return {
-    kind, args, metadata: undefined as unknown,
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta(metadata: unknown) { this.metadata = metadata; return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: (...args: unknown[]) => schemaBuilder("object", ...args),
-    record: (...args: unknown[]) => schemaBuilder("record", ...args),
-    union: (...args: unknown[]) => schemaBuilder("union", ...args),
-    literal: (...args: unknown[]) => schemaBuilder("literal", ...args),
-    array: (...args: unknown[]) => schemaBuilder("array", ...args),
-    string: (...args: unknown[]) => schemaBuilder("string", ...args),
-    number: (...args: unknown[]) => schemaBuilder("number", ...args),
-    unknown: (...args: unknown[]) => schemaBuilder("unknown", ...args),
-    null: (...args: unknown[]) => schemaBuilder("null", ...args),
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const adapter = await import("./concord")

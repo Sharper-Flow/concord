@@ -38,7 +38,7 @@ func TestWorkflowSuccessorUsesDefinitionFamilyForComposition(t *testing.T) {
 		t.Fatalf("work item kinds = (%q, %q), want both operator kind task", sourceKind, successorKind)
 	}
 
-	version := readWorkflowWorkVersion(t, s, sourceID)
+	version := readWorkVersion(t, s, sourceID)
 	result, err := executeCompositionLink(ctx, s, sourceID, successorID, version, actor)
 	if err != nil {
 		t.Fatalf("forward link with an allowed successor family was refused: %v", err)
@@ -73,7 +73,7 @@ func TestWorkflowSuccessorWithoutWorkflowInstanceIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	version := readWorkflowWorkVersion(t, s, sourceID)
+	version := readWorkVersion(t, s, sourceID)
 	_, err = executeCompositionLink(ctx, s, sourceID, successorID, version, actor)
 	assertUndeterminedSuccessorFamily(t, err, "workflow_action")
 
@@ -119,7 +119,7 @@ func TestWorkflowSuccessorLinkedV1RebuildPreservesUnpinnedResearchSuccessor(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkflowWorkVersion(t, s, sourceID)
+	version := readWorkVersion(t, s, sourceID)
 	payload, err := json.Marshal(map[string]any{
 		"work_id": sourceID, "expected_version": version, "resulting_version": version + 1,
 		"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": "research",
@@ -182,7 +182,7 @@ func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkflowWorkVersion(t, s, sourceID)
+	version := readWorkVersion(t, s, sourceID)
 	event := workflowEventWithActor("current-successor-link", WorkflowSuccessorLinked, sourceID, actorRef, map[string]any{
 		"work_id": sourceID, "expected_version": version, "resulting_version": version + 1,
 		"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": "task",
@@ -246,15 +246,6 @@ func executeCompositionLink(ctx context.Context, s *Store, sourceID, successorID
 		return WorkflowActionExecutionResult{}, err
 	}
 	return result, nil
-}
-
-func readWorkflowWorkVersion(t *testing.T, s *Store, workID string) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 func assertUndeterminedSuccessorFamily(t *testing.T, err error, stage string) {

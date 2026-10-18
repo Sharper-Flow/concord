@@ -71,7 +71,7 @@ func validOverride() KnowledgeOperatorOverride {
 func TestOverrideAdmitsExternalRecordThroughComposition(t *testing.T) {
 	t.Parallel()
 	shards := knowledgeShards{
-		head: shardJSON(t, map[string]any{
+		head: mustJSONRaw(t, map[string]any{
 			"schema_version":  "1.3",
 			"supported_kinds": []string{"decision", "reference"},
 			"indexed_kinds":   []string{"decision", "reference"},
@@ -80,13 +80,13 @@ func TestOverrideAdmitsExternalRecordThroughComposition(t *testing.T) {
 				"recorded_in": "CD-0001", "reason": "the operator recorded this placement for the external tree",
 			}},
 		}),
-		registry: shardJSON(t, KnowledgeDomainRegistry{
+		registry: mustJSONRaw(t, KnowledgeDomainRegistry{
 			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
 			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
 		}),
 		records: map[string][]byte{
-			"CD-0001.json":            shardJSON(t, canonicalAnchorShard()),
-			"external-reference.json": shardJSON(t, externalShard("external-reference", "external/knowledge/reference.md")),
+			"CD-0001.json":            mustJSONRaw(t, canonicalAnchorShard()),
+			"external-reference.json": mustJSONRaw(t, externalShard("external-reference", "external/knowledge/reference.md")),
 		},
 		recordPathPrefix: manifestRecordPathPrefix,
 	}
@@ -132,15 +132,6 @@ func externalShard(id, path string) map[string]any {
 		"scopes":    map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
 		"sha256":    "sha256:" + strings.Repeat("b", 64),
 	}
-}
-
-func shardJSON(t *testing.T, value any) []byte {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
 }
 
 // TestUnapprovedExternalRecordRefusesAtParse holds the refusal side: without

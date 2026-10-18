@@ -1353,7 +1353,7 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO projects (id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName, nullableProjectStage(overrideMaturity), nullableProjectStage(overrideAudience), now, now)
+		VALUES (?, ?, ?, ?, 1, ?, ?)`, event.SubjectID, payload.DisplayName, valueOrNil(overrideMaturity), valueOrNil(overrideAudience), now, now)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "Project already exists", false,
@@ -1363,13 +1363,6 @@ func foldProjectCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 			"retry once the database is writable", err)
 	}
 	return nil
-}
-
-func nullableProjectStage(value *string) any {
-	if value == nil {
-		return nil
-	}
-	return *value
 }
 
 func foldProjectStageChanged(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1388,7 +1381,7 @@ func foldProjectStageChanged(ctx context.Context, tx *sql.Tx, event Event) error
 	result, err := tx.ExecContext(ctx, `
 		UPDATE projects
 		SET stage_maturity_override = ?, stage_audience_commitment_override = ?, version = version + 1, updated_at = ?
-		WHERE id = ?`, nullableProjectStage(overrideMaturity), nullableProjectStage(overrideAudience), now, event.SubjectID)
+		WHERE id = ?`, valueOrNil(overrideMaturity), valueOrNil(overrideAudience), now, event.SubjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update Project stage projection", true, "retry once the database is writable", err)
 	}

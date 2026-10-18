@@ -384,7 +384,7 @@ func checkpointReviewReviewer(t *testing.T, s *Store, workID string) WorkflowAct
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{
 		workflowEvent("checkpoint-reviewer-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"}),
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
@@ -425,7 +425,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":checkpoint-review"
 	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
 
@@ -512,7 +512,7 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":repin-review", "review", laneVersion, laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch after repin refused: %v", err)
 	}
 }

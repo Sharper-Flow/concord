@@ -67,7 +67,7 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	startAction := "start_repair"
 	if entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID); entryErr != nil {
 		t.Fatal(entryErr)
@@ -652,7 +652,7 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 			Actor: owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
 		}
 	}
-	subjectVersion := verdictItemVersion(t, s, workID)
+	subjectVersion := readWorkVersion(t, s, workID)
 	peerVersion := readWorkVersion(t, s, peerID)
 	err = s.Transact(ctx, func(transaction *Transaction) error {
 		_, txErr := ResolveWorkflowDomainOverlapTx(ctx, transaction, resolution(subjectVersion, peerVersion))
@@ -678,7 +678,7 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 
 	// Recording succeeds while a peer is stale, matching the invocation
 	// exemption the D7 boundary already grants resolve_overlap.
-	subjectVersion = verdictItemVersion(t, s, workID)
+	subjectVersion = readWorkVersion(t, s, workID)
 	err = s.Transact(ctx, func(transaction *Transaction) error {
 		request := resolution(subjectVersion, peerVersion)
 		request.FromContractVersion, request.ToContractVersion = 2, 1

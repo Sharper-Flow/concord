@@ -15,7 +15,7 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	if err != nil {
 		return err
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func produceContractCorrectionWorker(t *testing.T, s *Store, workID, label strin
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}
-	if _, err := dispatchJoinAttempt(ctx, t, s, workID, verdictItemVersion(t, s, workID), owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(ctx, t, s, workID, readWorkVersion(t, s, workID), owner, packet); err != nil {
 		t.Fatalf("dispatch producing worker: %v", err)
 	}
 	assertStale("dispatch alone", "execution", correction != nil)
@@ -313,7 +313,7 @@ func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testin
 		t.Fatalf("record compatible verdict: %v", err)
 	}
 
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	payload := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:preflight"]}`)
 	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "acceptance", ActionID: "supersede_contract", Payload: payload, Actor: owner}
 	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), request); err != nil {

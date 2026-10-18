@@ -11,9 +11,17 @@ workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
 CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
 CD-0009 D1/D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
-**Amended:** 2026-10-18. [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
-amends D4's strength comparison paragraph: the independent verdict is the outcome
-strength evaluation.
+**Amended:** 2026-10-18. These records amend this one:
+[CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+D1, workflows composed from shared parts;
+[CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+D9, operator approval only for serious law changes;
+[CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) D6's external
+conditions bullet and acceptance criterion 26, no external-condition resolver;
+[CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md) D4's
+strength comparison paragraph, the independent verdict as the outcome strength
+evaluation; and [CD-0236](CD-0236-vacuity-is-judged-at-review.md) outcome-contract
+acceptance criterion 3, vacuity judged at review.
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.

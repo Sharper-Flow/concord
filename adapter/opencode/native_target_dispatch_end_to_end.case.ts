@@ -153,11 +153,11 @@ function requiredFields(value: JSONRecord, fields: string[]): void {
 }
 
 // The route test drives the real `concord` binary against a real store. A
-// clean checkout has no binary on PATH; declare the test skipped when neither
-// CONCORD_BIN nor a Go toolchain can produce one, so a suite run without the
+// clean checkout has no binary on PATH; declare the test skipped when no
+// Go toolchain can build one, so a suite run without the
 // toolchain reports a skip, never a silent pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 
@@ -195,18 +195,15 @@ async function bootNativeTargetFixture(root: string): Promise<NativeTargetFixtur
   const toolchainBin = join(toolchain.stdout.trim(), "bin")
   const searchPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== toolchainBin)
   process.env.PATH = [toolchainBin, ...searchPath].join(delimiter)
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    sharedCoreBinary ??= (async () => {
-      const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
-      await mkdir(binRoot, { recursive: true })
-      const path = join(binRoot, "concord")
-      const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-      return path
-    })()
-    binary = await sharedCoreBinary
-  }
+  sharedCoreBinary ??= (async () => {
+    const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
+    await mkdir(binRoot, { recursive: true })
+    const path = join(binRoot, "concord")
+    const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    return path
+  })()
+  const binary = await sharedCoreBinary
   // The exact bash version pin comes from the installed interpreter, computed
   // the way the core's own lead-version reader computes it: first line of
   // `bash --version`, first `version <digits and dots>` match.

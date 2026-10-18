@@ -27,11 +27,10 @@ import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 // real session_vacate mutation with its readback-verified landing
 // (CD-0190), and the real project_retirement read deriving
 // READY_TO_CLOSE_OR_REPLACE. A clean checkout has no binary on PATH; declare
-// the test skipped when neither CONCORD_BIN nor a Go toolchain can produce
-// one, so a suite run without the toolchain reports a skip, never a silent
-// pass.
+// the test skipped when no Go toolchain can build one, so a suite run without
+// the toolchain reports a skip, never a silent pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
     : (name: string, fn: () => Promise<void>) => test.skip(name, fn, { timeout: 300000 })
 
@@ -227,14 +226,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     expect(toolchain.exitCode, toolchain.stderr).toBe(0)
     childEnv.PATH = `${binRoot}:${join(toolchain.stdout.trim(), "bin")}:${process.env.PATH ?? ""}`
   }
-  let binBuildRoot = ""
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    binBuildRoot = binRoot
-    binary = join(binRoot, "concord")
-    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-  }
+  const binary = join(binRoot, "concord")
+  const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+  expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
   process.env.CONCORD_DB_PATH = join(root, "concord.db")
   const dbPath = process.env.CONCORD_DB_PATH
   const repoSource = join(root, "repo-source")

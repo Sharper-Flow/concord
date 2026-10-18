@@ -468,7 +468,7 @@ func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, erro
 	}
 	client, key, err := s.Store.TrustedClientWithKey(ctx, in.ClientRef)
 	if err != nil {
-		return Authority{}, trustedClientRefusalFor(err)
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("client or key is not active"))
 	}
 	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
@@ -508,7 +508,7 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, in.ClientRef)
 	if err != nil {
-		return Authority{}, trustedClientRefusalFor(err)
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("client or key is not active"))
 	}
 	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
@@ -516,13 +516,12 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 	return s.authorizeResolved(ctx, tx, host, in, client)
 }
 
-// trustedClientRefusalFor renders the one store outcome that means the
-// client or key itself is not active as the refusal message names. Every
-// other error is a store fault and keeps its own classification.
-func trustedClientRefusalFor(err error) error {
+// trustedClientRefusalFor maps an absent or inactive client to the caller's
+// refusal. Other errors retain their own classification.
+func trustedClientRefusalFor(err, refusal error) error {
 	var failure *store.Failure
 	if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-		return authorityRefusal("client or key is not active")
+		return refusal
 	}
 	return err
 }

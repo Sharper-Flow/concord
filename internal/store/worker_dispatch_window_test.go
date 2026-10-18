@@ -1172,8 +1172,10 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 // opens the backend authorization and its native worker runs; the adapter
 // records worker-dispatch only after the worker finishes, so the completion
 // itself binds the attempt durably in flight. Coordinator B then opens a
-// second authorization at the same step — same-step concurrent dispatch
-// stays admissible — records its own worker's evidence, and tries to accept
+// second authorization at the same step. That dispatch takes completion away
+// from A's unfinished attempt, so it is a takeover (CD-0013 criterion 25):
+// unapproved it refuses, and an approval bound to A's held epoch and A as
+// holder admits it. B records its own worker's evidence and tries to accept
 // it. That accept waits: another authorized attempt at the shared step is
 // live. A's late evidence then lands through the gate fenced to A's own
 // window — digest, worktree, and single-use intact — exactly once, even
@@ -1211,13 +1213,26 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	}
 	assertWorkerAttemptState(t, s, workID, backendAttempt, "in_flight")
 
-	// Coordinator B opens a second authorization at the same step. The core
-	// admits it: same-step concurrent dispatch stays admissible, and the
-	// live backend binding does not refuse it.
+	// Coordinator B's dispatch at the same step would take completion away
+	// from A's unfinished attempt. Unapproved, it refuses and opens no
+	// window; approved against A's held epoch and A as holder, it opens B's.
 	frontendAttempt := "attempt-781-frontend"
 	frontendDigest := cd781DispatchPacketDigest(t, s, workID, frontendAttempt)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")); err != nil {
-		t.Fatalf("coordinator B dispatch_worker was refused: %v", err)
+	ownerRef, err := WorkflowActorRef(seed.ownerActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend-unapproved")); !hasFailureKind(err, KindApprovalRequired) {
+		t.Fatalf("coordinator B dispatch over A's unfinished attempt = %v, want approval_required", err)
+	}
+	var frontendRows int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, frontendAttempt).Scan(&frontendRows); err != nil || frontendRows != 0 {
+		t.Fatalf("refused takeover bound %d frontend attempt rows (err %v), want none", frontendRows, err)
+	}
+	approvedFrontend := cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")
+	approvedFrontend.ApprovedTakeover = &WorkflowStartTakeover{HeldEpoch: cd781WindowEpoch(t, s, workID, backendAttempt), HolderActorRef: ownerRef}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, approvedFrontend); err != nil {
+		t.Fatalf("coordinator B approved dispatch_worker was refused: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, frontendAttempt, "in_flight")
 

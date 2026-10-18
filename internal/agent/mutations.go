@@ -1995,7 +1995,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 			}
 			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				return err
 			}
 		}
@@ -3637,7 +3637,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		_, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck)
 		if approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -3836,7 +3836,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -4810,14 +4810,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 	return err
 }
 
-func mutationApprovalFailure(base Envelope, err error) Envelope {
-	var refusal *runtimeFailure
-	if !errors.As(err, &refusal) {
-		err = newRuntimeFailure("approval_invalid", err.Error(), "request_approval", false)
-	}
-	return failureEnvelope(base, err)
-}
-
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
@@ -4918,7 +4910,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
 			_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck)
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				resultRejected = true
 				return errors.New("approval invalid")
 			}
@@ -5220,7 +5212,7 @@ func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProject
 func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, _ Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
-		return operator, "", fmt.Errorf("signed host approval assertion is required")
+		return operator, "", approvalInvalid("signed host approval assertion is required")
 	}
 	approvalRef, err := r.Authority.AcceptHostApprovalTx(ctx, tx, host, inv, *r.Envelope.HostApproval, check)
 	if err != nil {

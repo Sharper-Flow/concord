@@ -439,8 +439,7 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			continue
 		}
 		if field.Name == "asserted_at" {
-			// Omission exercises the native default, which uses the request time
-			// and therefore stays within the report skew bound.
+			// asserted_at is optional; omission is a valid payload.
 			continue
 		}
 		if field.Name == "incomparable_with_approved" {

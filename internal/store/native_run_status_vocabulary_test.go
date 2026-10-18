@@ -20,7 +20,7 @@ func TestNativeRunStatusVocabularyCoversEveryDeclaredPair(t *testing.T) {
 				t.Errorf("pair %s/%s is not allowed", phase, status)
 			}
 			wantFailure := phase == "rollback" || status == "failed_to_start" || status == "failed" || status == "cleanup_failed"
-			if got := NativeRunStatusIsFailure(phase, status); got != wantFailure {
+			if got := nativeRunStatuses[phase][status]; got != wantFailure {
 				t.Errorf("failure classification %s/%s=%t, want %t", phase, status, got, wantFailure)
 			}
 			if _, err := buildNativeRunEvent("vocab-"+phase+"-"+status, "vocab-work", actor, now, 1, phase, "run", "native://run", status, "evidence://run", "sha256:"+repeatHex("a"), now.Format(time.RFC3339Nano)); err != nil {

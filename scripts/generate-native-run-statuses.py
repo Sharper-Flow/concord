@@ -36,10 +36,6 @@ func NativeRunStatusAllowed(phase, status string) bool {{
 \t_, ok := nativeRunStatuses[phase][status]
 \treturn ok
 }}
-
-func NativeRunStatusIsFailure(phase, status string) bool {{
-\treturn nativeRunStatuses[phase][status]
-}}
 '''
 
 

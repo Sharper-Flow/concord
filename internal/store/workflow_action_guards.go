@@ -1369,7 +1369,6 @@ type workflowActionAssemblyInput struct {
 
 type workflowActionEventAssembly struct {
 	events       []Event
-	nativeRun    *NativeRunReport
 	attemptEpoch int64
 }
 
@@ -1445,10 +1444,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		if semanticErr != nil {
 			return out, semanticErr
 		}
-		if len(semantic) != 0 {
-			events = append(events, semantic...)
-			out.nativeRun = nativeRunFromSemanticEvents(semantic)
-		}
+		events = append(events, semantic...)
 	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
@@ -1860,23 +1856,6 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		}
 	}
 	return events, nil
-}
-
-// nativeRunFromSemanticEvents lifts the native-run report the semantic events
-// carry into the action result. The last report wins, matching the order the
-// events were appended in.
-func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
-	var run *NativeRunReport
-	for _, semanticEvent := range semantic {
-		if semanticEvent.Kind != WorkflowNativeRunRecorded {
-			continue
-		}
-		var report nativeRunPayload
-		if decodePayload(semanticEvent, &report) == nil {
-			run = &NativeRunReport{RunID: report.RunID, Phase: report.Phase, Status: report.Status, EventID: semanticEvent.EventID, ReportingAuthorityRef: report.ReportingAuthorityRef, ActorRef: report.ActorRef, NativeSubjectRef: report.NativeSubjectRef, SubjectDigest: report.SubjectDigest, EvidenceRef: report.EvidenceRef, EvidenceDigest: report.EvidenceDigest, AssertedAt: report.AssertedAt, RecordedAt: semanticEvent.OccurredAt.UTC().Format(time.RFC3339Nano), Unverified: true}
-		}
-	}
-	return run
 }
 
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:

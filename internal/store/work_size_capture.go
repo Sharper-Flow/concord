@@ -107,6 +107,46 @@ func RecordWorkSizeTx(ctx context.Context, transaction *Transaction, plan *WorkS
 	return result.EventIDs, nil
 }
 
+// WorkSizeRerunRequest is the agent's rerun of the size model: fresh
+// declared inputs, with every other input re-derived (CD-0229 D4, D6).
+type WorkSizeRerunRequest struct {
+	Plan    *WorkSizePlan
+	WorkID  string
+	EventID string
+	Actor   WorkflowActor
+	Now     time.Time
+}
+
+// RerunWorkSizeTx records a new model decision. A first sizing, or one that
+// keeps the effective size, keeps the item and its pin; any other change
+// resizes it.
+func RerunWorkSizeTx(ctx context.Context, transaction *Transaction, request WorkSizeRerunRequest) (WorkSizeRevisionResult, error) {
+	tx, err := transactionSQL(transaction, "work_size")
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	actorRef, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	if request.Now.IsZero() {
+		request.Now = transaction.now()
+	}
+	before, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	ids, err := RecordWorkSizeTx(ctx, transaction, request.Plan, request.WorkID, request.EventID, actorRef, request.Now)
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	successor, err := settleWorkSizeRevisionTx(ctx, transaction, before, sized, workResizeRequest{WorkID: request.WorkID, EventID: request.EventID, Actor: request.Actor, Now: request.Now})
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	return WorkSizeRevisionResult{EventIDs: ids, SuccessorWorkID: successor}, nil
+}
+
 func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, workID string) (workSizedPayload, error) {
 	var out workSizedPayload
 	footprint, err := plan.footprint.completeTx(ctx, q)

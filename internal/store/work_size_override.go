@@ -29,6 +29,10 @@ type workSizeOverriddenPayload struct {
 	ApprovalScopeJSON       string   `json:"approval_scope_json"`
 	ApprovalVersionsJSON    string   `json:"approval_versions_json"`
 	ApprovalConsequence     string   `json:"approval_consequence"`
+	// CarriedFromEventID names the predecessor's override a resize carries
+	// to its successor. A carried override names no approval: the
+	// operator's decision carries, the approval does not.
+	CarriedFromEventID string `json:"carried_from_event_id,omitempty"`
 }
 
 func (p workSizeOverriddenPayload) binding() workflowApprovalBinding {
@@ -70,21 +74,23 @@ func validWorkSize(size WorkSize) bool {
 
 // OverrideWorkSizeTx derives the operator actor from the consumed approval,
 // records it, and appends work.size_overridden against the item's current
-// model record. An unsized item refuses: the model decides first.
-func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request WorkSizeOverrideRequest) (ApplyOperationResult, error) {
+// model record. An unsized item refuses: the model decides first. An
+// override that changes the effective size resizes the item.
+func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request WorkSizeOverrideRequest) (WorkSizeRevisionResult, error) {
 	tx, err := transactionSQL(transaction, "work_size_override")
 	if err != nil {
-		return ApplyOperationResult{}, err
+		return WorkSizeRevisionResult{}, err
 	}
 	if !ValidReference(request.WorkID) || !workflowString(request.EventID, 128) || request.ExpectedVersion <= 0 || request.ExpectedVersion > (1<<63-1)-2 {
-		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "work_size_override", "work, event identity or version is invalid", false, "supply bounded override fields")
+		return WorkSizeRevisionResult{}, newFailure(KindInvalidPayload, "work_size_override", "work, event identity or version is invalid", false, "supply bounded override fields")
 	}
-	model, sized, err := readWorkSize(ctx, tx, request.WorkID)
+	before, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
 	if err != nil {
-		return ApplyOperationResult{}, err
+		return WorkSizeRevisionResult{}, err
 	}
+	model := before.Model
 	if !sized {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "work_size_override", "the work item has no model size to override", false, "run the size model first")
+		return WorkSizeRevisionResult{}, newFailure(KindInvalidOperation, "work_size_override", "the work item has no model size to override", false, "run the size model first")
 	}
 	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{
 		ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest,
@@ -92,7 +98,7 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 		Consequence: request.ApprovalConsequence,
 	}, "work_size_override")
 	if err != nil {
-		return ApplyOperationResult{}, err
+		return WorkSizeRevisionResult{}, err
 	}
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = transaction.now()
@@ -108,10 +114,18 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 		ApprovalConsequence: request.ApprovalConsequence,
 	})
 	if err != nil {
-		return ApplyOperationResult{}, wrapFailure(KindInvalidPayload, "work_size_override", "cannot encode the size override", false, "supply the bounded override fields", err)
+		return WorkSizeRevisionResult{}, wrapFailure(KindInvalidPayload, "work_size_override", "cannot encode the size override", false, "supply the bounded override fields", err)
 	}
 	override := Event{EventID: request.EventID, Kind: WorkSizeOverridden, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: operator.ref, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}
-	return applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(tx))
+	applied, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(tx))
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	successor, err := settleWorkSizeRevisionTx(ctx, transaction, before, true, workResizeRequest{WorkID: request.WorkID, EventID: request.EventID, Actor: operator.WorkflowActor, Now: request.OccurredAt})
+	if err != nil {
+		return WorkSizeRevisionResult{}, err
+	}
+	return WorkSizeRevisionResult{EventIDs: applied.EventIDs, SuccessorWorkID: successor}, nil
 }
 
 func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -125,7 +139,11 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 	if !validWorkSize(p.Size) || !workflowString(p.Reason, 4096) || p.ModelSequence < 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "size override needs a size from the vocabulary, a bounded reason and a model sequence", false, "record the operator's size against the current model record")
 	}
-	if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
+	if p.CarriedFromEventID != "" {
+		if err := checkCarriedWorkSizeOverrideTx(ctx, tx, event, p); err != nil {
+			return err
+		}
+	} else if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
 		return err
 	}
 	var lifecycle string
@@ -148,6 +166,24 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 		ON CONFLICT(work_id) DO UPDATE SET event_id=excluded.event_id, model_sequence=excluded.model_sequence, size_class=excluded.size_class, recorded_at=excluded.recorded_at`,
 		event.SubjectID, event.EventID, p.ModelSequence, string(p.Size), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size override", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+// checkCarriedWorkSizeOverrideTx admits a carried override only on a resize
+// successor, naming its predecessor's override with the same size.
+func checkCarriedWorkSizeOverrideTx(ctx context.Context, tx *sql.Tx, event Event, p workSizeOverriddenPayload) error {
+	if p.ApprovalRef != "" || p.ApprovalOperationDigest != "" || p.ApprovalScopeJSON != "" || p.ApprovalVersionsJSON != "" || p.ApprovalConsequence != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "a carried size override names no approval", false, "carry the operator's size without an approval")
+	}
+	var size string
+	err := tx.QueryRowContext(ctx, `SELECT o.size_class FROM work_resize_lineage l JOIN work_size_overrides o ON o.work_id=l.predecessor_work_id AND o.event_id=?
+		WHERE l.successor_work_id=?`, p.CarriedFromEventID, event.SubjectID).Scan(&size)
+	if err == sql.ErrNoRows || (err == nil && WorkSize(size) != p.Size) {
+		return newFailure(KindInvariantViolation, "fold_event", "a carried size override names no override of the resized predecessor", false, "carry the predecessor's current operator size")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the carried size override", true, "retry once the database is readable", err)
 	}
 	return nil
 }

@@ -46,6 +46,7 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkflowSuccessorLinked:            {2: replayOnly},
 	WorkflowImpactNoticeRecorded:       {2: replayOnly},
 	WorkflowCompleted:                  {2: replayOnly},
+	WorkSized:                          {2: replayOnly},
 }
 
 func TestPayloadVersionsDeclareClass(t *testing.T) {

@@ -34,7 +34,7 @@ func TestWorkSizeModelV1RuleBoundaries(t *testing.T) {
 	for _, tc := range cases {
 		inputs := workSizeInputsFixture()
 		tc.apply(&inputs)
-		got, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+		got, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -61,7 +61,7 @@ func TestWorkSizeModelRefusesInputsOutsideItsBounds(t *testing.T) {
 	for name, apply := range cases {
 		inputs := workSizeInputsFixture()
 		apply(&inputs)
-		_, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+		_, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 		assertFailureKind(t, err, KindInvalidInput)
 		if t.Failed() {
 			t.Fatalf("case %s", name)

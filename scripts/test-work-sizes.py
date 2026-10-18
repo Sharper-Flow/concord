@@ -71,6 +71,17 @@ class WorkSizesFixture(unittest.TestCase):
         self.edit("internal/store/schema.go", "size_class TEXT NOT NULL " + STORED_CHECK, "size_class TEXT NOT NULL")
         self.assertTrue(any(item.startswith("migration-check-coverage:") for item in self.findings()))
 
+    def test_override_check_drift_is_reported(self) -> None:
+        self.edit(
+            "internal/store/schema.go",
+            STORED_CHECK + ",\n    recorded_at TEXT NOT NULL,\n    FOREIGN KEY",
+            "CHECK(size_class IN ('small','larger')),\n    recorded_at TEXT NOT NULL,\n    FOREIGN KEY",
+        )
+        findings = self.findings()
+        self.assertEqual([item for item in findings if item.startswith("migration-check-closure:")], [
+            "migration-check-closure: work_size_overrides expected ['small', 'larger', 'crucial'], got ['small', 'larger']",
+        ])
+
     def test_contract_size_without_stored_value_is_reported(self) -> None:
         path = self.root / "contracts/work-sizes.v1.json"
         vocabulary = json.loads(path.read_text(encoding="utf-8"))

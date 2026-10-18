@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -94,8 +95,11 @@ func RecordWorkSizeTx(ctx context.Context, transaction *Transaction, plan *WorkS
 	if err != nil {
 		return nil, wrapFailure(KindInvalidPayload, "work_size", "cannot encode the size record", false, "repair the size inputs", err)
 	}
+	if len(encoded) > workSizedPayloadMaxBytes {
+		return nil, newFailure(KindLimitExceeded, "work_size", fmt.Sprintf("the complete footprint makes the size record %d bytes; the limit is %d", len(encoded), workSizedPayloadMaxBytes), false, "name fewer paths or a narrower behavior")
+	}
 	result, err := ApplyOperationTx(ctx, transaction, Operation{Events: []Event{
-		{EventID: eventID, Kind: WorkSized, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now, PayloadVersion: 1, Payload: encoded},
+		{EventID: eventID, Kind: WorkSized, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: now, PayloadVersion: 2, Payload: encoded},
 	}})
 	if err != nil {
 		return nil, err
@@ -105,9 +109,7 @@ func RecordWorkSizeTx(ctx context.Context, transaction *Transaction, plan *WorkS
 
 func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, workID string) (workSizedPayload, error) {
 	var out workSizedPayload
-	// Every footprint page carries the complete paths and Domains, and the
-	// size reads nothing else, so an empty law page is enough.
-	footprint, err := plan.footprint.queryTx(ctx, q, 0)
+	footprint, err := plan.footprint.completeTx(ctx, q)
 	if err != nil {
 		return out, workSizeFootprintRefusal(err)
 	}
@@ -128,7 +130,11 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 	} else if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_size", "cannot read the sized work item's stage", true, "retry once the database is readable", err)
 	}
-	size, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+	basis, err := workSizeReviewBasisTx(ctx, q, workID)
+	if err != nil {
+		return out, err
+	}
+	size, err := DecideWorkSize(WorkSizeModelVersion, inputs, basis)
 	if err != nil {
 		return out, err
 	}
@@ -137,7 +143,7 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 		domainIDs = append(domainIDs, domain.DomainID)
 	}
 	behaviorLaws := append([]string{}, plan.footprint.behaviorLaws...)
-	return workSizedPayload{ModelVersion: WorkSizeModelVersion, Size: size, Inputs: inputs, Footprint: WorkSizeFootprint{
+	return workSizedPayload{ModelVersion: WorkSizeModelVersion, Size: size, Inputs: inputs, ReviewBasis: basis, Footprint: WorkSizeFootprint{
 		KnowledgeCommit:       footprint.KnowledgeCommit,
 		RegistryContentHash:   footprint.RegistryContentHash,
 		PackageMapContentHash: footprint.PackageMapContentHash,
@@ -145,5 +151,8 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 		DomainIDs:             domainIDs,
 		Behavior:              plan.footprint.req.Behavior,
 		BehaviorLawIDs:        behaviorLaws,
+		Laws:                  sliceOrEmpty(footprint.Laws),
+		PackageChecks:         sliceOrEmpty(footprint.PackageChecks),
+		ChecksComplete:        true,
 	}}, nil
 }

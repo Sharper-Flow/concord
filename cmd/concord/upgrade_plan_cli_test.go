@@ -302,6 +302,10 @@ var migrationTailReversals = map[int][]string{
 	131: {
 		`DROP TABLE work_size_assessments`,
 	},
+	132: {
+		`DROP TABLE work_resize_lineage`,
+		`DROP TABLE work_size_overrides`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

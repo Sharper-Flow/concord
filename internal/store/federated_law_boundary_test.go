@@ -35,7 +35,7 @@ func TestDerivedSourceLawResolvesForLawModifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, reference := range []string{"SRC-LAW", source.HomeProjectID + "/SRC-LAW"} {
-		if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{reference}, []string{reference}, true); err != nil {
+		if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{reference}, []string{reference}, true); err != nil {
 			t.Fatal(err)
 		}
 		if err := validateDerivedLawModification(ctx, s.db, "derived-modify-work", []string{reference}); err != nil {
@@ -105,7 +105,7 @@ func TestCrossSourceHierarchicalCycleRefusesRebuildAndBoundary(t *testing.T) {
 	writeSourceManifest(t, b.RepoPath, manifest)
 	commitKnowledgeRepo(t, b.RepoPath, "B refines A")
 	if err := s.RebuildKnowledgeIndex(ctx, b); err == nil {
-		if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW", "B-LAW"}, nil, false); err == nil {
+		if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW", "B-LAW"}, nil, false); err == nil {
 			t.Error("rebuild and consequential law boundary accepted cross-source A -> B -> A refinement cycle")
 		}
 	}
@@ -125,7 +125,7 @@ func TestSourceSetProofSeparatesVerifiedHeadFromScannedRevision(t *testing.T) {
 	}
 	writeKnowledgeFile(t, source.RepoPath, "main.go", "package main\n")
 	commitKnowledgeRepo(t, source.RepoPath, "code only")
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err != nil {
 		t.Fatalf("read freshness positive control: %v", err)
 	}
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-code-only-work")

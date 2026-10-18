@@ -111,17 +111,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "QueryLawConflictsAtHome", run: func() error {
-			conflicts, err := s.QueryLawConflictsAtHome(ctx, "home", "neighbor-locator", []string{"neighbor-law"})
-			if err != nil {
-				return err
-			}
-			if len(conflicts) != 0 {
-				return fmt.Errorf("conflicts=%+v, want none", conflicts)
-			}
-			return nil
-		}},
-
 		// Work-item reads.
 		{name: "ReadWorkItemSummary", run: func() error { _, err := s.ReadWorkItemSummary(ctx, "blocker"); return err }},
 		{name: "TrustedClientWithKey", run: func() error {

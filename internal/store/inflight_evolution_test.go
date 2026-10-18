@@ -210,8 +210,8 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if probeBeforeVersion != beforeVersion {
-		t.Fatalf("pre-probe manifest version %d moved from %d", probeBeforeVersion, beforeVersion)
+	if probeBeforeVersion != afterVersion {
+		t.Fatalf("pre-probe manifest version %d moved from the migrated version %d", probeBeforeVersion, afterVersion)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration on a database with in-flight work: %v", err)

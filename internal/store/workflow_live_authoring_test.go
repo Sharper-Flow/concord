@@ -22,8 +22,8 @@ import (
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
 	heads := map[string]int64{
-		"workflow.implementation": 33,
-		"workflow.break_fix":      30,
+		"workflow.implementation": 34,
+		"workflow.break_fix":      31,
 		"workflow.research":       20,
 	}
 	for ref, want := range heads {
@@ -602,8 +602,8 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     33,
-		"workflow.break_fix":          30,
+		"workflow.implementation":     34,
+		"workflow.break_fix":          31,
 		"workflow.research":           20,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,

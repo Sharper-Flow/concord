@@ -73,20 +73,23 @@ func TestLiveHeadsAreTheirCompiledCompositions(t *testing.T) {
 	}
 }
 
-// The first composed heads change no behavior: each holds the same steps in the
-// same order with the same ordered actions (workflowStepIsDeliveryGate reads
-// that order), the same edges, recovery routes, action contracts, policy, and
-// capabilities as the released head it succeeds. Only the definition-level
-// available_actions and action_definitions lists may be reordered.
+// The composed heads match the released heads they succeed beyond the
+// declared member change: each size-capable head equals its predecessor
+// except the version, the action-catalog pin, and the three optional
+// record_worker_job members the v2 catalog declares. The normalization
+// strips exactly those members, so any other drift fails the comparison.
 func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	t.Parallel()
 	for _, pair := range []struct {
 		ref               string
 		composed, release int64
+		stripSizeMembers  bool
 	}{
-		{"workflow.implementation", 33, 32},
-		{"workflow.break_fix", 30, 29},
-		{"workflow.research", 20, 19},
+		{"workflow.implementation", 33, 32, false},
+		{"workflow.break_fix", 30, 29, false},
+		{"workflow.research", 20, 19, false},
+		{"workflow.implementation", 34, 33, true},
+		{"workflow.break_fix", 31, 30, true},
 	} {
 		composed, ok := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.composed)
 		previous, held := BuiltinWorkflowRegistry().Lookup(pair.ref, pair.release)
@@ -94,13 +97,62 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 			t.Fatalf("%s v%d or v%d is not registered", pair.ref, pair.composed, pair.release)
 		}
 		head := composed.Definition
-		if got, want := workflowShapeForComparison(t, head), workflowShapeForComparison(t, previous.Definition); got != want {
-			t.Errorf("%s v%d differs from v%d beyond list order", head.Ref, head.Version, previous.Definition.Version)
+		headShape := workflowShapeForComparison(t, head)
+		previousShape := workflowShapeForComparison(t, previous.Definition)
+		if pair.stripSizeMembers {
+			headShape = stripWorkerJobSizeMembers(t, headShape)
+			previousShape = stripWorkerJobSizeMembers(t, previousShape)
+		}
+		if got, want := headShape, previousShape; got != want {
+			t.Errorf("%s v%d differs from v%d beyond the declared size members", head.Ref, head.Version, previous.Definition.Version)
 		}
 		if workflowCapabilities(head) != workflowCapabilities(previous.Definition) {
 			t.Errorf("%s v%d enables different capabilities than v%d", head.Ref, head.Version, previous.Definition.Version)
 		}
 	}
+}
+
+// stripWorkerJobSizeMembers removes the three optional size members from the
+// rendered record_worker_job declarations, so the size-capable heads compare
+// equal to their predecessors modulo the declared member change.
+func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal([]byte(shape), &document); err != nil {
+		t.Fatal(err)
+	}
+	members := map[string]bool{"production_size_max": true, "measurement_basis": true, "direct_caller_allowance": true}
+	actions, ok := document["action_definitions"].([]any)
+	if !ok {
+		t.Fatal("rendered shape carries no action_definitions list")
+	}
+	for _, action := range actions {
+		entry, ok := action.(map[string]any)
+		if !ok || entry["id"] != "record_worker_job" {
+			continue
+		}
+		payload, ok := entry["payload"].(map[string]any)
+		if !ok {
+			t.Fatal("record_worker_job declaration carries no payload object")
+		}
+		fields, ok := payload["fields"].([]any)
+		if !ok {
+			t.Fatal("record_worker_job payload carries no fields list")
+		}
+		kept := fields[:0]
+		for _, field := range fields {
+			if named, ok := field.(map[string]any); ok && members[named["name"].(string)] {
+				continue
+			}
+			kept = append(kept, field)
+		}
+		payload["fields"] = kept
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func builtinWorkflowComposition(t *testing.T, ref string, version int64) WorkflowComposition {

@@ -260,6 +260,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "33"}:     "sha256:b5771bcb5a796249e7e090228d86947b193c3134d7ba30736bcc1909953157d3",
 	{"workflow.break_fix", "30"}:          "sha256:252af47b2f64825844595e4ec05dbafc223b9bbd254f621ddc2def5bb1756309",
 	{"workflow.research", "20"}:           "sha256:93c26a941ef7e76e2e6e75eac61ca4654fdc832f7c2340eb2f287dc7353b1d21",
+	{"workflow.implementation", "34"}:     "sha256:9fa4583d2a57527b985896d456922aeccbcb753a2916a95c4596387b1c431485",
+	{"workflow.break_fix", "31"}:          "sha256:633792886e6e28ccffed4afb1907ef3481d18abe4ecac8fea6a322bffcb1f2b3",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
@@ -271,9 +273,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 // Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
 func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
 	for _, definition := range []WorkflowDefinition{
-		mustCompileWorkflowComposition(implementationCompositionV33()),
-		mustCompileWorkflowComposition(breakFixCompositionV30()),
-		mustCompileWorkflowComposition(researchCompositionV20()),
+		mustCompileWorkflowComposition(implementationCompositionV34()),
+		mustCompileWorkflowComposition(breakFixCompositionV31()),
 	} {
 		digest, err := WorkflowDefinitionDigest(definition)
 		if err != nil {
@@ -445,23 +446,16 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
-	cases := map[string]int64{
-		"workflow.break_fix":          30,
-		"workflow.implementation":     33,
-		"workflow.generic_one_off":    16,
-		"workflow.research":           20,
-		"workflow.architecture_spike": 17,
-		"workflow.ops_runbook":        18,
-		"workflow.static_analysis":    15,
-	}
-	for ref, version := range cases {
+	// The current head comes from the registry's own version table, never a
+	// hand-written number: a new head must not require editing this test.
+	for ref, want := range builtinWorkflowCurrentVersions {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)
 		if err != nil {
 			t.Errorf("%s does not resolve: %v", ref, err)
 			continue
 		}
-		if registered.Definition.Version != version {
-			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, version)
+		if registered.Definition.Version != want {
+			t.Errorf("%s resolved version %d, want %d", ref, registered.Definition.Version, want)
 		}
 	}
 }

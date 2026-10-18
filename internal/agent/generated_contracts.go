@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:05a5bce036a38b93d91de4962b6ad81a46f715150ea871beb196566a15dc948a"
+const ManifestDigest = "sha256:86ad476a71002c0552b30d85a80f3b592a37f42fab3091a4c1d2f6f055122c9c"
 
 type OperationKind string
 
@@ -338,6 +338,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_failure_observation":                            {Required: []string{"observer", "phase", "cause", "basis", "sources"}, Properties: []string{"observer", "phase", "cause", "basis", "sources", "diagnosis"}},
 	"worker_failure_source":                                 {Required: []string{"kind"}, Properties: []string{"kind", "locator", "digest", "message", "host"}},
 	"worker_failure_subject":                                {Required: []string{"kind", "locator"}, Properties: []string{"kind", "locator", "digest"}},
+	"worker_job_direct_caller_allowance":                    {Required: []string{"project_id", "mechanisms", "domain_ids", "law_bindings"}, Properties: []string{"project_id", "mechanisms", "domain_ids", "law_bindings"}},
+	"worker_job_measured_path":                              {Required: []string{"path", "class"}, Properties: []string{"path", "class", "generator_ref"}},
+	"worker_job_measurement_basis":                          {Required: []string{"base_commit", "paths"}, Properties: []string{"base_commit", "paths"}},
 	"worker_job_prerequisite":                               {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
 	"worker_oracle_case":                                    {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},
 	"worker_oracle_control":                                 {Required: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}, Properties: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}},

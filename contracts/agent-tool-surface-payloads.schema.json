@@ -3650,6 +3650,113 @@
         }
       }
     },
+    "worker_job_measurement_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The measurement basis that binds one recorded job's production-size cap (CD-0225 D1): the immutable Git base commit the delta is counted against and the exact path inventory with its classifications. An editing job under a size-capable definition carries it beside the cap; a read-only job carries neither.",
+      "required": [
+        "base_commit",
+        "paths"
+      ],
+      "properties": {
+        "base_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "The raw commit oid of the clean integration foundation the production delta is measured against, never an arbitrary recent commit."
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/worker_job_measured_path"
+          },
+          "description": "The explicit edit paths known before dispatch, each classified once. Every path must be contained by the job's path_scope."
+        }
+      }
+    },
+    "worker_job_measured_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One measured inventory entry: a normalized relative repository path and its closed classification. A generated exclusion requires its owning generator reference; every other classification carries none.",
+      "required": [
+        "path",
+        "class"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "A normalized relative repository-contained path, unique within the inventory."
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "production",
+            "test",
+            "documentation",
+            "generated"
+          ],
+          "description": "The closed classification vocabulary. Production paths enter the counted delta; test, documentation, and verified generated outputs do not."
+        },
+        "generator_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification."
+        }
+      }
+    },
+    "worker_job_direct_caller_allowance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The conditional direct-caller scope an editing job may carry (CD-0227 D1): the permitted Project, the changed owner mechanisms, and the parent contract's approved Domain and pinned law boundaries. It authorizes only the minimum source and test changes that preserve an existing direct caller's approved request behavior.",
+      "required": [
+        "project_id",
+        "mechanisms",
+        "domain_ids",
+        "law_bindings"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "description": "The permitted Project. It must equal the recorded job's project_scope."
+        },
+        "mechanisms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/worker_oracle_mechanism"
+          },
+          "description": "The changed owner mechanisms the caller repair preserves, reusing the oracle's mechanism shape."
+        },
+        "domain_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": "The approved affected Domains of the active parent contract the allowance keeps, joined like the oracle joins Domains."
+        },
+        "law_bindings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "description": "The pinned law revisions the allowance keeps, joined like the oracle joins law."
+        }
+      }
+    },
     "continuity_snapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -17132,6 +17239,17 @@
             },
             "acceptance_oracle": {
               "$ref": "#/$defs/worker_acceptance_oracle"
+            },
+            "production_size_max": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "measurement_basis": {
+              "$ref": "#/$defs/worker_job_measurement_basis"
+            },
+            "direct_caller_allowance": {
+              "$ref": "#/$defs/worker_job_direct_caller_allowance"
             }
           },
           "required": [

@@ -56,6 +56,15 @@ func withAppendedPayloadField(field func() WorkflowPayloadField) workflowActionR
 	}
 }
 
+// withAppendedPayloadFields appends several optional members to one action's
+// payload, the multi-member form of withAppendedPayloadField.
+func withAppendedPayloadFields(fields func() []WorkflowPayloadField) workflowActionRevision {
+	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
+		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), fields()...)
+		return action
+	}
+}
+
 // withPayloadFieldRevision rewrites each payload field with the given name.
 func withPayloadFieldRevision(name string, revise func(WorkflowPayloadField) WorkflowPayloadField) workflowActionRevision {
 	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
@@ -112,7 +121,7 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 
 // builtinWorkflowActionCatalogs lists every released action catalog version.
 func builtinWorkflowActionCatalogs() []workflowActionCatalog {
-	return []workflowActionCatalog{workflowActionCatalogV1()}
+	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2()}
 }
 
 func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
@@ -158,4 +167,33 @@ func workflowActionCatalogV1() workflowActionCatalog {
 		"revise_candidates":      nil,
 		"start_execution":        nil,
 	}}
+}
+
+// workerJobSizeActionFields declares the three optional size members the v2
+// catalog appends to record_worker_job (CD-0225 D1, CD-0227 D1): the
+// production-size cap, the measurement basis that binds it, and the
+// conditional direct-caller allowance. Whether one job carries all three or
+// none is the authoring rule the store guard enforces; the declared action
+// contract admits both shapes.
+func workerJobSizeActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionIntegerField("production_size_max", false, 2147483647),
+		actionObjectField("measurement_basis", false, "worker_job_measurement_basis"),
+		actionObjectField("direct_caller_allowance", false, "worker_job_direct_caller_allowance"),
+	}
+}
+
+var workerJobSizeMembersRevision = withAppendedPayloadFields(workerJobSizeActionFields)
+
+// workflowActionCatalogV2 revises record_worker_job alone: the v1 contract
+// set with the three optional size members appended beside the
+// acceptance_oracle member. Every other action's contract is v1's.
+func workflowActionCatalogV2() workflowActionCatalog {
+	v1 := workflowActionCatalogV1()
+	revisions := make(map[string][]workflowActionRevision, len(v1.revisions))
+	for actionID, actionRevisions := range v1.revisions {
+		revisions[actionID] = actionRevisions
+	}
+	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), workerJobSizeMembersRevision)
+	return workflowActionCatalog{Version: 2, revisions: revisions}
 }

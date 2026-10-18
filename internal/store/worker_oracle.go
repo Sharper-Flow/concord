@@ -147,20 +147,27 @@ func oracleBoundedText(value, label string) error {
 // union for one law binding: the store's law-revision identity only, with
 // no repository fields.
 func validateOracleLawSource(source WorkContextReadingSource) error {
+	return validateWorkerJobLawSource("acceptance oracle", source)
+}
+
+// validateWorkerJobLawSource is the surface-parameterized form of
+// validateOracleLawSource: surface names the carrying member (the acceptance
+// oracle owner or the direct-caller allowance) in every refusal.
+func validateWorkerJobLawSource(surface string, source WorkContextReadingSource) error {
 	if source.Kind != WorkContextSourceKnowledge {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding source must be a knowledge source", "bind law by source_id, law_id, and the pinned content hash")
+		return oracleFailure(KindInvalidPayload, surface+" law binding source must be a knowledge source", "bind law by source_id, law_id, and the pinned content hash")
 	}
 	if len(source.SourceID) < 2 || len(source.SourceID) > oracleProjectIDMaxBytes {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding source_id must be between 2 and 128 bytes", "name the knowledge source")
+		return oracleFailure(KindInvalidPayload, surface+" law binding source_id must be between 2 and 128 bytes", "name the knowledge source")
 	}
 	if len(source.LawID) < 2 || len(source.LawID) > workContextLawIDMaxBytes {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding law_id must be between 2 and 256 bytes", "name the bound law")
+		return oracleFailure(KindInvalidPayload, surface+" law binding law_id must be between 2 and 256 bytes", "name the bound law")
 	}
 	if !workflowDigest(source.ContentHash) {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding content_hash must be a sha256 digest", "pin the law revision content hash")
+		return oracleFailure(KindInvalidPayload, surface+" law binding content_hash must be a sha256 digest", "pin the law revision content hash")
 	}
 	if source.ProjectID != "" || source.Path != "" || source.CommitOID != "" {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle law binding carries repository source fields", "use one closed source arm")
+		return oracleFailure(KindInvalidPayload, surface+" law binding carries repository source fields", "use one closed source arm")
 	}
 	return nil
 }

@@ -265,6 +265,14 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"work_context_research_finding":      "CON-911: the native research finding the resolved entries carry, with the always-serialized applicability scopes",
 	"research_scopes":                    "CON-911: the applicability scopes the context research finding carries",
 	"research_source":                    "CON-911: the native source descriptor the resolved research entries cite",
+	// The size-capable record_worker_job members the v2 action catalog
+	// declares (implementation v34, break_fix v31): the closed cap basis and
+	// direct-caller allowance objects and the measured path entry their
+	// inventories carry, beside the unchanged worker_acceptance_oracle
+	// closure.
+	"worker_job_measurement_basis":       "CON-1001: the cap-measurement basis the size-capable record_worker_job payloads declare",
+	"worker_job_measured_path":           "CON-1001: one classified measured inventory entry the worker_job_measurement_basis paths carry",
+	"worker_job_direct_caller_allowance": "CON-1001: the conditional direct-caller allowance the size-capable record_worker_job payloads declare",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

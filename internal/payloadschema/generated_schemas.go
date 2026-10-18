@@ -16551,6 +16551,9 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
+            "direct_caller_allowance": {
+              "$ref": "#/$defs/worker_job_direct_caller_allowance"
+            },
             "job_id": {
               "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
               "maxLength": 128,
@@ -16559,6 +16562,9 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string",
               "x-maxBytes": 128,
               "x-minBytes": 2
+            },
+            "measurement_basis": {
+              "$ref": "#/$defs/worker_job_measurement_basis"
             },
             "objective": {
               "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
@@ -16593,6 +16599,11 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 64,
               "minItems": 0,
               "type": "array"
+            },
+            "production_size_max": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
             },
             "readiness_evidence": {
               "items": {
@@ -19183,6 +19194,113 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "kind",
         "locator"
+      ],
+      "type": "object"
+    },
+    "worker_job_direct_caller_allowance": {
+      "additionalProperties": false,
+      "description": "The conditional direct-caller scope an editing job may carry (CD-0227 D1): the permitted Project, the changed owner mechanisms, and the parent contract's approved Domain and pinned law boundaries. It authorizes only the minimum source and test changes that preserve an existing direct caller's approved request behavior.",
+      "properties": {
+        "domain_ids": {
+          "description": "The approved affected Domains of the active parent contract the allowance keeps, joined like the oracle joins Domains.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "law_bindings": {
+          "description": "The pinned law revisions the allowance keeps, joined like the oracle joins law.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "mechanisms": {
+          "description": "The changed owner mechanisms the caller repair preserves, reusing the oracle's mechanism shape.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_mechanism"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "project_id": {
+          "description": "The permitted Project. It must equal the recorded job's project_scope.",
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "mechanisms",
+        "domain_ids",
+        "law_bindings"
+      ],
+      "type": "object"
+    },
+    "worker_job_measured_path": {
+      "additionalProperties": false,
+      "description": "One measured inventory entry: a normalized relative repository path and its closed classification. A generated exclusion requires its owning generator reference; every other classification carries none.",
+      "properties": {
+        "class": {
+          "description": "The closed classification vocabulary. Production paths enter the counted delta; test, documentation, and verified generated outputs do not.",
+          "enum": [
+            "production",
+            "test",
+            "documentation",
+            "generated"
+          ],
+          "type": "string"
+        },
+        "generator_ref": {
+          "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "A normalized relative repository-contained path, unique within the inventory.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "class"
+      ],
+      "type": "object"
+    },
+    "worker_job_measurement_basis": {
+      "additionalProperties": false,
+      "description": "The measurement basis that binds one recorded job's production-size cap (CD-0225 D1): the immutable Git base commit the delta is counted against and the exact path inventory with its classifications. An editing job under a size-capable definition carries it beside the cap; a read-only job carries neither.",
+      "properties": {
+        "base_commit": {
+          "description": "The raw commit oid of the clean integration foundation the production delta is measured against, never an arbitrary recent commit.",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "paths": {
+          "description": "The explicit edit paths known before dispatch, each classified once. Every path must be contained by the job's path_scope.",
+          "items": {
+            "$ref": "#/$defs/worker_job_measured_path"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "base_commit",
+        "paths"
       ],
       "type": "object"
     },

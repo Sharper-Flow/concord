@@ -80,7 +80,15 @@ type WorkerJobRecordedPayload struct {
 	// immutable as the rest of its content, and it reads back only from
 	// this event — no projection column carries it.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	Digest           string            `json:"digest"`
+	// The production-size members (CD-0225 D1, CD-0227 D1), optional on
+	// every revision a pre-size definition recorded. They enter the content
+	// digest after the oracle, so every historical digest is unchanged, and
+	// they read back only from this event. An editing job carries all
+	// three; a read-only job carries none.
+	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
+	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
+	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	Digest                string                     `json:"digest"`
 }
 
 // DeriveWorkerJobDigest derives the canonical content digest of one worker-job
@@ -92,21 +100,24 @@ type WorkerJobRecordedPayload struct {
 // did before the member existed, so every historical digest still holds.
 func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 	content := struct {
-		JobID               string                  `json:"job_id"`
-		Revision            int64                   `json:"revision"`
-		ContractVersion     int64                   `json:"contract_version"`
-		Objective           string                  `json:"objective"`
-		StoppingCondition   string                  `json:"stopping_condition"`
-		ProjectScope        string                  `json:"project_scope,omitempty"`
-		PathScope           []string                `json:"path_scope"`
-		PredicateIDs        []string                `json:"predicate_ids"`
-		Checks              []string                `json:"checks"`
-		Prerequisites       []WorkerJobPrerequisite `json:"prerequisites"`
-		UnresolvedRefs      []string                `json:"unresolved_refs"`
-		ReservedIntegration string                  `json:"reserved_integration,omitempty"`
-		Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
-		AcceptanceOracle    *AcceptanceOracle       `json:"acceptance_oracle,omitempty"`
-	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle}
+		JobID                 string                     `json:"job_id"`
+		Revision              int64                      `json:"revision"`
+		ContractVersion       int64                      `json:"contract_version"`
+		Objective             string                     `json:"objective"`
+		StoppingCondition     string                     `json:"stopping_condition"`
+		ProjectScope          string                     `json:"project_scope,omitempty"`
+		PathScope             []string                   `json:"path_scope"`
+		PredicateIDs          []string                   `json:"predicate_ids"`
+		Checks                []string                   `json:"checks"`
+		Prerequisites         []WorkerJobPrerequisite    `json:"prerequisites"`
+		UnresolvedRefs        []string                   `json:"unresolved_refs"`
+		ReservedIntegration   string                     `json:"reserved_integration,omitempty"`
+		Readiness             *WorkerJobReadiness        `json:"readiness,omitempty"`
+		AcceptanceOracle      *AcceptanceOracle          `json:"acceptance_oracle,omitempty"`
+		ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
+		MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
+		DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance}
 	raw, err := json.Marshal(content)
 	if err != nil {
 		return ""
@@ -147,23 +158,8 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 		return invalidWorkerPayload("worker.job_recorded carries too many scope, predicate, check, prerequisite, or unresolved entries")
 	}
 	for i, path := range payload.PathScope {
-		if len(path) < 1 || len(path) > 512 {
-			return invalidWorkerPayload("worker.job_recorded path_scope entries must be between 1 and 512 bytes")
-		}
-		if strings.ContainsFunc(path, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return invalidWorkerPayload("worker.job_recorded path_scope entries must not contain control characters")
-		}
-		// Path scope is repository containment, not an arbitrary string: a
-		// scope entry must be a normalized relative path. Absolute paths,
-		// parent traversal, and relative self segments all escape the
-		// repository boundary the scope claims to bound.
-		if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./") || strings.HasSuffix(path, "/") {
-			return invalidWorkerPayload("worker.job_recorded path_scope entries must be normalized relative paths")
-		}
-		for _, segment := range strings.Split(path, "/") {
-			if segment == "" || segment == "." || segment == ".." {
-				return invalidWorkerPayload("worker.job_recorded path_scope entries must be normalized relative paths")
-			}
+		if err := validateNormalizedRelativeRepoPath("worker.job_recorded path_scope", path); err != nil {
+			return err
 		}
 		for j, other := range payload.PathScope {
 			if j < i && other == path {
@@ -203,11 +199,40 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 			return err
 		}
 	}
+	// The size members re-prove their closed shape from the payload's own
+	// retained content, like the oracle graph: presence, bounds, and the
+	// containment rules decide, never a registry read.
+	if err := validateWorkerJobSizeShape(payload.ProjectScope, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance, workerJobSizeFoldFailure); err != nil {
+		return err
+	}
 	if !workerProvenancePattern.MatchString(payload.Digest) {
 		return invalidWorkerPayload("worker.job_recorded digest must be a sha256 digest")
 	}
 	if derived := DeriveWorkerJobDigest(payload); derived != payload.Digest {
 		return invalidWorkerPayload("worker.job_recorded digest does not match the derived content digest")
+	}
+	return nil
+}
+
+// validateNormalizedRelativeRepoPath enforces one normalized relative
+// repository path: bounded, control-character free, and free of absolute,
+// traversal, and relative self segments. Path scope entries, measured
+// inventory paths, and generator references share the rule; the caller owns
+// entry uniqueness.
+func validateNormalizedRelativeRepoPath(label, path string) error {
+	if len(path) < 1 || len(path) > 512 {
+		return invalidWorkerPayload(label + " entries must be between 1 and 512 bytes")
+	}
+	if strings.ContainsFunc(path, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return invalidWorkerPayload(label + " entries must not contain control characters")
+	}
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./") || strings.HasSuffix(path, "/") {
+		return invalidWorkerPayload(label + " entries must be normalized relative paths")
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return invalidWorkerPayload(label + " entries must be normalized relative paths")
+		}
 	}
 	return nil
 }

@@ -162,14 +162,6 @@ const context = { sessionID: SESSION, agent: "concord-operator", abort: new Abor
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
-const pendingSlice = (stateFile: string) => ({
-  stdout: JSON.stringify({ status: "pending", state_file: stateFile, iterations: 1 }),
-})
-
-const successSlice = {
-  stdout: JSON.stringify({ status: "success", checks: { total: 3, passing: 2, failing: 0, skipped: 1, pending: 0 }, iterations: 2 }),
-}
-
 async function startWatch(fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
   const started = await concord_ci_watch.execute(args, context)
   return result(started)

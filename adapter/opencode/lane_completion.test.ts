@@ -33,17 +33,6 @@ const packet = (): AgentLanePacket => ({
   inputs: { task: "Verify the bounded fixture.", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "exit_codes" } },
 })
 
-const workPin = {
-  work_id: "work-1",
-  title: "Repair the adapter",
-  linear_issue_key: "",
-  version: 4,
-  lifecycle: "in_progress",
-  workflow_type: "workflow.break_fix",
-  step: "repair",
-  pending_operator_decision: null,
-}
-
 // The dispatch window owns attempt and lane identity; the report carries none
 // of it.
 const report = (status = "completed") => ({

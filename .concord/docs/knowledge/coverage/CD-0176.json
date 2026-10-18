@@ -2,27 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestResolveSessionDirectoryCarriesTheActiveWorktree"
+      "value": "internal/store.TestResolveContinuityWorkByDirectoryResolvesActiveClaim"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput"
+      "value": "internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy"
     },
     {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionStartsInTheActiveWorktree"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionRunsInTheResolvedProjectDirectory"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start verifies the session directory after the move"
     }
   ],
   "id": "CD-0176",

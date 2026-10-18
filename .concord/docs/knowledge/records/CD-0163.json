@@ -9,8 +9,7 @@
   "evidence": [
     ".concord/docs/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
     ".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
-    "cmd/concord/session.go",
-    "cmd/concord/session_directory_test.go"
+    "cmd/concord/session.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0163",
@@ -33,13 +32,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1118e655f7aacf1881c1fd9d1646caa3a262b6396b08a734cee5cb03023b44da",
+  "sha256": "sha256:d845de76517ae6eb86e98232b0881b28407ce078cac5424fb57219b0662454ba",
   "status": "accepted",
-  "summary": "Corrects the zellij-tab clause of CD-0108 D1 against CD-0078 D1. The session entry route starts the OpenCode session for the selected work inside the work's Project through the session bootstrap and hands session identity only. The operator provides the terminal and places it; the entry never creates, names, splits, focuses, or destroys a tab, pane, window, or session. Resume and prompt pass-through keep their CD-0108 meaning and the entry stays read-only for the store.",
+  "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session: the host owns placement and starts and resumes operator sessions, and a host-started session enters managed work through concord_work_start. The boundary binds every Concord binary with no session entry route; the entry route's resume and pass-through duties retired with it.",
   "tags": [
-    "launcher",
     "operator-surface",
     "boundary"
   ],
-  "title": "The launcher carries no terminal placement"
+  "title": "Concord carries no terminal placement"
 }

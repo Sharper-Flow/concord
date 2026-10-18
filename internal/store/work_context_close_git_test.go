@@ -99,7 +99,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	findings := []WorkerContextFinding{{Kind: "observation", Statement: marker + "-worker", SubjectRef: ".concord/docs/spec.md", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompletedContextFindingsEvent(workID, "close-git-worker-completed", "close-git-attempt", preferredModelForLane(lane), lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompletedContextFindingsEvent(workID, "close-git-worker-completed", "close-git-attempt", preferredModelForLane(lane), lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatal(err)
 	}
 

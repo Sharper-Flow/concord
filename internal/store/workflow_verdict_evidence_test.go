@@ -115,7 +115,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}

@@ -120,14 +120,14 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   }
   const LANE_BUDGET = { allowed: [] as string[], bytes: 0 }
   const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch"].sort(), bytes: 18_455 }
-  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 120_658 }
+  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 120_601 }
   expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
   expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
   for (const role of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
     expect(projectedBytes(role), role).toEqual(LANE_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(120_658)
+  expect(registeredTotal).toBe(120_601)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
@@ -142,7 +142,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(73_754)
+  expect(registeredBytes.get("concord_work_transition")).toBe(73_915)
   expect(workflowActionPublicVariants.length).toBe(31)
 })
 
@@ -151,7 +151,7 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
   // any role's denial: the definition hook receives only the tool ID. The
   // zero-byte lane projection is therefore host visibility, not removal — a
   // later session or agent allow can re-expose a denied tool and grow the
-  // model-visible parameter schemas from 0 B up to the full 120,658 B
+  // model-visible parameter schemas from 0 B up to the full 120,601 B
   // catalog. The real-host demonstration of that growth is the opt-in
   // --host-merge probe; this test pins the structural precondition.
   for (const tool of CATALOG) {

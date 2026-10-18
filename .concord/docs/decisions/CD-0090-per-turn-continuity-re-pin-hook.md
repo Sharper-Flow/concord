@@ -10,6 +10,9 @@
   `ContinuitySnapshot` payload; agent-tool surface version.
 - **Related:** CD-0016, CD-0031, CD-0034, CD-0043, CD-0072, CD-0084, CD-0098,
   CD-0104, CD-0223.
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes D2's work resolution from the
+  launcher identity environment to the session's directory and active claim,
+  under the Snowball coordinator's operator-delegated approval.
 - **Supersedes:** nothing. Amends the recorded consequences of CD-0016
   (§Consequences, "does not add a generic host hook") and CD-0031
   (§Consequences, "OpenCode host hooks and plugins are unnecessary").
@@ -25,7 +28,7 @@ by summary. Three moments matter:
 
 | Moment | Mechanism | State before this decision |
 |---|---|---|
-| Session boot | CD-0031 session-boot packet | Covered |
+| Managed entry | CD-0031 session-boot packet through work-start preparation | Covered |
 | Any `concord_*` call | CD-0016 pinned projection, re-derived per call | Covered |
 | Mid-session with no Concord call | none | Uncovered |
 

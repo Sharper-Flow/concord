@@ -94,7 +94,7 @@ func newAcceptanceRecoveryFixture(ctx context.Context, t *testing.T, extraRequir
 	setup := scenario.Setup
 	setup.EventHistory = history
 	store := openTemp(t)
-	if err := replayWorkflowCorpusSetup(ctx, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
+	if err := replayWorkflowCorpusSetup(ctx, t, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
 		t.Fatal(err)
 	}
 	workID := scenario.Setup.FixtureRefs.WorkItem

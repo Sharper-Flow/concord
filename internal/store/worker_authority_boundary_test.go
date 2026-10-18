@@ -154,7 +154,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatalf("recording the dispatched lane attempt: %v", err)
 	}
@@ -240,7 +240,7 @@ func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, WorkflowActor
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatalf("recording the lane attempt: %v", err)
 	}
@@ -1167,7 +1167,7 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	}
 	attemptID := "attempt:" + workID
 	dispatch := Event{EventID: "internal-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
-	completed := Event{EventID: "internal-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "internal-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1257,7 +1257,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatal(err)
 		}
-		completed := Event{EventID: "completed-authority-foreign-work", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+		completed := Event{EventID: "completed-authority-foreign-work", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, "authority-foreign-work")})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1280,7 +1280,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		// readback is accepted as a normal completion. The attempt reaches
 		// 'completed' and the readback column records what the host reported.
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-divergent-readback")
-		divergent := Event{EventID: "completed-authority-divergent-readback", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-divergent-readback", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/other-model", ReportSchemaVersion: WorkerReportSchemaVersion})}
+		divergent := Event{EventID: "completed-authority-divergent-readback", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "authority-divergent-readback", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/other-model", ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, "authority-divergent-readback")})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{divergent}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1424,7 +1424,7 @@ func seedCompletedWorkerAtExecution(t *testing.T, workID string) (*Store, string
 	t.Helper()
 	s, workerRef, owner, attemptID := seedWorkerAtExecution(t, workID)
 	lane := BuiltinLaneDefinitions()[0]
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1703,7 +1703,7 @@ func TestWorkerCompletedPersistsRegistryCurrentVersion(t *testing.T) {
 	t.Parallel()
 	s, _ := seedDispatchedWorkerAtExecution(t, "version-completion")
 	lane := BuiltinLaneDefinitions()[0]
-	completed := Event{EventID: "version-completion", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "version-completion", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-version-completion", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+	completed := Event{EventID: "version-completion", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "version-completion", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-version-completion", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, "version-completion"), EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1755,7 +1755,7 @@ func TestWorkerCompletedJobBindingRefusedAtLegacySourceVersion(t *testing.T) {
 		t.Fatalf("completion current version %d is too low to stage a legacy job-binding scenario", current)
 	}
 	legacyVersion := current - 1
-	completed := Event{EventID: "completed-job-legacy", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "completed-job-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: legacyVersion, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-completed-job-legacy", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable, WorkerJob: &WorkerJobBinding{JobID: "job:legacy", Revision: 1, Digest: "sha256:" + strings.Repeat("f", 64)}})}
+	completed := Event{EventID: "completed-job-legacy", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "completed-job-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: legacyVersion, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-completed-job-legacy", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, "completed-job-legacy"), EvidenceOrigin: WorkerEvidenceLegacyUnavailable, WorkerJob: &WorkerJobBinding{JobID: "job:legacy", Revision: 1, Digest: "sha256:" + strings.Repeat("f", 64)}})}
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
 	if err == nil {
 		t.Fatalf("worker.completed v%d with worker_job bytes was accepted; want refusal", legacyVersion)

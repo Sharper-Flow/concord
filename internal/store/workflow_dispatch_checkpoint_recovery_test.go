@@ -683,7 +683,7 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	if epochV3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptV3); epochV3 != lastConcludeEpoch+1 {
 		t.Fatalf("the conclude review's dispatch epoch = %d, want the next epoch conclude's own start history opens (%d)", epochV3, lastConcludeEpoch+1)
 	}
-	reviewEvent := reviewLaneVerdictCompleteEvent(workID, "walled-eval-review-completed-"+attemptV3, attemptV3, f.reviewLane, reviewVerdict, time.Unix(43, 0).UTC())
+	reviewEvent := reviewLaneVerdictCompleteEvent(workID, "walled-eval-review-completed-"+attemptV3, attemptV3, f.reviewLane, reviewVerdict, time.Unix(43, 0).UTC(), workerFixtureDirectory(t, f.s, workID))
 	var reviewPayload WorkerCompletedPayload
 	if err := json.Unmarshal(reviewEvent.Payload, &reviewPayload); err != nil {
 		t.Fatal(err)

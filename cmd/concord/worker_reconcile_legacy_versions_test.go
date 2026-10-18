@@ -232,6 +232,7 @@ func TestWorkerEvidenceExactReconciliationAcknowledgesLegacyPayloadVersions(t *t
 		request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-legacy-complete-first01")
 		request["event_id"] = completionEventID
 		request["report_schema_version"] = store.WorkerReportSchemaVersionLegacy
+		delete(request, "worker_directory")
 		var out, diagnostic bytes.Buffer
 		for i := range 2 {
 			assertion.Nonce = fmt.Sprintf("nonce-legacy-complete-v3-%03d", i)

@@ -296,50 +296,83 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 	return nil
 }
 
-// workerJobSizeRevision is one earlier recorded revision's size content,
-// read back from its worker.job_recorded event.
+// workerJobSizeRevision is one recorded revision's size content, read back
+// from its worker.job_recorded event.
 type workerJobSizeRevision struct {
-	revision int64
-	sizeCap  int64
-	basis    WorkerJobMeasurementBasis
+	revision  int64
+	sizeCap   int64
+	basis     *WorkerJobMeasurementBasis
+	allowance *WorkerJobCallerAllowance
 }
 
-// readWorkerJobSizeRevisionsTx scans the work's worker.job_recorded events
-// once and returns every earlier recorded revision of the named job that
-// carries the size members, in revision order. Like the oracle reader, the
-// size content reads from the events — no projection column carries it — and
-// the queryer already in hand is used, never a *Store reach through the pool
-// inside a transaction.
-func readWorkerJobSizeRevisionsTx(ctx context.Context, q queryer, workID, jobID string) ([]workerJobSizeRevision, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.revision'), json_extract(payload,'$.production_size_max'), json_extract(payload,'$.measurement_basis') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? ORDER BY 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, jobID)
+// readWorkerJobSizeContentTx scans the work's worker.job_recorded events once
+// and maps every recorded revision binding onto the size content its event
+// retained (nil members when the revision predates the size members). Like
+// the oracle reader, the size content reads from the events — no projection
+// column carries it — and the queryer already in hand is used, never a
+// *Store reach through the pool inside a transaction.
+func readWorkerJobSizeContentTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]workerJobSizeRevision, error) {
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.production_size_max'), json_extract(payload,'$.measurement_basis'), json_extract(payload,'$.direct_caller_allowance') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read recorded worker-job size content", true, "retry once the event log is readable", err)
 	}
 	defer rows.Close()
-	earlier := []workerJobSizeRevision{}
+	content := map[WorkerJobBinding]workerJobSizeRevision{}
 	for rows.Next() {
+		var jobID, digest string
 		var revision int64
-		var rawCap, rawBasis sql.NullString
-		if err := rows.Scan(&revision, &rawCap, &rawBasis); err != nil {
+		var rawCap, rawBasis, rawAllowance sql.NullString
+		if err := rows.Scan(&jobID, &revision, &digest, &rawCap, &rawBasis, &rawAllowance); err != nil {
 			return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan recorded worker-job size content", true, "retry once the event log is readable", err)
 		}
-		if !rawCap.Valid || !rawBasis.Valid || rawCap.String == "" || rawCap.String == "null" || rawBasis.String == "" || rawBasis.String == "null" {
-			continue
+		entry := workerJobSizeRevision{revision: revision}
+		if present(rawCap) {
+			var sizeCap int64
+			if err := json.Unmarshal([]byte(rawCap.String), &sizeCap); err != nil {
+				return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a production_size_max that is not one integer", false, "rebuild the worker-job events from the authoritative log")
+			}
+			entry.sizeCap = sizeCap
 		}
-		var sizeCap int64
-		var basis WorkerJobMeasurementBasis
-		if err := json.Unmarshal([]byte(rawCap.String), &sizeCap); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a production_size_max that is not one integer", false, "rebuild the worker-job events from the authoritative log")
+		if present(rawBasis) {
+			var basis WorkerJobMeasurementBasis
+			if err := json.Unmarshal([]byte(rawBasis.String), &basis); err != nil {
+				return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a measurement basis that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+			}
+			entry.basis = &basis
 		}
-		if err := json.Unmarshal([]byte(rawBasis.String), &basis); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a measurement basis that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+		if present(rawAllowance) {
+			var allowance WorkerJobCallerAllowance
+			if err := json.Unmarshal([]byte(rawAllowance.String), &allowance); err != nil {
+				return nil, newFailure(KindInvariantViolation, "worker_job_size", "a recorded worker-job revision carries a direct-caller allowance that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+			}
+			entry.allowance = &allowance
 		}
-		earlier = append(earlier, workerJobSizeRevision{revision: revision, sizeCap: sizeCap, basis: basis})
+		content[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}] = entry
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan recorded worker-job size content", true, "retry once the event log is readable", err)
 	}
-	return earlier, nil
+	return content, nil
+}
+
+func present(raw sql.NullString) bool {
+	return raw.Valid && raw.String != "" && raw.String != "null"
+}
+
+// latestWorkerJobSizeRevision returns the job's highest recorded revision
+// entry, or nil when the job holds no recorded revision.
+func latestWorkerJobSizeRevision(content map[WorkerJobBinding]workerJobSizeRevision, jobID string) *workerJobSizeRevision {
+	var latest *workerJobSizeRevision
+	for binding, entry := range content {
+		if binding.JobID != jobID {
+			continue
+		}
+		copied := entry
+		if latest == nil || copied.revision > latest.revision {
+			latest = &copied
+		}
+	}
+	return latest
 }
 
 // validateWorkerJobSizeInheritanceTx holds CD-0225 D1's inheritance rule:
@@ -347,10 +380,17 @@ func readWorkerJobSizeRevisionsTx(ctx context.Context, q queryer, workID, jobID 
 // stays capped, never raises the lowest earlier cap, and never reclassifies
 // a path an earlier revision classified production away from production.
 func validateWorkerJobSizeInheritanceTx(ctx context.Context, tx *sql.Tx, workID, jobID string, sizeCap int64, basis *WorkerJobMeasurementBasis) error {
-	earlier, err := readWorkerJobSizeRevisionsTx(ctx, tx, workID, jobID)
+	content, err := readWorkerJobSizeContentTx(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
+	earlier := make([]workerJobSizeRevision, 0, len(content))
+	for binding, entry := range content {
+		if binding.JobID == jobID {
+			earlier = append(earlier, entry)
+		}
+	}
+	slices.SortFunc(earlier, func(a, b workerJobSizeRevision) int { return int(a.revision - b.revision) })
 	if len(earlier) == 0 {
 		return nil
 	}
@@ -358,6 +398,9 @@ func validateWorkerJobSizeInheritanceTx(ctx context.Context, tx *sql.Tx, workID,
 	production := map[string]bool{}
 	for _, revision := range earlier {
 		lowest = min(lowest, revision.sizeCap)
+		if revision.basis == nil {
+			continue
+		}
 		for _, measured := range revision.basis.Paths {
 			if measured.Class == "production" {
 				production[measured.Path] = true
@@ -386,13 +429,15 @@ func validateWorkerJobSizeInheritanceTx(ctx context.Context, tx *sql.Tx, workID,
 // presence rule alone cannot express this, because a read-only revision is
 // shape-valid; the job's own history decides.
 func refuseUncappedRevisionOfCappedJob(ctx context.Context, tx *sql.Tx, workID, jobID string) error {
-	earlier, err := readWorkerJobSizeRevisionsTx(ctx, tx, workID, jobID)
+	content, err := readWorkerJobSizeContentTx(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	if len(earlier) == 0 {
-		return nil
+	for binding, entry := range content {
+		if binding.JobID == jobID && entry.basis != nil {
+			return workerJobSizeAuthorFailure("record_worker_job revision of a capped job must stay capped",
+				"carry all three size members: a later revision of a capped job cannot drop the cap")
+		}
 	}
-	return workerJobSizeAuthorFailure("record_worker_job revision of a capped job must stay capped",
-		"carry all three size members: a later revision of a capped job cannot drop the cap")
+	return nil
 }

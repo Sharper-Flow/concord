@@ -182,6 +182,31 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if packet3Composed != composed {
 		t.Fatalf("the packet3 composition = %d bytes, want the packet2 composition %d", packet3Composed, composed)
 	}
+	// The size-capable packet4 identity rides the same composition: its
+	// worker_job closure adds the recorded size members and the caller
+	// exclusions inside the worker_job member, and the whole-action budget
+	// absorbs the derivation without growth.
+	packet4Opt := schemawire.Options{
+		Defs: defs,
+		PathBounds: map[string]int{
+			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle": OracleCombinedMaxBytes,
+			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":       32,
+			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":   32,
+		},
+		Excludes: map[string]bool{
+			"worker_packet4/inputs/work_context": true,
+			"worker_packet4/inputs/checkpoint":   true,
+			"worker_packet4/inputs/correction":   true,
+		},
+		FindingRefMax: findingRefMax,
+	}
+	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
+	if err != nil {
+		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
+	}
+	if packet4Parts+DispatchContextAggregateMaxBytes-1+wrapper > maxWorkflowActionPayloadBytes {
+		t.Fatalf("the packet4 composition needs %d bytes, above the %d-byte whole-action budget", packet4Parts+DispatchContextAggregateMaxBytes-1+wrapper, maxWorkflowActionPayloadBytes)
+	}
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)
 	}

@@ -113,8 +113,9 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 }
 
 // stripWorkerJobSizeMembers removes the three optional size members from the
-// rendered record_worker_job declarations, so the size-capable heads compare
-// equal to their predecessors modulo the declared member change.
+// rendered record_worker_job declarations and renames the dispatch packet
+// closure back to the retained one, so the size-capable heads compare equal
+// to their predecessors modulo the declared member and closure change.
 func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 	t.Helper()
 	var document map[string]any
@@ -128,25 +129,34 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 	}
 	for _, action := range actions {
 		entry, ok := action.(map[string]any)
-		if !ok || entry["id"] != "record_worker_job" {
+		if !ok {
 			continue
 		}
 		payload, ok := entry["payload"].(map[string]any)
 		if !ok {
-			t.Fatal("record_worker_job declaration carries no payload object")
+			continue
 		}
 		fields, ok := payload["fields"].([]any)
 		if !ok {
-			t.Fatal("record_worker_job payload carries no fields list")
+			continue
 		}
-		kept := fields[:0]
-		for _, field := range fields {
-			if named, ok := field.(map[string]any); ok && members[named["name"].(string)] {
-				continue
+		if entry["id"] == "record_worker_job" {
+			kept := fields[:0]
+			for _, field := range fields {
+				if named, ok := field.(map[string]any); ok && members[named["name"].(string)] {
+					continue
+				}
+				kept = append(kept, field)
 			}
-			kept = append(kept, field)
+			payload["fields"] = kept
 		}
-		payload["fields"] = kept
+		if entry["id"] == "dispatch_worker" {
+			for _, field := range fields {
+				if named, ok := field.(map[string]any); ok && named["name"] == "worker_packet" {
+					named["schema_ref"] = "worker_packet3"
+				}
+			}
+		}
 	}
 	raw, err := json.Marshal(document)
 	if err != nil {

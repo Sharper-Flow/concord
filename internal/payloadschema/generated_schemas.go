@@ -14741,27 +14741,57 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet4"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             },
-            "worker_packet": {
-              "$ref": "#/$defs/worker_packet3"
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "not": {
+                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
+              },
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet3"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "attempt_id",
-            "worker_packet"
-          ],
-          "type": "object"
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -14823,6 +14853,29 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id",
         "idempotency_key",
         "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_dispatch_worker_fields_member_0": {
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "properties": {
+        "attempt_id": {
+          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\x09-\\x0d    -     　]+$",
+          "type": "string",
+          "x-maxBytes": 128,
+          "x-minBytes": 2
+        },
+        "worker_packet": {
+          "$ref": "#/$defs/worker_packet4"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "worker_packet"
       ],
       "type": "object"
     },
@@ -20177,6 +20230,281 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "step_id",
         "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet4": {
+      "additionalProperties": false,
+      "description": "The size-capable packet identity the size-capable definition heads record and replay. It mirrors $defs/worker_packet3 shape for shape under a versioned name — the same inputs, with the worker_job member anchored at worker_packet4_worker_job, which adds the recorded production-size members and the dispatch-time caller exclusions — so the frozen decoder carries it beside the byte-exact packet2 and packet3 closures, and the size content rides the unchanged packet aggregate. The retained packet2 and packet3 pins replay exactly the closures they recorded and refuse the size-bearing packets the packet4 declaration admits.",
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
+            "constraints": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
+            },
+            "task": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view3",
+              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet4_worker_job"
+            }
+          },
+          "required": [
+            "task",
+            "binding"
+          ],
+          "type": "object"
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The coordinated size extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
+          "enum": [
+            "2.0"
+          ],
+          "type": "string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet4_worker_job": {
+      "additionalProperties": false,
+      "description": "The selected ready worker-job revision a packet4 attempt executes: the packet2/3 worker_job shape plus the recorded production-size members and the dispatch-time caller exclusions (CD-0225 D1, CD-0227 D1). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest.",
+      "properties": {
+        "acceptance_oracle": {
+          "$ref": "#/$defs/worker_acceptance_oracle",
+          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+        },
+        "caller_exclusions": {
+          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "checks": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "direct_caller_allowance": {
+          "$ref": "#/$defs/worker_job_direct_caller_allowance",
+          "description": "The recorded conditional direct-caller scope of this revision (CD-0227 D1). Optional and omitted on every read-only revision."
+        },
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+          "type": "string"
+        },
+        "measurement_basis": {
+          "$ref": "#/$defs/worker_job_measurement_basis",
+          "description": "The recorded measurement basis of this revision: the immutable base commit and the classified path inventory. Optional and omitted on every read-only revision."
+        },
+        "objective": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path_scope": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "maxLength": 128,
+                "minLength": 2,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+                "type": "string"
+              },
+              "result_ref": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "job_id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "production_size_max": {
+          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "project_scope": {
+          "maxLength": 128,
+          "minLength": 0,
+          "type": "string"
+        },
+        "reserved_integration": {
+          "maxLength": 4096,
+          "minLength": 0,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "stopping_condition": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "unresolved_refs": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision",
+        "digest",
+        "objective",
+        "stopping_condition",
+        "project_scope",
+        "path_scope",
+        "predicate_ids",
+        "checks",
+        "prerequisites",
+        "unresolved_refs",
+        "reserved_integration"
       ],
       "type": "object"
     },

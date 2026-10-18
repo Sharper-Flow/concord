@@ -512,12 +512,16 @@ type WorkerJobRevisionView struct {
 	ReservedIntegration string                  `json:"reserved_integration"`
 	// AcceptanceOracle reads back from the job-recorded event — never a
 	// projection column — so the view carries exactly the content the
-	// revision's digest covers.
-	AcceptanceOracle   *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	State              string            `json:"state"`
-	Ready              bool              `json:"ready"`
-	SatisfiedResultRef string            `json:"satisfied_result_ref,omitempty"`
-	RecordedAt         string            `json:"recorded_at"`
+	// revision's digest covers. The size members join beside it from the
+	// same events.
+	AcceptanceOracle      *AcceptanceOracle          `json:"acceptance_oracle,omitempty"`
+	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
+	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
+	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	State                 string                     `json:"state"`
+	Ready                 bool                       `json:"ready"`
+	SatisfiedResultRef    string                     `json:"satisfied_result_ref,omitempty"`
+	RecordedAt            string                     `json:"recorded_at"`
 }
 
 // workerJobReadyPredicate is the one admission rule for selecting a revision
@@ -585,14 +589,32 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	if err != nil {
 		return nil, err
 	}
+	sizeContent, err := readWorkerJobSizeContentTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
 	for index := range views {
 		oracle, recorded := oracles[views[index].Binding]
 		if !recorded {
 			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
 		}
 		views[index].AcceptanceOracle = oracle
+		if entry, recorded := sizeContent[views[index].Binding]; recorded {
+			views[index].ProductionSizeMax = memberOrNil(entry.sizeCap, entry.basis != nil)
+			views[index].MeasurementBasis = entry.basis
+			views[index].DirectCallerAllowance = entry.allowance
+		}
 	}
 	return views, nil
+}
+
+// memberOrNil projects the recorded cap beside its basis: the members are
+// present together, so a revision without a basis carries no cap.
+func memberOrNil(sizeCap int64, present bool) *int64 {
+	if !present {
+		return nil
+	}
+	return &sizeCap
 }
 
 // requireWorkerJobRevisionReadyTx is the dispatch-time admission of one
@@ -687,6 +709,17 @@ type WorkerPacketJob struct {
 	// review, and verify packets bind. Optional and omitted on every
 	// revision a pre-oracle definition recorded.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
+	// The recorded size members (CD-0225 D1, CD-0227 D1), projected onto
+	// every admitted lane beside the oracle. Optional and omitted on every
+	// read-only revision.
+	ProductionSizeMax     *int64                     `json:"production_size_max,omitempty"`
+	MeasurementBasis      *WorkerJobMeasurementBasis `json:"measurement_basis,omitempty"`
+	DirectCallerAllowance *WorkerJobCallerAllowance  `json:"direct_caller_allowance,omitempty"`
+	// CallerExclusions is the measured paths of the work's other jobs in
+	// correction, computed by the core at dispatch admission and bound to
+	// the packet, never the job digest. Only the implementation capability
+	// class carries it.
+	CallerExclusions []string `json:"caller_exclusions,omitempty"`
 }
 
 // packetJobFromView projects a recorded revision onto the packet shape.
@@ -696,7 +729,10 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 		Objective: view.Objective, StoppingCondition: view.StoppingCondition, ProjectScope: view.ProjectScope,
 		PathScope: nonNilStrings(view.PathScope), PredicateIDs: nonNilStrings(view.PredicateIDs), Checks: nonNilStrings(view.Checks),
 		Prerequisites: nonNilPrerequisites(view.Prerequisites), UnresolvedRefs: nonNilStrings(view.UnresolvedRefs), ReservedIntegration: view.ReservedIntegration,
-		AcceptanceOracle: view.AcceptanceOracle,
+		AcceptanceOracle:      view.AcceptanceOracle,
+		ProductionSizeMax:     view.ProductionSizeMax,
+		MeasurementBasis:      view.MeasurementBasis,
+		DirectCallerAllowance: view.DirectCallerAllowance,
 	}
 }
 
@@ -747,7 +783,15 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		if view.Binding != binding {
 			continue
 		}
-		recorded, _ := json.Marshal(packetJobFromView(view))
+		expected := packetJobFromView(view)
+		// The caller exclusions ride the packet only through the computed
+		// set; at this layer none is computed yet, so any claimed member
+		// drifts from the recorded revision and the equality below refuses
+		// it, on every lane.
+		if claimed.CallerExclusions != nil && lane.CapabilityClass != "implementation" {
+			return nil, refuse("inputs.worker_job carries caller_exclusions, which only an implementation lane of a size-capable definition admits", "build the worker job from the recorded revision without caller exclusions")
+		}
+		recorded, _ := json.Marshal(expected)
 		normalized, _ := json.Marshal(claimed)
 		if string(recorded) != string(normalized) {
 			return nil, refuse("inputs.worker_job content does not match the recorded revision", "build the worker job from the recorded revision")

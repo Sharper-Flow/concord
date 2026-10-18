@@ -183,9 +183,11 @@ func workerJobSizeActionFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowActionCatalogV2 revises record_worker_job alone: the v1 contract
-// set with the three optional size members appended beside the
-// acceptance_oracle member. Every other action's contract is v1's.
+// workflowActionCatalogV2 revises record_worker_job and dispatch_worker: the
+// v1 contract set with the three optional size members appended beside the
+// acceptance_oracle member, and dispatch_worker's packet anchored at the
+// worker_packet4 closure that projects them beside the caller exclusions.
+// Every other action's contract is v1's.
 func workflowActionCatalogV2() workflowActionCatalog {
 	v1 := workflowActionCatalogV1()
 	revisions := make(map[string][]workflowActionRevision, len(v1.revisions))
@@ -193,5 +195,10 @@ func workflowActionCatalogV2() workflowActionCatalog {
 		revisions[actionID] = actionRevisions
 	}
 	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields))
+	revisions["dispatch_worker"] = append(slices.Clone(revisions["dispatch_worker"]), withWorkerPacketRef(workerPacket4Schema))
 	return workflowActionCatalog{Version: 2, revisions: revisions}
 }
+
+// workerPacket4Schema is the size-capable packet closure the v2 catalog's
+// dispatch_worker anchors: packet3's shape with the size-bearing worker_job.
+const workerPacket4Schema = "worker_packet4"

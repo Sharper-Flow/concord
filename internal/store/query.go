@@ -252,8 +252,9 @@ type TimelineEvent struct {
 	// ContractVersion names the contract version a workflow.contract_approved
 	// or workflow.contract_superseded event made; a supersession also names
 	// the version it replaced.
-	ContractVersion         *int64 `json:"contract_version,omitempty"`
-	PreviousContractVersion *int64 `json:"previous_contract_version,omitempty"`
+	ContractVersion         *int64               `json:"contract_version,omitempty"`
+	PreviousContractVersion *int64               `json:"previous_contract_version,omitempty"`
+	ConflictApplication     *ConflictApplication `json:"conflict_application,omitempty"`
 }
 
 type Q7Result struct {
@@ -1486,6 +1487,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	where := ""
 	args := []any{req.Work}
+	var cursorSeq int64
 	if req.Cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(req.Cursor)
 		var c q7Cursor
@@ -1497,7 +1499,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		} else {
 			where = " AND seq < ?"
 		}
-		args = append(args, c.Seq)
+		cursorSeq = c.Seq
 	}
 	order := "DESC"
 	if direction == "oldest_first" {
@@ -1516,6 +1518,11 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	for i, kind := range eventKinds {
 		kindPlaceholders[i] = "?"
 		args = append(args, kind)
+	}
+	if cursorSeq != 0 {
+		// The cursor seq placeholder follows the kind placeholders in the SQL
+		// text, so its bind argument must follow them too.
+		args = append(args, cursorSeq)
 	}
 	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
 	args = append(args, limit+1)
@@ -1612,6 +1619,12 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 	case WorkflowContractSuperseded:
 		versions["new_contract_version"] = &e.ContractVersion
 		versions["previous_contract_version"] = &e.PreviousContractVersion
+	case WorkConflictApplied:
+		var application ConflictApplication
+		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{}, application) != nil {
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside the frozen v1 shape", false, "repair the event log before reading history")
+		}
+		e.ConflictApplication = &application
 	}
 	for name, dst := range versions {
 		var version int64

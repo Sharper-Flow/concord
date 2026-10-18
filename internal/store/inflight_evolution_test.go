@@ -149,8 +149,12 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	// Start work on the current schema before introducing its next step.
-	for _, migration := range migrations {
+	// Build the pre-tail schema from the registered migrations: the prefix
+	// steps apply directly and the final registered step stays for Migrate
+	// to execute below.
+	prefix := migrations[:len(migrations)-1]
+	tail := migrations[len(migrations)-1]
+	for _, migration := range prefix {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -168,19 +172,21 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The item starts mid-flight on the pre-tail schema through the
+	// production initialize path, before the final registered migration
+	// applies.
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
-	original := migrations
-	t.Cleanup(func() { migrations = original })
-	migrations = append(append([]migration(nil), migrations...), migration{
-		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
-		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,
-	})
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if beforeVersion >= tail.Version {
+		t.Fatalf("pre-tail manifest version %d already records the tail step %d", beforeVersion, tail.Version)
+	}
 
-	// The change lands while the item is open, not before it starts.
+	// The change lands while the item is open, not before it starts. Migrate
+	// executes the real tail step here: its manifest row exists only through
+	// that execution, written in the same transaction as the step's SQL.
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration on a database with in-flight work: %v", err)
 	}
@@ -190,6 +196,33 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	}
 	if afterVersion != CurrentSchemaVersion() || afterVersion <= beforeVersion {
 		t.Fatalf("schema version %d -> %d, want an advance to %d", beforeVersion, afterVersion, CurrentSchemaVersion())
+	}
+
+	// The registered tail is spent, so the next advance is a synthetic step
+	// beyond it: the open item crosses that boundary on the combined schema
+	// too, and the manifest tracks it the same way.
+	original := migrations
+	t.Cleanup(func() { migrations = original })
+	migrations = append(append([]migration(nil), migrations...), migration{
+		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
+		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,
+	})
+	probeBeforeVersion, err := readSchemaManifestVersion(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probeBeforeVersion != afterVersion {
+		t.Fatalf("pre-probe manifest version %d moved from the migrated version %d", probeBeforeVersion, afterVersion)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migration on a database with in-flight work: %v", err)
+	}
+	probeAfterVersion, err := readSchemaManifestVersion(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probeAfterVersion != CurrentSchemaVersion() || probeAfterVersion <= probeBeforeVersion {
+		t.Fatalf("schema version %d -> %d, want an advance to %d", probeBeforeVersion, probeAfterVersion, CurrentSchemaVersion())
 	}
 
 	// Not corrupted: the pin survives the migration byte for byte.

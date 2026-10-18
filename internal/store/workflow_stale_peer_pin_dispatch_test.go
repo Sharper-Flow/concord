@@ -101,8 +101,8 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 			EventID: "stale-peer-resolution-" + workID, FromWorkID: workID, ToWorkID: peerID,
 			FromExpectedVersion: subjectVersion, ToExpectedVersion: peerVersion,
 			FromContractVersion: 2, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
-			Reason: "the delivered repair is independent of the peer's stranded claim", ApprovalRef: "approval:stale-registry-current-pin-dispatch",
-			Actor: owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
+			Reason: "the delivered repair is independent of the peer's stranded claim",
+			Actor:  owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
 		})
 		return txErr
 	}); err != nil {

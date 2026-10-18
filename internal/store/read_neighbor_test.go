@@ -111,17 +111,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "QueryLawConflictsAtHome", run: func() error {
-			conflicts, err := s.QueryLawConflictsAtHome(ctx, "home", "neighbor-locator", []string{"neighbor-law"})
-			if err != nil {
-				return err
-			}
-			if len(conflicts) != 0 {
-				return fmt.Errorf("conflicts=%+v, want none", conflicts)
-			}
-			return nil
-		}},
-
 		// Work-item reads.
 		{name: "ReadWorkItemSummary", run: func() error { _, err := s.ReadWorkItemSummary(ctx, "blocker"); return err }},
 		{name: "TrustedClientWithKey", run: func() error {
@@ -265,12 +254,17 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "WorkflowEvaluationAuthority", run: func() error {
+		{name: "workflowEvaluationAuthority", run: func() error {
 			actorRef, err := WorkflowActorRef(actor)
 			if err != nil {
 				return err
 			}
-			authority, err := s.WorkflowEvaluationAuthority(ctx, "neighbor-work", actorRef)
+			var authority WorkflowEvaluationAuthority
+			err = s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				authority, innerErr = workflowEvaluationAuthority(ctx, q, "neighbor-work", actorRef)
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}
@@ -376,7 +370,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
 			return err
 		}},
-		{name: "ReadWorkflowOperatorQuestion", run: func() error { _, err := ReadWorkflowOperatorQuestion(ctx, s, "neighbor-work"); return err }},
+		{name: "ReadWorkPinPendingOperatorDecision", run: func() error { _, err := readOperatorQuestionFromWorkPinForTest(ctx, s, "neighbor-work"); return err }},
 		{name: "ReadWorkflowProjection", run: func() error {
 			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
 			return err
@@ -445,13 +439,20 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
 		}},
-		{name: "WorkflowFailedWorkerRetryBinding", run: func() error {
-			_, err := WorkflowFailedWorkerRetryBinding(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
-			return err
+		{name: "readSnapshot workflowFailedWorkerRetryBinding", run: func() error {
+			return s.readSnapshot(ctx, func(q queryer) error {
+				_, err := workflowFailedWorkerRetryBinding(ctx, q, BuiltinWorkflowRegistry(), "neighbor-work")
+				return err
+			})
 		}},
 		{name: "ActiveWorkflowContract", absent: KindProjectionNotFound, run: func() error { _, err := s.ActiveWorkflowContract(ctx, "neighbor-work"); return err }},
-		{name: "LatestWorkflowContractVersion", run: func() error {
-			contractVersion, err := s.LatestWorkflowContractVersion(ctx, "neighbor-work")
+		{name: "readSnapshot latestWorkflowContractVersion", run: func() error {
+			var contractVersion int64
+			err := s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				contractVersion, innerErr = latestWorkflowContractVersion(ctx, q, "neighbor-work")
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}
@@ -460,8 +461,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ActiveWorkflowContractVersions", run: func() error {
-			versions, err := s.ActiveWorkflowContractVersions(ctx, "neighbor-work")
+		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
+			var versions []int64
+			err := s.readSnapshot(ctx, func(q queryer) error {
+				var innerErr error
+				versions, innerErr = activeWorkflowContractVersions(ctx, q, "neighbor-work")
+				return innerErr
+			})
 			if err != nil {
 				return err
 			}
@@ -813,6 +819,18 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
+// precondition in one read-only transaction, so the Product work-item count and
+// the investigation-ref reads see one snapshot (CD-0173 D2).
+func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback()
+	return requireRecordedInvestigationArtifact(ctx, tx, workID)
 }
 
 // requireReadNeighborAbsence accepts only the seeded absence's typed failure.

@@ -1130,7 +1130,7 @@ test("a refused readback retains session diagnostics on the recorded failed atte
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
@@ -1170,7 +1170,7 @@ test("a refused readback preserves the completed work it would have carried", as
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
@@ -1191,7 +1191,7 @@ test("the retained worker result prefix stays inside the failure detail bound", 
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   // The envelope carries the whole body; the store record retains the prefix.

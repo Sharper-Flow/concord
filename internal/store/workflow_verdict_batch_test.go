@@ -970,3 +970,17 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 		t.Fatalf("%d batched verdicts name the capture, want every defaulted entry sharing the minted set", naming)
 	}
 }
+
+// missingPredicateVerdicts lists the approved contract predicates that have
+// no recorded verdict. The join deliberately does NOT mirror completion
+// clause 6: any verdict kind counts here, because a weaker or incomparable
+// verdict at confirm_premise follows the declared failure edge to refine
+// rather than wedging the item, while clause 6 still refuses such
+// verdicts at complete. One verdict per predicate id, latest per predicate.
+func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
+	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return nil, err
+	}
+	return missingPredicateVerdictsForContract(ctx, tx, workID, contract)
+}

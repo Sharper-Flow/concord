@@ -8,67 +8,6 @@ import (
 	"strings"
 )
 
-type LawConflict struct {
-	SourceLawID string `json:"source_law_id"`
-	TargetLawID string `json:"target_law_id"`
-}
-
-// QueryLawConflictsAtHome reads only the derived projection for one resolved
-// Git home. It is intentionally bounded and cannot create rows or events.
-func (s *Store) QueryLawConflictsAtHome(ctx context.Context, homeProjectID, homeLocatorID string, lawIDs []string) ([]LawConflict, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "query_law_conflicts", "store is not open", false, "open a store before checking law conflicts")
-	}
-	return queryLawConflictsAtHome(ctx, s.db, homeProjectID, homeLocatorID, lawIDs)
-}
-
-func queryLawConflictsAtHome(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, lawIDs []string) ([]LawConflict, error) {
-	if len(lawIDs) > 32 {
-		return nil, newFailure(KindInvalidPayload, "query_law_conflicts", "law conflict query exceeds the bounded list size", false, "supply at most 32 law IDs")
-	}
-	if len(lawIDs) == 0 {
-		return []LawConflict{}, nil
-	}
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(lawIDs)), ",")
-	rows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND source_law_id IN (`+placeholders+`) AND target_law_id IN (`+placeholders+`) ORDER BY source_law_id,target_law_id LIMIT 33`, append(append([]any{homeProjectID, homeLocatorID}, stringArgs(lawIDs)...), stringArgs(lawIDs)...)...)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "query_law_conflicts", "cannot read derived law conflicts", true, "retry once the knowledge projection is readable", err)
-	}
-	defer rows.Close()
-	conflicts := make([]LawConflict, 0)
-	for rows.Next() {
-		if len(conflicts) == 32 {
-			_ = rows.Close()
-			return nil, newFailure(KindInvalidPayload, "query_law_conflicts", "derived law conflict query exceeds the bounded result size", false, "reduce the law set or resolve conflicts before retrying")
-		}
-		var conflict LawConflict
-		if err := rows.Scan(&conflict.SourceLawID, &conflict.TargetLawID); err != nil {
-			return nil, wrapFailure(KindUnavailable, "query_law_conflicts", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
-		}
-		conflicts = append(conflicts, conflict)
-	}
-	return conflicts, rows.Err()
-}
-
-// CheckMandatedLawsAtHome performs the planning/completion law boundary check
-// against an already resolved canonical home. Planning may use the explicit
-// amendment path; completion never does.
-func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
-	if s == nil || s.db == nil {
-		return newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before checking mandated laws")
-	}
-	// CD-0200: a consequential boundary check over a registered source set
-	// verifies every source's watermark before it reads the projections, so
-	// stale source rows cannot pass as fresh law. The git probe must never
-	// run inside an open transaction (CD-0195 D2), so the verification lives
-	// on this read-handle entry; the transaction-scoped paths keep their
-	// rebuild-time guarantees.
-	if err := s.verifyKnowledgeSourceSetFreshness(ctx, homeProjectID, homeLocatorID); err != nil {
-		return err
-	}
-	return checkMandatedLawsQuery(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
-}
-
 // knowledgeSourceSetProof is the record a pre-transaction source-set
 // verification leaves behind. A git probe can never run inside an open
 // transaction (CD-0195 D2) and the store pools one connection, so the
@@ -130,6 +69,10 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 	if err != nil {
 		return ctx, nil
 	}
+	return s.establishKnowledgeSourceSetProofAtHome(ctx, homeProjectID, homeLocatorID)
+}
+
+func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, homeProjectID, homeLocatorID string) (context.Context, error) {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil || productID == "" {
 		return ctx, nil
@@ -238,26 +181,6 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 		}
 		if current != verified.head {
 			return newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved to a new commit after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
-		}
-	}
-	return nil
-}
-
-// verifyKnowledgeSourceSetFreshness refuses when any registered source of the
-// Product the home belongs to is unreachable or carries a stale watermark.
-// A home outside every source set, and a one-element set, verify trivially.
-func (s *Store) verifyKnowledgeSourceSetFreshness(ctx context.Context, homeProjectID, homeLocatorID string) error {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil || productID == "" {
-		return err
-	}
-	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
-	if err != nil || len(sources) <= 1 {
-		return err
-	}
-	for _, source := range sources {
-		if _, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws"); err != nil {
-			return err
 		}
 	}
 	return nil

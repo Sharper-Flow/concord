@@ -1,6 +1,7 @@
 # Concord Agent Tool Surface Evidence Contract (TS9)
 
 > **Status:** Accepted and binding until superseded.
+> **Amended:** 2026-10-18.
 > **Decision:** TS9, amended by CD-0042.
 > **Current boundary:** Concord is pre-go-live. This document defines deterministic
 > evidence for the current path, not a supported-model release gate.
@@ -15,6 +16,9 @@ contract for the pre-go-live path: what authorizes a change, what the
 evidence planes record, and what the first go-live decision must later
 define.
 ## Contract
+
+Approval measurements distinguish CD-0013 D11's routine overlap answers from merger/supersession, whose operator approval remains a listed gap without a new class assignment, and distinguish new-policy engineering from decision-bearing workflow checkpoints. No routine route is measured as requiring a host consent prompt. Existing population identity, evidence, and measurement obligations remain unchanged; historical pins remain a separate declared population.
+
 
 The binding contract is sections 1 through 3: the pre-go-live authority rule
 that only deterministic scenario evidence authorizes a surface change, the

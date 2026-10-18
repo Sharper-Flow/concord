@@ -1,0 +1,32 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-18T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0237",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0224"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:66ba775d27b6ba24991e8fb9c2c4894cc728acd0c5fea1a46b565dfb24bef5a8",
+  "status": "accepted",
+  "summary": "A size revision that changes a work item's effective size writes one forward_link and one supersedes from the successor in the transaction that creates it, approved by the size decision that changed the size. supersedes and forward_link each gain this second writer; no other route writes either kind.",
+  "tags": [
+    "workflow",
+    "sizing"
+  ],
+  "title": "A resize successor writes its own forward link and supersession"
+}

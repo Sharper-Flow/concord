@@ -19,6 +19,7 @@
         "internal/pm1fixture",
         "internal/store/storetest",
         "internal/store/storetest/neighbor",
+        "internal/store/storetest/projection",
         "internal/testenv",
         "internal/testutil/schemawire",
         "internal/workflowcorpus"
@@ -100,17 +101,6 @@
         "internal/store.validateManifestPath"
       ],
       "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
-    },
-    {
-      "id": "law-boundary-pooled-test-seams",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.Store.CheckMandatedLawsAtHome",
-        "internal/store.Store.QueryLawConflictsAtHome",
-        "internal/store.Store.verifyKnowledgeSourceSetFreshness",
-        "internal/store.queryLawConflictsAtHome"
-      ],
-      "reason": "CD-0200 governs mandated-law home and conflict checks. Runtime admission uses the transaction-scoped boundary; the law-boundary tests exercise these pooled-connection entry points, including knowledge source-set freshness. These test seams and their private helpers preserve that boundary's independent assertions without opening a second runtime admission path."
     },
     {
       "id": "store-test-and-durable-introspection-seams",

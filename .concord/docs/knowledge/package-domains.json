@@ -106,6 +106,12 @@
     },
     {
       "domain_ids": [
+        "durable-authority"
+      ],
+      "path": "internal/store/storetest/projection"
+    },
+    {
+      "domain_ids": [
         "repository-verification"
       ],
       "path": "internal/testenv"

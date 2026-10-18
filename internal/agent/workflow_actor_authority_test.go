@@ -572,7 +572,7 @@ func ensureIssue31InvestigationArtifact(t *testing.T, s *store.Store) {
 func issue31ConfirmInput(t *testing.T, s *store.Store, version int64, key string) json.RawMessage {
 	t.Helper()
 	ensureIssue31InvestigationArtifact(t, s)
-	question, err := store.ReadWorkflowOperatorQuestion(context.Background(), s, "work-1")
+	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}

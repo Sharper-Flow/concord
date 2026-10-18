@@ -60,7 +60,7 @@ func TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated(t *testing.T) {
 	lawSubjectRow(t, derived, "a", "derived")
 	lawSubjectRow(t, derived, "b", "derived")
 	lawConflictRow(t, derived, "a")
-	if err := derived.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, derived, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
 		t.Fatalf("a conflict between derived law refused the amendment path: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated(t *testing.T) {
 	lawSubjectRow(t, legislated, "a", "legislated")
 	lawSubjectRow(t, legislated, "b", "derived")
 	lawConflictRow(t, legislated, "a")
-	if err := legislated.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{"a"}, true); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, legislated, "p", "l", []string{"a", "b"}, []string{"a"}, true); err == nil {
 		t.Fatal("a conflict with legislated law resolved inside the contract, bypassing the operator checkpoint")
 	}
 }
@@ -100,7 +100,7 @@ func TestAmendmentPathRevisesTheDerivedSideOfAMixedTierConflict(t *testing.T) {
 			lawSubjectRow(t, s, "a", orientation.tierA)
 			lawSubjectRow(t, s, "b", orientation.tierB)
 			lawConflictRow(t, s, orientation.declarer)
-			if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{orientation.declarer}, true); err != nil {
+			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{orientation.declarer}, true); err != nil {
 				t.Fatalf("revising the derived declaring record was refused: %v", err)
 			}
 		})
@@ -120,7 +120,7 @@ func TestAmendmentPathRefusesADerivedRevisionOfALegislatedDeclaration(t *testing
 	lawSubjectRow(t, s, "a", "legislated")
 	lawSubjectRow(t, s, "b", "derived")
 	lawConflictRow(t, s, "a")
-	err := s.CheckMandatedLawsAtHome(context.Background(), "p", "l", []string{"a", "b"}, []string{"b"}, true)
+	err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, []string{"b"}, true)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict {
 		t.Fatalf("a derived revision against a legislated declaration was admitted: %v", err)
@@ -153,7 +153,7 @@ func TestAmendmentPathRequiresTheDeclaringRecord(t *testing.T) {
 			lawSubjectRow(t, s, "a", "derived")
 			lawSubjectRow(t, s, "b", "derived")
 			lawConflictRow(t, s, orientation.declarer)
-			err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{orientation.modified}, true)
+			err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{orientation.modified}, true)
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind != KindRelationConflict {
 				t.Fatalf("a revision that leaves the declaring record alone was admitted: %v", err)
@@ -189,7 +189,7 @@ func TestAmendmentPathTreatsAnUnrecordedDeclarerAsEitherEnd(t *testing.T) {
 			lawSubjectRow(t, s, "a", tc.tierA)
 			lawSubjectRow(t, s, "b", "derived")
 			lawConflictRow(t, s, nil)
-			err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, tc.modified, true)
+			err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, tc.modified, true)
 			if tc.admitted && err != nil {
 				t.Fatalf("a contract that revises both derived ends was refused: %v", err)
 			}
@@ -224,7 +224,7 @@ func TestAmendmentPathRefusesRevisingTheLegislatedSide(t *testing.T) {
 			lawSubjectRow(t, s, "a", orientation.sourceTier)
 			lawSubjectRow(t, s, "b", orientation.targetTier)
 			lawConflictRow(t, s, "a")
-			if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, orientation.modified, true); err == nil {
+			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, orientation.modified, true); err == nil {
 				t.Fatal("revising a legislated endpoint resolved inside the contract")
 			}
 		})
@@ -241,7 +241,7 @@ func TestAmendmentPathRefusesWhenOnlyTheUnmodifiedSideIsDerived(t *testing.T) {
 	lawSubjectRow(t, s, "a", "derived")
 	lawSubjectRow(t, s, "b", "derived")
 	lawConflictRow(t, s, "a")
-	if err := s.CheckMandatedLawsAtHome(context.Background(), "p", "l", []string{"a", "b"}, nil, true); err == nil {
+	if err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, nil, true); err == nil {
 		t.Fatal("an undeclared conflict between derived law resolved without a modification declaration")
 	}
 }
@@ -256,7 +256,7 @@ func TestCompletionStyleCheckIgnoresTheDerivedTier(t *testing.T) {
 	lawSubjectRow(t, s, "a", "derived")
 	lawSubjectRow(t, s, "b", "derived")
 	lawConflictRow(t, s, "a")
-	if err := s.CheckMandatedLawsAtHome(context.Background(), "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
+	if err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
 		t.Fatal("a check carrying no amendment authority accepted an unresolved conflict between derived law")
 	}
 }
@@ -324,12 +324,12 @@ func TestAmendmentPathNamesTheDeclaringReferenceAcrossSources(t *testing.T) {
 	lawSubjectRow(t, s, "b", "derived")
 	lawConflictRow(t, s, "b")
 	mandate := []string{"p/a", "p/b"}
-	err := s.CheckMandatedLawsAtHome(ctx, "p", "l", mandate, []string{"p/a"}, true)
+	err := checkMandatedLawsAtHome(ctx, s, "p", "l", mandate, []string{"p/a"}, true)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "p/b" {
 		t.Fatalf("the source-set refusal does not name the declaring mandate reference: %v", err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", mandate, failure.CandidateIDs, true); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", mandate, failure.CandidateIDs, true); err != nil {
 		t.Fatalf("revising the named declaring reference was refused: %v", err)
 	}
 }

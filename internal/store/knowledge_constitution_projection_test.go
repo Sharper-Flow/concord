@@ -114,7 +114,7 @@ func TestAcceptedConstitutionProjectsResolvesAndAdmitsAsLaw(t *testing.T) {
 		t.Fatalf("Q10 constitution note = %#v", q10.Note)
 	}
 
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{constitutionID, decisionID}, nil, true); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{constitutionID, decisionID}, nil, true); err != nil {
 		t.Fatalf("mandated constitution and decision failed admission: %v", err)
 	}
 }

@@ -141,10 +141,18 @@ func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, author
 	})
 }
 
-// claimStepObservedAuthorized is the claim core. The public entry points
-// commit durably; the conformance harness passes durable=false because it
-// measures the ordinary commit path (CD-0050 D4).
-func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (_ FenceResult, retErr error) {
+// claimStepObservedAuthorized keeps the builtin choice for existing callers;
+// the caller-selected registry rides the registry-carrying core.
+func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
+	return claimStepObservedAuthorizedWithRegistry(ctx, s, req, durable, observer, authorize, nil)
+}
+
+// claimStepObservedAuthorizedWithRegistry is the claim core. The caller's
+// definition registry is explicit authority carried to the claim preflight's
+// verifier, never a waiver of it. The public entry points commit durably; the
+// conformance harness passes durable=false because it measures the ordinary
+// commit path (CD-0050 D4).
+func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error, registry DefinitionRegistry) (_ FenceResult, retErr error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -156,7 +164,7 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	defer tx.finish(&retErr)
-	if err := preflightWorkflowClaimTx(ctx, tx.Tx, req); err != nil {
+	if err := preflightWorkflowClaimTx(ctx, tx.Tx, registry, req); err != nil {
 		return FenceResult{}, err
 	}
 	digest := claimDigest(req)
@@ -216,8 +224,16 @@ func CompleteStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResu
 	return completeStep(ctx, s, req, true, nil)
 }
 
-// completeStep is the completion core; durable follows the claim core's rule.
-func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (_ FenceResult, retErr error) {
+// completeStep keeps the builtin choice for existing callers; the
+// caller-selected registry rides the registry-carrying core.
+func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (FenceResult, error) {
+	return completeStepWithRegistry(ctx, s, req, durable, observer, nil)
+}
+
+// completeStepWithRegistry is the completion core; the caller's definition
+// registry is explicit authority carried to the operation preflight's
+// verifier. Durable follows the claim core's rule.
+func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver, registry DefinitionRegistry) (_ FenceResult, retErr error) {
 	if err := validateComplete(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -229,7 +245,7 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot begin completion", true, "retry once the database is writable", err)
 	}
 	defer tx.finish(&retErr)
-	if err := preflightWorkflowOperationTx(ctx, tx.Tx, req.OpID); err != nil {
+	if err := preflightWorkflowOperationTx(ctx, tx.Tx, registry, req.OpID); err != nil {
 		return FenceResult{}, err
 	}
 	digest := completeDigest(req)

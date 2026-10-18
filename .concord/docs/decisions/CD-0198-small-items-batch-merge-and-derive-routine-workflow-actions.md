@@ -43,6 +43,9 @@ scope, as are the tool-schema refusal fixes that CON-408 owns.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, the contract remains mandatory but human signature follows recorded decision domains under CD-0013 D11. Batched verdict recording still requires independent evaluator authority and evidence; engineering premise confirmation uses its real coordinator identity. A combined action cannot convert an executing coordinator into its own evaluator or silently omit a predicate.
+
+
 This record adopts all five candidates. None removes one of the four floors,
 and each names one implementation item here.
 

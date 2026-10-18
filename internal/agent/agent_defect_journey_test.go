@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // The public defect journey: a first bug capture, the recurrence refusal that
@@ -184,7 +182,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 
 	// 6. The operator premise confirmation and the completion. The question
 	// digest binds the operator's exact decision context.
-	question, questionErr := store.ReadWorkflowOperatorQuestion(ctx, s, rcaID)
+	question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, rcaID)
 	if questionErr != nil || question == nil {
 		t.Fatalf("operator question=%+v err=%v", question, questionErr)
 	}

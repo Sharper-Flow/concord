@@ -291,6 +291,9 @@ var migrationTailReversals = map[int][]string{
 	111: nil,
 	119: nil,
 	126: nil,
+	// Migration 134's overlap-resolution rebuild also drops and recreates
+	// its own table, backup TEMP table included.
+	134: nil,
 	129: {
 		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
 	},
@@ -301,6 +304,13 @@ var migrationTailReversals = map[int][]string{
 	},
 	131: {
 		`DROP TABLE work_size_assessments`,
+	},
+	132: {
+		`DROP TABLE work_resize_lineage`,
+		`DROP TABLE work_size_overrides`,
+	},
+	133: {
+		`ALTER TABLE workflow_contracts DROP COLUMN decision_domains`,
 	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,

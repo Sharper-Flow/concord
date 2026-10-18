@@ -138,7 +138,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 		"evaluation_evidence": []string{"evidence:close-git-verification"},
 	})
 	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowPremiseConfirmed, map[string]any{
-		"contract_version": 1, "confirming_actor_ref": reviewerRef,
+		"contract_version": 1, "confirming_actor_ref": reviewerRef, "confirmation_authority": "operator",
 	})
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, reviewerRef, map[string]any{

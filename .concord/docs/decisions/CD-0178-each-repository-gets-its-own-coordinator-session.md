@@ -194,26 +194,6 @@ ended in a live process stays until `session_vacate`, a landing elsewhere, or
 the end of that process. That cost keeps a worktree longer, and it never
 removes a live one.
 
-The linked open work takes these dispositions:
-
-| Item | Disposition |
-|---|---|
-| [#1358](https://github.com/Sharper-Flow/concord/issues/1358) cross-repository claim move | Fixed by D2 |
-| [#1322](https://github.com/Sharper-Flow/concord/issues/1322) reported move that did not land | Independent; CD-0103 governs |
-| [#1125](https://github.com/Sharper-Flow/concord/issues/1125) lane writes outside the worktree | Independent; D1 keeps the existing guards |
-| work-e2c0dffe24416cf6d106a626 next-turn move cost | Independent; D2 does not add moves |
-| work-02e898db3f441e2007af334a reclaim under live sessions | Fixed by D3 |
-| work-30598c83e9f676093ad3ac1c audit blind to other processes | Fixed by D3 |
-| work-61736f7c24cde1c94844c167 audit removes a live worktree | Fixed by D3 |
-| work-b8f69d65034a1207dd2b40cf vacate clears occupancy early | Independent |
-| work-0228c078b9fa01a5e485727e resume records no occupant | Fixed by D3 |
-| work-1d0676d0ea6fa1e14b2b7592 worktree has no enforced owner | Fixed by D3 |
-| work-a164c308215037315f6ade79 recreated worktree keeps occupancy | Superseded by D3 |
-| work-d1627ad522600bea9c87c417 content-reachability policy | Independent; D4 |
-| work-57165c6c0285632642ed14f5 handoff matches the session directory | Independent; D1 |
-| work-5604d254ec27df800c0d055a removal strands non-session processes | Independent; D3 covers host sessions only |
-| work-751acb4faaaeeaa76758dd15 route to another Product's work item | Independent; CD-0213 governs Products |
-
 ## Verification
 
 - A `worktree_claim` for a Project in another repository refuses with

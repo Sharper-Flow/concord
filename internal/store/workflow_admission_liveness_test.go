@@ -145,13 +145,25 @@ type admissionModelState struct {
 	integration     bool
 	jobsUnsatisfied string
 	jobsScope       string
+	// sizeStop is the CD-0229 D6 stop: a review proved the larger change
+	// bigger after its latest size record. Only the size rerun, a
+	// revise_intent outside workflow_action, releases it.
+	sizeStop bool
+	// engineering is the explicit classification dimension for a
+	// consequence_v1 contract whose declared decision fact is the empty set:
+	// the model folds no pending operator question for engineering work,
+	// whatever the step shape declares, and the conformance lift compares
+	// that answer with the real fold. Absence of the dimension (false on
+	// every legacy enumeration state) keeps the registered legacy
+	// enumeration byte-for-byte in its prior behavior.
+	engineering bool
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v nonprogress %d convergence %q findingsAt %q jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v sizeStop %v done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.nonprogress, s.convergence, s.findingsSeen, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.sizeStop, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -346,10 +358,22 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,
 		NonProgressAttempts:         state.nonprogress,
 		DispatchHold:                admissionDispatchHold(definition, state),
-		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
+		PendingOperatorDecision:     state.contracts == 1 && !state.engineering && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
+		ApprovalPolicy:              definition.ApprovalPolicy,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    delivery,
+		SizeRerunRequired:           state.sizeStop,
+	}
+	// The classification dimension folds the confirmation authority beside
+	// the question: an engineering contract records the coordinator's own
+	// confirmation, a decision contract keeps the verified operator, and a
+	// legacy pin keeps the empty authority the question machinery owns.
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		folded.ConfirmationAuthority = WorkflowConfirmationOperator
+		if state.engineering {
+			folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
+		}
 	}
 	// The escalation the model folds is its nonprogress wall; the loader
 	// derives a basis exactly at an escalated fold, so the lift mirrors that
@@ -384,9 +408,18 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	}
 	// The acceptance gate folds the recorded verdict: an open premise
 	// question without one refuses confirm_premise, and record_verdict on the
-	// same step stays the exit. Evidence binding is outside the model.
-	if action, _ := workflowOperatorQuestionAction(definition, state.step); folded.PendingOperatorDecision && action == "confirm_premise" && state.verdict == "" {
+	// same step stays the exit. Engineering work keeps the same deliverable
+	// gate — its confirmation replaces the question, not the prerequisites —
+	// and folds the recorded-investigation prerequisite beside it: without
+	// the observation the confirmation refuses, never admits behind an
+	// absent prerequisite. An earlier folded failure keeps its place, exactly
+	// as the loader preserves it. Evidence binding is outside the model.
+	action, _ := workflowOperatorQuestionAction(definition, state.step)
+	if (folded.PendingOperatorDecision || state.engineering) && action == "confirm_premise" && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
+	}
+	if state.engineering && action == "confirm_premise" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
+		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	if refinement && reviewStep {
 		folded.ReviewDebt = state.debt
@@ -980,13 +1013,18 @@ func admissionRenewNonProgressWindow(state *admissionModelState) {
 	}
 }
 
-// admissionAgentMoves models observation records and the native verify route
+// admissionAgentMoves models the size rerun, observation records, and the native verify route
 // outside workflow_action. Verification still needs an admitted evidence bind.
 func admissionAgentMoves(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	if state.done {
 		return nil
 	}
 	var successors []admissionModelState
+	if state.sizeStop {
+		rerun := state
+		rerun.sizeStop = false
+		successors = append(successors, rerun)
+	}
 	if !state.artifact || !state.observed {
 		observed := state
 		observed.artifact, observed.observed = true, true
@@ -1017,6 +1055,9 @@ func admissionAgentMoves(definition WorkflowDefinition, state admissionModelStat
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
+	if before.sizeStop != after.sizeStop {
+		return "revise_intent:size_rerun"
+	}
 	if before.proof != after.proof || before.integration != after.integration {
 		return "worktree_verify+bind_evidence"
 	}
@@ -1024,14 +1065,25 @@ func admissionAgentMoveName(before, after admissionModelState) string {
 }
 
 // admissionEnvironmentMoves are the moves no agent controls: a law revision
-// or a Domain registry change makes the active contract's pin stale.
+// or a Domain registry change makes the active contract's pin stale, and a
+// review's findings can prove a larger change bigger (CD-0229 D5), which
+// sets the size stop.
 func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
-	if state.done || state.contracts != 1 || state.stale != "" {
+	if state.done || state.contracts != 1 {
 		return nil
 	}
-	law, registry := state, state
-	law.stale, registry.stale = "law", "registry"
-	return []admissionModelState{law, registry}
+	var moves []admissionModelState
+	if state.stale == "" {
+		law, registry := state, state
+		law.stale, registry.stale = "law", "registry"
+		moves = append(moves, law, registry)
+	}
+	if !state.sizeStop {
+		proved := state
+		proved.sizeStop = true
+		moves = append(moves, proved)
+	}
+	return moves
 }
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
@@ -1227,8 +1279,19 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			}
 		}
 	}
-	var withOrigins []admissionModelState
+	// The size stop exists only under one active contract: its proof needs
+	// two accepted reviews of the contracted work.
+	var withStops []admissionModelState
 	for _, state := range withEvidence {
+		withStops = append(withStops, state)
+		if state.contracts == 1 {
+			stopped := state
+			stopped.sizeStop = true
+			withStops = append(withStops, stopped)
+		}
+	}
+	var withOrigins []admissionModelState
+	for _, state := range withStops {
 		if state.attempt != "completed" {
 			withOrigins = append(withOrigins, state)
 			continue
@@ -1274,6 +1337,9 @@ func admissionModelJobScope(jobs string) string {
 // never counted below the wall: there the workflow owes its own exit, and a
 // universal stop would vacate both checks.
 func admissionOperatorStopResolves(definition WorkflowDefinition, state admissionModelState) bool {
+	// The size stop hides the wall's dispatch refusal, not the wall: the
+	// operator's cancel stays admitted under it.
+	state.sizeStop = false
 	decision := workflowAdmit(definition, admissionWorkflowState(definition, state), "dispatch_worker")
 	return decision.ConvergenceRequired
 }
@@ -1452,12 +1518,12 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for _, witness := range archivedRefusalWitnesses(definition) {
-					t.Error(witness)
+					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 				}
 				return
 			}
 			for _, witness := range admissionStrandedWitnesses(definition) {
-				t.Error(witness)
+				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 			}
 		})
 	}
@@ -1565,7 +1631,7 @@ func admissionKeyCount(value int64) uint8 {
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
 	var flags uint16
 	for i, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
-		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.done} {
+		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.sizeStop, state.done, state.engineering} {
 		if set {
 			flags |= 1 << i
 		}
@@ -1592,7 +1658,7 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 27
+const admissionModelKeyFields = 29
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1600,11 +1666,20 @@ func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	}
 }
 
+func TestAdmissionModelKeyKeepsEngineeringClassification(t *testing.T) {
+	steps := []string{""}
+	plain := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone})
+	engineering := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone, engineering: true})
+	if plain == engineering {
+		t.Fatalf("admissionModelKeyOf encodes %d fields but states differing only in engineering share key %#v; encode the engineering field so distinct states keep distinct keys", admissionModelKeyFields, plain)
+	}
+}
+
 // admissionModelGraph is the reachable search's whole edge set: for every
 // reachable state, the successors of its admitted moves and the agent's
 // observation record, held as integer indices into the discovery order.
 // Environment edges stay out: the live propagation reads this graph, and
-// environment staleness never makes a state live. Edge k runs from
+// an environment move never makes a state live. Edge k runs from
 // edgeFrom[k] to edgeTo[k]; parent and via record the first edge into each
 // state by index.
 type admissionModelGraph struct {
@@ -1615,7 +1690,7 @@ type admissionModelGraph struct {
 }
 
 // admissionReachableGraph is the breadth-first search over admitted moves,
-// the agent's observation record, and the environment's pin staleness, from
+// the agent's own moves, and the environment's moves, from
 // the start state, in discovery order.
 func admissionReachableGraph(definition WorkflowDefinition, start admissionModelState) admissionModelGraph {
 	graph := admissionModelGraph{
@@ -1639,7 +1714,7 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 			graph.parent = append(graph.parent, from)
 			graph.via = append(graph.via, action)
 		}
-		if to != from && action != "environment:stale_pin" {
+		if to != from && action != admissionEnvironmentMoveName {
 			graph.edgeFrom = append(graph.edgeFrom, from)
 			graph.edgeTo = append(graph.edgeTo, to)
 		}
@@ -1661,14 +1736,18 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 			link(int32(i), admissionAgentMoveName(state, successor), successor)
 		}
 		for _, successor := range admissionEnvironmentMoves(state) {
-			link(int32(i), "environment:stale_pin", successor)
+			link(int32(i), admissionEnvironmentMoveName, successor)
 		}
 	}
 	return graph
 }
 
+// admissionEnvironmentMoveName labels the environment's edges: pin
+// staleness and a size proof.
+const admissionEnvironmentMoveName = "environment"
+
 // admissionLiveGraphStates computes completion reachability from the
-// recorded edges. Neither environment staleness nor an operator stop can
+// recorded edges. Neither an environment move nor an operator stop can
 // replace a missing completion path from another state.
 func admissionLiveGraphStates(graph admissionModelGraph) []bool {
 	live := make([]bool, len(graph.reachable))

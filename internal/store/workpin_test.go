@@ -49,7 +49,7 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	var available bool
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
 		var err error
-		transactionPin, available, err = ReadMutationWorkPinTx(context.Background(), tx, "workpin-reader", nil)
+		transactionPin, available, err = ReadMutationWorkPinTxForRegistry(context.Background(), tx, nil, "workpin-reader", nil)
 		return err
 	}); err != nil {
 		t.Fatal(err)

@@ -61,6 +61,9 @@ and identity only.
 
 ### D2. Its action policy matches `start_execution`
 
+For `approval_policy=consequence_v1`, the routine policy includes failed-worker retry dispatch. The exact failed attempt, epoch, active contract, and job binding remain transactional prerequisites; a fresh attempt and epoch remain required. The convergence wall is unchanged and operator approval cannot open it. Historical pins retain CD-0148's approval rule.
+
+
 `dispatch_worker` is registered as
 `actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric)`.
 

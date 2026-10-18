@@ -132,6 +132,17 @@ func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	}
 }
 
+// workflowDecisionFactRecoveryActionDefinition selects the copied decision-fact
+// declaration onto the engine-owned recovery definition for the pinned
+// definition: a consequence_v1 successor contract declares the required
+// decision_domains fact, and a legacy pin keeps the released recovery
+// declaration byte-identical.
+func workflowDecisionFactRecoveryActionDefinition(definition WorkflowDefinition) WorkflowActionDefinition {
+	action := workflowContractRecoveryActionDefinition()
+	action.Payload.Fields = workflowDecisionFactPayloadFields(definition, action.Payload.Fields)
+	return action
+}
+
 func validateWorkflowLawRevisions(mandated []string, revisions []WorkflowLawRevision) error {
 	if len(mandated) > 32 || len(revisions) > 32 {
 		return newFailure(KindInvalidPayload, "validate_workflow_law_revisions", "workflow law revision pins exceed the bounded list size", false, "supply at most 32 mandated law revisions")
@@ -1193,21 +1204,22 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 
 // validateWorkflowContractRecoveryPayload enforces the successor contract
 // payload against its one registry declaration: the field list, the required
-// set, and the exactly-one outcome group all come from
-// workflowContractRecoveryActionDefinition, so no handwritten field-name list
-// or outcome-shape branch can drift from the declaration the published
-// variant generates from. On a canonical authoring head the
-// outcome group is the explicit predicate array alone: the legacy outcome
-// pair refuses and the array is required, so the successor's end state is
-// always the one the caller supplied.
+// set, and the exactly-one outcome group all come from the definition's
+// selected recovery declaration (workflowDecisionFactRecoveryActionDefinition),
+// so no handwritten field-name list or outcome-shape branch can drift from
+// the declaration the published variant generates from, and a consequence_v1
+// successor's required decision fact is declared beside the released fields.
+// On a canonical authoring head the outcome group is the explicit predicate
+// array alone: the legacy outcome pair refuses and the array is required, so
+// the successor's end state is always the one the caller supplied.
 func validateWorkflowContractRecoveryPayload(definition WorkflowDefinition, raw json.RawMessage) error {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return err
 	}
-	declaration := workflowContractRecoveryActionDefinition().Payload
+	declaration := workflowDecisionFactRecoveryActionDefinition(definition).Payload
 	if workflowCanonicalAuthoringActive(definition) {
-		declaration.Fields = workflowCanonicalContractRecoveryPayloadFields()
+		declaration.Fields = workflowCanonicalContractRecoveryPayloadFields(declaration.Fields)
 	}
 	crossField := workflowActionCrossField("supersede_contract")
 	allowed := make(map[string]WorkflowPayloadField)
@@ -1236,6 +1248,13 @@ func validateWorkflowContractRecoveryPayload(definition WorkflowDefinition, raw 
 		if _, ok := fields[field.Name]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires a fully supplied contract", false, "supply every successor contract field")
 		}
+	}
+	// The submitted fact keeps its semantic contract beside the declared
+	// field: workflowSubmittedDecisionDomains refuses absence, null, and any
+	// noncanonical array the per-field value check cannot see. A legacy
+	// declaration carries no fact, so the call stays a no-op there.
+	if _, err := workflowSubmittedDecisionDomains(definition, "successor", fields); err != nil {
+		return err
 	}
 	switch complete, partial := workflowPayloadAlternativeGroups(crossField.Alternatives, fields); {
 	case complete == 1 && !partial:

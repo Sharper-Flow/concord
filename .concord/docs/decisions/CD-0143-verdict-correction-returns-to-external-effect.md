@@ -22,6 +22,9 @@ workflow to the external effect that produced the result.
 
 ### D1. Admit one typed verdict-correction action
 
+For `approval_policy=consequence_v1`, correction requires the authenticated coordinator, diagnosis, strategy, affected predicates/findings, and bound evidence, but no operator approval or operator identity. This qualification applies to the approval prerequisite and its verification assertions below. Declared returns, attempt counts, convergence, fail-closed completion, and historical-pin approval remain unchanged.
+
+
 The engine exposes `request_correction` when a completed and accepted worker
 result and a current unhealthy verdict exist. The payload requires a diagnosis,
 strategy, affected predicate IDs, bound evidence references, and an exact

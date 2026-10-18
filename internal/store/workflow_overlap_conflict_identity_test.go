@@ -58,7 +58,7 @@ func TestOverlapResolutionVersionConflictNamesTheStaleEndpoint(t *testing.T) {
 					FromExpectedVersion: fromExpected, ToExpectedVersion: toExpected,
 					FromContractVersion: 1, ToContractVersion: 1,
 					ResolutionKind: ResolutionCompatibleWith, Reason: "identity of the refusal",
-					ApprovalRef: "approval:overlap-conflict", Actor: actor,
+					Actor:      actor,
 					OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC),
 				})
 				return err

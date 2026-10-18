@@ -7,7 +7,6 @@ import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
 const oid = "a".repeat(40)
 const lane = agentLanes.find((entry) => entry.id === "implement")!
-const signal = new AbortController().signal
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 const controlArgv = ["go", "test", "-count=1", "-run", "^(TestSubject)$", "."]
 
@@ -67,24 +66,21 @@ function targetPacket(pair: { materializer: string; runner: string } = { materia
   return candidate
 }
 
-function runner(head = oid, status = "", fail = false): DispatchRunner {
+function runner(head = oid, status = ""): DispatchRunner {
   return { async run(argv) {
     const args = argv.slice(3)
-    if (fail) return { exitCode: 128, stdout: "", stderr: "probe failed" }
     return { exitCode: 0, stdout: args[0] === "rev-parse" ? `${head}\n` : args[0] === "status" ? status : args[0] === "ls-tree" ? `100644 blob ${oid}\tharness\n` : "", stderr: "" }
   } }
 }
 
-test("readiness leaves subject freshness to the core and runs no git", async () => {
-  for (const deps of [runner(), runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0"), runner(oid, "", true), runner("not-an-oid")]) {
-    expect(await verifyPacketOracleReadiness(packet(), { runner: deps, directory: "/synthetic/tree", signal })).toBeNull()
-  }
+test("readiness leaves subject freshness to the core", async () => {
+  expect(await verifyPacketOracleReadiness(packet())).toBeNull()
 })
 
 test("no core-qualified subject requires existing verify recovery", async () => {
   const missing = packet()
   delete missing.inputs.work_context!.subject_commit
-  const refusal = await verifyPacketOracleReadiness(missing, { runner: runner(), directory: "/synthetic/tree", signal })
+  const refusal = await verifyPacketOracleReadiness(missing)
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("worktree_verify")
 })
@@ -92,26 +88,23 @@ test("no core-qualified subject requires existing verify recovery", async () => 
 test("control Project owns preparation independently of the job primary Project", async () => {
   const candidate = packet()
   candidate.inputs.worker_job!.project_scope = "primary-project"
-  expect(await verifyPacketOracleReadiness(candidate, { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
+  expect(await verifyPacketOracleReadiness(candidate)).toBeNull()
 })
 
 test("preparation from the primary Project cannot replace the control Project", async () => {
   const candidate = packet()
   candidate.inputs.worker_job!.project_scope = "primary-project"
   candidate.inputs.work_context!.oracle_preparations![0].project_id = "primary-project"
-  let probes = 0
-  const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
-    runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+  const refusal = await verifyPacketOracleReadiness(candidate)
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("preparation")
-  expect(probes).toBe(0)
 })
 
 test("subject drift and dirty tree authorize; the core owns their refusal", async () => {
   configureCoreBinary("concord-test")
   for (const probes of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0")]) {
     let authorizations = 0
-    const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
+    await dispatchWorker(packet(), { credentials: testCredentials, runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
     // Readiness no longer refuses drift: authorization is reached, and the
     // stubbed dispatch may stop later for reasons this check does not own.
     expect(authorizations).toBe(1)
@@ -138,42 +131,20 @@ test("qualified preparation refs and metadata are mandatory before any probe or 
   ]) {
     const candidate = packet()
     mutation(candidate)
-    let probes = 0
-    const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
-      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    const refusal = await verifyPacketOracleReadiness(candidate)
     expect(refusal).not.toBeNull()
     expect(refusal!.message).toContain("preparation")
-    expect(probes).toBe(0)
-  }
-})
-
-test("qualified preparation admission runs no git and never auto-prepares", async () => {
-  const seen: string[][] = []
-  expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
-    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
-  expect(seen).toEqual([])
-})
-
-test("the adapter readiness runner receives no HEAD or status calls; the core owns subject freshness", async () => {
-  const seen: string[][] = []
-  expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
-    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
-  for (const argv of seen) {
-    expect(["rev-parse", "status"]).not.toContain(argv[3])
   }
 })
 
 test("target preparations pass only the exact admitted materializer and runner pairs", async () => {
   for (const pair of [{ materializer: "uv", runner: "pytest" }, { materializer: "none", runner: "check" }, { materializer: "uv", runner: "check" }]) {
-    expect(await verifyPacketOracleReadiness(targetPacket(pair), { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
+    expect(await verifyPacketOracleReadiness(targetPacket(pair))).toBeNull()
   }
   for (const pair of [{ materializer: "none", runner: "pytest" }, { materializer: "future", runner: "pytest" }, { materializer: "uv", runner: "future" }, { materializer: "", runner: "check" }]) {
-    let probes = 0
-    const refusal = await verifyPacketOracleReadiness(targetPacket(pair), { directory: "/synthetic/tree", signal,
-      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    const refusal = await verifyPacketOracleReadiness(targetPacket(pair))
     expect(refusal).not.toBeNull()
     expect(refusal!.message).toContain("preparation")
-    expect(probes).toBe(0)
   }
 })
 
@@ -197,12 +168,9 @@ test("target witness metadata must be real, distinct, and case-complete before a
   ]) {
     const candidate = targetPacket()
     mutation(candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>)
-    let probes = 0
-    const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
-      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    const refusal = await verifyPacketOracleReadiness(candidate)
     expect(refusal).not.toBeNull()
     expect(refusal!.message).toContain("preparation")
-    expect(probes).toBe(0)
   }
 })
 
@@ -211,12 +179,9 @@ test("target-selected witnesses must be exactly the union of the case map", asyn
   const preparation = candidate.inputs.work_context!.oracle_preparations![0] as unknown as Record<string, unknown>
   preparation.selected_witness_ids = checkWitnesses.concat(["extra"])
   preparation.selected_distinct_count = 3
-  let probes = 0
-  const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
-    runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+  const refusal = await verifyPacketOracleReadiness(candidate)
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("preparation")
-  expect(probes).toBe(0)
 })
 
 test("target witness limits count UTF-8 bytes rather than characters", async () => {
@@ -229,11 +194,8 @@ test("target witness limits count UTF-8 bytes rather than characters", async () 
     preparation.selected_witness_ids = [witness]
     preparation.selected_distinct_count = 1
     preparation.case_to_witness_map = { "case:subject": [witness] }
-    let probes = 0
-    const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
-      runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+    const refusal = await verifyPacketOracleReadiness(candidate)
     expect(refusal === null).toBe(accepted)
-    expect(probes).toBe(0)
   }
 })
 

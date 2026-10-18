@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -38,6 +39,11 @@ type WorkflowAdmissionState struct {
 	// OutsideRepairActive suspends every managed action, including continuity
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
+	// SizeRerunRequired is the CD-0229 D6 stop: a review proved the larger
+	// change bigger after its latest size record (CD-0229 D5). Only the
+	// pre-proof attempts' rejection and failure routes stay admitted, and
+	// only a newer size record releases it.
+	SizeRerunRequired bool
 	// RefinementWorkflow reports whether the pinned definition declares the
 	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
@@ -165,8 +171,26 @@ type WorkflowAdmissionState struct {
 	// answer, the one owner the work pin's advertisement reads — while the
 	// operator-selection chain keeps the payload checks, the closed choice
 	// and the decision-context digest, which the payload-blind admission
-	// cannot judge.
+	// cannot judge. A folded engineering confirmation authority closes the
+	// question whatever the step shape declares.
 	PendingOperatorDecision bool
+	// ApprovalPolicy is the pinned definition's approval policy: absence
+	// selects the released legacy classification and consequence_v1 the
+	// typed one. The consent consumers read this folded field instead of
+	// re-reading the definition, so every surface answers from one fold.
+	ApprovalPolicy string
+	// ConfirmationAuthority is the folded confirmation authority of the one
+	// active contract: consequence_v1 engineering work records the
+	// authenticated non-worker coordinator's own confirmation, decision
+	// work keeps the verified operator, and legacy pins fold the empty
+	// authority whose shape the question machinery owns.
+	ConfirmationAuthority WorkflowConfirmationAuthority
+	// ConfirmationFactFailure is the typed refusal a consequence_v1 contract
+	// folds when its declared decision-domain fact is absent or malformed:
+	// the confirmation and completion refuse on it instead of classifying
+	// the work as engineering. Nil on every legacy pin and every well-formed
+	// fact.
+	ConfirmationFactFailure *Failure
 	// AcceptanceDeliverablesMissing is the acceptance gate's refusal while
 	// an open premise question stands without its deliverables: the recorded
 	// verdict, a verdict for every approved predicate, and every required
@@ -235,6 +259,28 @@ type WorkflowAdmissionDecision struct {
 	Failure                *Failure
 }
 
+// WorkflowConfirmationAuthority names the folded confirmation authority of
+// one active contract. A legacy pin folds the empty authority: the declared
+// question machinery stays its confirmation path. consequence_v1 engineering
+// work folds the coordinator authority — the authenticated non-worker
+// coordinator records its own confirmation — and decision-bearing work folds
+// the operator authority: the exact human choice, digest, and identity.
+type WorkflowConfirmationAuthority string
+
+const (
+	// WorkflowConfirmationNone is the legacy fold: no typed authority, and
+	// the question machinery keeps every answer it always gave.
+	WorkflowConfirmationNone WorkflowConfirmationAuthority = ""
+	// WorkflowConfirmationCoordinator records an engineering confirmation:
+	// the executing or initiating non-worker coordinator confirms without a
+	// human question, a human digest, or an operator substitution.
+	WorkflowConfirmationCoordinator WorkflowConfirmationAuthority = "coordinator"
+	// WorkflowConfirmationOperator records a decision confirmation: the
+	// verified operator answers the open question with the closed choice and
+	// the exact decision-context digest.
+	WorkflowConfirmationOperator WorkflowConfirmationAuthority = "operator"
+)
+
 // workflowFailureOf converts a folded boundary error into its typed refusal.
 func workflowFailureOf(err error) *Failure {
 	var failure *Failure
@@ -271,6 +317,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if active || state.InstanceState == "outside_repair" {
 		return state, nil, nil, nil
 	}
+	proofs, err := deriveWorkSizeProofsTx(ctx, q, workID, 0)
+	if err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
+	state.SizeRerunRequired = len(proofs) != 0
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
 	// singular active-contract reader refuses duplicates. The conditional
@@ -464,9 +515,25 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 }
 
 func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
-	// The operator question reads the active contract's premise, so a
-	// contractless or ambiguous projection has no question to answer.
-	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, state.Step)
+	state.ApprovalPolicy = definition.ApprovalPolicy
+	// The confirmation authority folds once from the pinned policy and the
+	// contract's declared fact, and every consumer reads this fold: a folded
+	// coordinator authority closes the human question whatever the step shape
+	// declares, and a missing or malformed new-policy fact is a typed
+	// refusal, never engineering.
+	// The confirmation folds only for exactly one active contract: the
+	// duplicated projection is the supersede recovery's subject, so the
+	// singular active-contract read never runs there and the loader stays
+	// total for workflowAdmitSupersede.
+	if state.ActiveContracts == 1 {
+		fold, foldErr := foldWorkflowConfirmationTx(ctx, q, workID, definition)
+		if foldErr != nil {
+			return foldErr
+		}
+		state.ConfirmationAuthority, state.ConfirmationFactFailure = fold.authority, fold.factFailure
+	}
+	action, _ := workflowOperatorQuestionAction(definition, state.Step)
+	state.PendingOperatorDecision = state.ActiveContracts == 1 && state.ConfirmationFactFailure == nil && state.ConfirmationAuthority != WorkflowConfirmationCoordinator && action != ""
 	if state.ActiveContracts == 1 {
 		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
 		if subjectErr != nil {
@@ -477,23 +544,41 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 			state.AcceptanceDeliverablesMissing = subjectErr
 		}
 	}
-	if !state.PendingOperatorDecision {
+	// The confirmation prerequisites fold once for both authorities at the
+	// step that hosts the confirmation: the recorded investigation and the
+	// acceptance deliverables stand behind the coordinator's engineering
+	// confirmation exactly as they stand behind the operator's question
+	// answer, so the preflight and the work pin answer what the confirmation
+	// enforces. Unrelated steps run no prerequisite read.
+	if action == "" || state.ConfirmationFactFailure != nil {
+		return nil
+	}
+	if !state.PendingOperatorDecision && state.ConfirmationAuthority != WorkflowConfirmationCoordinator {
 		return nil
 	}
 	if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
 		var failure *Failure
 		if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
+			if state.ConfirmationAuthority == WorkflowConfirmationCoordinator {
+				// An earlier folded failure — the acceptance-subject
+				// staleness above — keeps its place: the investigation
+				// refusal never overwrites it.
+				if state.AcceptanceDeliverablesMissing == nil {
+					state.AcceptanceDeliverablesMissing = artifactErr
+				}
+				return nil
+			}
 			state.PendingOperatorDecision = false
 			return nil
 		}
 		return artifactErr
 	}
-	if action, _ := workflowOperatorQuestionAction(definition, state.Step); action != "confirm_premise" {
+	if action != "confirm_premise" {
 		return nil
 	}
-	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
-		// A typed refusal is the confirmation's answer; only an
-		// unreadable projection fails the fold.
+	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, definition, workID); deliverablesErr != nil {
+		// A typed refusal is the confirmation's answer; only an unreadable
+		// projection fails the fold.
 		var failure *Failure
 		if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
 			return deliverablesErr
@@ -503,6 +588,64 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 		}
 	}
 	return nil
+}
+
+// workflowConfirmationFold is the one classification answer the pinned
+// policy and the active contract's declared fact fold to. Every consent
+// consumer — the admission state, the question projection, the selection
+// chain, and the continuity snapshot — reads this fold or the state it
+// populated, never a second classifier.
+type workflowConfirmationFold struct {
+	authority   WorkflowConfirmationAuthority
+	factFailure *Failure
+}
+
+// foldWorkflowConfirmationTx folds one active contract's confirmation
+// authority from the pinned policy and its declared decision-domain fact,
+// through the one pure classifier. A consequence_v1 contract whose fact is
+// absent or malformed folds the typed refusal; legacy pins fold the empty
+// authority and read nothing.
+func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) (workflowConfirmationFold, error) {
+	var fold workflowConfirmationFold
+	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		return fold, nil
+	}
+	version, versionErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_admission")
+	if versionErr != nil {
+		if versionErr == sql.ErrNoRows {
+			return fold, nil
+		}
+		return fold, versionErr
+	}
+	var stored sql.NullString
+	if err := q.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&stored); err != nil {
+		if err == sql.ErrNoRows {
+			return fold, nil
+		}
+		return fold, wrapFailure(KindUnavailable, "workflow_admission", "cannot read the workflow contract's declared decision fact", true, "retry once the database is readable", err)
+	}
+	var domains []string
+	if stored.Valid {
+		if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
+			fold.factFailure = newFailure(KindInvalidInput, "workflow_admission", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+			return fold, nil
+		}
+	}
+	decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
+	if decisionErr != nil {
+		var failure *Failure
+		if !failureAs(decisionErr, &failure) {
+			return fold, decisionErr
+		}
+		fold.factFailure = failure
+		return fold, nil
+	}
+	if decision.Consent == WorkflowConsentNone {
+		fold.authority = WorkflowConfirmationCoordinator
+		return fold, nil
+	}
+	fold.authority = WorkflowConfirmationOperator
+	return fold, nil
 }
 
 // workflowCorrectionWindowContinued reports whether a converged retry already
@@ -555,6 +698,16 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
+		return decision
+	}
+	if state.SizeRerunRequired && actionID != "reject_worker_result" && actionID != "record_worker_failure" {
+		// The stop follows the terminal and archived answers, which no
+		// rerun can change. Every attempt still open was dispatched before
+		// the proof: the stop refuses dispatch_worker, so no later attempt
+		// exists.
+		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action",
+			"a second review proved this larger change bigger (CD-0229 D5); its size must be decided again before the work continues", false,
+			RecoveryWorkSizeRerun)
 		return decision
 	}
 	consequence := workflowActionConsequence(definition, actionID)
@@ -639,6 +792,13 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
 		return decision
 	}
+	if (actionID == "confirm_premise" || actionID == "complete") && state.ConfirmationFactFailure != nil {
+		// A missing or malformed new-policy decision fact is the fold's own
+		// typed refusal: the confirmation and completion refuse on it instead
+		// of classifying the work as engineering or waiting on a question.
+		decision.Failure = workflowFailureOf(state.ConfirmationFactFailure)
+		return decision
+	}
 	if (actionID == "confirm_premise" || actionID == "complete") && state.AcceptanceDeliverablesMissing != nil {
 		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return decision
@@ -646,8 +806,10 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	// The question-open answer is the admission's: confirm_premise is
 	// answered only through an open operator question, so the decision
 	// marks the question closed and refuses advertisement. The work pin
-	// reads this same decision and drops the unadmitted intent.
-	if actionID == "confirm_premise" && !state.PendingOperatorDecision {
+	// reads this same decision and drops the unadmitted intent. A folded
+	// coordinator confirmation is the engineering exit: the executing or
+	// initiating non-worker coordinator records it without a question.
+	if actionID == "confirm_premise" && !state.PendingOperatorDecision && state.ConfirmationAuthority != WorkflowConfirmationCoordinator {
 		decision.OperatorQuestionClosed = true
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "no operator question is open at the current workflow step", false, "record the investigation artifact the question requires, or take a declared route")
 		return decision
@@ -696,10 +858,13 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 		return decision
 	}
-	if actionID == "dispatch_worker" && !state.retryEscalated() && state.FailedWorkerRetry != nil && !state.FailedRetryApproved {
+	if actionID == "dispatch_worker" && state.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 && !state.retryEscalated() && state.FailedWorkerRetry != nil && !state.FailedRetryApproved {
 		// The ordinary retry stays a declared route only after the other
 		// admission gates pass. Its exact approval belongs to the mutation
 		// boundary; an unrelated refusal must never become an approval route.
+		// A consequence_v1 retry consumes the folded policy instead: the
+		// revalidated attempt, epoch, contract, and job binding stay, and the
+		// convergence wall stays evidence-gated.
 		decision.ApprovalRequired = true
 	}
 	decision.Admitted = true

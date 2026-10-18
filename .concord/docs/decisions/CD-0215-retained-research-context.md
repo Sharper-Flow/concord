@@ -1,6 +1,7 @@
 # CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted
+- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1, accepted under operator delegation on 2026-10-09;
   calendar expiration was rejected.
@@ -22,6 +23,9 @@ CD-0222 remains the authority for Initiative identity, narrative, entries, archi
 This replacement does not restore Epic identity or alter unrelated Initiative obligations.
 
 ## Decision
+
+Physical pack deletion through `research_retire` retains operator approval as a listed gap under CD-0013 D11, without a new class assignment. Non-dry-run retirement requires exact one-use approval bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. Approval does not waive CD-0230 D5's destructive-action safety requirements.
+
 
 ### D1. Initiative remains secondary business context
 

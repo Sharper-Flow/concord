@@ -9,8 +9,10 @@
 
 ## Public boundary
 
-The constitutional snapshot is prepared for `Sharper-Flow/concord`, module
-`github.com/sharper-flow/concord`, default branch `main`. Public authority begins
+The constitutional snapshot is prepared for
+[`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord), module
+[`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord),
+default branch `main`. Public authority begins
 at the annotated `constitutional-bootstrap` tag. The candidate does not import
 private history, dependency inventories, archive bundles, or synchronization files.
 

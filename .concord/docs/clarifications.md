@@ -1,6 +1,7 @@
 # Concord Clarifications & Open Questions
 
 > **Status:** Living doc. Companion to [`README.md`](./README.md) and the others.
+> **Amended:** 2026-10-18.
 > **Purpose:** The unresolved decisions and ambiguities that need operator
 > direction before Concord moves from vision to build, plus resolved directions
 > that already have an answer and must be honored by the document set.
@@ -553,6 +554,9 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 | TS9 | Pre-go-live deterministic evidence contract | first-go-live measurement law |
 
 ### TS1–TS9 — decisions at a glance
+
+The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent; merger and supersession retain exact operator approval as listed gaps without a new class assignment. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
+
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |
 |---|---|---|---|---|

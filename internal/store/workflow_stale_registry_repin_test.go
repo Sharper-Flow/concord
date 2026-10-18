@@ -648,8 +648,8 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 			EventID: "stale-overlap-resolution-" + workID, FromWorkID: workID, ToWorkID: peerID,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
 			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith,
-			Reason: "the delivered repair is independent of the peer's stranded claim", ApprovalRef: "approval:stale-overlap-sequence",
-			Actor: owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
+			Reason: "the delivered repair is independent of the peer's stranded claim",
+			Actor:  owner.PrincipalRef, OccurredAt: time.Unix(40, 0).UTC(),
 		}
 	}
 	subjectVersion := readWorkVersion(t, s, workID)

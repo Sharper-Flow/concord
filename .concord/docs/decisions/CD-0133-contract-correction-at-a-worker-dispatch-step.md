@@ -21,6 +21,9 @@ guards.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, authenticated attributed supersession replaces the operator-approval prerequisite below. Exact predecessor/successor versions, complete successor content, audit evidence, outstanding-attempt restrictions, and correction admission remain required. The correction does not manufacture verification or alter historical pins; CD-0013 D11 governs subsequent decision-bearing confirmation.
+
+
 ### D1. Admit correction at a worker-dispatch step
 
 `supersede_contract` is available at a non-terminal worker-dispatch step with one

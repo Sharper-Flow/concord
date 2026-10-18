@@ -286,7 +286,7 @@ test("watcher contract preserves shared runtime bounds", () => {
   expect(contract.type).toBe("object")
   expect(contract.additionalProperties).toBe(false)
   expect(contract.required).toEqual(["repo", "selector"])
-  expect(Object.keys(contract.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(contract.properties).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(contract.properties.repo).toMatchObject({
     type: "string",
     minLength: 3,
@@ -739,7 +739,7 @@ test("the host publishes concord_ci_watch args as per-field argument schemas", (
   // Schema passed as args publishes its own keywords as argument fields
   // instead, so repo and selector never reach the model.
   const args = concord_ci_watch.args as Record<string, unknown>
-  expect(Object.keys(args).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(args).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(args.repo).toMatchObject({ type: "string", minLength: 3 })
   const selector = args.selector as Record<string, unknown>
   expect(selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })

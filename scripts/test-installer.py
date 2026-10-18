@@ -36,6 +36,26 @@ import install as installer
 
 SCRIPT = Path(__file__).with_name("install.py")
 
+# The roots an installer child resolves without --root, under the environment
+# this suite started in. Every installer command locks and recovers the root it
+# resolves, so a child that resolves one of these acts on the operator's live
+# installation.
+with contextlib.redirect_stderr(io.StringIO()):
+    _OPERATOR_PATHS = installer.paths_for(None)
+OPERATOR_ROOTS = (_OPERATOR_PATHS.data_home, _OPERATOR_PATHS.config_home, _OPERATOR_PATHS.bin_dir)
+
+
+def default_root_overlap() -> list[str]:
+    """Name each default root a child of this process would share with the operator."""
+    with contextlib.redirect_stderr(io.StringIO()):
+        paths = installer.paths_for(None)
+    return [
+        f"{name}={resolved} overlaps {protected}"
+        for name, resolved in (("data_home", paths.data_home), ("config_home", paths.config_home), ("bin_dir", paths.bin_dir))
+        for protected in OPERATOR_ROOTS
+        if resolved.is_relative_to(protected) or protected.is_relative_to(resolved)
+    ]
+
 
 def _repository_snapshot(root: Path) -> dict[str, bytes]:
     """Byte inventory of everything a redirected Git child could mutate."""
@@ -4269,6 +4289,11 @@ class StandaloneInstallerTest(unittest.TestCase):
     """
 
     def run_standalone(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # The child runs without --root, as the operator does, so it must
+        # inherit an environment whose default roots are private to the suite.
+        overlap = default_root_overlap()
+        if overlap:
+            self.fail("refusing to start a standalone installer on the operator's default roots: " + "; ".join(overlap))
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "concord-installer.py"
             script.write_bytes(SCRIPT.read_bytes())

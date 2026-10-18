@@ -2125,7 +2125,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		if err != nil {
 			return err
 		}
-		if !contains(grant.ProductScope, in.ProductID) {
+		if !slices.Contains(grant.ProductScope, in.ProductID) {
 			return newRuntimeFailure("unauthorized", "research retirement Product is outside grant scope", "contact_operator", false)
 		}
 		key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
@@ -2157,7 +2157,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		for _, owner := range owners {
-			if !contains(byOwner[owner], in.ProductID) {
+			if !slices.Contains(byOwner[owner], in.ProductID) {
 				return newRuntimeFailure("unauthorized", "research retirement owner is outside the requested Product", "contact_operator", false)
 			}
 		}
@@ -3238,7 +3238,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return failureEnvelope(base, err), nil, true
 		}
-		if !contains(products[in.WorkID], product) {
+		if !slices.Contains(products[in.WorkID], product) {
 			return coreError(base, "ambiguous_scope", "removal Product is not an authorized Product of the work item", "resolve_ambiguity", false), nil, true
 		}
 	}
@@ -3728,25 +3728,25 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 	if len(currentProducts) == 0 {
 		return coreError(base, "unknown_scope", "Project does not exist", "reread_entities", false), nil
 	}
-	if !contains(grant.PolicyProjectScope, in.ProjectID) {
+	if !slices.Contains(grant.PolicyProjectScope, in.ProjectID) {
 		return coreError(base, "unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false), nil
 	}
 	crossProduct := false
 	for _, product := range currentProducts {
-		if !contains(grant.PolicyProductScope, product) {
+		if !slices.Contains(grant.PolicyProductScope, product) {
 			return coreError(base, "unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false), nil
 		}
 		if product != in.ProductID {
 			crossProduct = true
 		}
 	}
-	if !contains(grant.PolicyProductScope, in.ProductID) {
+	if !slices.Contains(grant.PolicyProductScope, in.ProductID) {
 		return coreError(base, "unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false), nil
 	}
 	if crossProduct && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
 		return coreError(base, "unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false), nil
 	}
-	if contains(currentProducts, in.ProductID) {
+	if slices.Contains(currentProducts, in.ProductID) {
 		// The edge already exists. Re-adding it would duplicate it, and a
 		// different role would be a role change, which this operation does
 		// not carry.
@@ -3788,18 +3788,18 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 			return err
 		}
 		txProducts := byProjectTx[in.ProjectID]
-		if !equalStrings(currentProducts, txProducts) {
+		if !slices.Equal(currentProducts, txProducts) {
 			return newRuntimeFailure("version_conflict", "Project Product scope changed after authorization preflight", "reread_entities", false)
 		}
-		if !contains(txGrant.PolicyProjectScope, in.ProjectID) {
+		if !slices.Contains(txGrant.PolicyProjectScope, in.ProjectID) {
 			return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false)
 		}
 		for _, product := range txProducts {
-			if !contains(txGrant.PolicyProductScope, product) {
+			if !slices.Contains(txGrant.PolicyProductScope, product) {
 				return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false)
 			}
 		}
-		if !contains(txGrant.PolicyProductScope, in.ProductID) {
+		if !slices.Contains(txGrant.PolicyProductScope, in.ProductID) {
 			return newRuntimeFailure("unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false)
 		}
 		if crossProduct && !containsCapability(txGrant.Capabilities, Capability("cross_scope")) {
@@ -5266,12 +5266,12 @@ func (r runtime) deriveAuthorizedProductsTx(ctx context.Context, tx *store.Trans
 	if err != nil {
 		return false, err
 	}
-	if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
+	if expected, ok := scope["product_ids"].([]string); ok && !slices.Equal(expected, derivedProducts) {
 		return false, newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
 	}
 	crossProduct := false
 	for _, product := range derivedProducts {
-		if !contains(grant.ProductScope, product) {
+		if !slices.Contains(grant.ProductScope, product) {
 			return false, newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
 		}
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {

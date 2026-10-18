@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
 )
 
 // workflowRecordedCheckpointPins is the closed archived-pin set the recorded
@@ -205,7 +206,7 @@ func workflowRecordedRecoveryBindingAdmission(ctx context.Context, tx *sql.Tx, e
 	if !pins[pin] || BuiltinWorkflowRegistry().Verify(pin.ref, pin.version, pin.digest) != nil {
 		return false, nil
 	}
-	if !contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
+	if !slices.Contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
 		return false, nil
 	}
 	bindingStep := workflowEvidenceBindingStep(definition, "")

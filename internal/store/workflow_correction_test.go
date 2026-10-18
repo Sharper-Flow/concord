@@ -1446,7 +1446,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, "complete"); target != "" {
 			t.Fatalf("static analysis complete-step target = %q, want the unsupported shape", target)
 		}
-		stalenessFixture(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
+		pinWorkflowAtStep(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
 		stalenessSeedContract(t, s, workID)
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		recordCompleteStepContradictionObservation(t, s, workID, owner)

@@ -68,8 +68,8 @@ registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(che
 const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
 await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
 expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
-const diffBytes = Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8")
-registeredBytes.set("concord_worker_diff", diffBytes)
+const diffBytes = 322
+registeredBytes.set("concord_worker_diff", Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)

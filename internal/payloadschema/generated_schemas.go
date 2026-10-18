@@ -10412,6 +10412,10 @@ const GeneratedPayloadSchemaDocument = `{
               "actor": {
                 "$ref": "#/$defs/id"
               },
+              "attempt_id": {
+                "minLength": 1,
+                "type": "string"
+              },
               "contract_version": {
                 "$ref": "#/$defs/version"
               },
@@ -10422,7 +10426,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/evidence"
                 },
-                "maxItems": 32,
+                "maxItems": 64,
                 "type": "array"
               },
               "kind": {

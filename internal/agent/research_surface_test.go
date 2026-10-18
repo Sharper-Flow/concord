@@ -12,7 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CD-0025: author a pack through the tool surface, then declare reliance on
+// CD-0216: author a pack through the tool surface, then declare reliance on
 // it at a workflow boundary. The engine binds the consumer and proves
 // freshness fail-closed; a stale required revision refuses the action.
 
@@ -145,7 +145,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 
 	// 5. Stale the pack; a second required reliance on the stale revision is
-	// refused fail-closed at the boundary (CD-0009 D6 / CD-0025).
+	// refused fail-closed at the boundary (CD-0215 D6 / CD-0216).
 	if r := invoke("research_freshness_set", map[string]any{
 		"pack_id": packID, "expected_version": 4, "freshness": "stale", "idempotency_key": "rs-stale-1",
 	}); r.Outcome != OutcomeOK {

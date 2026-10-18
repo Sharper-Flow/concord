@@ -19,7 +19,6 @@
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Supersedes:** [CD-0068](CD-0068-domain-anchored-observations.md).
 
 ## Context
 

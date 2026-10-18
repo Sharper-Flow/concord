@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -143,7 +144,7 @@ func TestInvalidSelectedProductUnderAmbiguousScopeResolvesByCandidate(t *testing
 	if runtimeErr.kind != "ambiguous_scope" || runtimeErr.recovery != "resolve_ambiguity" {
 		t.Fatalf("context failure = %+v", runtimeErr)
 	}
-	if !equalStrings(runtimeErr.Candidates, candidates) {
+	if !slices.Equal(runtimeErr.Candidates, candidates) {
 		t.Fatalf("candidates=%v, want %v", runtimeErr.Candidates, candidates)
 	}
 }

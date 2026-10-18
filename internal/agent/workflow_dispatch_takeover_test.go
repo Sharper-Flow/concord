@@ -70,18 +70,6 @@ func (f dispatchTakeoverFixture) dispatch(t *testing.T, env CallEnvelope, attemp
 	return f.invoke(t, env, input), input
 }
 
-func (f dispatchTakeoverFixture) approve(t *testing.T, env CallEnvelope, grant Authority, challenge Envelope, input map[string]any) (CallEnvelope, map[string]any) {
-	t.Helper()
-	ref, _ := challenge.Error.Details["approval_ref"].(string)
-	if ref == "" {
-		t.Fatalf("challenge carries no approval_ref: %+v", challenge.Error)
-	}
-	approved := cloneWithApproval(t, input, ref)
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	env.HostApproval = signedHostApproval(f.privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
-	return env, approved
-}
-
 // laneDispatch records the worker session's own worker.dispatched for the
 // attempt and returns the lane actor it pins.
 func (f dispatchTakeoverFixture) laneDispatch(t *testing.T, eventID, attemptID string) string {
@@ -113,16 +101,6 @@ func (f dispatchTakeoverFixture) laneDispatch(t *testing.T, eventID, attemptID s
 	return laneActor
 }
 
-func latestDispatchStart(t *testing.T, s *store.Store) (int64, string) {
-	t.Helper()
-	var epoch int64
-	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref') FROM domain_events WHERE kind=? AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch, &actor); err != nil {
-		t.Fatal(err)
-	}
-	return epoch, actor
-}
-
 func requireTakeoverChallenge(t *testing.T, challenge Envelope, holder string, epoch int64) {
 	t.Helper()
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -140,19 +118,19 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	heldEpoch, ownerRef := latestDispatchStart(t, f.s)
+	heldEpoch, ownerRef := latestExecutionStart(t, f.s)
 
 	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
 	requireTakeoverChallenge(t, challenge, ownerRef, heldEpoch)
-	if epoch, actor := latestDispatchStart(t, f.s); epoch != heldEpoch || actor != ownerRef {
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch || actor != ownerRef {
 		t.Fatalf("challenge moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 
-	approvedEnv, approved := f.approve(t, f.other, f.otherGrant, challenge, input)
+	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
 	if response := f.invoke(t, approvedEnv, approved); response.Outcome != OutcomeOK {
 		t.Fatalf("approved dispatch takeover: %+v", response.Error)
 	}
-	if epoch, actor := latestDispatchStart(t, f.s); epoch != heldEpoch+1 || actor != actorRefOf(f.otherGrant) {
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch+1 || actor != actorRefOf(f.otherGrant) {
 		t.Fatalf("approved dispatch takeover epoch %d actor %s, want epoch %d opened by the taker", epoch, actor, heldEpoch+1)
 	}
 }
@@ -167,7 +145,7 @@ func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 	if first, _ := f.dispatch(t, f.owner, attemptID, "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	heldEpoch, _ := latestDispatchStart(t, f.s)
+	heldEpoch, _ := latestExecutionStart(t, f.s)
 	laneActor := f.laneDispatch(t, "owner-lane-dispatched", attemptID)
 
 	challenge, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
@@ -193,7 +171,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != OutcomeOK {
 		t.Fatalf("owner re-dispatch: %+v", again.Error)
 	}
-	movedEpoch, _ := latestDispatchStart(t, f.s)
+	movedEpoch, _ := latestExecutionStart(t, f.s)
 	ref := challenge.Error.Details["approval_ref"].(string)
 	approved := cloneWithApproval(t, input, ref)
 	approved["expected_version"] = workVersion(t, f.s, "work-1")
@@ -204,7 +182,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if response := f.invoke(t, env, approved); response.Error == nil || response.Error.Kind != "approval_invalid" {
 		t.Fatalf("approval bound to the superseded epoch = outcome %s error %+v, want approval_invalid", response.Outcome, response.Error)
 	}
-	if epoch, actor := latestDispatchStart(t, f.s); epoch != movedEpoch || actor != actorRefOf(f.ownerGrant) {
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != movedEpoch || actor != actorRefOf(f.ownerGrant) {
 		t.Fatalf("refused stale takeover moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 }

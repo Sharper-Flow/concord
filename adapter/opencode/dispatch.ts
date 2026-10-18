@@ -1258,17 +1258,6 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
 }
 
 
-// The core compares this absolute host directory against the active claim.
-// A redacted or relative directory cannot establish worktree identity.
-export function readSessionDirectory(stdout: string, sessionID: string): string | null {
-  let value: unknown
-  try { value = JSON.parse(stdout) } catch { return null }
-  if (!isRecord(value) || !isRecord(value.info)) return null
-  const info = value.info
-  if (info.id !== sessionID) return null
-  return typeof info.directory === "string" && info.directory.startsWith("/") ? info.directory : null
-}
-
 export function readSessionParent(stdout: string, sessionID: string): string | null {
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }

@@ -59,7 +59,6 @@ const MAX_STDERR = 8192
 // cmd/concord's inputRefusalExit names a refusal before dispatch, not a
 // generic process failure. A previous mutation call can still have an effect.
 const CLI_INPUT_REFUSAL_EXIT = 64
-const MAX_WORK_START_OUTPUT_BYTES = 16_384
 const MAX_SALVAGE_BYTES = 16_384
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
@@ -622,11 +621,12 @@ export async function readBoundWorkerDiff(request: WorkerDiffRequest, signal: Ab
 }
 
 async function readBoundWorkerPage(verb: "worker-read" | "worker-diff", request: WorkerReadingRequest | WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  const label = verb === "worker-diff" ? "diff" : "source"
   const leaseFault = hostLeaseFault()
-  if (leaseFault) throw new Error(`${leaseFault}; no source read ran`)
+  if (leaseFault) throw new Error(`${leaseFault}; no ${label} read ran`)
   const result = await runner.run([concordBinaryPath(), verb], JSON.stringify(request), signal, { cwd: directory })
-  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || "the core refused the pinned source read")
-  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error("pinned source page exceeded its transport bound")
+  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || `the core refused the pinned ${label} read`)
+  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error(`pinned ${label} page exceeded its transport bound`)
   return singleJSON(result.stdout)
 }
 
@@ -1156,7 +1156,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings]), context)
 }
 
-// CD-0017 D4, extended by CD-0196: a dispatched worker lane runs under a
+// CD-0017 D4, extended by CD-0223: a dispatched worker lane runs under a
 // managed parent and holds no Concord tool access — the dispatch packet is
 // its complete Concord context. The guard consults the host parent boundary,
 // which does not trust the selected agent or its prompt, and refuses before
@@ -1170,7 +1170,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
 // passes unchanged. A caller-cancelled signal is not a scope answer: the
 // boundary stands down for it, so the transport keeps the typed cancelled
 // envelope and the reconciliation retry paths stay reachable.
-const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0196): the dispatch packet is the lane's complete Concord context"
+const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0223): the dispatch packet is the lane's complete Concord context"
 async function laneConcordRefusalReason(context: ToolContext): Promise<string | null> {
   if (context.abort.aborted) return null
   // Without a bound control plane the parent boundary cannot answer, so the

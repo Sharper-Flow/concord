@@ -3,19 +3,19 @@
 - **Status:** Accepted
 - **Date:** 2026-08-25
 - **Scope:** Concord knowledge manifest schema 1.2; `MigrateLegacyKnowledgeManifest`;
-  CD-0041 D9.2; CD-0062 D3; issue #490
+  CD-0222 D9.2; CD-0062 D3; issue #490
 - **Approval:** Operator approved the subtractive resolution on 2026-08-25 and
   stated that pre-launch repository history creates no runtime compatibility
   obligation.
-- **Related:** CD-0041 D9.2, CD-0042 D1, CD-0062 D1-D3
-- **Amends:** CD-0041 D9.2 and CD-0062 D3
-- **Preserves:** CD-0041 D2-D3 and CD-0062 D1-D2/D4-D5
+- **Related:** CD-0222 D9.2, CD-0042 D1, CD-0062 D1-D3
+- **Amends:** CD-0222 D9.2 and CD-0062 D3
+- **Preserves:** CD-0222 D2-D3 and CD-0062 D1-D2/D4-D5
 - **Supersedes:** The requirement to migrate schema 1.0 or 1.1 knowledge
   manifests and the transient undecided-root marker
 
 ## Context
 
-CD-0041 D9.2 specified a deterministic upcast from component-scoped knowledge
+CD-0222 D9.2 specified a deterministic upcast from component-scoped knowledge
 manifests. CD-0062 D3 later required that upcast to mark a root home as
 undecided instead of inventing a Product-wide claim.
 
@@ -49,7 +49,7 @@ repository surface.
 and validator branch are removed. Concord does not add a flag, compatibility
 shim, startup migration, or operator command for schema 1.0 or 1.1 manifests.
 
-This decision amends CD-0041 D9.2 by ending its legacy-manifest upcast. It also
+This decision amends CD-0222 D9.2 by ending its legacy-manifest upcast. It also
 amends CD-0062 D3 by ending the undecided-marker rule that existed only for that
 upcast. Those clauses remain historical statements of the accepted design at
 their dates. They no longer govern current behavior.
@@ -82,5 +82,5 @@ surface would make obsolete repository history into a supported runtime case.
 **Keep schema 1.0 and 1.1 parsing behind a flag.** Rejected because a disabled
 compatibility path still retains the second contract and its maintenance cost.
 
-**Rewrite CD-0041 or CD-0062.** Rejected because those records accurately state
+**Rewrite CD-0222 or CD-0062.** Rejected because those records accurately state
 the decisions accepted at their dates. This amendment owns the current rule.

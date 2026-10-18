@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1368,7 +1369,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				continue
 			}
 			advertised = true
-			if !containsString(intent.RequiredFields, "decision_domains") {
+			if !slices.Contains(intent.RequiredFields, "decision_domains") {
 				t.Fatalf("the work pin's supersede_contract intent projects required fields %v, want the decision_domains fact advertised", intent.RequiredFields)
 			}
 		}
@@ -1397,7 +1398,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 						continue
 					}
 					advertised = true
-					if got := containsString(intent.RequiredFields, "decision_domains"); got != pinCase.want {
+					if got := slices.Contains(intent.RequiredFields, "decision_domains"); got != pinCase.want {
 						t.Fatalf("the %s approve_contract intent at %s projects required fields %v, want decision_domains advertised %v", pinCase.name, step.ID, intent.RequiredFields, pinCase.want)
 					}
 				}
@@ -1438,7 +1439,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 		approveStep := ""
 		for _, step := range definition.StepGraph.Steps {
-			if containsString(step.Actions, "approve_contract") {
+			if slices.Contains(step.Actions, "approve_contract") {
 				approveStep = step.ID
 			}
 		}

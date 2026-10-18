@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -67,7 +68,7 @@ type WorkflowActionExecutionRequest struct {
 	ApprovalConsequence     string
 	Now                     time.Time
 	// ResearchBindings declares the pack revisions this action's work item
-	// starts relying on (CD-0025). The engine binds each consumer and proves
+	// starts relying on (CD-0216). The engine binds each consumer and proves
 	// freshness fail-closed inside this action's transaction; there is no
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.
@@ -128,7 +129,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		}
 		return entry, action, nil
 	}
-	if actionID == "record_worker_failure" && !containsString(entry.Definition.AvailableActions, actionID) {
+	if actionID == "record_worker_failure" && !slices.Contains(entry.Definition.AvailableActions, actionID) {
 		var currentStep string
 		if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
@@ -437,7 +438,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		if nativeErr != nil {
 			return result, nativeErr
 		}
-		if nativeRunRef != "" && !contains(evidenceRefs, nativeRunRef) {
+		if nativeRunRef != "" && !slices.Contains(evidenceRefs, nativeRunRef) {
 			evidenceRefs = append(evidenceRefs, nativeRunRef)
 		}
 	}
@@ -603,7 +604,7 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 	if err != nil {
 		return "", "", err
 	}
-	if !containsWorkKind(source.CompositionRules.AllowedSuccessorWorkKinds, successor.Definition.WorkKind) {
+	if !slices.Contains(source.CompositionRules.AllowedSuccessorWorkKinds, successor.Definition.WorkKind) {
 		return "", "", newFailure(KindInvalidRelation, "workflow_action", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
 	}
 	return successorKind, pin.Ref, nil
@@ -639,7 +640,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 			return nil, false, err
 		}
 		refs := append([]string(nil), request.EvidenceRefs...)
-		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" && !contains(refs, attemptID) {
+		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" && !slices.Contains(refs, attemptID) {
 			refs = append(refs, attemptID)
 		}
 		return refs, false, nil
@@ -654,7 +655,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		// subject. An explicit immutable_subject_ref overrides that fallback.
 		reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 		reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
-		if reference != "" && !contains(refs, reference) {
+		if reference != "" && !slices.Contains(refs, reference) {
 			refs = append(refs, reference)
 		}
 		return refs, false, nil
@@ -678,13 +679,13 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		refs := append([]string(nil), request.EvidenceRefs...)
 		for _, entry := range entries {
 			for _, ref := range entry.EvaluationEvidence {
-				if !contains(refs, ref) {
+				if !slices.Contains(refs, ref) {
 					refs = append(refs, ref)
 				}
 			}
 		}
 		mint := workflowVerdictEntriesMint(entries, request.EvidenceRefs)
-		if mint && !contains(refs, "evidence:"+request.OperationID) {
+		if mint && !slices.Contains(refs, "evidence:"+request.OperationID) {
 			refs = append(refs, "evidence:"+request.OperationID)
 		}
 		return refs, mint, nil
@@ -699,7 +700,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		allRefs := append([]string(nil), request.EvidenceRefs...)
 		for _, ref := range refs {
-			if !contains(allRefs, ref) {
+			if !slices.Contains(allRefs, ref) {
 				allRefs = append(allRefs, ref)
 			}
 		}
@@ -755,7 +756,7 @@ func bornBoundEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string, defi
 		return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract evidence kinds are malformed", false, "reread_entities")
 	}
 	for _, kind := range definition.RequiredEvidenceKinds {
-		if !contains(kinds, string(kind)) {
+		if !slices.Contains(kinds, string(kind)) {
 			kinds = append(kinds, string(kind))
 		}
 	}
@@ -780,7 +781,7 @@ func defaultVerdictNativeRunRef(ctx context.Context, tx *sql.Tx, workID string, 
 	if err != nil {
 		return "", err
 	}
-	if !contains(kinds, "native_run") {
+	if !slices.Contains(kinds, "native_run") {
 		return "", nil
 	}
 	return verifiedNativeRunRef(ctx, tx, workID)
@@ -852,7 +853,7 @@ func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, def
 	}
 	if requiresNativeRun {
 		appendBinding("native_run", nativeRunRef)
-		if !contains(effective, nativeRunRef) {
+		if !slices.Contains(effective, nativeRunRef) {
 			effective = append(effective, nativeRunRef)
 		}
 	}
@@ -1250,7 +1251,7 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 		return newFailure(KindInvariantViolation, "workflow_action", "current workflow step is outside the pinned definition", false, "reread the workflow definition pin")
 	}
 	verdictStep := currentStep
-	if !containsString(workflowStep(registered.Definition, verdictStep).Actions, "record_verdict") {
+	if !slices.Contains(workflowStep(registered.Definition, verdictStep).Actions, "record_verdict") {
 		visited := map[string]bool{currentStep: true}
 		queue := []string{currentStep}
 		verdictStep = ""
@@ -1263,7 +1264,7 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 				}
 				visited[edge.From] = true
 				step := workflowStep(registered.Definition, edge.From)
-				if step != nil && containsString(step.Actions, "record_verdict") {
+				if step != nil && slices.Contains(step.Actions, "record_verdict") {
 					verdictStep = step.ID
 					break
 				}
@@ -1382,7 +1383,7 @@ func carriedExitSatisfiedItsPinnedDefinition(ctx context.Context, tx *sql.Tx, wo
 // step as a record_verdict step contributes nothing.
 func workflowVerdictPredecessorAdvancingExits(definition WorkflowDefinition, verdictStep string) map[string]bool {
 	verdict := workflowStep(definition, verdictStep)
-	if verdict == nil || !containsString(verdict.Actions, "record_verdict") {
+	if verdict == nil || !slices.Contains(verdict.Actions, "record_verdict") {
 		return nil
 	}
 	advancing := map[string]bool{}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 			t.Fatalf("%s actions = %v, want %v", definition.Ref, definition.AvailableActions, wantActions[definition.Ref])
 		}
 		for _, step := range definition.StepGraph.Steps {
-			if !containsString(step.Actions, "checkpoint_context") || !containsString(step.Actions, "cross_context_boundary") {
+			if !slices.Contains(step.Actions, "checkpoint_context") || !slices.Contains(step.Actions, "cross_context_boundary") {
 				t.Fatalf("%s step %s does not expose both continuity actions", definition.Ref, step.ID)
 			}
 		}
@@ -107,7 +108,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 			t.Fatalf("%s edges = %v, want %v", definition.Ref, definition.StepGraph.Edges, wantEdges[definition.Ref])
 		}
 		terminal := definition.StepGraph.Steps[len(definition.StepGraph.Steps)-1]
-		if terminal.ID != wantTerminals[definition.Ref] || !containsString(terminal.Actions, "complete") {
+		if terminal.ID != wantTerminals[definition.Ref] || !slices.Contains(terminal.Actions, "complete") {
 			t.Fatalf("%s terminal completion verb is not declared: %+v", definition.Ref, terminal)
 		}
 		if len(definition.RequiredEvidenceKinds) == 0 || len(definition.RigorRules) == 0 || !definition.CompositionRules.ForwardLinkOnly {
@@ -141,7 +142,7 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 		if refine.ID == "" || refine.Kind != WorkflowStepExternalEffect {
 			t.Fatalf("%s refine step = %+v, want external_effect", definition.Ref, refine)
 		}
-		if !containsString(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
+		if !slices.Contains(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
 		// The derived-start shape: the qualifying checkpoint opens the fence,
@@ -235,8 +236,8 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		// must be its only advance exit, so no dispatched attempt can accept
 		// its way past the search.
 		for _, step := range latest.StepGraph.Steps {
-			admitted := containsString(step.Actions, "accept_worker_result")
-			terminalStep := containsString(latest.StepGraph.TerminalSteps, step.ID)
+			admitted := slices.Contains(step.Actions, "accept_worker_result")
+			terminalStep := slices.Contains(latest.StepGraph.TerminalSteps, step.ID)
 			gated := false
 			for _, actionID := range step.Actions {
 				for _, action := range latest.ActionDefinitions {

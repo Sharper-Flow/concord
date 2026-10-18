@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,6 +112,113 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 	untouched := withEvidenceKindDefault("record_verdict", payload, []EvidenceRef{{Kind: "commit"}})
 	if string(untouched) != string(payload) {
 		t.Fatalf("non-evidence action payload was rewritten: %s", untouched)
+	}
+}
+
+// History renders a stored event's evidence_refs one entry per reference, so
+// its per-event evidence bound must admit the largest list any producer
+// stores there: a workflow action's evidence_refs field, or the input
+// evidence that revise and lifecycle transitions record.
+func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
+	t.Parallel()
+	page := schemaDef(t, "work_event_page")
+	events, _ := page["properties"].(map[string]any)["events"].(map[string]any)
+	event, _ := events["items"].(map[string]any)
+	evidence, _ := event["properties"].(map[string]any)["evidence"].(map[string]any)
+	bound, ok := evidence["maxItems"].(float64)
+	if !ok {
+		t.Fatalf("work_event_page events[].evidence carries no maxItems: %v", evidence)
+	}
+	var document map[string]any
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
+		t.Fatal(err)
+	}
+	largest, owner := 0.0, ""
+	for name, def := range document["$defs"].(map[string]any) {
+		if !strings.HasPrefix(name, "work_transition_action_variant_") {
+			continue
+		}
+		fields, _ := def.(map[string]any)["properties"].(map[string]any)["fields"].(map[string]any)
+		properties, _ := fields["properties"].(map[string]any)
+		refs, _ := properties["evidence_refs"].(map[string]any)
+		if items, ok := refs["maxItems"].(float64); ok && items > largest {
+			largest, owner = items, name
+		}
+	}
+	if owner == "" {
+		t.Fatal("no workflow action variant declares evidence_refs")
+	}
+	for _, name := range []string{"work_define_revise_input", "work_transition_lifecycle_input"} {
+		input, _ := schemaDef(t, name)["properties"].(map[string]any)["evidence"].(map[string]any)
+		items, ok := input["maxItems"].(float64)
+		if !ok {
+			t.Fatalf("%s evidence carries no maxItems: %v", name, input)
+		}
+		if items > largest {
+			largest, owner = items, name
+		}
+	}
+	if bound < largest {
+		t.Fatalf("work_event_page events[].evidence maxItems = %v, but %s admits %v evidence_refs", bound, owner, largest)
+	}
+}
+
+// A context checkpoint admits up to 64 evidence references. Each one reaches
+// the history page as one evidence entry, and the page must satisfy its
+// published schema with every reference in order, even at limit 1.
+func TestCheckpointEvidenceRoundTripsThroughHistory(t *testing.T) {
+	t.Parallel()
+	for _, count := range []int{32, 33, 64} {
+		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s, service, _, _, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
+			refs := make([]string, count)
+			for i := range refs {
+				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)
+				refs[i] = prefix + strings.Repeat("e", 128-len(prefix))
+			}
+			engine("checkpoint_context", map[string]any{
+				"active_unit": "history evidence", "hypothesis": "every admitted reference is readable", "diagnosis": "the page bound follows admission", "strategy": "read the checkpoint back",
+				"touched_refs": []string{"internal/agent/runtime.go"}, "evidence_refs": refs,
+				"pending_questions": []string{}, "pending_decisions": []string{},
+			})
+			grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","event_kinds":["workflow.context_checkpointed"],"limit":1}`)}, mutationEnvelope(grant, scopeVersion))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.Outcome != OutcomeOK {
+				t.Fatalf("history with a %d-reference checkpoint refused: %+v", count, response.Error)
+			}
+			var page struct {
+				Events []struct {
+					Evidence []struct {
+						Locator string `json:"locator"`
+					} `json:"evidence"`
+				} `json:"events"`
+			}
+			if err := json.Unmarshal(response.Result, &page); err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Events) != 1 {
+				t.Fatalf("events = %d, want the one checkpoint", len(page.Events))
+			}
+			got := make([]string, 0, len(page.Events[0].Evidence))
+			for _, entry := range page.Events[0].Evidence {
+				got = append(got, entry.Locator)
+			}
+			if !reflect.DeepEqual(got, refs) {
+				t.Fatalf("history evidence = %d entries, want all %d checkpoint references in order", len(got), count)
+			}
+		})
 	}
 }
 

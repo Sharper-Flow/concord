@@ -3954,7 +3954,7 @@ with sqlite3.connect(":memory:") as connection:
     before = connection.execute("SELECT id,n,typeof(n) FROM t").fetchall()
     try:
         connection.executescript(UNICODE_TYPE_REBUILD)
-    except sqlite3.IntegrityError as error:
+    except sqlite3.IntegrityError:
         if before != [(1, "2", "text")]:
             FAILURES.append(f"unicode-affinity probe row read {before!r}")
     else:

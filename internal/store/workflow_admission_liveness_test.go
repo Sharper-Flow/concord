@@ -28,6 +28,7 @@ package store
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 }
 
 func workflowCapabilityClassProduces(class string) bool {
-	return containsString(workflowProducingCapabilityClasses, class)
+	return slices.Contains(workflowProducingCapabilityClasses, class)
 }
 
 func workflowStepJudgesStaleArtifact(definition WorkflowDefinition, stepID string) bool {
@@ -186,13 +187,13 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 	if step := workflowStep(definition, state.step); step != nil {
 		actions = make([]string, 0, len(step.Actions)+len(admissionRecoveryActions))
 		for _, actionID := range step.Actions {
-			if !containsString(actions, actionID) {
+			if !slices.Contains(actions, actionID) {
 				actions = append(actions, actionID)
 			}
 		}
 	}
 	for _, actionID := range admissionRecoveryActions {
-		if !containsString(actions, actionID) {
+		if !slices.Contains(actions, actionID) {
 			actions = append(actions, actionID)
 		}
 	}
@@ -260,14 +261,14 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	if step == nil {
 		return false
 	}
-	checkpoint := containsString(step.Actions, "complete") ||
+	checkpoint := slices.Contains(step.Actions, "complete") ||
 		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind != WorkflowStepHumanCheckpoint && containsString(step.Actions, "dispatch_worker") && !admissionTerminalStep(definition, state.step))
+		(step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
+		(step.Kind != WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "dispatch_worker") && !admissionTerminalStep(definition, state.step))
 	switch {
 	case !checkpoint:
 		return false
-	case containsString(step.Actions, "complete"):
+	case slices.Contains(step.Actions, "complete"):
 		return admissionCompleteStepCorrection(definition, state)
 	case step.Kind == WorkflowStepHumanCheckpoint:
 		return true
@@ -293,7 +294,7 @@ func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionMod
 		return false
 	}
 	for _, step := range definition.StepGraph.Steps {
-		if step.ID != state.step && containsString(step.Actions, "record_verdict") {
+		if step.ID != state.step && slices.Contains(step.Actions, "record_verdict") {
 			return true
 		}
 	}
@@ -556,7 +557,7 @@ func admissionFailureEdgeTarget(definition WorkflowDefinition, step string) stri
 
 func admissionDeclaresAction(definition WorkflowDefinition, actionID string) bool {
 	for _, step := range definition.StepGraph.Steps {
-		if containsString(step.Actions, actionID) {
+		if slices.Contains(step.Actions, actionID) {
 			return true
 		}
 	}
@@ -799,7 +800,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	}
 	// Direct artifact actions prove production by their own event authority,
 	// independently of advancement. Worker acceptance uses its origin above.
-	if containsString(workflowStepArtifactActions(definition, state.step), actionID) && admissionProducesAtRouteTarget(definition, state.step, actionID) {
+	if slices.Contains(workflowStepArtifactActions(definition, state.step), actionID) && admissionProducesAtRouteTarget(definition, state.step, actionID) {
 		next.artifactStale = false
 	}
 	if advance {
@@ -910,7 +911,7 @@ func admissionProducesAtRouteTarget(definition WorkflowDefinition, stepID, actio
 // checkpoints, evidence bindings, verdicts, unrelated holds, and
 // evidence-only acceptance never produce.
 func admissionStepProducesArtifact(definition WorkflowDefinition, stepID, actionID string) bool {
-	if containsString(workflowStepArtifactActions(definition, stepID), actionID) {
+	if slices.Contains(workflowStepArtifactActions(definition, stepID), actionID) {
 		return true
 	}
 	return actionID == "accept_worker_result" && stepDeclaresAction(definition, stepID, "dispatch_worker")
@@ -1062,7 +1063,7 @@ func admissionEnvironmentMoves(state admissionModelState) []admissionModelState 
 }
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
-	return containsString(definition.StepGraph.TerminalSteps, step)
+	return slices.Contains(definition.StepGraph.TerminalSteps, step)
 }
 
 // admissionStepIndex orders the steps along the definition's step list.
@@ -1097,7 +1098,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 	}
 	verdictIndex := -1
 	for i, step := range definition.StepGraph.Steps {
-		if containsString(step.Actions, "record_verdict") {
+		if slices.Contains(step.Actions, "record_verdict") {
 			verdictIndex = i
 			break
 		}
@@ -1119,7 +1120,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 	var states []admissionModelState
 	for i, step := range definition.StepGraph.Steps {
 		stepJobShapes := jobShapes
-		if !containsString(step.Actions, "record_worker_job") {
+		if !slices.Contains(step.Actions, "record_worker_job") {
 			stepJobShapes = []string{""}
 		}
 		contracts := []int64{0}
@@ -1129,7 +1130,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			contracts = []int64{1, 2}
 		}
 		walls := []int64{0}
-		starts := containsString(step.Actions, "dispatch_worker")
+		starts := slices.Contains(step.Actions, "dispatch_worker")
 		for _, actionID := range step.Actions {
 			if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
 				starts = true
@@ -1396,20 +1397,24 @@ func admissionSeededArchivedProbe(definition WorkflowDefinition) (admissionModel
 // archived family refuses every candidate action with the archived-family
 // refusal. Archived rows permit reads, not public execution.
 func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
+	t.Parallel()
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			for _, witness := range archivedRefusalWitnesses(definition) {
-				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+			t.Parallel()
+			if workflowFamilyArchived(definition.Ref) {
+				for _, witness := range archivedRefusalWitnesses(definition) {
+					t.Error(witness)
+				}
+				return
 			}
-			continue
-		}
-		for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
-			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
-		}
+			for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
+				t.Error(witness)
+			}
+		})
 	}
 }
 
@@ -1465,12 +1470,14 @@ func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
 // assertion is the same positive refusal totality the well-formed exit check
 // carries.
 func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
+	t.Parallel()
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
 		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for _, witness := range archivedRefusalWitnesses(definition) {
 					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)

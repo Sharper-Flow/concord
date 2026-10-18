@@ -2,7 +2,7 @@
 
 **Status:** Accepted 2026-08-11.
 **Type:** Architecture decision (spike outcome)
-**Spike:** [`../research/R6-typed-workers-and-model-routing.md`](../research/R6-typed-workers-and-model-routing.md)
+**Spike:** [`../research/R6-typed-workers-and-model-routing.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
 **Amends:** CD-0005 (adds the worker-lane dimension above the D6 adapter boundary; D1–D9 unchanged)
 **Preserves:** R1 (forward-linked composition), CD-0013 (attempt model, §D5 executing-identity distinctness), CD-0016 (pinned continuity projections)

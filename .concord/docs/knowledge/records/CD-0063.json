@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:23160fb616438effdeb02920fae296561b6f919d8fcec0599ce774e13421c30c",
+  "sha256": "sha256:cd1beefe6677e79755d529fef637fcbe0b6357656439723887469ea309bd9f47",
   "status": "accepted",
   "summary": "Concord installs its agent definitions, skills, and an authored tool-agnostic conduct corpus once under the versioned data root, and a consuming project holds a pointer rather than a copy. The always-on instruction surface is registered per project so non-Concord projects receive nothing, while agents live in the central OpenCode agents directory because no per-project pointer exists and an agent is inert until invoked. skills/ stays reserved so CD-0043 D3 is preserved, methodology stays host-owned under CD-0043 D1, and a loaded corpus file binds by content hash in the CD-0034 provenance manifest.",
   "tags": [

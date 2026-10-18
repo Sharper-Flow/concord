@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -119,12 +120,12 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	declaredRoutes := workflowFieldStrings(fields, "route_conventions")
 	proposedRoutes := workflowFieldStrings(fields, "proposed_route_conventions")
 	for _, proposed := range proposedRoutes {
-		if !contains(declaredRoutes, proposed) {
+		if !slices.Contains(declaredRoutes, proposed) {
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "proposed route convention is not declared by the contract", false, "use a declared route convention")
 		}
 	}
 	for _, required := range workflowFieldStrings(fields, "required_route_conventions") {
-		if !contains(declaredRoutes, required) {
+		if !slices.Contains(declaredRoutes, required) {
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
 		}
 	}
@@ -147,7 +148,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 			summary = "no evidence kind"
 		}
 		for _, kind := range required {
-			if containsString(producible, kind) {
+			if slices.Contains(producible, kind) {
 				continue
 			}
 			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("approve_contract requires evidence kind %q, but no action reachable through the pinned workflow definition %s v%d can produce it; its reachable actions produce %s", kind, definition.Ref, definition.Version, summary), false, "require only evidence kinds the pinned definition's reachable actions can produce")

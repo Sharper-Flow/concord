@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -71,7 +72,7 @@ func workflowCompleteStepCorrectionEvidenceCutoff(ctx context.Context, q queryer
 			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
 		}
 		var routes []string
-		if json.Unmarshal([]byte(routesJSON), &routes) == nil && containsString(routes, workflowCompleteStepCorrectionRoute) {
+		if json.Unmarshal([]byte(routesJSON), &routes) == nil && slices.Contains(routes, workflowCompleteStepCorrectionRoute) {
 			routeVersion = version
 			break
 		}
@@ -875,7 +876,7 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 	for _, verdict := range verdicts {
 		predicates = append(predicates, verdict.PredicateID)
 		for _, ref := range verdict.EvaluationEvidence {
-			if !contains(evidence, ref) {
+			if !slices.Contains(evidence, ref) {
 				evidence = append(evidence, ref)
 			}
 		}
@@ -1344,7 +1345,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	for _, verdict := range state.nonOK {
 		predicates = append(predicates, verdict.PredicateID)
 		for _, ref := range verdict.EvaluationEvidence {
-			if !contains(evidence, ref) {
+			if !slices.Contains(evidence, ref) {
 				evidence = append(evidence, ref)
 			}
 		}
@@ -1462,7 +1463,7 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	// A request records the correction even when the count exceeds the limit.
 	// Dispatch admission separately requires convergence (CD-0148/CD-0164 D4).
 	for _, predicate := range predicates {
-		if !contains(context.PredicateIDs, predicate) {
+		if !slices.Contains(context.PredicateIDs, predicate) {
 			return newFailure(KindInvalidPayload, subject, "request_correction names a predicate without a current non-ok verdict", false, "name only affected approved predicates")
 		}
 	}

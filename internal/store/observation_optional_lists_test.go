@@ -24,7 +24,7 @@ func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 		OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1,
 		Payload: json.RawMessage(`{"observation_id":"obs:00000000000000aa","statement":"no lists supplied"}`),
 	}
-	if err := recordObservation(t, work, workEvent); err != nil {
+	if err := foldTestEvent(t, work, workEvent); err != nil {
 		t.Fatalf("work observation without refs or tags: %v", err)
 	}
 	page, err := work.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-99", Limit: 10})
@@ -43,7 +43,7 @@ func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 		OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1,
 		Payload: json.RawMessage(`{"observation_id":"dob:00000000000000aa","product_id":"obs-product","domain_id":"obs-domain","statement":"no lists supplied"}`),
 	}
-	if err := foldDomainEvent(t, domain, domainEvent); err != nil {
+	if err := foldTestEvent(t, domain, domainEvent); err != nil {
 		t.Fatalf("Domain observation without refs or tags: %v", err)
 	}
 	domainRows, err := observationsForDomain(ctx, domain.db, "obs-product", "obs-domain", 10)

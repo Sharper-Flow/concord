@@ -4620,6 +4620,10 @@
               "kind": {
                 "$ref": "#/$defs/short"
               },
+              "attempt_id": {
+                "type": "string",
+                "minLength": 1
+              },
               "version": {
                 "$ref": "#/$defs/version"
               },
@@ -4635,7 +4639,7 @@
               },
               "evidence": {
                 "type": "array",
-                "maxItems": 32,
+                "maxItems": 64,
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(verdicts) != 1 || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || !contains(verdicts[0].EvaluationEvidence, "evidence:return-route-verification") {
+	if len(verdicts) != 1 || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || !slices.Contains(verdicts[0].EvaluationEvidence, "evidence:return-route-verification") {
 		t.Fatalf("latest verdicts after the correction = %+v, want the bound mismatch verdict with its evidence", verdicts)
 	}
 }

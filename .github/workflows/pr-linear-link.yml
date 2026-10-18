@@ -1,4 +1,4 @@
-# CD-0171 D8: a Concord-managed pull request names its Linear issue. The
+# CD-0213 D5: a Concord-managed pull request names its Linear issue. The
 # head branch marks the managed work, so only work/work-* bodies are
 # checked and merge queue entries carry the same gate as the PR run.
 #

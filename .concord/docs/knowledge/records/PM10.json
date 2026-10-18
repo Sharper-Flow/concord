@@ -45,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5b48f3beee68b95215bbf6c19017489b0f9a22322bc84356648da54b88119b43",
+  "sha256": "sha256:c6ec60377c686dade64d9fbdd269d25382f90d9decd6be87301dd750b4d1d071",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

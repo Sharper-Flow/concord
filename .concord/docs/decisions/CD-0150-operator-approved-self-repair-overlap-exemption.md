@@ -4,7 +4,7 @@
 - **Date:** 2026-09-14
 - **Scope:** Concord workflow defects that block the operation needed for their repair
 - **Approval:** The operator approved the explicit `self_repair` classification and its code-first delivery.
-- **Related:** CD-0041, CD-0144, and CD-0148
+- **Related:** CD-0222, CD-0144, and CD-0148
 - **Amends:** CD-0145 D1 and CD-0147 D3
 - **Preserves:** Typed refusals, visible overlap detail, ordinary overlap admission, contract authority, and all non-overlap gates
 

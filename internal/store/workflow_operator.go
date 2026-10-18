@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -435,7 +436,7 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 		if artifactErr := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); artifactErr != nil {
 			return artifactErr
 		}
-		if !containsString(workflowStep(entry.Definition, currentStep).Actions, "confirm_premise") {
+		if !slices.Contains(workflowStep(entry.Definition, currentStep).Actions, "confirm_premise") {
 			return newFailure(KindStaleRequiresReview, "workflow_operator_question", "confirm_premise is not available at the current workflow step", false, "reread the workflow step and its declared actions")
 		}
 		if workVersion != request.ExpectedVersion {

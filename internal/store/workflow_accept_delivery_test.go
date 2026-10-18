@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -296,7 +297,7 @@ func TestCombinedAcceptDeliversAtomically(t *testing.T) {
 				t.Fatal(err)
 			}
 			gate := workflowStep(definition.Definition, "delivery")
-			if !workflowStepIsDeliveryGate(gate) || gate.Actions[0] != "record_delivery" || containsString(gate.Actions, "accept_worker_result") {
+			if !workflowStepIsDeliveryGate(gate) || gate.Actions[0] != "record_delivery" || slices.Contains(gate.Actions, "accept_worker_result") {
 				t.Fatalf("%s gate actions = %v, want a record_delivery-only gate", family.ref, gate.Actions)
 			}
 			delivery := json.RawMessage(`{"delivery_artifact":"artifact:gate-cross-` + workID + `","delivery_state":"asserted"}`)

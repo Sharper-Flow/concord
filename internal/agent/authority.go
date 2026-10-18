@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -358,7 +359,7 @@ func DeriveTrustedClientPolicyExpansion(current store.TrustedClientRecord, addit
 func deltaGrants(requested, stored []string, storedCount, bound int) ([]string, error) {
 	delta := make([]string, 0, len(requested))
 	for _, value := range normalizeStrings(requested) {
-		if !contains(stored, value) && !contains(delta, value) {
+		if !slices.Contains(stored, value) && !slices.Contains(delta, value) {
 			delta = append(delta, value)
 		}
 	}
@@ -372,7 +373,7 @@ func deltaGrants(requested, stored []string, storedCount, bound int) ([]string, 
 // against the same policy version, so a proposal derived outside the
 // approval transaction can be proven unchanged inside it.
 func equalPolicyExpansion(left, right PolicyExpansionProposal) bool {
-	return left.ClientRef == right.ClientRef && left.PolicyVersion == right.PolicyVersion && equalStrings(capabilityStrings(left.Capabilities), capabilityStrings(right.Capabilities)) && equalStrings(left.ProductScope, right.ProductScope) && equalStrings(left.ProjectScope, right.ProjectScope) && equalStrings(left.AgentScope, right.AgentScope)
+	return left.ClientRef == right.ClientRef && left.PolicyVersion == right.PolicyVersion && slices.Equal(capabilityStrings(left.Capabilities), capabilityStrings(right.Capabilities)) && slices.Equal(left.ProductScope, right.ProductScope) && slices.Equal(left.ProjectScope, right.ProjectScope) && slices.Equal(left.AgentScope, right.AgentScope)
 }
 
 // unionPolicyJSON decodes both canonical JSON arrays, unions them without
@@ -552,7 +553,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if len(policyAgents) == 0 {
 		return Authority{}, authorityRefusal(fmt.Sprintf("trusted client %q holds an empty agent scope, which authorizes no agent; name the agents it presents with concord client-policy-expand", in.ClientRef))
 	}
-	if !contains(policyAgents, in.AgentRef) {
+	if !slices.Contains(policyAgents, in.AgentRef) {
 		return Authority{}, authorityRefusal(fmt.Sprintf("agent %q is outside the agent scope of trusted client %q; add it with concord client-policy-expand", in.AgentRef, in.ClientRef))
 	}
 	resolved, err := s.ProjectHostMatcher(ctx, tx, host)
@@ -573,7 +574,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if len(candidateProducts) == 0 {
 		return Authority{}, authorityRefusal("resolved Project is outside trusted client Product policy")
 	}
-	if !contains(policyProjects, resolved.ProjectID) {
+	if !slices.Contains(policyProjects, resolved.ProjectID) {
 		return Authority{}, authorityRefusal("resolved Project is outside trusted client policy")
 	}
 	if resolved.MainWorktree {
@@ -592,7 +593,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if !containsCapability(capabilityValues(policyCaps), in.RequiredCapability) {
 		return Authority{}, authorityRefusal("capability outside trusted client policy")
 	}
-	if in.ProductID != "" && !contains(candidateProducts, in.ProductID) {
+	if in.ProductID != "" && !slices.Contains(candidateProducts, in.ProductID) {
 		return Authority{}, authorityRefusal("product outside trusted client policy")
 	}
 	if in.ProjectID != "" && in.ProjectID != resolved.ProjectID {
@@ -646,7 +647,7 @@ func authorityRouteRefusal(detail string, route ...string) error {
 func intersect(left, right []string) []string {
 	var out []string
 	for _, value := range normalizeStrings(left) {
-		if contains(right, value) {
+		if slices.Contains(right, value) {
 			out = append(out, value)
 		}
 	}
@@ -688,14 +689,6 @@ func normalizeStrings(values []string) []string {
 		}
 	}
 	return out
-}
-func contains(values []string, value string) bool {
-	for _, v := range values {
-		if v == value {
-			return true
-		}
-	}
-	return false
 }
 func containsCapability(values []Capability, value Capability) bool {
 	for _, v := range values {
@@ -1132,20 +1125,20 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	if _, isLinkScope := scope["project_id"]; isLinkScope {
 		productScope, projectScope = authority.PolicyProductScope, authority.PolicyProjectScope
 	}
-	if product, ok := scope["product_id"].(string); ok && !contains(productScope, product) {
+	if product, ok := scope["product_id"].(string); ok && !slices.Contains(productScope, product) {
 		return false
 	}
 	switch products := scope["product_ids"].(type) {
 	case []any:
 		for _, raw := range products {
 			product, ok := raw.(string)
-			if !ok || !contains(productScope, product) {
+			if !ok || !slices.Contains(productScope, product) {
 				return false
 			}
 		}
 	case []string:
 		for _, product := range products {
-			if !contains(productScope, product) {
+			if !slices.Contains(productScope, product) {
 				return false
 			}
 		}
@@ -1154,13 +1147,13 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	case []any:
 		for _, raw := range projects {
 			project, ok := raw.(string)
-			if !ok || !contains(projectScope, project) {
+			if !ok || !slices.Contains(projectScope, project) {
 				return false
 			}
 		}
 	case []string:
 		for _, project := range projects {
-			if !contains(projectScope, project) {
+			if !slices.Contains(projectScope, project) {
 				return false
 			}
 		}

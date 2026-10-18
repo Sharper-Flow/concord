@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"time"
 )
 
@@ -31,7 +32,7 @@ func workflowDefinitionStartStep(definition WorkflowDefinition) (string, error) 
 func workflowDefinitionContractStep(definition WorkflowDefinition) (string, error) {
 	found := ""
 	for _, step := range definition.StepGraph.Steps {
-		if !containsString(step.Actions, "approve_contract") {
+		if !slices.Contains(step.Actions, "approve_contract") {
 			continue
 		}
 		if found != "" {

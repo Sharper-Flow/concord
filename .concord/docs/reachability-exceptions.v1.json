@@ -50,10 +50,9 @@
       "id": "test-only-registry-assertions",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.knownSubjectTypes",
         "internal/store.validateEventKindRegistry"
       ],
-      "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
+      "reason": "validateEventKindRegistry is an assertion helper for registry conformance tests: it rejects an ill-formed event-kind registration. It guards no production path: it runs where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing it to an operator would offer a verb whose only honest answer is that the build already settled the question."
     },
     {
       "id": "registry-injection-test-seam",

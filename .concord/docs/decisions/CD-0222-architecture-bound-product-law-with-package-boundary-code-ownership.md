@@ -7,20 +7,15 @@
   retirement, registry participation, and code-ownership guidance.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
-- **Supersedes:** [CD-0041](CD-0041-architecture-bound-product-law.md) and
-  [CD-0214](CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md).
-- **Related:** [CD-0158](CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md)
-  (superseded chain), [CD-0060](CD-0060-domain-registry-enactment.md),
+- **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
   [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md).
-- **Carries:** CD-0041 D1 to D11 at the same decision numbers, with the
-  refinements the current text already states: CD-0042 sequencing, CD-0144
-  execution-start footprint, CD-0153 judged-content staleness, the CD-0145
-  shared-write narrowing, the 2026-09-22 browse-path correction, and CD-0213
-  planning placement. D2 and D3 replace their navigation paragraphs. D12 is new.
+- **Incorporates:** CD-0042 sequencing, CD-0144 execution-start footprint,
+  CD-0153 judged-content staleness, the CD-0145 shared-write narrowing, the
+  2026-09-22 browse-path correction, and CD-0213 planning placement.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
-  CD-0009 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
+  CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
@@ -53,7 +48,7 @@ coherent while many agents act at once. Its primary deliverable is the accepted,
 pruned statement of what the Product must keep true. Work and code enact that
 law; they do not outrank it.
 
-CD-0041 enacted this law and added a global navigation layer beside it. That
+An earlier record enacted this law and added a global navigation layer beside it. That
 layer bound one accountable Domain to each file, joined authored bindings
 through a source catalog, and required every Domain to participate in a
 relation graph. The launcher TUI retirement under CD-0219 and the closed
@@ -63,10 +58,8 @@ evidence.
 
 The navigation layer's only consumers are deleted by the same repository
 change that retires it. CD-0036 D2 requires a new law identity when consumers
-must stop, so this record supersedes CD-0041 and CD-0214 and closes the
-CD-0158 chain. It carries CD-0041 D1 to D11 at the same decision numbers with
-their current refined meaning. D2 and D3 replace their navigation paragraphs
-with package-boundary code ownership. D12 states the navigation retirement.
+must stop, so this record takes a new identity. D2 and D3 state
+package-boundary code ownership. D12 states the navigation retirement.
 
 ## Decision
 
@@ -384,9 +377,9 @@ not own Domain identity, law placement, dependency truth, conflict resolution,
 or the primary browse path. Shared grouping never makes two work items
 architecturally compatible.
 
-CD-0009 D2–D8 remain unchanged: independent research is ordinary research work,
-embedded research stays with its owner, active packs remain retention-bounded
-SQLite context, and durable promotion keeps its accepted destinations. Every
+CD-0215 D2–D8 govern research: independent research is ordinary research work,
+embedded research stays with its owner, packs remain retained
+SQLite context until explicit retirement, and durable promotion keeps its accepted destinations. Every
 reference in those clauses to Epic ownership now means ownership by the owning
 work item.
 
@@ -546,9 +539,6 @@ graph. Product law approval does not authorize live-state cutover.
 - Keep the participation and adoption obligations beside the deletion.
   Rejected: the deleted corpus and cards were their only consumers, and dead
   obligations invite silent narrowing.
-- Amend CD-0041 in place instead of superseding it. Rejected: CD-0036 D2
-  requires a new identity when consumers must stop, and a same-ID edit would
-  hide the breaking cutover.
 - Keep a coarse navigation mode. Rejected: the deleted readers served every
   mode, so a coarse mode has no reader.
 
@@ -581,16 +571,11 @@ graph. Product law approval does not authorize live-state cutover.
   generators are deleted. No graph, glob map, or owner-note generator replaces
   them. D2's hand-authored package map is the one declared code-to-Domain
   join, and the footprint read consumes it.
-- Active contracts that pinned CD-0041 or CD-0214 go stale under CD-0036 D3
-  and recover through `supersede_contract` or cancellation. This Git change
-  grants no live-state activation authority.
 
 ## Amendment map
 
 - **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation now join
   law conflict, spec mandate, and cross-workflow impact checks.
-- **CD-0009 D1/D1a:** business grouping replaces Epic, lives in Linear, and is
-  explicitly secondary to Domain/law authority; D2–D8 remain binding.
 - **CD-0015:** law relations remain Git-authored and closed; every law gains one
   Domain home and architecture-bound workflow use.
 - **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through
@@ -602,7 +587,7 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the supersession graph.
+- `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
 - `python3 scripts/check-law-coverage.py` resolves this record's typed coverage anchors.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
 - `internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution` proves the carried shared-write overlap rule.

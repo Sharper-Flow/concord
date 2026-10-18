@@ -11,7 +11,7 @@ evidence binding, outcome verification, impact propagation, and the durable shap
 workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
 CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
-CD-0009 D1/D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
+CD-0215 D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 amends this record's D1 (workflows composed from shared parts);
@@ -33,7 +33,7 @@ current compatibility policy.
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
-evidence binding, typed external conditions, and schema evolution. CD-0009 commits
+evidence binding, typed external conditions, and schema evolution. CD-0215 commits
 research ownership semantics. CD-0012 commits a three-part outcome contract with
 independent evaluator authority and a strengthening-only delivery comparison.
 
@@ -475,7 +475,7 @@ a rebuilt database matches the live write path byte-for-byte.
 past event sequence for diagnosis (CD-0008 D6).
 
 Active research remains the only state permitted to survive rebuild through byte-equal
-snapshot and restore rather than replay, because CD-0009 makes it direct-table working
+snapshot and restore rather than replay, because CD-0215 makes it direct-table working
 context rather than event authority. Workflow state takes no such exemption.
 
 ### D14. The seven families each bind to a concrete predicate form
@@ -678,8 +678,6 @@ This decision extends:
 - CD-0006 D3 by fixing the engine's mechanical shape and definition authority;
 - CD-0008 D2, D4, D5, D6 by fixing workflow event families, evidence binding,
   external conditions, and reconstruction;
-- CD-0009 by aligning research ownership with the new outcome and projection
-  shapes;
 - CD-0012 by collapsing deferred items 1–4 into concrete predicate, actor, and
   event choices;
 - CD-0005 by keeping `workflow_action` reserved until the engine ships.
@@ -706,7 +704,6 @@ stays fail-closed until the latest approved predicates are healthy.
 |---|---|
 | `.concord/docs/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |
 | `.concord/docs/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and reconstruction. |
-| `.concord/docs/decisions/CD-0009-active-research-context.md` | Aligns research with the new outcome predicate form. |
 | `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, evaluator distinctness, and strengthening-only comparison. |
 | `.concord/docs/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
 | `.concord/docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |

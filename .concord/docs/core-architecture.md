@@ -128,7 +128,7 @@ is stated once; companion documents reference this section rather than restating
 
 A Go core topology must satisfy all twelve invariants. The first eleven are derived
 from the public predecessor postmortem's failure classes; they are not aspirational,
-they are evidence-backed. CD-0041 adds the twelfth from Concord's defining
+they are evidence-backed. CD-0222 adds the twelfth from Concord's defining
 many-agent Product-concordance requirement.
 
 ---
@@ -178,9 +178,7 @@ details; this table does not duplicate them.
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, and overlap revalidation while preserving SQLite. |
-| [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
-| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
+| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |

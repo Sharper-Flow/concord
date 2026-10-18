@@ -386,6 +386,3 @@ func TestPartialPublicationLeavesNoDraftUntracked(t *testing.T) {
 		t.Fatalf("discarded publication left staged paths: %q (entries=%d)", staged, len(entries))
 	}
 }
-
-// cancelledNotePublishInput is the canonical publication intent for
-// work-cancelled at its current version, without an approval.

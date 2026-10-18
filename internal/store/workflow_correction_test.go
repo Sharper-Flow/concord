@@ -71,19 +71,41 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	ctx := context.Background()
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID + ":late-verdict-fresh"
-	attemptEpoch := int64(2)
+	// Fresh execution follows the seed's two starts. Its dispatch authorization
+	// owns the fourth epoch.
+	startEpoch := int64(3)
+	attemptEpoch := int64(4)
 	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 	if err != nil {
 		t.Fatal(err)
 	}
 	version := verdictItemVersion(t, s, workID)
 	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": attemptEpoch,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": startEpoch,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
 		"execution_model": preferredModelForLane(lane),
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("fresh start_execution: %v", err)
+	}
+	dispatchVersion := verdictItemVersion(t, s, workID)
+	dispatchStart := workflowEventWithActor("dispatch-start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
+		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch-late:" + workID,
+		"actor_ref": ownerRef, "execution_model": preferredModelForLane(lane),
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{dispatchStart, {
+		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": dispatchVersion + 1, "resulting_version": dispatchVersion + 2,
+			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"actor_ref": ownerRef, "worker_worktree_identity": workerFixtureWorktreeIdentity(t, s, workID),
+			"worker_packet_predicate_ids": []string{},
+		}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
+		t.Fatalf("fresh dispatch action completion: %v", err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "dispatch-late-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
@@ -94,18 +116,6 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("fresh complete: %v", err)
-	}
-	dispatchVersion := verdictItemVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef,
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
-		t.Fatalf("fresh dispatch action completion: %v", err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-acceptor", SessionRef: "session/" + workID + "-late-verdict-acceptor", ActorClass: ActorAgent}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {

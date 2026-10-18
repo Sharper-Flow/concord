@@ -94,10 +94,19 @@ func authorizeWorkerFixtureDispatch(t *testing.T, s *Store, workID, attemptID st
 
 func recordWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, attemptID, stepID, actorRef string) {
 	t.Helper()
-	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
-	if err != nil {
+	appendWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, stepID, actorRef)
+	var attempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&attempts); err != nil {
 		t.Fatal(err)
 	}
+	if attempts != 0 {
+		t.Fatal("authorization fixture recorded the caller's dispatch evidence")
+	}
+}
+
+func appendWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, attemptID, stepID, actorRef string) {
+	t.Helper()
+	identity := workerFixtureWorktreeIdentity(t, s, workID)
 	var epoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, stepID).Scan(&epoch); err != nil {
 		t.Fatal(err)
@@ -113,20 +122,13 @@ func recordWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, at
 	completed := workflowEventWithActor("fixture-dispatch-done-"+attemptID, WorkflowActionCompleted, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2,
 		"step_id": stepID, "action_id": "dispatch_worker", "attempt_epoch": epoch,
-		"worker_attempt_id": attemptID, "worker_worktree_identity": workerWorktreeIdentity(canonical),
+		"worker_attempt_id": attemptID, "worker_worktree_identity": identity,
 		"worker_packet_digest": "sha256:" + strings.Repeat("f", 64), "worker_packet_predicate_ids": []string{},
 		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
 	})
 	completed.PayloadVersion = 2
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{started, completed}}); err != nil {
 		t.Fatal(err)
-	}
-	var attempts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&attempts); err != nil {
-		t.Fatal(err)
-	}
-	if attempts != 0 {
-		t.Fatal("authorization fixture recorded the caller's dispatch evidence")
 	}
 }
 

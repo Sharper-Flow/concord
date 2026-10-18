@@ -786,6 +786,11 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 	}
 	// A terminal report between the declarations contributes findings only
 	// while it is not superseded by a later declaration selecting nothing.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-1", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-1", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -804,6 +809,7 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatalf("anchor declaration refused: %v", err)
 	}
 	// A subsequent terminal report rides the current view.
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-2", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-2", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -958,6 +964,11 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("second declaration refused: %v", err)
 	}
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-overflow", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-overflow", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1123,6 +1134,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("declaration refused: %v", err)
 	}
+	// The attempt's original dispatch authorization precedes the generic
+	// dispatch evidence, so the terminal report resolves its own Project.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-promote", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-promote", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1281,6 +1299,14 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
+	// The attempt's own authorization precedes its generic dispatch, so the
+	// admitted completion resolves the original Project while the refused
+	// shapes keep their finding-domain refusals.
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-domain-1", "repair", ownerRef)
 	dispatch("attempt-domain-1")
 	refusals := []struct {
 		name     string

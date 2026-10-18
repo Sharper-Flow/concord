@@ -600,6 +600,12 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 	}
 	version := verdictItemVersion(t, s, workID)
 	epoch := latestStepStartEpoch(t, s, workID, "repair") + 1
+	// The dispatch authorization names the attempt's original Project claim,
+	// so completion resolves ownership from this same event.
+	identity, identityErr := canonicalWorkerWorktreePath(f.entry.Path)
+	if identityErr != nil {
+		t.Fatal(identityErr)
+	}
 	// CD-0198 D3: on a derived-start pin the dispatch opens the step epoch
 	// itself, so the replay-style fixture crafts the same started event a
 	// real fenced dispatch appends before its completion.
@@ -622,6 +628,7 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID,
 		"actor_ref":                   actorRef,
+		"worker_worktree_identity":    workerWorktreeIdentity(identity),
 		"worker_job":                  map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
 		"worker_packet_digest":        "sha256:" + strings.Repeat("d", 64),
 		"worker_packet_predicate_ids": []string{},

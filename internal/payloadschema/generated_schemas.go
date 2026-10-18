@@ -10426,7 +10426,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/evidence"
                 },
-                "maxItems": 32,
+                "maxItems": 64,
                 "type": "array"
               },
               "kind": {

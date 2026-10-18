@@ -9,23 +9,21 @@ import (
 	"time"
 )
 
-// CD-0068: an agent that notices an architecture area lacks something holds no
-// work item, so CD-0030's channel is closed in the case that needs it most. A
-// Domain is a second observation anchor. Domain observations are
-// non-authoritative in exactly the way work-anchored ones are (CD-0068 D5):
-// no gate, no evidence kind, and no workflow action reads one as authority.
-// Promotion to work stays the unchanged CD-0018 capture path (CD-0068 D4).
+// A Domain is a second observation anchor beside the work item. Domain
+// observations are non-authoritative in exactly the way work-anchored ones
+// are: no gate, no evidence kind, and no workflow action reads one as
+// authority. Promotion to work stays the CD-0018 capture path.
 
 var domainObservationIDPattern = regexp.MustCompile(`^dob:[0-9a-f]{16}$`)
 
-// Observation states. CD-0068 D3 follows the two-state shape of work_messages:
+// Observation states follow the two-state shape of work_messages:
 // dismissal flips state and never deletes, so the row survives for audit.
 const (
 	DomainObservationOpen      = "open"
 	DomainObservationDismissed = "dismissed"
 )
 
-// DomainObservationOpenWindow is the CD-0068 D2 cap on observations in state
+// DomainObservationOpenWindow is the cap on observations in state
 // open for one Domain. A work item goes terminal and stops recording; a Domain
 // is perpetual and never does, so unbounded growth replaces staleness as the
 // failure mode. The cap is a declared constant, not a derived one.
@@ -79,7 +77,7 @@ func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if err := validateCurrentDomain(ctx, tx, p.ProductID, p.DomainID); err != nil {
 		return err
 	}
-	// CD-0068 D2: a full window refuses and names the Domain. Eviction is
+	// A full window refuses and names the Domain. Eviction is
 	// rejected — dropping the oldest observation to admit a new one is the
 	// silent drop CD-0030 exists to prevent. Only open rows count.
 	var open int
@@ -136,7 +134,7 @@ func foldDomainObservationDismissed(ctx context.Context, tx *sql.Tx, event Event
 }
 
 // observationsForDomain lists a Domain's open observations, newest first,
-// bounded. CD-0068 D6 folds this into concord_domain.detail rather than adding
+// bounded. concord_domain.detail carries them rather than adding
 // a read operation. Dismissed rows persist for audit and are not returned.
 func observationsForDomain(ctx context.Context, q queryer, productID, domainID string, limit int) ([]DomainObservation, error) {
 	if limit < 1 {

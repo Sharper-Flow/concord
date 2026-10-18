@@ -12,12 +12,12 @@
   coordinator. This publication is the isolated candidate only: it does not
   update a serving Product's law projection, disposition live consumers, or
   activate a release.
-- **Candidate supersession set:** CD-0007, CD-0009, CD-0012, CD-0013, CD-0039,
+- **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
   CD-0077, CD-0115, CD-0156, CD-0198. This set comes from the approved design;
   the D5 owner must resolve its current successor identities before cutover.
 - **Amends:** CD-0115 (compatible representation clarification only; every
   existing pin, capture duty, and digest stands)
-- **Related:** CD-0007, CD-0009, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
+- **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
   CD-0115, CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
 
 ## Context
@@ -284,12 +284,11 @@ D9 for historic attributed reports, failures, and effects.
 CD-0077 keeps operator kind separation, stored historical names, and immutable
 migration checksums. CD-0156 keeps mandatory backlog search. CD-0198 keeps every
 evidence, approval, start, and retry floor. CD-0215 owns the research-pack
-guarantees and already supersedes CD-0009, so this record does not re-supersede
-CD-0009 and leaves CD-0215's recovery contract standing.
+guarantees, and this record leaves it standing.
 
 CD-0215 D2 still requires a separate architecture spike decision. Before cutover,
 the D5 owner must resolve that obligation through an approved successor set.
-This candidate does not select another successor for CD-0009 or change CD-0215.
+This candidate does not change CD-0215.
 
 The CD-0115 amendment is compatible representation only. Every existing pin,
 capture duty, digest, and recovery tuple stands. The D4 distinction of archived

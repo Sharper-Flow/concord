@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf01dcc79d36482bf57c5d7f4ce96256912cf563a320175c6a20b80c1732fe83",
+  "sha256": "sha256:06dd5830293f22b67fe433f44eade08992c6020641f94ec12981c2482b709510",
   "status": "published",
   "summary": "Per-territory assessment of Concord's operational coverage against the predecessor, validated on every CI run.",
   "tags": [

@@ -31,7 +31,7 @@ GitHub Issues, branches, worktrees, pull requests, and required checks:
 - improve documentation links, examples, and release evidence.
 
 The authority model for this work is accepted in
-[`development-authority.md`](./development-authority.md) and CD-0089.
+[`managed-development-authority.md`](./managed-development-authority.md) and CD-0089.
 
 ## 2. Entry conditions
 
@@ -49,7 +49,7 @@ Runtime implementation proceeds only when all of these are true:
    cross-workflow impact propagation.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
    attempt fencing, external conditions, and schema/history evolution.
-7. CD-0009 fixes active research context as bounded working context, not a second
+7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
 8. The accepted storage-spine conformance slice has a public verification plan.
 
@@ -113,7 +113,7 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 |---|---|
 | [`goals.md`](./goals.md) | Product purpose, goals, measures, and conflict rules. |
 | [`priorities.md`](./priorities.md) | Operating envelope and standing law. |
-| [`development-authority.md`](./development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
+| [`managed-development-authority.md`](./managed-development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | Historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination after the issue #600 bootstrap exception. |
@@ -121,6 +121,5 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 | [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
-| [`storage-spine-slice.md`](./storage-spine-slice.md) | First implementation acceptance slice. |
 
 *Each phase earns the next through public evidence, not calendar pressure.*

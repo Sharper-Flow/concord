@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -228,13 +229,23 @@ func validWorkerEvidenceAssertion(a WorkerEvidenceAssertion) bool {
 	if !bounded(a.ClientRef, 1, 128) || !bounded(a.WorkID, 1, 128) || !bounded(a.AttemptID, 1, 128) {
 		return false
 	}
-	if len(a.Nonce) < 16 || len(a.Nonce) > 256 {
+	if !validWorkerNonce(a.Nonce) {
 		return false
 	}
 	if len(a.Signature) != ed25519.SignatureSize {
 		return false
 	}
 	return true
+}
+
+// validWorkerNonce uses the code-point bound of agent_nonce_replay.
+// NUL is forbidden because SQLite length(TEXT) stops at its first NUL.
+func validWorkerNonce(nonce string) bool {
+	if !utf8.ValidString(nonce) || strings.ContainsRune(nonce, '\x00') {
+		return false
+	}
+	length := utf8.RuneCountInString(nonce)
+	return length >= 16 && length <= 256
 }
 
 func workerEvidenceMatchesBinding(a WorkerEvidenceAssertion, binding WorkerEvidenceBinding) bool {
@@ -309,7 +320,11 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	now := s.now()
 	if err := store.PruneAndRecordNonceTx(ctx, tx, assertion.ClientRef, assertion.Nonce, now.Format(time.RFC3339Nano), now.Add(s.skew()).Format(time.RFC3339Nano), now.Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {
-		return "", errors.New("worker evidence assertion nonce replayed")
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionConflict {
+			return "", errors.New("worker evidence assertion nonce replayed")
+		}
+		return "", err
 	}
 	return client.PrincipalRef, nil
 }

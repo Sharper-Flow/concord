@@ -1,6 +1,6 @@
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract, amended by CD-0041; §5.2 amended
+**Status:** Accepted C17 contract, amended by CD-0222; §5.2 amended
 2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
 amended. Amended 2026-10-09: the launcher rendering of this view retired with
 the launcher TUI under CD-0219; the ranked-query contract continues under the
@@ -18,7 +18,7 @@ Terminal-launcher interaction and prototype detail were explicitly reserved as
 implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
 contract at this layer did not require a new decision record.
 
-**CD-0041 amendment.** These two bounded work projections remain valid, but they
+**CD-0222 amendment.** These two bounded work projections remain valid, but they
 are no longer the Product's primary architecture view. Product detail opens
 through Product → Domain. Canonical typed relations remain available through
 the bounded Domain-detail read. Q8 work relations remain a subordinate coordination view;
@@ -32,7 +32,7 @@ Selecting a Product row must open a coordination view, and before C17 no
 accepted document said what it renders. The binding inputs are Priority 5's
 visibility requirement and the canonical PM1 reads. This record accepts the coordination view: two
 bounded modes over canonical Product-scoped reads, structural grouping only,
-stored-priority ranking, and visible incomplete coverage. CD-0041 amends the
+stored-priority ranking, and visible incomplete coverage. CD-0222 amends the
 shape: Product detail opens through Product to Domain first, and these two
 projections remain subordinate coordination views.
 ## Contract

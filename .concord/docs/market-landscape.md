@@ -8,7 +8,7 @@
 > **Method:** Three parallel sourced research passes (2026-07-25) — competitor
 > landscape, Clay go-to-market (GTM), PostHog. Every material claim carries a source; items the
 > researchers could not verify from vendor sources are flagged.
-> **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](./research/R4-competitive-mechanism-hardening.md)
+> **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 > compares current agent/durable-execution mechanisms without adopting competitor
 > Product shapes and owns SQLite confirmation, the falsifier-only alternative-engine
 > trigger, and the worktree follow-up.

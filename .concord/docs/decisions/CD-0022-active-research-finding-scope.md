@@ -3,11 +3,11 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-14.
 **Approval:** Operator approved the finding-level scope direction for GitHub issue #118.
-**Type:** Storage-shape amendment to CD-0009 D3/D4.
+**Type:** Storage-shape amendment to the research-pack aggregate, now CD-0215 D3/D4.
 **Issue:** [#118](https://github.com/Sharper-Flow/concord/issues/118).
 **Depends on:** [#117](https://github.com/Sharper-Flow/concord/issues/117).
-**Preserves:** CD-0009 D7/D8, PM6, CD-0020, and C18.
-**Amended by:** CD-0041 replaces `component_ids` with `domain_ids` and makes
+**Preserves:** CD-0215 D7/D8, PM6, CD-0020, and C18.
+**Amended by:** CD-0222 replaces `component_ids` with `domain_ids` and makes
 Domain references validate against the Git-derived canonical Domain projection.
 
 ## Context
@@ -70,7 +70,7 @@ A document would turn those into write-time conventions.
 
 **A tag lookup now.** No canonical tag registry exists. Adding one merely to
 validate this relation would create another authority before there is a
-demonstrated owner or writer. CD-0041 later creates the Git-authoritative Domain
+demonstrated owner or writer. CD-0222 later creates the Git-authoritative Domain
 registry, so Domain lookup is now required rather than rejected.
 
 **A research tool surface.** Rejected by operator direction. The schema does not
@@ -83,7 +83,6 @@ imply a tool, writer, durable `research` knowledge kind, or retention change.
   Git-authoritative.
 - Archive promotion has typed applicability available for selection. It remains a
   human-reviewed decision, not automatic conversion to durable knowledge.
-- #119 independently repairs CD-0009 D8's wording; this decision does not change it.
 - A future reader or writer must use this shape rather than invent another context
   vocabulary.
 

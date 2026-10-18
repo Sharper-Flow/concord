@@ -797,7 +797,7 @@ var replayProjectionClearTables = []string{
 	// clear their edges and sets before Product memberships and resources.
 	"domain_resource_attachment_edges", "domain_project_attachment_edges",
 	"domain_resource_attachment_sets", "domain_project_attachment_sets",
-	// Domain-anchored observations (CD-0068) hang off the same Git-projected
+	// Domain-anchored observations hang off the same Git-projected
 	// Domain identity as the attachment sets.
 	"domain_observations",
 	"resource_products", "managed_resources",

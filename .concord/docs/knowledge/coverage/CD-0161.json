@@ -21,6 +21,10 @@
       "value": "cmd/concord.TestCiWaitMergeModeRequiresPRSelector"
     },
     {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeJudgesMergedAndClosedHeads"
+    },
+    {
       "kind": "validator",
       "value": "scripts/test-ci-wait-contract.py"
     },

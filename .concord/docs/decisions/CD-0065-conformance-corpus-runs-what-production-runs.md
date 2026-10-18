@@ -9,7 +9,7 @@
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5387211188);
   direction to merge and the remaining resolutions are recorded in
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5388341229)
-- **Related:** CD-0012, CD-0013, CD-0041, CD-0053,
+- **Related:** CD-0012, CD-0013, CD-0222, CD-0053,
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
 - **Preserves:** Scenario count and 1..48 numbering; the six evidence records
   that cite the corpus, which regain the anchors their text already claims

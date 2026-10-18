@@ -4,9 +4,9 @@
 **Approval date:** 2026-08-12.
 **Approval:** Operator-approved GitHub issue #70.
 **Type:** Architecture decision (spike outcome).
-**Spike:** [`../research/R7-expedited-parallel-work.md`](../research/R7-expedited-parallel-work.md).
+**Spike:** [`../research/R7-expedited-parallel-work.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R7-expedited-parallel-work.md).
 **Issue:** [#70](https://github.com/Sharper-Flow/concord/issues/70).
-**Amended by:** CD-0041 leaves assignment/lease exclusions intact but replaces
+**Amended by:** CD-0222 leaves assignment/lease exclusions intact but replaces
 D4's unstructured parallel-safety judgement with Domain-overlap detection and
 operator-approved, version-pinned resolution. Concord (CON) issue CON-910 (2026-10-13)
 drops the retired launcher query from the ranking claims under the Snowball
@@ -115,7 +115,7 @@ operator judgement. Recording urgency and provenance is neither an assignment no
 multi-human coordination surface; the operating envelope's "many concurrent
 OpenCode TUIs" clause is the side of that line this decision lives on.
 
-CD-0041 later makes that judgement structural without adding assignment or a
+CD-0222 later makes that judgement structural without adding assignment or a
 lease: Product-changing contracts declare affected Domains, and overlapping work
 requires an operator-approved resolution pinned to both contract versions.
 

@@ -19,7 +19,6 @@
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Supersedes:** [CD-0068](CD-0068-domain-anchored-observations.md).
 - **Amended by:** [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md)
   at the relation writers and the one-writer Consequences bullet: a size
   revision that changes a work item's size is a fourth writer, of

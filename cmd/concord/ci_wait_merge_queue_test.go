@@ -306,3 +306,21 @@ esac`))
 		t.Fatalf("a stalled merge-queue read must be pending and name the command, got code=%d report=%+v", code, report)
 	}
 }
+
+// The removal report names its failed merge-group runs in creation order,
+// whatever order gh lists them in, so run_url is the earliest failed run.
+func TestCiWaitPRMergeModeQueueRemovalRunURLIsIndependentOfRunOrder(t *testing.T) {
+	gate := `{"databaseId":77,"name":"queue-gate","status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/77","createdAt":"2026-10-18T15:30:01Z"}`
+	follow := `{"databaseId":79,"name":"queue-follow","status":"completed","conclusion":"failure","url":"https://github.com/o/r/actions/runs/79","createdAt":"2026-10-18T15:36:12Z"}`
+	for _, runs := range []string{"[" + gate + "," + follow + "]", "[" + follow + "," + gate + "]"} {
+		added := "ADD-1"
+		answer := ciWaitQueueAnswer("OPEN", ciWaitQueueHead, ciWaitQueueRemoved("REMOVED-1", "failed_checks", ciWaitQueueMergeGroup))
+		report, _, _, err := ciWaitPollQueueOnce(t, ciWaitQueueState(&added), answer, runs)
+		if err != nil {
+			t.Fatalf("ciWaitPollPR errored: %v", err)
+		}
+		if report.RunURL != "https://github.com/o/r/actions/runs/77" || len(report.Failures) != 2 || report.Failures[0].Name != "queue-gate" {
+			t.Fatalf("runs %s: want the earliest failed run first, got run_url=%q failures=%+v", runs, report.RunURL, report.Failures)
+		}
+	}
+}

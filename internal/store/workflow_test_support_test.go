@@ -39,10 +39,21 @@ const workflowFixtureRef = "workflow.test_fixture"
 // kind.
 const workflowFixtureWorkKind = "static_analysis"
 
-// The fixture family registers at test-binary initialization so cross-process
-// race workers, which re-enter the binary without running a helper, resolve the
-// same pins as their parent.
-var workflowFixtureVersions = registerWorkflowFixtureFamily()
+// workflowFixtureVersions and workflowEvidenceGapRegistration hold the
+// test-only definitions registerTestWorkflowDefinitions pins.
+var (
+	workflowFixtureVersions         []RegisteredDefinition
+	workflowEvidenceGapRegistration RegisteredDefinition
+)
+
+// registerTestWorkflowDefinitions pins the test-only workflow definitions into
+// the builtin registry. TestMain calls it before any test runs, so
+// cross-process race workers, which re-enter the binary without running a
+// helper, resolve the same pins as their parent.
+func registerTestWorkflowDefinitions() {
+	workflowFixtureVersions = registerWorkflowFixtureFamily()
+	workflowEvidenceGapRegistration = registerWorkflowEvidenceGapDefinition()
+}
 
 func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()

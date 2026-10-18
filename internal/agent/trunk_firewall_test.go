@@ -318,13 +318,3 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 		}
 	})
 }
-
-// The audit planner forwards the host session observation into the store
-// pass: an observation placing the recorded occupant inside the worktree
-// keeps the strand-guard refusal, an observation placing the occupant at a
-// readable directory elsewhere lets the row reclaim, and an absent
-// observation attests nothing. The store owns the release semantics; this
-// pins that the agent surface carries the field through.
-func TestAuditReclaimForwardsObservedSessionDirectories(t *testing.T) {
-	t.Skip("TestAuditReclaimForwardsObservedSessionDirectories pinned the legacy host-observation release path that CD-0178 D3 removed. Process liveness and operator approval own the release rule now; see TestAuditReclaimRejectsLegacyOccupancyWithoutApproval and TestDestroyReleasesRecordedStaleOccupancyWithApproval.")
-}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1630,4 +1631,91 @@ func TestCiWaitSliceBoundedByShutdownSlack(t *testing.T) {
 	}
 	_ = code
 	_ = context.Background
+}
+
+// CD-0161 D2: in checks mode a merged or closed pull request still reports
+// the watched head's check verdict. The pull request's terminal state proves
+// nothing about CI, so it never ends a checks wait by itself.
+func TestCiWaitPRChecksModeJudgesMergedAndClosedHeads(t *testing.T) {
+	failJob := "https://github.com/o/r/actions/runs/10/job/2"
+	populations := []struct {
+		name         string
+		rollup       []ghPRRollup
+		wantStatus   string
+		wantTerminal bool
+	}{
+		{"passing", []ghPRRollup{ciWaitRollupPass("verify-go")}, "success", true},
+		{"failing", []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failJob)}, "failure", true},
+		{"pending", []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupPending("verify-tests")}, "pending", false},
+		{"empty", []ghPRRollup{}, "pending", false},
+	}
+	for _, ended := range []struct{ name, mergedAt string }{{"merged", "2026-10-18T15:32:40Z"}, {"closed", ""}} {
+		for _, population := range populations {
+			t.Run(ended.name+"/"+population.name, func(t *testing.T) {
+				headJSON := ciWaitMergeHeadFixture(t, "UNKNOWN", "CLOSED", ended.mergedAt, "aabbccdd", population.rollup)
+				report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
+				if report.Status != population.wantStatus || terminal != population.wantTerminal {
+					t.Fatalf("status=%s terminal=%t want %s terminal=%t (report=%+v)", report.Status, terminal, population.wantStatus, population.wantTerminal, report)
+				}
+				if report.Checks == nil || report.Checks.Total != len(population.rollup) {
+					t.Fatalf("the report must count the watched head's checks, got %+v", report.Checks)
+				}
+				if population.name == "failing" && (len(report.Failures) != 1 || report.Failures[0].URL != failJob) {
+					t.Fatalf("a failing set must name its failure, got %+v", report.Failures)
+				}
+			})
+		}
+	}
+}
+
+// The representative run of a commit comes from the provider's creation
+// metadata, never from the order gh lists the runs in: a run another run
+// triggers is created after it, so the earliest run stands for the commit.
+// Every observed run still counts.
+func TestCiWaitSHARunURLIsIndependentOfRunOrder(t *testing.T) {
+	ci := ghRunSummary{DatabaseID: 39140963598, Name: "CI", Status: "completed", Conclusion: "success", URL: "https://github.com/o/r/actions/runs/39140963598", CreatedAt: "2026-10-18T15:30:01Z"}
+	release := ghRunSummary{DatabaseID: 39141183868, Name: "Auto Release", Status: "completed", Conclusion: "success", URL: "https://github.com/o/r/actions/runs/39141183868", CreatedAt: "2026-10-18T15:36:12Z"}
+	failing := func(run ghRunSummary) ghRunSummary { run.Conclusion = "failure"; return run }
+	pending := func(run ghRunSummary) ghRunSummary { run.Status, run.Conclusion = "in_progress", ""; return run }
+	cases := []struct {
+		name       string
+		runs       []ghRunSummary
+		wantStatus string
+		wantURL    string
+		wantNames  []string
+	}{
+		{"success", []ghRunSummary{ci, release}, "success", ci.URL, nil},
+		{"failure", []ghRunSummary{failing(ci), failing(release)}, "failure", ci.URL, []string{"CI", "Auto Release"}},
+		{"pending", []ghRunSummary{ci, pending(release)}, "pending", ci.URL, nil},
+	}
+	for _, tc := range cases {
+		for _, order := range []string{"listed", "reversed"} {
+			t.Run(tc.name+"/"+order, func(t *testing.T) {
+				runs := append([]ghRunSummary(nil), tc.runs...)
+				if order == "reversed" {
+					runs[0], runs[1] = runs[1], runs[0]
+				}
+				ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"run list"*) echo '`+ciWaitJSON(t, runs)+`';;
+	*"run view"*) exit 97;;
+esac`))
+				_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+					Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+				}))
+				if report.Status != tc.wantStatus || report.RunURL != tc.wantURL {
+					t.Fatalf("status=%s run_url=%q want %s %q (report=%+v)", report.Status, report.RunURL, tc.wantStatus, tc.wantURL, report)
+				}
+				if report.Checks == nil || report.Checks.Total != 2 {
+					t.Fatalf("every observed run must count, got %+v", report.Checks)
+				}
+				var names []string
+				for _, failure := range report.Failures {
+					names = append(names, failure.Name)
+				}
+				if !reflect.DeepEqual(names, tc.wantNames) {
+					t.Fatalf("failures=%v want %v", names, tc.wantNames)
+				}
+			})
+		}
+	}
 }

@@ -158,7 +158,7 @@ shows the legislative moments explicitly.
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
 | Spec deltas modified or superseded accepted law | **Preserved as an outcome** through operator-approved Git law deltas and revision identity. |
 | Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
-| Cross-change architecture overlap was not authoritative | **Added by CD-0041** through Domain-bound contracts and version-pinned resolutions. |
+| Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
 
 Concord does not call, mirror, or dual-write predecessor runtime state. These rows
 record public lesson evidence only.

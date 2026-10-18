@@ -1,6 +1,6 @@
 # Concord Product Data Model
 
-> **Status:** Aligned v4 under CD-0041. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v4 under CD-0222. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`self-documentation.md`](./self-documentation.md),
@@ -11,7 +11,7 @@
 > **Product → Domain**, with current law and architecture-bound work together.
 > **Origin:** User direction, 2026-07-25. Lifecycle stage (§8) and shared resources
 > (§9) added by user direction, 2026-07-31; resource-first C15 shape accepted
-> 2026-08-06; Domain shape accepted by CD-0041 on 2026-08-18.
+> 2026-08-06; Domain shape accepted by CD-0222 on 2026-08-18.
 > CD-0213 places planning and business grouping in Linear through the Linear MCP server.
 
 ## TL;DR
@@ -165,7 +165,7 @@ ManagedResource {
 resource identity and attachments follow accepted C15. Domain replacement and
 work-item supersession keep their bounded owners in CD-0222 and PM4.
 
-CD-0041 and CD-0213 amend CD-0009's predecessor shape. Business grouping lives in
+CD-0222 and CD-0213 replace the predecessor Epic shape. Business grouping lives in
 Linear. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
 [CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)

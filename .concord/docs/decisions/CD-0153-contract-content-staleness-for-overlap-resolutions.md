@@ -2,11 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-15
-- **Scope:** CD-0041 D6 resolution staleness and the disposition of existing
+- **Scope:** CD-0222 D6 resolution staleness and the disposition of existing
   overlap-resolution rows
 - **Approval:** The operator approved this amendment on 2026-09-15.
-- **Related:** CD-0036, CD-0041 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
-- **Amends:** CD-0041 D6's rule for staleness after a contract revision
+- **Related:** CD-0036, CD-0222 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
+- **Amends:** CD-0222 D6's rule for staleness after a contract revision
 - **Preserves:** D6's closed resolution-kind set and operator approval;
   D7's seven action classes; CD-0036 breaking-law cutovers; and the
   execution-start claim boundary from PR 1084

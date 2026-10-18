@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM8; binding CD-0002 §2d amendment.
-> **Binding inputs:** PM1, accepted PM2–PM7, CD-0002 I1–I6, and the
+> **Binding inputs:** PM1, accepted PM2–PM6, compaction-retention-policy, CD-0002 I1–I6, and the
 > one-operator/one-machine envelope.
 > **Operator decision:** WIP needs no durable byte-level proof. Do not introduce
 > hashing or a content-addressed blob store without a named user job. Screenshots are
@@ -16,11 +16,11 @@
 
 CD-0002 proposed external evidence files with hash and path, and the
 operator decided WIP needs no durable byte-level proof. The binding inputs
-are PM1, the accepted PM2 through PM7, CD-0002 invariants, and the
+are PM1, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
 one-operator one-machine envelope. This record rejects a content-addressed
 blob store for v1: process exhaust stays producer-owned, no generic rule may
-require a screenshot, and CD-0009 research-pack text stays
-retention-bounded SQLite only.
+require a screenshot, and CD-0215 research-pack text stays
+SQLite only.
 ## Contract
 
 The binding contract is sections 1 through 4: the no-store decision and its
@@ -47,12 +47,11 @@ PM8 does not turn that into screenshot capture, upload, retention, or hashing.
 
 This narrows CD-0002 §2d: its proposed external evidence files with “hash + path” are
 not a v1 Concord feature. Small, structured Concord artifacts remain SQLite text under
-the existing decision; durable markdown knowledge remains PM6/PM7 git content. Neither
+the existing decision; durable markdown knowledge remains PM6 and compaction-retention-policy git content. Neither
 is a general binary-evidence store.
 
-CD-0009 narrows one structured-artifact case further: active research-pack text lives
-only in retention-bounded SQLite pack tables while its managed work owner is
-active. It never enters retained `domain_events` or Git as a research pack and is
+CD-0215 narrows one structured-artifact case further: research-pack text lives
+only in SQLite pack tables until explicit retirement. It never enters retained `domain_events` or Git as a research pack and is
 deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
 not pack retention.
@@ -86,7 +85,7 @@ This accepted change retires the previous external-blob assumption across:
 - CD-0003's `blobs(...)` spine row;
 - PM2 backup/export wording that currently names CAS or an evidence manifest;
 - PM3's `artifacts / blobs` row;
-- PM1's external-blob budget exception; PM6/PM7 PM8 deferrals; the PM6 dependency
+- PM1's external-blob budget exception; PM6 and compaction-retention-policy PM8 deferrals; the PM6 dependency
   cell; the PM8 and PM10 rows in both clarification tables; and the TS7 durable-ID/
   hash claim and PM8 dependency;
 - README and storage-slice cross-references.
@@ -106,7 +105,7 @@ promises**:
   bytes;
 - Concord avoids a second filesystem durability, corruption, recovery, backup, and
   deletion subsystem whose value is not currently named;
-- PM7 keeps event history and PM6 keeps concise reviewed knowledge, which are the
+- compaction-retention-policy keeps event history and PM6 keeps concise reviewed knowledge, which are the
   current post-hoc needs—not exact WIP byte replay.
 
 Except for section 1.1, the boundary is structural: Concord's v1 schema and domain-event registry contain no
@@ -121,7 +120,7 @@ an optional metadata field.
 | generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
 | task fails | record only the bounded state/outcome needed by its owning Product-memory event | storing full command output as evidence |
 | terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
-| PM7 projection pruning | retains authoritative `domain_events` and durable note/index behavior | preserving raw WIP bytes |
+| compaction-retention-policy projection pruning | retains authoritative `domain_events` and durable note/index behavior | preserving raw WIP bytes |
 | producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
 
 No operation may report an unavailable WIP blob as an integrity incident, because
@@ -153,9 +152,9 @@ of raw WIP bytes.
 5. **Explicit promotion only:** if future work needs a durable artifact, it must first
    name its reader, decision/recovery job, authority, retention duration, and restore
    guarantee in a new accepted decision.
-6. **Research expires:** CD-0009 active pack rows are not WIP-byte evidence or durable
-   knowledge; archive may retain selected reasoning in normal outputs, then deletes
-   the complete pack with no tombstone or hidden history.
+6. **Research retires:** CD-0215 pack rows are not WIP-byte evidence or durable
+   knowledge; publication may retain selected reasoning in normal outputs, and only
+   explicit retirement deletes the complete pack, with no tombstone or hidden history.
 
 ## 6. Required implementation-acceptance scenarios
 
@@ -165,7 +164,7 @@ of raw WIP bytes.
    remains with the producing environment.
 3. PM6 compaction creates a concise note with outcome/lesson/ordinary links and no raw
    output copy or generated evidence attachment.
-4. PM7 prunes an eligible work projection while Q7 event history and the note/index
+4. compaction-retention-policy prunes an eligible work projection while Q7 event history and the note/index
    remain valid without requiring any external blob.
 5. Schema and event-registry validation reject attempts to introduce blob descriptors,
    content hashes, arbitrary filesystem paths, or raw output payloads through generic
@@ -228,7 +227,7 @@ any other storage mechanism.
 PM8 reviewed the previous CAS option against official SQLite external-blob guidance,
 SQLite atomic-commit behavior, NIST SHA-256, OCI content descriptors, and Linux
 install/durability primitives. Those sources validate how a CAS *could* work; they do
-not establish a Concord user need. The accepted PM1–PM7 contracts and operator
+not establish a Concord user need. The accepted PM1–PM6, compaction-retention-policy contracts and operator
 direction control this decision.
 
 ## Acceptance criteria

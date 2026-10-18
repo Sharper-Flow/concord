@@ -89,5 +89,5 @@ lineage. This manifest is the authorizing readiness record and cites evidence
 rather than surveying capability.
 
 It does not change the development-authority model in
-[`development-authority.md`](./development-authority.md); public issues and
+[`managed-development-authority.md`](./managed-development-authority.md); public issues and
 pull requests continue to own planned work and merge evidence.

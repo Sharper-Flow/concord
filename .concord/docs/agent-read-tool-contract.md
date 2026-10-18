@@ -9,7 +9,7 @@
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
 > evolution (TS8), or managed-resource shape
 > (C15).
-> **Amended direction:** CD-0041 retires component as an authority identity, and
+> **Amended direction:** CD-0222 retires component as an authority identity, and
 > CD-0042 requires #197 to replace component filters/context directly with Domain
 > on the pre-go-live primary path. Component inputs are not a compatibility
 > contract; new Domain writes remain unauthorized until #197 lands.

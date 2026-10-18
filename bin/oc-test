@@ -12,9 +12,9 @@
 # Smoke leaves out the packages CI splits into shard jobs (internal/store and
 # cmd/concord). Its Go step is CI's "Test every package without its own shard
 # job" command, and scripts/test-oc-test.py fails when the two differ. To test
-# one shard locally, run CI's selection for it, for example shard 1 of 3:
+# one shard locally, run CI's selection for it, for example shard 1 of 5:
 #
-#   bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 3)" ./internal/store
+#   bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # When it is missing the tier still runs, unthrottled, after a warning. Smoke

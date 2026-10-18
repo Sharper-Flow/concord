@@ -7,21 +7,6 @@ import (
 	"testing"
 )
 
-// openTemp opens a store backed by a throwaway database file.
-func openTemp(t *testing.T) *Store {
-	t.Helper()
-	s, err := Open(context.Background(), copyTestDatabase(t))
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := s.Close(); err != nil {
-			t.Fatalf("Close() error = %v", err)
-		}
-	})
-	return s
-}
-
 // CD-0002 fixes the connection settings; PM3 relies on foreign keys for typed
 // edges. Each is per-connection in SQLite, so read them back from the live
 // connection rather than trusting the data source name.

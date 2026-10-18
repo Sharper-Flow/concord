@@ -10,17 +10,6 @@ import (
 	"testing"
 )
 
-func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
-	var version sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
-		return 0, err
-	}
-	if !version.Valid {
-		return 0, nil
-	}
-	return int(version.Int64), nil
-}
-
 // Migration 104 replaces the single occupant_session_ref column with the
 // worktree_occupancy table (CD-0178 D3). Every recorded occupant migrates as
 // a legacy row with no process identity, so liveness never releases what was

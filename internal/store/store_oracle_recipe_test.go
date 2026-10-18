@@ -10,23 +10,31 @@ import (
 	"time"
 )
 
+// storeOracleClone checks this repository's HEAD out on branch store-oracle in
+// a private shared clone, so a test can pin committed store recipes.
+func storeOracleClone(t *testing.T) (repo, head string) {
+	t.Helper()
+	source, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawHead, err := (ExecGitRunner{}).Run(context.Background(), source, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head = strings.TrimSpace(string(rawHead))
+	repo = filepath.Join(t.TempDir(), "source")
+	gitRunStore(t, source, "clone", "--shared", "--no-checkout", source, repo)
+	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
+	return repo, head
+}
+
 func TestStoreOracleRecipeRecordsReady(t *testing.T) {
 	started := time.Now()
 	ctx := context.Background()
 	const work = "store-oracle-recipe"
 	const recipePath = ".concord/oracles/store/immediate-transactions.v1.json"
-	source, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rawHead, err := (ExecGitRunner{}).Run(ctx, source, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(rawHead))
-	repo := filepath.Join(t.TempDir(), "source")
-	gitRunStore(t, source, "clone", "--shared", "--no-checkout", source, repo)
-	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
+	repo, head := storeOracleClone(t)
 	manifest, _, err := nativeGitFile(ctx, ExecGitRunner{}, repo, head, recipePath)
 	if err != nil {
 		t.Fatal(err)
@@ -138,4 +146,28 @@ DELETE FROM fold_guard`, WorktreeSetID(work), head, repo, repo); err != nil {
 		t.Fatalf("recorded readiness or digest lost its preparation: %+v", recorded)
 	}
 	t.Logf("recipe_commit=%s recipe_blob=%s native_run_ref=%s qualification=%s job_id=%s revision=%d digest=%s integration_wall_time=%s", head, manifest.BlobOID, result.OperationRef, p.Qualification, job.Binding.JobID, job.Binding.Revision, job.Binding.Digest, time.Since(started))
+}
+
+// A selected native control compiles only its pinned test files and runs
+// without the package TestMain. The template-based control must still reach a
+// migrated database template, and every database file it creates must stay
+// outside the controlled snapshot, which the producer fingerprints again after
+// the run.
+func TestStoreTemplateOracleRecipeExecutes(t *testing.T) {
+	ctx := context.Background()
+	const work = "store-template-oracle"
+	const recipePath = ".concord/oracles/store/template-fixture.v1.json"
+	const selected = "TestOpenTempCopiesIsolatedLatestSchema"
+	repo, head := storeOracleClone(t)
+	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
+	f := &nativeOracleFixture{s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head, actor: seed.owner}
+	f.qualify(t, "store-oracle", "internal/store", recipePath, "case:store-template-fixture", selected)
+	result, err := f.s.VerifyWorktree(ctx, f.request("execute", &f.a))
+	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" || result.ExitCode != 0 {
+		t.Fatalf("execute the template-based control: %+v, %v", result, err)
+	}
+	p := result.Oracle
+	if f.launches != 1 || !slices.Equal(p.SelectedTestNames, []string{selected}) || !slices.Contains(p.ObservedTestNames, selected) {
+		t.Fatalf("execution did not run exactly the selected control: launches=%d receipt=%+v", f.launches, p)
+	}
 }

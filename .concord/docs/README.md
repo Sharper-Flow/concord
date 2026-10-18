@@ -5,7 +5,7 @@
 > **Status:** Public documentation index.
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.
-> **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module `github.com/sharper-flow/concord`.
+> **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module [`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord).
 > **Goals and conflict rules:** [`goals.md`](./goals.md)
 > **Operating envelope and standing law:** [`priorities.md`](./priorities.md)
 
@@ -46,7 +46,7 @@ are in [`priorities.md`](./priorities.md).
 | [`installation.md`](./installation.md) | Release installation, Secret Service prerequisites, OpenCode registration, upgrade, and uninstall. |
 | [`clarifications.md`](./clarifications.md) | Accepted clarification history plus explicitly deferred later-phase questions. |
 | [`product-memory-query-contract.md`](./product-memory-query-contract.md) + [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json) | **Accepted PM1** canonical query contract and golden corpus; binding input to PM2/PM3 and TS1/TS3 evaluation. |
-| [`concord-knowledge-index.md`](./concord-knowledge-index.md) + [`knowledge/`](./knowledge/) | Shard-primary durable decisions, specs, and lessons; strict blob proofs, scope modes, and typed research availability. The manifest is composed from `knowledge/manifest.json`, `knowledge/domain-registry.json`, and `knowledge/records/` (CD-0114). |
+| [`concord-knowledge-index.md`](./concord-knowledge-index.md) + [`knowledge/`](./knowledge/) | Shard-primary durable decisions, specs, and lessons; strict blob proofs, scope modes, and typed research availability. The manifest is composed from [`knowledge/manifest.json`](./knowledge/manifest.json), [`knowledge/domain-registry.json`](./knowledge/domain-registry.json), and [`knowledge/records/`](./knowledge/records/) (CD-0114). |
 | [`agent-tool-surface-jobs.md`](./agent-tool-surface-jobs.md) + [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json) | **Accepted TS1:** eight canonical end-to-end agent jobs and 23 tool-neutral evaluation scenarios; binding input to TS2–TS9. |
 | [`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md) | **Accepted TS2:** at most nine always-visible domain tools, structural merge/split rules, static v1 exposure, and scenario-first candidate selection. |
 | [`agent-read-tool-contract.md`](./agent-read-tool-contract.md) | **Accepted TS3:** four bounded read tools covering Product orientation, actionable work, work provenance, and durable knowledge. |
@@ -60,7 +60,7 @@ are in [`priorities.md`](./priorities.md).
 | [`managed-resource-inventory.md`](./managed-resource-inventory.md) | **Accepted C15:** first-class resource identity, singular Product owner, consumer links, explicit stage, typed locators/work links, and native execution authority. |
 | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md) | **Accepted CD-0005:** consolidated TS1–TS9 agent-surface architecture and invariants. |
 | [`decisions/CD-0006-concord-root-product-policy.md`](./decisions/CD-0006-concord-root-product-policy.md) | **Accepted CD-0006:** Product direction follows [`goals.md`](./goals.md), without a full-successor requirement; CD-0082 owns demand-driven migration and correction. Workflow, rigor/governance, single-operator, and release-evidence duties remain. |
-| [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | **Accepted CD-0007:** `Sharper-Flow/concord`, Go module identity, audited public-doc migration, MIT/public governance, one-version release/install, Linux amd64, privacy, workflow/conformance floor, and selective skills. |
+| [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | **Accepted CD-0007:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord), Go module identity, audited public-doc migration, MIT/public governance, one-version release/install, Linux amd64, privacy, workflow/conformance floor, and selective skills. |
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** pre-readiness authority, amended by CD-0089 for self-hosting; current planning and managed execution follow CD-0213 and the managed development authority. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | **Accepted CD-0089:** Concord owns explicitly managed development workflow; CD-0213 governs planning while repository review and merge authority remain intact. |
 | [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | **Accepted CD-0213:** Linear MCP is the sole planning authority; Concord retains managed execution and one reported issue identity, with no binary API call or Linear credential. |

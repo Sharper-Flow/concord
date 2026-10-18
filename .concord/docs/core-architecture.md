@@ -82,7 +82,7 @@ not a core.
 - Static binaries with simple cross-compilation for Linux, macOS, and Windows.
 - Native concurrency model (goroutines) suited to per-entity serializers and
   non-blocking read paths.
-- Pure-Go SQLite binding (`modernc.org/sqlite`) for the sole-authority store;
+- Pure-Go SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)) for the sole-authority store;
   no CGO, single static binary, trivial cross-compilation.
 - Strong typing with minimal runtime overhead; compile-time correctness for
   state transitions, contract enforcement, and terminal-state invariants.

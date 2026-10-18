@@ -363,7 +363,7 @@ question is:
 | `feature-inventory.md` §3.3 | Signal ingestion is the *live* layer; ownership is the *declarative* layer. Distinct. |
 | `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
-| `decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| [CD-0222](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

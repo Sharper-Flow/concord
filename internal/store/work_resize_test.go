@@ -103,7 +103,7 @@ func readResizeSnapshot(t *testing.T, s *Store, ids ...string) resizeSnapshot {
 // An override that changes the effective size supersedes the item without
 // completing it: one link, one supersedes, one new pin, the old pin intact,
 // the identity and the operator's size moved, and replay agrees.
-func TestWorkSizeOverrideResizesTheWorkToASuccessor(t *testing.T) {
+func TestResizeSuccessorSupersedesWithoutCompletion(t *testing.T) {
 	s := openTemp(t)
 	pinnedLargerWork(t, s, "resize")
 	before := readResizeSnapshot(t, s, "resize")

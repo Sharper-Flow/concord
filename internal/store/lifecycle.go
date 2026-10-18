@@ -33,11 +33,11 @@ type workCreatedPayload struct {
 // validateWorkCreatedPayload holds the payload-version-local semantics of
 // work.created. A payload recorded at the current version must satisfy the
 // defect intake kind rules: a bug classifies, a research capture may carry the
-// record as its cluster identity, every other kind refuses it. Payloads
-// upcast from v1 or v2 are historical captures that predate the record and
-// stay unclassified by design.
+// record as its cluster identity, every other kind refuses it, and so does a
+// v3 payload, which carried the same record. Payloads upcast from v1 or v2 are
+// historical captures that predate the record and stay unclassified by design.
 func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
-	if event.replaySourcePayloadVersion != 0 {
+	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 3 {
 		return nil
 	}
 	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)

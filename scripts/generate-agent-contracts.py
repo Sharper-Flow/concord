@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate and deterministically generate the TS8 agent contract projections."""
 from __future__ import annotations
-import argparse, copy, hashlib, json, re, subprocess, sys
+import argparse, copy, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2249,6 +2249,9 @@ def main() -> int:
         actions, workflows, teaching, schema_refs = load_workflow_action_contracts()
         if freeze:
             return freeze_historical_decoder(schema_refs)
+        bun = shutil.which("bun")
+        if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
+            fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
@@ -2295,6 +2298,17 @@ def main() -> int:
                     continue
                 if not path.is_file() or path.read_text() != content:
                     fail(f"generated contract drift: {path.relative_to(ROOT)}")
+            if bun is None:
+                # Without Bun, validate the deterministic body and pin syntax,
+                # not the publication byte count.
+                if not re.fullmatch(
+                    re.escape(expected[publication_tests]) + r"\nexport const PINNED_PUBLISHED_TOTAL_BYTES = [1-9][0-9]*;\n",
+                    publication_tests.read_text(),
+                ):
+                    fail("generated contract drift: adapter/opencode/generated-contract-tests.ts")
+                print("publication byte measurement NOT run (Bun unavailable); the validator body and pin format were checked")
+                print(digest)
+                return 0
         else:
             (ROOT / "internal/agent").mkdir(exist_ok=True)
             for path, content in expected.items():

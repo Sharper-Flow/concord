@@ -38,14 +38,21 @@ var payloadVersionClasses = map[string]map[int]payloadVersionClass{
 	WorkerDispatched:                   {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly},
 	WorkerCompleted:                    {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly, 6: replayOnly, 7: replayOnly},
 	WorkerFailed:                       {2: replayOnly, 3: replayOnly, 4: replayOnly},
-	WorkflowContractApproved:           {2: replayOnly, 3: replayOnly, 4: replayOnly},
+	WorkflowContractApproved:           {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly},
 	WorkflowNativeRunRecorded:          {2: replayOnly},
-	WorkflowContractSuperseded:         {2: replayOnly, 3: replayOnly},
+	WorkflowContractSuperseded:         {2: replayOnly, 3: replayOnly, 4: replayOnly},
 	WorkflowActionCompleted:            {2: replayOnly, 3: replayOnly, 4: replayOnly, 5: replayOnly},
 	WorkflowVerdictRecorded:            {2: replayOnly},
 	WorkflowSuccessorLinked:            {2: replayOnly},
 	WorkflowImpactNoticeRecorded:       {2: replayOnly},
 	WorkflowCompleted:                  {2: replayOnly},
+	WorkflowPremiseConfirmed:           {2: replayOnly},
+	// Both bumps admit an empty approval_ref for unsigned routine writes.
+	// The previous release reads the correction approval_ref outside the
+	// registry and requires it; migration 133 admits the empty routine
+	// overlap reference, so 133 raises the floor for both.
+	WorkflowDeliveryCorrected: {2: breakingAt(133)},
+	WorkflowOverlapResolved:   {2: breakingAt(133)},
 }
 
 func TestPayloadVersionsDeclareClass(t *testing.T) {

@@ -628,7 +628,7 @@ func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
 		}
 		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-reject-retry-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-			EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
 		prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: fixture.workID, AttemptID: "attempt-reject-retry-x", EventID: completion.EventID})
 		if prepErr != nil {
@@ -774,7 +774,7 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		}
 		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-c1-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-			EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
 		prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: fixture.workID, AttemptID: "attempt-c1-x", EventID: completion.EventID})
 		if prepErr != nil {
@@ -1441,7 +1441,7 @@ func completeAggregateAttempt(t *testing.T, f workContextFixture, attemptID stri
 	}
 	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-		EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: completion.EventID})
 	if prepErr != nil {

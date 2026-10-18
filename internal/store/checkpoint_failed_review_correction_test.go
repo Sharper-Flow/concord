@@ -567,7 +567,7 @@ func checkpointCorrectionRequestOpen(t *testing.T, s *Store, workID string) int6
 // what the failed-review return does without one and with the wrong one.
 func runCheckpointOperatorAction(t *testing.T, s *Store, workID, key string, payload json.RawMessage, owner WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	operationID := "request_correction" + "-" + workID + "-" + key + "-" + fmt.Sprint(version)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {

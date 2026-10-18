@@ -32,7 +32,7 @@ func acceptDeliveryRunDigest(workID, attemptID string) string {
 // outside the transaction (CD-0192).
 func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, tooling *ProjectToolingManifest, owner WorkflowActor) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err

@@ -43,11 +43,11 @@ func TestReadWorkClosureCarriesTheClosureFacts(t *testing.T) {
 	seedWork(t, s, secondFollowUp)
 	// The second item's relation lands first: rows follow work-item creation,
 	// not relation creation.
-	secondVersion := deliveryWorkVersion(t, s, secondFollowUp)
+	secondVersion := readWorkVersion(t, s, secondFollowUp)
 	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-2", "raised_from", secondFollowUp, workID, secondVersion, secondVersion+1), workVersion(secondFollowUp, secondVersion)); err != nil {
 		t.Fatalf("second raised_from refused: %v", err)
 	}
-	firstVersion := deliveryWorkVersion(t, s, firstFollowUp)
+	firstVersion := readWorkVersion(t, s, firstFollowUp)
 	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-1", "raised_from", firstFollowUp, workID, firstVersion, firstVersion+1), workVersion(firstFollowUp, firstVersion)); err != nil {
 		t.Fatalf("first raised_from refused: %v", err)
 	}

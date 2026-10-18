@@ -50,7 +50,7 @@ func completedDeliveryFixture(t *testing.T, workID string) (*Store, string, int6
 	t.Helper()
 	s := completedDeliveryFixtureWithAssertions(t, workID, 1)
 	targetEventID, seq, payloadVersion := deliveryAssertionEvent(t, s, workID, 0)
-	return s, targetEventID, deliveryWorkVersion(t, s, workID), payloadVersion, seq
+	return s, targetEventID, readWorkVersion(t, s, workID), payloadVersion, seq
 }
 
 // completedDeliveryFixtureWithAssertions seeds the completed item with a
@@ -119,7 +119,7 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	insertConsumedApproval(t, s, deliveryCorrectionApprovalRef, workID, deliveryWorkVersion(t, s, workID))
+	insertConsumedApproval(t, s, deliveryCorrectionApprovalRef, workID, readWorkVersion(t, s, workID))
 	return s
 }
 
@@ -144,15 +144,6 @@ func insertConsumedApprovalState(t *testing.T, s *Store, ref, workID string, ver
 		ref, deliveryCorrectionDigest, deliveryCorrectionScopeJSON(workID), deliveryCorrectionVersionsJSON(version), deliveryCorrectionConsequence, "principal/operator", "client/concord-1", "session/"+workID+"-approval-"+ref[:4], "2026-09-10T00:00:00Z", "2026-09-11T00:00:00Z", 1, usedCount, "approval-evidence", "sha256:"+strings.Repeat("b", 64)); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func deliveryWorkVersion(t *testing.T, s *Store, workID string) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 // deliveryAssertionEvent reads the delivery assertion at a chosen offset from
@@ -348,7 +339,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if lifecycle != "completed" {
 		t.Fatalf("correction reopened the work item lifecycle to %q", lifecycle)
 	}
-	if got := deliveryWorkVersion(t, s, workID); got != version+2 {
+	if got := readWorkVersion(t, s, workID); got != version+2 {
 		t.Fatalf("correction version=%d, want the operator actor and the correction event (%d)", got, version+2)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -364,11 +355,11 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 
 	// A second correction of the same assertion is refused: the approval is
 	// one-use per correction and the assertion is already corrected.
-	second := deliveryCorrectionRequest(workID, deliveryWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
+	second := deliveryCorrectionRequest(workID, readWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
 	second.EventID = "correction-" + workID + "-second"
 	second.ApprovalRef = "a0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	insertConsumedApproval(t, s, second.ApprovalRef, workID, deliveryWorkVersion(t, s, workID))
-	second.ApprovalVersionsJSON = deliveryCorrectionVersionsJSON(deliveryWorkVersion(t, s, workID))
+	insertConsumedApproval(t, s, second.ApprovalRef, workID, readWorkVersion(t, s, workID))
+	second.ApprovalVersionsJSON = deliveryCorrectionVersionsJSON(readWorkVersion(t, s, workID))
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
 }
 
@@ -514,7 +505,7 @@ func TestTerminalDeliveryCorrectionTargetsCurrentAssertionOnly(t *testing.T) {
 	const workID = "delivery-correction-stale-target"
 	s := completedDeliveryFixtureWithAssertions(t, workID, 2)
 	staleEventID, staleSeq, stalePayloadVersion := deliveryAssertionEvent(t, s, workID, 1)
-	request := deliveryCorrectionRequest(workID, deliveryWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
+	request := deliveryCorrectionRequest(workID, readWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, request), KindInvalidOperation, "not the current delivery assertion")
 }
 

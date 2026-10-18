@@ -261,7 +261,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect the archived work projection", true, "retry once the database is readable", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, payload.ID, payload.Type, payload.Title, payload.CompletedAt, payload.OutcomeTag, marshalStrings(payload.LessonTags), payload.TerminalState, payload.Priority, payload.Summary, nullString(payload.SuccessorID), payload.HomeProjectID, payload.HomeLocatorID, payload.NotePath, payload.CommitOID, payload.ContentHash); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, payload.ID, payload.Type, payload.Title, payload.CompletedAt, payload.OutcomeTag, marshalStrings(payload.LessonTags), payload.TerminalState, payload.Priority, payload.Summary, nullableText(payload.SuccessorID), payload.HomeProjectID, payload.HomeLocatorID, payload.NotePath, payload.CommitOID, payload.ContentHash); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write archived work projection", true, "retry once the database is writable", err)
 	}
 	for table, values := range map[string][]string{"archived_work_products": payload.ProductIDs, "archived_work_projects": payload.ProjectIDs, "archived_work_domains": payload.DomainIDs, "archived_work_tags": payload.TagIDs} {
@@ -370,13 +370,6 @@ func upcastCompactionLinkPublishedV2(event Event) (Event, error) {
 	}
 	event.Payload, event.PayloadVersion = payload, 3
 	return event, nil
-}
-
-func nullString(value string) any {
-	if value == "" {
-		return nil
-	}
-	return value
 }
 
 type domainProjection struct {
@@ -499,7 +492,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 		if status == "" {
 			status = "current"
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, domain.ID, domain.Name, domain.Purpose, nullString(domain.ParentDomainID), status, projection.RegistryHash, commit); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, domain.ID, domain.Name, domain.Purpose, nullableText(domain.ParentDomainID), status, projection.RegistryHash, commit); err != nil {
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain projection", true, "retry once the database is writable", err)
 		}
 	}
@@ -943,7 +936,7 @@ func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, 
 }
 
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode, note.ManifestSchemaVersion); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullableText(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode, note.ManifestSchemaVersion); err != nil {
 		if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {
 			return failure
 		}

@@ -180,7 +180,7 @@ func TestWorkerJobBindingBindsRecordedJobCapableVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("revision-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,

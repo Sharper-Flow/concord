@@ -84,7 +84,7 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			}
 
 			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID),
+				WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID),
 				ActionID: "accept_worker_evidence", Payload: payload, Actor: acceptor,
 			}); err != nil {
 				t.Fatalf("preflight of review disposition without delivery = %v, want admitted non-advancing disposition", err)
@@ -112,11 +112,11 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			if workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") {
 				t.Fatal("a dispositioned review remains offered for evidence acceptance")
 			}
-			version := verdictItemVersion(t, s, workID)
+			version := readWorkVersion(t, s, workID)
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
 				t.Fatal("the same review was dispositioned twice through distinct operations")
 			}
-			if verdictItemVersion(t, s, workID) != version {
+			if readWorkVersion(t, s, workID) != version {
 				t.Fatal("refused repeated disposition changed the work")
 			}
 			if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -170,7 +170,7 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			if epoch <= previousEpoch {
 				t.Fatalf("successor contract reused refinement epoch %d, want after %d", epoch, previousEpoch)
 			}
-			version = verdictItemVersion(t, s, workID)
+			version = readWorkVersion(t, s, workID)
 
 			// An authorization closes correction before native dispatch exists.
 			authorization := workflowEventWithActor("new-review-authorization-"+workID, WorkflowActionCompleted, workID, ownerRef, map[string]any{
@@ -236,11 +236,11 @@ func TestRefineReviewEvidenceDispositionRefusesInvalidAttempts(t *testing.T) {
 				fields["delivery_state"] = "asserted"
 			}
 			payload := mustJSONValue(fields)
-			version := verdictItemVersion(t, s, workID)
+			version := readWorkVersion(t, s, workID)
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
 				t.Fatalf("%s evidence acceptance was admitted", scenario)
 			}
-			if verdictItemVersion(t, s, workID) != version {
+			if readWorkVersion(t, s, workID) != version {
 				t.Fatal("refused evidence acceptance changed the work")
 			}
 			reviewGateRequireStep(t, s, workID, "refine")
@@ -320,7 +320,7 @@ func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *test
 			if !issue1013HasIntent(pin, "supersede_contract") {
 				t.Fatal("settled review did not open correction")
 			}
-			version := verdictItemVersion(t, s, workID)
+			version := readWorkVersion(t, s, workID)
 			opening := workflowEventWithActor("review-evidence-unsettled-opening-"+workID, WorkflowActionCompleted, workID, ownerRef, map[string]any{
 				"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 				"step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch,
@@ -385,7 +385,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 			packet := joinPacketFor(t, s, workID, "refine", "attempt:"+workID+":pending", "review", laneVersion, laneDigest)
 			attachReadyWorkerJobIfJobCapable(t, s, workID, "refine", fixture.owner, packet)
-			if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
+			if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 				t.Fatal(err)
 			}
 			if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {

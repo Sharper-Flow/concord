@@ -295,14 +295,6 @@ func workflowIntegrationCovered(scopes []string, covered map[string]bool) bool {
 	return true
 }
 
-// workflowIntegrationScopes splits the deterministic required-scope join.
-func workflowIntegrationScopes(keys string) []string {
-	if keys == "" {
-		return nil
-	}
-	return strings.Split(keys, ",")
-}
-
 // workflowDeliveryJobsFailure is the shared refusal of a delivery assertion
 // behind unsatisfied required jobs or without qualifying integration
 // evidence. The accepting attempt's own dispatched revision counts as
@@ -311,7 +303,7 @@ func workflowIntegrationScopes(keys string) []string {
 // That pending satisfaction never supplies integration — integration derives
 // only from qualifying verification evidence, on both routes alike.
 func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *WorkerJobBinding) *Failure {
-	unsatisfied := workerJobKeys(state.JobsUnsatisfiedKeys)
+	unsatisfied := splitKeyJoin(state.JobsUnsatisfiedKeys)
 	if accepting != nil {
 		remaining := make([]string, 0, len(unsatisfied))
 		self := workerJobKey(accepting.JobID, accepting.Revision)
@@ -335,9 +327,9 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	return nil
 }
 
-// workerJobKeys splits the deterministic unsatisfied-keys join. Job ids and
-// the key separator cannot contain a comma, so the split is unambiguous.
-func workerJobKeys(keys string) []string {
+// splitKeyJoin splits a deterministic comma join of worker-job keys or
+// required scopes. Neither can contain a comma, so the split is unambiguous.
+func splitKeyJoin(keys string) []string {
 	if keys == "" {
 		return nil
 	}
@@ -394,7 +386,7 @@ func workflowIntegrationToolingFailure(delivery workflowDeliveryAdmission, runs 
 	if !delivery.JobsRecorded || !delivery.JobsIntegrated || tooling == nil {
 		return nil
 	}
-	scopes := workflowIntegrationScopes(delivery.JobsScopeKeys)
+	scopes := splitKeyJoin(delivery.JobsScopeKeys)
 	declared := map[string]bool{}
 	for _, run := range runs {
 		if run.Failure != nil || run.Disqualifier != "" {

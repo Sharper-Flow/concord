@@ -32,7 +32,7 @@ func refineProofStartRefine(t *testing.T, fixture workflowReturnRouteFixture, wo
 
 func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *ProjectToolingManifest) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	actor := reviewGateAcceptor(workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -113,7 +113,7 @@ func refineProofBindVerification(t *testing.T, s *Store, workID, ref, producerRu
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor(workID+":refine-proof-bind:"+ref, WorkflowEvidenceBound, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": "verification",
 		"immutable_subject_ref": ref, "producer_id": "principal/operator", "producer_run_ref": producerRunRef,

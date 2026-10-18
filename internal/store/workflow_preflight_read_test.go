@@ -20,7 +20,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 			break
 		}
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	step := readInstanceStep(t, s, workID)
 	var eventCount int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&eventCount); err != nil {
@@ -68,7 +68,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actors); err != nil {
 		t.Fatal(err)
 	}
-	if afterEvents != eventCount || actors != 0 || readInstanceStep(t, s, workID) != step || verdictItemVersion(t, s, workID) != version {
+	if afterEvents != eventCount || actors != 0 || readInstanceStep(t, s, workID) != step || readWorkVersion(t, s, workID) != version {
 		t.Fatalf("preflight changed committed state: events=%d (want %d), new actors=%d", afterEvents, eventCount, actors)
 	}
 

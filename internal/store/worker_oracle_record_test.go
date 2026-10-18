@@ -298,7 +298,7 @@ func oracleMemberProjectFixture(t *testing.T) (*Store, WorkflowActor, string, ma
 	}
 	git := newFakeWorktreeGit(root)
 	claim := baseClaim(git)
-	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "receiver", verdictItemVersion(t, s, workID)
+	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "receiver", readWorkVersion(t, s, workID)
 	claim.OpID, claim.RequestID = "receiver-claim", "receiver-claim"
 	claimed, err := s.ClaimWorktree(context.Background(), claim)
 	if err != nil {

@@ -668,6 +668,7 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 	payload := WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane),
 		ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: dispatched,
+		WorkerDirectory: workerFixtureDirectory(t, s, workID),
 	}
 	if len(lane.RequiredReportBlocks) > 0 {
 		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}

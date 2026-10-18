@@ -10,8 +10,11 @@
   record is [issue #257](https://github.com/Sharper-Flow/concord/issues/257)
 - **Related:** CD-0016 (context continuity, typed agent identity, no
   `agent_definitions` table), CD-0017 (typed workers and model routing), CD-0031
-  (launcher-started session boot packet), CD-0034 (host prompt provenance),
+  (core-derived session context packet), CD-0034 (host prompt provenance),
   CD-0043 (host-owned lane methodology)
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the identity
+  assertion from session start to session-prepare under the Snowball
+  coordinator's operator-delegated approval.
 
 ## Context
 
@@ -52,13 +55,15 @@ definition carried in the environment presents no file to hash.
 The installer has no project concept today. Acquiring one is the cost of this
 decision and is owned by issue #253.
 
-### D2. Concord asserts agent identity before launch
+### D2. Concord asserts agent identity before managed action
 
 Concord enumerates the agents available to a session and asserts that the
-required identity is present before starting OpenCode. Identity assertion is
-never delegated to the host: passing `--agent` and relying on the outcome is
-unavailable as a design, because the host's failure mode for an unknown agent is
-a silent substitution with a success exit code.
+required identity is present before managed action. session-prepare performs
+the assertion against the calling host session's registry in the claimed
+worktree. Identity assertion is never delegated to the host: passing
+`--agent` and relying on the outcome is unavailable as a design, because the
+host's failure mode for an unknown agent is a silent substitution with a
+success exit code.
 
 A missing or unexpected identity is a typed failure naming what was required and
 what was found.
@@ -107,7 +112,7 @@ unsolved and is not settled here.
    `.opencode/agents/`.
 2. No Concord code path treats the presence of an `--agent` argument as evidence
    that the named agent ran.
-3. A launcher-started session either records the typed agent identity it
+3. A managed session either records the typed agent identity session-prepare
    asserted, or refuses with a typed failure naming the required and observed
    identity.
 4. Concord holds no durable definition of an orchestrator persona.
@@ -126,8 +131,8 @@ CD-0016's clean-restart boundary becomes reachable. The assertion required by D2
 is what populates the reserved `typed_agent_*` columns that have been unwritten
 since that decision was accepted.
 
-CD-0031 describes a launcher-started session bootstrap with no identity
-assertion step, and requires amendment to carry one.
+Work-start preparation carries the identity assertion, so a session reaches
+managed work with its asserted identity already recorded.
 
 D5 gives every client registered before it an empty agent scope, which
 authorizes nothing. Each such client must be re-registered with the agents it

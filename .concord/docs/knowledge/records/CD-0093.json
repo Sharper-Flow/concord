@@ -18,12 +18,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c0dd244bf1fb29ab1d127122a2ec26714e6408cccc9f9b8943fdfc2c91fc0038",
+  "sha256": "sha256:37701b76add4fe9cabecfcaaad8746ca5afdeaf061f39bccd559a13459c1b5b6",
   "status": "accepted",
-  "summary": "Session start resolves the selected work's Project canonical path and uses that one directory for agent resolution, the host registry probe, and execution, failing closed when any of them does not resolve. The host command is the operator's configured host_command when one is named and the bare host otherwise (CD-0189), and the per-Project host environment gap closes through host configuration rather than the store.",
+  "summary": "A managed session's work resolves from its active claim and directory: session-prepare uses the claimed worktree directory alone for agent resolution, the single bounded calling-host registry probe, and the context read, and refuses any other directory or a failed probe before managed action. The launch landing and the configured launch command are retired.",
   "tags": [
-    "launcher",
+    "session-prepare",
     "session-boot"
   ],
-  "title": "Session start resolves the Project directory"
+  "title": "Session context resolves in the claimed work directory"
 }

@@ -669,7 +669,7 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, dbPath)
-	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nkill -9 $$\n")
+	installFakeCommand(t, t.TempDir(), "#!/bin/sh\nkill -9 $$\n")
 	t.Chdir(result.Entry.Path)
 	identityCalls := 0
 	var out, errOut bytes.Buffer
@@ -705,7 +705,7 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, dbPath)
-	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nwhile true; do :; done\n")
+	installFakeCommand(t, t.TempDir(), "#!/bin/sh\nwhile true; do :; done\n")
 	t.Chdir(result.Entry.Path)
 	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -768,7 +768,7 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 	}
 	t.Run("a host that exits nonzero on its own refuses", func(t *testing.T) {
 		workID, worktree, dbPath := newFixture(t)
-		installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nexit 3\n")
+		installFakeCommand(t, t.TempDir(), "#!/bin/sh\nexit 3\n")
 		t.Chdir(worktree)
 		code, diagnostic := run(t, dbPath, workID)
 		if code != sessionPrepareRefusalExit {
@@ -822,12 +822,10 @@ func mustOpenStore(t *testing.T, path string) *store.Store {
 // TestSessionPrepareProbesTheCallingHostOnce covers CD-0189 D4 on the
 // session-prepare side. session-prepare launches nothing: the session it
 // prepares keeps running in the host process that called it, under that
-// process's environment. One bare probe in the claimed worktree resolves the
-// registry that process resolves there, so a configured host_command is
-// never probed, and the registration check reads the bare document: a bare
-// document that does not register the handle refuses even when the
-// configured command's document registers it, and a bare document that
-// registers the handle admits the preparation.
+// process's environment. One bare probe in the claimed worktree resolves
+// the registry that process resolves there, and the registration check
+// reads that bare document: a document that does not register the handle
+// refuses, and a document that registers the handle admits the preparation.
 func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 	newFixture := func(t *testing.T) (workID string, worktree string, dbPath string) {
 		repo := initLocatorRepo(t)
@@ -841,18 +839,14 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 		t.Setenv(dbOverrideEnv, path)
 		return result.WorkID, result.Entry.Path, path
 	}
-	run := func(t *testing.T, bare, wrapper string) (int, string) {
+	run := func(t *testing.T, bare string) (int, string) {
 		t.Helper()
 		workID, worktree, dbPath := newFixture(t)
 		if err := os.WriteFile(filepath.Join(worktree, "opencode.registry.json"), []byte(bare), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(worktree, "wrapper.registry.json"), []byte(wrapper), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		recordDir := t.TempDir()
 		installFakeHost(t, recordDir)
-		installFakeWrapper(t, recordDir)
 		t.Chdir(worktree)
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
@@ -871,14 +865,10 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 		if count := hostRecord(t, recordDir, "probe-count"); count != "1" {
 			t.Fatalf("bare probes=%s, want exactly one", count)
 		}
-		if _, err := os.Stat(filepath.Join(recordDir, "wrapper-probe-count")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("the configured host command was probed (stat err=%v); session-prepare launches nothing through it", err)
-		}
 		return code, errOut.String()
 	}
-	const configured = `"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]`
 	t.Run("a bare document that does not register the handle refuses", func(t *testing.T) {
-		code, diagnostic := run(t, `{"agent":{"someone-else":{"mode":"primary"}},`+configured+`}`, `{"agent":{"concord-1":{"mode":"primary"}},`+configured+`}`)
+		code, diagnostic := run(t, `{"agent":{"someone-else":{"mode":"primary"}}}`)
 		if code != sessionPrepareRefusalExit {
 			t.Fatalf("prepare code=%d stderr=%q", code, diagnostic)
 		}
@@ -887,7 +877,7 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 		}
 	})
 	t.Run("a bare document that registers the handle admits the preparation", func(t *testing.T) {
-		code, diagnostic := run(t, `{"agent":{"concord-1":{"mode":"primary"}},`+configured+`}`, `{"agent":{"someone-else":{"mode":"primary"}},`+configured+`}`)
+		code, diagnostic := run(t, `{"agent":{"concord-1":{"mode":"primary"}}}`)
 		if code != 0 {
 			t.Fatalf("prepare code=%d stderr=%q", code, diagnostic)
 		}

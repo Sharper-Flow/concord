@@ -1,7 +1,7 @@
 package store
 
 // The store database boundary: raw SQLite reaches Go only inside this package
-// (internal/pm1fixture aside). The invariant is enforced structurally, through
+// (declared test-support packages aside). The invariant is enforced structurally, through
 // the toolchain's own parser — the CD-0055 D2 authority class, not a textual
 // scan. SQL string literals are inspected against the schema's CREATE TABLE
 // vocabulary, which is the one part of the invariant no Go syntax node carries.
@@ -88,10 +88,10 @@ func boundaryScopeForPath(path string) (boundaryScope, bool) {
 		return 0, false
 	}
 	switch {
+	case testSupportPackage(filepath.Dir(path)):
+		return boundaryScopeExempt, true
 	case strings.HasPrefix(path, "internal/store/"):
 		return boundaryScopeStore, true
-	case strings.HasPrefix(path, "internal/pm1fixture/"):
-		return boundaryScopeExempt, true
 	case strings.HasPrefix(path, "cmd/") || strings.HasPrefix(path, "internal/"):
 		return boundaryScopeOutside, true
 	}
@@ -376,7 +376,7 @@ func TestStoreBoundaryRepoIsClean(t *testing.T) {
 // handles, aliased imports, accessors (including method values), direct
 // BeginTx, literal SQL against owned tables through joins and subqueries, SQL
 // comments, and the Store.DB escape hatch — plus the allowed scopes
-// (store-owned code, tests, pm1fixture) staying silent.
+// (store-owned code, tests, declared test-support packages) staying silent.
 func TestStoreBoundaryFixtureViolations(t *testing.T) {
 	t.Parallel()
 	const schema = "package store\nvar schema = `CREATE TABLE widgets (id INTEGER);`\n"

@@ -116,8 +116,9 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 }
 
 // History renders a stored event's evidence_refs one entry per reference, so
-// its per-event evidence bound must admit the largest evidence_refs list any
-// workflow action input accepts.
+// its per-event evidence bound must admit the largest list any producer
+// stores there: a workflow action's evidence_refs field, or the input
+// evidence that revise and lifecycle transitions record.
 func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 	t.Parallel()
 	page := schemaDef(t, "work_event_page")
@@ -146,6 +147,16 @@ func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 	}
 	if owner == "" {
 		t.Fatal("no workflow action variant declares evidence_refs")
+	}
+	for _, name := range []string{"work_define_revise_input", "work_transition_lifecycle_input"} {
+		input, _ := schemaDef(t, name)["properties"].(map[string]any)["evidence"].(map[string]any)
+		items, ok := input["maxItems"].(float64)
+		if !ok {
+			t.Fatalf("%s evidence carries no maxItems: %v", name, input)
+		}
+		if items > largest {
+			largest, owner = items, name
+		}
 	}
 	if bound < largest {
 		t.Fatalf("work_event_page events[].evidence maxItems = %v, but %s admits %v evidence_refs", bound, owner, largest)

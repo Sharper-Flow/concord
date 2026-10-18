@@ -119,6 +119,80 @@ stable `skills.paths` entry and the plugin entry module at startup. The
 installer manages only those two registrations; it does not modify unrelated
 configuration keys.
 
+### Customize agents without editing shipped files
+
+Concord owns the generated agent files it records in the install manifest and
+updates them from each verified release. Do not edit those files in
+`~/.config/opencode/agents/`: a modified managed file blocks installation or
+repair rather than losing your edits. Other agent files in that directory stay
+host-owned. If a new release ships a name you already use for a host-authored
+agent, installation refuses; it does not merge, adopt, or delete your file.
+
+Keep model choices in your global `opencode.jsonc` and extra instructions in a
+separate file that you own. For example, add these keys to the existing config:
+
+```json
+{
+  "agent": {
+    "concord-explore": { "model": "provider/model-id" }
+  },
+  "instructions": ["~/my-agent-instructions.md"]
+}
+```
+
+OpenCode loads those instructions for every agent, alongside its agent prompt.
+Use an instruction such as “For concord-explore, …” when a rule applies only to
+that role. Concord never writes the instruction file or changes those user
+agent keys. It edits only its own plugin, skills, and project conduct registrations.
+
+OpenCode merges global JSON before discovered markdown agents. Fields the
+shipped markdown defines win over conflicting global JSON fields: its body
+replaces `agent.<name>.prompt`, and its permission rules can override your
+global rules. Do not use a global `prompt` value to append instructions or
+assume a global permission addition overrides a shipped deny.
+
+For project-specific agent permissions, add an `agent` entry to the project's
+`.opencode/opencode.jsonc` (or its existing `.opencode/opencode.json`), which
+loads after the global agent definition. This example denies a normally
+allowed command and allows an additional command:
+
+```json
+{
+  "agent": {
+    "concord-explore": {
+      "permission": {
+        "bash": {
+          "git status *": "deny",
+          "custom-command *": "allow"
+        }
+      }
+    }
+  }
+}
+```
+
+Do not duplicate the agent markdown to customize it. Linking, upgrading,
+repairing, unlinking, and uninstalling preserve these user keys. Host permission
+grants do not grant Concord workflow authority. Check the result with
+`opencode debug agent concord-explore` and `opencode debug config`, then start
+a new session to use changed host configuration. The examples follow
+[OpenCode's native merge order](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/config/config.ts#L412-L489)
+and [instruction loading](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/instruction.ts#L135-L168).
+
+Installer regression tests use temporary home and configuration roots. To also check the
+resolved agent with an existing OpenCode binary, run:
+
+```sh
+bin/oc-test targeted -- env CONCORD_INSTALLER_HOST_PROBE="$(command -v opencode)" \
+  python3 scripts/test-installer.py \
+  InstallerTests.test_user_agent_layers_survive_upgrade_repair_and_uninstall
+```
+
+The host probe copies the installed agent bytes and user settings into an
+isolated config root. It excludes the test release's synthetic adapter files,
+uses `--pure`, and makes no provider request. It checks resolved model and
+permissions plus instruction registration, not a captured model request.
+
 ## Prepare, migrate, activate
 
 Every install consults the candidate release's own core before activating it.

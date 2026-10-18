@@ -163,6 +163,7 @@ esac''',
         marker: str | None = None,
         include_binary_checksum: bool = True,
         agent_names: tuple[str, ...] | None = None,
+        generated_agents: bool = False,
     ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
@@ -178,7 +179,10 @@ esac''',
             (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
         (source / "agents").mkdir()
         for name in agent_names if agent_names is not None else installer.AGENT_FILES:
-            (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
+            content = f"agent:{name}:{marker or version}\n"
+            if generated_agents:
+                content = (SCRIPT.parents[1] / ".opencode" / "agents" / name).read_text(encoding="utf-8") + "\n" + content
+            (source / "agents" / name).write_text(content, encoding="utf-8")
         binary = (source / "bin" / "concord")
         # The staged core is a shell script so the installer can ask it which
         # releases live sessions hold (CD-0111 D2), whether activation is
@@ -2808,6 +2812,94 @@ esac''',
         for name in installer.AGENT_FILES:
             self.assertFalse((agents_dir / name).exists())
 
+    def test_user_agent_layers_survive_upgrade_repair_and_uninstall(self) -> None:
+        self.make_release("v1.0.0", generated_agents=True)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        instructions = self.config.parent / "user-instructions.md"
+        instructions.write_text("User instruction sentinel.\n", encoding="utf-8")
+        config = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
+        config.pop("keep")  # Only host-schema keys reach the optional real-host probe.
+        user_agent = {"model": "openai/test-model"}
+        config.update({"agent": {"concord-explore": user_agent}, "instructions": [str(instructions)]})
+        self.config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        global_bytes = self.config.read_bytes()
+
+        project = self.root / "consumer"
+        project_config = project / ".opencode" / "opencode.jsonc"
+        project_config.parent.mkdir(parents=True)
+        project_agent = {"permission": {"bash": {"git status *": "deny", "custom-command *": "allow"}}}
+        project_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": project_agent}}, indent=2) + "\n", encoding="utf-8")
+        project_bytes = project_config.read_bytes()
+        host_agent = self.config.parent / "agents" / "concord-host.md"
+        host_agent.write_text("---\ndescription: User agent\nmode: primary\n---\nUser-owned prompt.\n", encoding="utf-8")
+        host_bytes = host_agent.read_bytes()
+        target = self.config.parent / "agents" / "concord-explore.md"
+
+        def assert_user_layers() -> None:
+            self.assertEqual(self.config.read_bytes(), global_bytes)
+            self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
+            self.assertEqual(installer.jsonc_data(project_config.read_text(encoding="utf-8"))["agent"]["concord-explore"], project_agent)
+            self.assertEqual(host_agent.read_bytes(), host_bytes)
+            binary = os.environ.get("CONCORD_INSTALLER_HOST_PROBE")
+            if not binary:
+                return
+            # The release fixture's adapter is synthetic. Resolve the installed
+            # agents and user layers without loading those fake TypeScript files.
+            probe_config = self.root / "probe-config" / "opencode"
+            probe_config.mkdir(parents=True, exist_ok=True)
+            (probe_config / "agents").mkdir(exist_ok=True)
+            for agent in (target, host_agent):
+                shutil.copyfile(agent, probe_config / "agents" / agent.name)
+            (probe_config / "opencode.jsonc").write_text(json.dumps({
+                "$schema": "https://opencode.ai/config.json",
+                "agent": config["agent"], "instructions": config["instructions"],
+            }), encoding="utf-8")
+            # Whitelist the environment: no live host config, plugins, account,
+            # or inherited OPENCODE_* variables can affect the resolved agent.
+            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home")}
+            host_env.update({f"XDG_{key}_HOME": str(self.root / directory) for key, directory in (
+                ("CONFIG", "probe-config"), ("DATA", "probe-data"), ("CACHE", "probe-cache"), ("STATE", "probe-state"),
+            )})
+            for args in (("debug", "agent", "concord-explore"), ("debug", "config")):
+                resolved = subprocess.run([binary, "--pure", *args], cwd=project, env=host_env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+                value = json.loads(resolved.stdout)
+                if args[1] == "agent":
+                    self.assertEqual(value["model"], {"providerID": "openai", "modelID": "test-model"})
+                    bash_rules = [rule for rule in value["permission"] if rule["permission"] == "bash"]
+                    self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "git status *")), "deny")
+                    self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "custom-command *")), "allow")
+                    self.assertIn("# concord-explore", value["prompt"])
+                else:
+                    self.assertIn(str(instructions), value["instructions"])
+
+        assert_user_layers()
+        linked = self.run_installer("link", "--project", str(project))
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        assert_user_layers()
+        self.make_release("v2.0.0", generated_agents=True)
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertIn("agent:concord-explore.md:v2.0.0", target.read_text(encoding="utf-8"))
+        assert_user_layers()
+        target.unlink()
+        repaired = self.run_installer("repair", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertIn("agent:concord-explore.md:v2.0.0", target.read_text(encoding="utf-8"))
+        assert_user_layers()
+        unlinked = self.run_installer("unlink", "--project", str(project))
+        self.assertEqual(unlinked.returncode, 0, unlinked.stderr)
+        self.assertEqual(project_config.read_bytes(), project_bytes)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(installer.jsonc_data(self.config.read_text(encoding="utf-8"))["agent"]["concord-explore"], user_agent)
+        self.assertIn(str(instructions), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["instructions"])
+        self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
+        self.assertEqual(host_agent.read_bytes(), host_bytes)
+        self.assertFalse(target.exists())
+
     def test_agent_files_equal_every_generated_definition(self) -> None:
         # release.yml packs every generated profile and then requires
         # AGENT_FILES in the archive, so the two sets must agree exactly.
@@ -3293,6 +3385,8 @@ esac''',
         )
         # Tampered file is preserved; the installer did not silently overwrite.
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
+        self.assertIn("instructions[]", again.stderr)
+        self.assertIn(".opencode/opencode.json", again.stderr)
 
 
     def test_install_without_version_picks_highest_artifact_dir_release(self) -> None:

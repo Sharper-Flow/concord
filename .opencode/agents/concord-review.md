@@ -40,6 +40,13 @@ This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
+## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
+
 ## Repository edit boundary
 
 Non-editing lane: do not create, change, or delete repository source files and
@@ -173,6 +180,20 @@ record the versions the packet binds (`contract_version` is null before a
 contract is approved), and `assigned_result` names the one evidence obligation
 whose discharge completes this attempt. Complete only that assigned result;
 the parent workflow keeps every other required result explicit.
+
+## Review method
+
+For a changed contract, event, or value, trace the producing code through the
+relevant consumer or dispatch path. Cite both sides when a boundary finding
+depends on them; a correct producer alone does not prove delivery.
+
+For each defect, state the triggering input or state, impact, and exact source
+location. Distinguish proven defects, missing required evidence, and optional
+suggestions using the existing finding detail. For an oracle-governed finding,
+use `review_finding.oracle.classification` and keep the detail consistent with
+it; do not invent report fields. Missing required evidence remains a gap, not a
+reason to invent a defect. Do not turn style preferences into defects or a
+`no_ship` verdict, and do not broaden the review into an unrelated audit.
 
 ## Concord context boundary
 

@@ -862,6 +862,36 @@ the parent workflow keeps every other required result explicit.
 """
 
 
+def subagent_execution_instructions() -> str:
+    return """## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
+"""
+
+
+def review_method_instructions(lane: dict) -> str:
+    if lane["id"] != "review":
+        return ""
+    return """## Review method
+
+For a changed contract, event, or value, trace the producing code through the
+relevant consumer or dispatch path. Cite both sides when a boundary finding
+depends on them; a correct producer alone does not prove delivery.
+
+For each defect, state the triggering input or state, impact, and exact source
+location. Distinguish proven defects, missing required evidence, and optional
+suggestions using the existing finding detail. For an oracle-governed finding,
+use `review_finding.oracle.classification` and keep the detail consistent with
+it; do not invent report fields. Missing required evidence remains a gap, not a
+reason to invent a defect. Do not turn style preferences into defects or a
+`no_ship` verdict, and do not broaden the review into an unrelated audit.
+
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
@@ -940,6 +970,7 @@ This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
+{subagent_execution_instructions()}
 ## Repository edit boundary
 
 {repository_edit_boundary(lane)}
@@ -951,7 +982,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {checkpoint_instructions()}
 {acceptance_oracle_instructions(packet_schema, lane)}
 {objective_binding_instructions()}
-{concord_context_boundary_instructions()}
+{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
@@ -1030,6 +1061,15 @@ question from the working directory.
    cap stops you.
 
 ## Facts packet
+
+Answer the bounded question first. Return the complete requested inventory or
+report, not a summary of it. Where the question depends on relationships, give
+the smallest caller -> owner -> consumer map that answers it, with `path:line`
+for each observed connection. Mark unverified connections as unknown; do not
+expand the answer into an unrelated architecture tour.
+
+If the cap or unavailable evidence prevents completeness, label the inventory
+partial and name the population covered and the remaining gaps.
 
 Return plain text. The packet holds:
 
@@ -1136,6 +1176,7 @@ permission:
 
 {utility['purpose']}
 
+{subagent_execution_instructions()}
 {body_text}
 """
 

@@ -136,9 +136,11 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 481 }
   const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 826 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch", "concord_worker_check", "concord_worker_diff", "concord_worker_read"].sort(), bytes: 20_585 + diffBytes }
   const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 127_397 + 826 + diffBytes }
-  expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
+  // CON-1163: Concord-RTE replaces concord-coordinator with the operator's
+  // full catalog. The profile denies no tool, so the no-overlay budget is
+  // the whole registered catalog at the full published total.
+  expect(projectedBytes("Concord-RTE")).toEqual(OPERATOR_BUDGET)
   expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
   for (const lane of agentLanes) {
     const role = `concord-${lane.id}`
@@ -154,8 +156,8 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
-  // Each coordinator-allowed tool keeps its complete per-operation branch
-  // list; the operator keeps the full transition root with every registry
+  // Each allowed tool keeps its complete per-operation branch list; the
+  // operator and the RTE keep the full transition root with every registry
   // action variant. Role authority never rewrites publication: it can only
   // withhold a whole tool.
   for (const tool of READS) {

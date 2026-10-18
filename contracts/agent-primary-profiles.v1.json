@@ -4,14 +4,15 @@
   "version": 1,
   "profiles": [
     {
-      "id": "concord-coordinator",
+      "id": "Concord-RTE",
       "version": 1,
-      "description": "Concord coordinator — supervises live sessions across authorized Projects through the host; never authors a candidate or drives a work item's workflow.",
-      "role_source": ".concord/roles/coordinator.md",
+      "description": "Concord-RTE — keeps sessions moving, sequences conflicting work, keeps Linear current, and reports ship status; each session owns its item and decisions.",
+      "role_source": ".concord/roles/rte.md",
       "tools": {
-        "edit": "deny",
-        "write": "deny",
-        "patch": "deny",
+        "edit": "allow",
+        "write": "allow",
+        "patch": "allow",
+        "morph_edit": "allow",
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
@@ -21,29 +22,14 @@
         "webfetch": "allow"
       },
       "bash": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "git status *", "action": "allow"},
-        {"pattern": "git log *", "action": "allow"},
-        {"pattern": "git show *", "action": "allow"},
-        {"pattern": "git diff *", "action": "allow"},
-        {"pattern": "git rev-parse *", "action": "allow"},
-        {"pattern": "gh pr view *", "action": "allow"},
-        {"pattern": "gh pr checks *", "action": "allow"},
-        {"pattern": "gh run view *", "action": "allow"}
+        {"pattern": "*", "action": "allow"},
+        {"pattern": "sudo *", "action": "deny"},
+        {"pattern": "rm -rf / *", "action": "deny"}
       ],
       "task": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "concord-explore", "action": "allow"},
-        {"pattern": "concord-lookup", "action": "allow"},
-        {"pattern": "concord-advisor", "action": "allow"}
+        {"pattern": "*", "action": "allow"}
       ],
-      "denied_concord_tools": [
-        "concord_work_compact",
-        "concord_work_define",
-        "concord_work_relate",
-        "concord_work_start",
-        "concord_work_transition"
-      ]
+      "denied_concord_tools": []
     },
     {
       "id": "concord-operator",

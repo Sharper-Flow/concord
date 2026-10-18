@@ -4,7 +4,7 @@
 // joins the primary profiles with the lane and utility manifest, so host
 // visibility and execution denial derive from one registry population.
 export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary: string; readonly tools: readonly string[] }>> = {
-  "concord-coordinator": {"boundary": "that role supervises live sessions and holds no Concord execution authority; a repository-local operator session makes this call", "tools": ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]},
+  "Concord-RTE": {"boundary": "", "tools": []},
   "concord-operator": {"boundary": "", "tools": []},
   "concord-research": {"boundary": "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context", "tools": ["concord_ci_watch", "concord_domain", "concord_knowledge", "concord_product_view", "concord_work_browse", "concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_trace", "concord_work_transition", "concord_worker_check", "concord_worker_diff"]},
   "concord-implement": {"boundary": "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context", "tools": ["concord_ci_watch", "concord_domain", "concord_knowledge", "concord_product_view", "concord_work_browse", "concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_trace", "concord_work_transition", "concord_worker_diff"]},

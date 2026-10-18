@@ -109,12 +109,13 @@ refusal, so the remaining move refusals keep their existing classification.
 
 Within one repository, the move route of CD-0098 and CD-0103 stays as it is.
 
-A central `concord-coordinator` may supervise local operators across authorized
-Projects through the host. It never moves across repository boundaries,
-claims their worktrees, or dispatches their lanes from its own instance.
-Repository-local `concord-operator` sessions hold the execution authority
-described by this clause. The central coordinator conveys references and
-attention, not substitute workflow or handoff evidence.
+`Concord-RTE`, the release train engineer (RTE), sequences independent work-item sessions across authorized
+Projects. Repository-local `concord-operator` sessions own their item decisions
+and hold the execution authority described by this clause. The RTE does not
+claim their worktrees, dispatch their lanes, accept their work, or publish for
+them. Its tool permissions do not transfer their authority. It conveys facts
+and references, not substitute workflow or handoff evidence. Session placement
+and control procedures belong to the host's instructions, not the RTE profile.
 
 ### D3. Occupancy is one row per session, and it ends with its host process
 

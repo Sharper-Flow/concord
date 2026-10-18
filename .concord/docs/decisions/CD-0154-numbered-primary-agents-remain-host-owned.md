@@ -41,19 +41,27 @@ the resulting host file.
 
 Concord generates and installs two named primary profiles from
 `contracts/agent-primary-profiles.v1.json` and its instruction sources.
-`concord-coordinator` supervises live sessions across authorized Projects.
+`Concord-RTE` is the release train engineer (RTE) across authorized Projects.
 `concord-operator` drives one work item in one repository.
 
-The central coordinator holds no candidate-authoring or workflow-write authority.
-It delegates local execution to repository-local operators through the host.
-The host owns terminal placement and session lifecycle. Linear owns planning records.
-Concord adds no session-launch or portfolio API for these profiles.
-The central coordinator never answers a Concord approval challenge.
-It relays each such challenge unchanged to the human operator. Delegated host
-questions and permissions remain subject to the host's exact scope grant.
-The adapter refuses each workflow-write tool that the step agent's profile
-denies. It reads the agent the host supplies with each tool call, so a
-session permission granted under another agent does not reach the coordinator.
+Each work-item session owns its design, implementation, tests, independent
+review, law changes, publication, CI follow-through, deployment, and planning
+issue. It decides within its item and asks the human operator directly only
+at the operator's reserved boundaries. It never waits for the RTE's acceptance.
+
+The RTE spots shared owners and conflicts, sets merge order for dependent or
+conflicting branches, relays facts, removes impediments, keeps Linear current,
+and reports ship status to the operator. It schedules installation and release
+windows with the operator. It never approves, accepts, publishes for, or
+decides inside another session's item.
+
+The RTE profile grants Build-level editing, shell, and delegation permissions,
+with no profile-level Concord-tool denial. Those capabilities do not transfer
+another session's workflow authority or the human operator's approval.
+The RTE never answers a Concord approval challenge; it relays it unchanged to
+the human operator. Worker-lane and utility capability boundaries remain.
+The host owns session procedures, model routing, and machine configuration.
+Linear owns planning. Concord adds no session-launch or portfolio API.
 
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.
@@ -80,7 +88,7 @@ Both recommendations are advisory. A declined recommendation does not repeat,
 and no otherwise permitted work pauses.
 
 The local operator shapes and drives its item without a mandatory posture switch.
-The central coordinator uses generated read-only utilities for bounded advice.
+The RTE may use subagents for bounded investigation and advice.
 Utility results never become managed review or verification evidence.
 
 ## Consequences

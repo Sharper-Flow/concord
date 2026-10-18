@@ -43,26 +43,6 @@ describe("primary role guard", () => {
     expect(registered).toEqual(CATALOG)
   })
 
-  test("the coordinator is refused every mutating Concord tool before transport", async () => {
-    for (const toolID of MUTATING) {
-      const { calls, definition } = recording()
-      const guarded = guardPrimaryRole(toolID, definition)
-      await expect(guarded.execute({ request: {} }, context("concord-coordinator"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
-      expect(calls).toEqual([])
-    }
-  })
-
-  test("the refusal names the tool, the role, and the operator route", async () => {
-    const guarded = guardPrimaryRole("concord_work_start", recording().definition)
-    const refusal = await guarded.execute({}, context("concord-coordinator")).catch((error: unknown) => error)
-    expect(refusal).toBeInstanceOf(PrimaryRoleRefusal)
-    const message = String((refusal as Error).message)
-    expect(message).toContain("concord_work_start")
-    expect(message).toContain("concord-coordinator")
-    expect(message).toContain("repository-local operator")
-    expect(message).toContain("records nothing")
-  })
-
   test("a lane refusal names the tool, the role, and the lane boundary", async () => {
     const guarded = guardPrimaryRole("concord_work_transition", recording().definition)
     const refusal = await guarded.execute({}, context("concord-implement")).catch((error: unknown) => error)
@@ -74,19 +54,15 @@ describe("primary role guard", () => {
     expect(message).toContain("records nothing")
   })
 
-  test("the coordinator keeps its scoped reads and the watcher", async () => {
-    for (const toolID of [...READS, ...WATCHING]) {
-      const { calls, definition } = recording()
-      expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context("concord-coordinator"))).toBe("ran")
-      expect(calls).toEqual([{ id: toolID }])
-    }
-  })
-
-  test("the operator keeps every registered Concord tool", async () => {
-    for (const toolID of registered) {
-      const { calls, definition } = recording()
-      expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context("concord-operator"))).toBe("ran")
-      expect(calls).toEqual([{ id: toolID }])
+  test("the operator and the release train engineer keep every registered Concord tool", async () => {
+    // CON-1163: Concord-RTE replaces concord-coordinator with the
+    // operator's full catalog, so no primary profile denial refuses here.
+    for (const agent of ["concord-operator", "Concord-RTE"]) {
+      for (const toolID of registered) {
+        const { calls, definition } = recording()
+        expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context(agent))).toBe("ran")
+        expect(calls).toEqual([{ id: toolID }])
+      }
     }
   })
 
@@ -146,8 +122,8 @@ describe("primary role guard", () => {
     }
   })
 
-  test("unknown host agents, including unregistered repair, keep established pass-through behavior", async () => {
-    for (const agent of ["concord-repair", "concord-1", "concord-2", "build"]) {
+  test("unknown host agents, including the retired coordinator, keep established pass-through behavior", async () => {
+    for (const agent of ["concord-coordinator", "concord-repair", "concord-1", "concord-2", "build"]) {
       for (const toolID of registered) {
         const { calls, definition } = recording()
         expect(await guardPrimaryRole(toolID, definition).execute({ agent }, context(agent))).toBe("ran")
@@ -155,14 +131,20 @@ describe("primary role guard", () => {
       }
     }
     expect(Object.hasOwn(roleDeniedConcordTools, "concord-repair")).toBe(false)
+    // CON-1163: the retired name is no longer a registered role; a stale
+    // installed definition gets no registry denial and no registry entry.
+    expect(Object.hasOwn(roleDeniedConcordTools, "concord-coordinator")).toBe(false)
   })
 
   test("the guard reads one generated registry covering exactly the registered roles", () => {
     const agents = Object.keys(roleDeniedConcordTools).sort()
-    expect(agents).toEqual(["concord-coordinator", "concord-operator", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
-    expect([...roleDeniedConcordTools["concord-coordinator"].tools].sort()).toEqual(MUTATING)
+    expect(agents).toEqual(["Concord-RTE", "concord-operator", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
+    // CON-1163: the RTE holds the full operator catalog — no primary
+    // profile denies a tool, so every remaining refusal is a lane or
+    // utility boundary.
+    expect(roleDeniedConcordTools["Concord-RTE"].tools).toEqual([])
     expect(roleDeniedConcordTools["concord-operator"].tools).toEqual([])
-    expect(roleDeniedConcordTools["concord-coordinator"].boundary).toContain("operator")
+    expect(roleDeniedConcordTools["Concord-RTE"].boundary).toBe("")
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
       const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
       const granted = new Set<string>()
@@ -176,13 +158,9 @@ describe("primary role guard", () => {
   })
 
   test("the plugin registers every Concord tool behind the guard", async () => {
-    for (const toolID of MUTATING) {
-      const definition = Reflect.get(plugin!.tool, toolID)
-      await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-coordinator"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
-    }
     for (const toolID of WORKFLOW_CATALOG) {
       const definition = Reflect.get(plugin!.tool, toolID)
-      await expect(definition.execute({ request: {} }, context("concord-implement"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+      await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-implement"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
     }
     // An agent name alone supplies no attempt or source-reading authority.
     await expect(plugin!.tool.concord_worker_read.execute({ ordinal: 0, offset: 0, length: 1 }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)

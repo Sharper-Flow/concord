@@ -6,7 +6,10 @@ Negative scenarios copy the examples into a temporary tree, break one invariant
 on purpose, and prove the checker reports it: a host tool name in frontmatter, a
 missing advisory handoff, duplicated conduct text, a diverged shared section,
 a lost intake boundary, a missing cross-repository boundary phrase, and a
-forbidden move-into-another-repository instruction.
+forbidden move-into-another-repository instruction. The named profiles prove
+the CON-1163 contract: the Concord-RTE profile carries Build-level grants with
+no workflow denial and the required role sentences, and the retired
+concord-coordinator profile is rejected on sight.
 """
 from __future__ import annotations
 
@@ -22,6 +25,19 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("check_primary_prompts", ROOT / "scripts" / "check-primary-prompts.py")
 check_primary_prompts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check_primary_prompts)
+
+# CON-1163: the sentences the RTE role body must state, matched case exact.
+# The apostrophe in the first phrase is ASCII: the validator matches bytes,
+# not typography.
+RTE_REQUIRED_PHRASES = (
+    "never decides inside another session's item",
+    "Never answer a Concord approval challenge",
+    "goes to the operator unchanged",
+    "Each session owns its design, code, tests, review, law text, publication",
+    "Keep Linear current",
+    "Report ship status to the operator",
+)
+RTE_BUILD_TOOLS = ("edit", "write", "patch", "morph_edit")
 
 
 class PrimaryPromptCheckTests(unittest.TestCase):
@@ -60,24 +76,59 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             self.assertIn(f'"{name}"', installer)
 
     def test_missing_named_profile_reports(self) -> None:
-        (self.root / check_primary_prompts.PROFILE_DIR / "concord-coordinator.md").unlink()
+        (self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md").unlink()
         findings = self.findings()
         self.assertTrue(any("missing named primary profile" in finding for finding in findings))
 
-    def test_coordinator_lost_tool_denial_reports(self) -> None:
-        self.rewrite("concord-coordinator.md", lambda text: text.replace("  concord_work_start: deny\n", ""))
-        findings = self.findings()
-        self.assertTrue(any("concord-coordinator.md" in finding and "concord_work_start: deny" in finding for finding in findings))
+    def test_rte_lost_build_permission_grants_report(self) -> None:
+        def strip_grants(text: str) -> str:
+            for tool in RTE_BUILD_TOOLS:
+                line = f"  {tool}: allow\n"
+                self.assertIn(line, text, line)
+                text = text.replace(line, "")
+            return text
 
-    def test_coordinator_shell_allow_all_reports(self) -> None:
-        self.rewrite("concord-coordinator.md", lambda text: text.replace('    "*": deny\n    "git status *"', '    "*": allow\n    "git status *"'))
+        self.rewrite("Concord-RTE.md", strip_grants)
         findings = self.findings()
-        self.assertTrue(any("concord-coordinator.md" in finding and "bash" in finding for finding in findings))
+        for tool in RTE_BUILD_TOOLS:
+            self.assertTrue(
+                any("Concord-RTE.md" in finding and tool in finding for finding in findings),
+                tool,
+            )
 
-    def test_coordinator_lost_approval_challenge_rule_reports(self) -> None:
-        self.rewrite("concord-coordinator.md", lambda text: text.replace("Never answer a Concord approval challenge.", "Answer approval challenges when asked."))
+    def test_rte_workflow_denial_reports(self) -> None:
+        # The RTE holds no profile ceiling: a workflow denial in its
+        # frontmatter would strand the job the role exists for.
+        self.rewrite(
+            "Concord-RTE.md",
+            lambda text: text.replace("  morph_edit: allow\n", "  morph_edit: allow\n  concord_work_start: deny\n"),
+        )
         findings = self.findings()
-        self.assertTrue(any("concord-coordinator.md" in finding and "approval challenge" in finding for finding in findings))
+        self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_start" in finding for finding in findings))
+
+    def test_rte_lost_required_role_sentence_reports(self) -> None:
+        def strip_sentences(text: str) -> str:
+            for phrase in RTE_REQUIRED_PHRASES:
+                self.assertIn(phrase, text, phrase)
+                text = text.replace(phrase, "")
+            return text
+
+        self.rewrite("Concord-RTE.md", strip_sentences)
+        findings = self.findings()
+        for phrase in RTE_REQUIRED_PHRASES:
+            self.assertTrue(
+                any("Concord-RTE.md" in finding and phrase in finding for finding in findings),
+                phrase,
+            )
+
+    def test_retired_coordinator_profile_reports(self) -> None:
+        # CON-1163 zero tolerance: the rename deleted the profile, so a
+        # checkout that still ships it fails the validator.
+        (self.root / check_primary_prompts.PROFILE_DIR / "concord-coordinator.md").write_text(
+            "---\nmode: primary\n---\n\n# Concord coordinator\n", encoding="utf-8"
+        )
+        findings = self.findings()
+        self.assertTrue(any("concord-coordinator" in finding for finding in findings))
 
     def test_operator_lost_boundary_phrase_reports(self) -> None:
         self.rewrite("concord-operator.md", lambda text: re.sub(r"this session stops driving the\s+other\s+repository", "both sessions drive it", text))

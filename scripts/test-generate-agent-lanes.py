@@ -975,38 +975,53 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 generator.load_primary_profiles(self.manifest, path)
         return str(caught.exception)
 
-    def test_registry_holds_exactly_the_coordinator_and_operator(self):
-        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["concord-coordinator", "concord-operator"])
+    def test_registry_holds_exactly_the_rte_and_operator(self):
+        # CON-1163: the coordinator profile becomes the release train
+        # engineer. The rename replaces the profile; it does not add one.
+        # The id is exactly Concord-RTE so the host UI shows that name; the
+        # role source stays lowercase.
+        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["Concord-RTE", "concord-operator"])
+        self.assertEqual(self.profile("Concord-RTE")["role_source"], ".concord/roles/rte.md")
 
     def test_projection_is_a_selectable_primary_agent(self):
-        for agent_id in ("concord-coordinator", "concord-operator"):
+        for agent_id in ("Concord-RTE", "concord-operator"):
             frontmatter = self.frontmatter(self.projection(agent_id))
             self.assertIn("\nmode: primary\n", "\n" + frontmatter + "\n")
             self.assertNotIn("hidden:", frontmatter)
 
     def test_projection_body_is_the_role_source_verbatim(self):
-        for agent_id in ("concord-coordinator", "concord-operator"):
+        for agent_id in ("Concord-RTE", "concord-operator"):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
 
-    def test_coordinator_denies_every_mutating_concord_tool_and_candidate_edits(self):
-        frontmatter = self.frontmatter(self.projection("concord-coordinator"))
-        for tool_id in ("concord_work_start", "concord_work_transition", "concord_work_define", "concord_work_relate", "concord_work_compact"):
-            self.assertIn(f"\n  {tool_id}: deny", frontmatter)
-        for tool in ("edit", "write", "patch"):
-            self.assertIn(f"\n  {tool}: deny", frontmatter)
-        for tool_id in ("concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"):
-            self.assertNotIn(tool_id, frontmatter)
+    def test_retired_coordinator_profile_and_role_source_are_gone(self):
+        # CON-1163 zero tolerance: the rename deletes the old generated
+        # definition and its role source; neither survives anywhere.
+        self.assertFalse((ROOT / ".opencode/agents/concord-coordinator.md").exists())
+        self.assertFalse((ROOT / ".concord/roles/coordinator.md").exists())
+        # The shipped id is exactly Concord-RTE: neither lowercase
+        # concord-rte.md nor wrong-case concord-RTE.md ships; neither is an
+        # alias for it.
+        self.assertFalse((ROOT / ".opencode/agents/concord-rte.md").exists())
+        self.assertFalse((ROOT / ".opencode/agents/concord-RTE.md").exists())
 
-    def test_coordinator_shell_denies_by_default_and_tasks_reach_utilities_only(self):
-        frontmatter = self.frontmatter(self.projection("concord-coordinator"))
+    def test_rte_grants_the_build_level_host_surface_without_a_profile_ceiling(self):
+        frontmatter = self.frontmatter(self.projection("Concord-RTE"))
+        for tool in ("edit", "write", "patch", "morph_edit"):
+            self.assertIn(f"\n  {tool}: allow", frontmatter)
+        self.assertNotIn("concord_work_", frontmatter)
+        self.assertNotIn("concord_ci_watch", frontmatter)
+        self.assertEqual(self.profile("Concord-RTE")["denied_concord_tools"], [])
+
+    def test_rte_shell_and_task_boundaries_match_the_operator(self):
+        frontmatter = self.frontmatter(self.projection("Concord-RTE"))
         bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
-        self.assertTrue(bash.startswith('    "*": deny\n'))
+        self.assertTrue(bash.startswith('    "*": allow\n'))
+        self.assertIn('    "sudo *": deny', bash)
+        self.assertIn('    "rm -rf / *": deny', bash)
         task = frontmatter.split("\n  task:\n", 1)[1]
-        self.assertTrue(task.startswith('    "*": deny\n'))
-        allowed = [line.split('"')[1] for line in task.splitlines() if line.endswith(": allow")]
-        self.assertEqual(sorted(allowed), sorted(f"concord-{utility['id']}" for utility in self.manifest["utilities"]))
+        self.assertEqual(task.splitlines(), ['    "*": allow'])
 
     def test_operator_keeps_lane_dispatch_and_every_concord_tool(self):
         frontmatter = self.frontmatter(self.projection("concord-operator"))
@@ -1015,7 +1030,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertIn("\n  edit: allow", frontmatter)
 
     def test_installed_definitions_equal_the_projections(self):
-        for agent_id in ("concord-coordinator", "concord-operator"):
+        for agent_id in ("Concord-RTE", "concord-operator"):
             path = ROOT / ".opencode/agents" / f"{agent_id}.md"
             self.assertEqual(path.read_text(encoding="utf-8"), self.projection(agent_id))
 
@@ -1033,7 +1048,7 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
     def test_ts_projection_carries_the_denied_concord_tools(self):
         projection = generator.primary_ts_projection(self.profiles, self.manifest)
         self.assertIn("DO NOT EDIT", projection)
-        self.assertIn('"concord-coordinator"', projection)
+        self.assertIn('"Concord-RTE"', projection)
         self.assertIn('"concord_work_transition"', projection)
         # One consumed map: the projection exports exactly one binding, so the
         # guard cannot read a second, diverging denial source.
@@ -1058,9 +1073,13 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
                 self.assertIn("no general Concord tool access" if kind == "lane" else "no Concord tool access", denied["boundary"])
 
     def test_ts_projection_keeps_the_profile_entries(self):
-        role = self.ts_role_map()["concord-coordinator"]
-        self.assertEqual(sorted(role["tools"]), sorted(self.profile("concord-coordinator")["denied_concord_tools"]))
-        self.assertIn("repository-local operator", role["boundary"])
+        # CON-1163: the RTE denies no tool, so its entry carries the empty
+        # denial list and no refusal boundary; the retired coordinator
+        # boundary sentence is gone with the profile.
+        rte = self.ts_role_map()["Concord-RTE"]
+        self.assertEqual(rte["tools"], self.profile("Concord-RTE")["denied_concord_tools"])
+        self.assertEqual(rte["tools"], [])
+        self.assertEqual(rte["boundary"], "")
         self.assertEqual(self.ts_role_map()["concord-operator"]["tools"], [])
 
     def test_lane_and_utility_frontmatter_denials_equal_the_ts_role_map(self):
@@ -1084,10 +1103,20 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertIn("denied_concord_tools", message)
 
     def test_non_dispatching_profile_cannot_reach_a_lane(self):
-        message = self.broken(lambda p: p["profiles"][0]["task"].append({"pattern": "concord-implement", "action": "allow"}))
-        self.assertIn("concord-implement", message)
-        message = self.broken(lambda p: p["profiles"][0]["task"].append({"pattern": "concord-*", "action": "allow"}))
-        self.assertIn("concord-*", message)
+        # The utility-only Task boundary binds a profile that cannot
+        # transition work. Both live profiles dispatch freely now, so the
+        # fixture opts into the non-dispatching posture before the lane
+        # rule can refuse.
+        def non_dispatching_lane_allow(pattern):
+            def mutate(p):
+                profile = p["profiles"][0]
+                profile["denied_concord_tools"] = ["concord_work_transition"]
+                profile["task"] = [{"pattern": "*", "action": "deny"}]
+                profile["task"].append({"pattern": pattern, "action": "allow"})
+            return mutate
+
+        self.assertIn("concord-implement", self.broken(non_dispatching_lane_allow("concord-implement")))
+        self.assertIn("concord-*", self.broken(non_dispatching_lane_allow("concord-*")))
 
     def test_missing_role_source_refuses(self):
         message = self.broken(lambda p: p["profiles"][0].update({"role_source": ".concord/roles/absent.md"}))

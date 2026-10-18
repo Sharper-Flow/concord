@@ -213,3 +213,20 @@ func TestRecordWorkSizeRefusesAMovedKnowledgeCommit(t *testing.T) {
 	})
 	assertWorkSizeRecovery(t, err, KindStaleContext, workSizeStaleRecovery)
 }
+
+// A first creation that carries size_inputs never records unsized work:
+// without a size plan it refuses, retryable, and writes nothing.
+func TestCreateBootstrapWorkRefusesSizeInputsWithoutAPlan(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	req := bootstrapStoreRequest()
+	req.SizeInputs = workSizeCaptureFixture()
+	err := s.Transact(ctx, func(tx *Transaction) error {
+		return createBootstrapWorkTx(ctx, tx, req, "op-unplanned", "work-unplanned", nil, time.Unix(5, 0).UTC())
+	})
+	assertFailureKind(t, err, KindUnavailable)
+	if count := bootstrapWorkItems(t, s, "work-unplanned"); count != 0 {
+		t.Fatalf("an unplanned sized creation left %d work items", count)
+	}
+}

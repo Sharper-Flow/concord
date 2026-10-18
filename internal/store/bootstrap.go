@@ -1150,10 +1150,11 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if probeErr != nil {
 		return out, probeErr
 	}
-	// A size plan runs outside the transaction. Only a capture with no
-	// journal can create, and therefore size, the work.
+	// A size plan runs outside the transaction. Only a capture whose probe
+	// saw no journal row, including one whose probe read failed, can create
+	// and therefore size the work.
 	var sizePlan *WorkSizePlan
-	if req.SizeInputs != nil && !existing && probe.journalErr == sql.ErrNoRows {
+	if req.SizeInputs != nil && !existing && probe.journalErr != nil {
 		var planErr error
 		if sizePlan, planErr = s.PlanWorkSize(ctx, req.ProductID, *req.SizeInputs); planErr != nil {
 			return out, planErr
@@ -1289,6 +1290,9 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 // membership, its workflow instance, and, when size_inputs was planned, its
 // size, all inside the bootstrap transaction.
 func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req BootstrapRequest, operationID, workID string, sizePlan *WorkSizePlan, now time.Time) error {
+	if req.SizeInputs != nil && sizePlan == nil {
+		return newFailure(KindUnavailable, "work_bootstrap", "size_inputs reached the first creation without a size plan", true, "retry the same idempotency key")
+	}
 	priority := req.Priority
 	workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID, DefectIntake: req.DefectIntake})
 	membershipPayload, _ := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: req.ProjectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})

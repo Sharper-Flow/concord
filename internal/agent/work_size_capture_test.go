@@ -51,8 +51,8 @@ func TestCaptureWithSizeInputsRecordsTheModelSize(t *testing.T) {
 		t.Fatalf("sized capture response=%+v", response.Error)
 	}
 	changed := (*response.ChangedRefs)[0]
-	if changed.Version != "4" {
-		t.Fatalf("changed version = %s, want 4: work.sized must not bump it", changed.Version)
+	if version := countRows(t, s.DatabaseForTesting(), `SELECT version FROM work_items WHERE id='`+changed.ID+`'`); version != 4 {
+		t.Fatalf("work version = %d, want 4: work.sized must not bump it", version)
 	}
 	var size, inputsJSON string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT size_class, inputs_json FROM work_size_assessments WHERE work_id=?`, changed.ID).Scan(&size, &inputsJSON); err != nil {
@@ -101,11 +101,14 @@ func TestCaptureSizeRefusalsLeaveNoWork(t *testing.T) {
 		name       string
 		indexed    bool
 		sizeInputs string
-		kind       string
+		// schema marks a refusal the closed payload schema owns; every other
+		// row must reach the core and refuse with a typed envelope of kind.
+		schema bool
+		kind   string
 	}{
-		{name: "proposed size", indexed: true, sizeInputs: `"size_inputs":{"paths":["README.md"],"size":"small","security":false,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`},
+		{name: "proposed size", indexed: true, schema: true, sizeInputs: `"size_inputs":{"paths":["README.md"],"size":"small","security":false,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`},
+		{name: "undeclared boolean", indexed: true, schema: true, sizeInputs: `"size_inputs":{"paths":["README.md"],"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`},
 		{name: "no path or behavior", indexed: true, sizeInputs: `"size_inputs":{"security":false,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`, kind: "invalid_input"},
-		{name: "undeclared boolean", indexed: true, sizeInputs: `"size_inputs":{"paths":["README.md"],"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`, kind: "invalid_input"},
 		{name: "no knowledge home", sizeInputs: sizedCaptureInputs, kind: "unknown_scope"},
 	}
 	for _, tc := range cases {
@@ -122,17 +125,16 @@ func TestCaptureSizeRefusalsLeaveNoWork(t *testing.T) {
 			} else {
 				s, service, grant, scopeVersion = captureTaskFixture(t)
 			}
-			// The schema refuses at dispatch; the core refuses with a typed
-			// envelope whose kind the case names.
 			response, err := dispatchDefectCapture(t, s, service, grant, scopeVersion, "size-refused", sizedCaptureInput("size-refused", tc.sizeInputs))
 			switch {
-			case err != nil && tc.kind != "unknown_scope":
+			case tc.schema:
+				if err == nil && response.Outcome == OutcomeOK {
+					t.Fatal("a capture the schema refuses was admitted")
+				}
 			case err != nil:
 				t.Fatalf("dispatch err=%v, want a typed %s envelope", err, tc.kind)
-			case response.Outcome != OutcomeError || response.Error == nil:
-				t.Fatalf("refusable capture was admitted: %+v", response)
-			case tc.kind != "" && response.Error.Kind != tc.kind:
-				t.Fatalf("refusal kind = %s, want %s", response.Error.Kind, tc.kind)
+			case response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != tc.kind:
+				t.Fatalf("response=%+v, want a %s refusal", response.Error, tc.kind)
 			}
 			if count := workItemCount(t, s); count != 0 {
 				t.Fatalf("refused capture left %d work items", count)

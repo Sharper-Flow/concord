@@ -86,9 +86,6 @@ func RecordWorkSizeTx(ctx context.Context, transaction *Transaction, plan *WorkS
 	if err != nil {
 		return nil, err
 	}
-	if plan == nil {
-		return nil, newFailure(KindInvalidOperation, "work_size", "no size plan", false, "plan the size before the capture transaction")
-	}
 	payload, err := workSizedPayloadTx(ctx, tx, plan, workID)
 	if err != nil {
 		return nil, err
@@ -115,16 +112,7 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 		return out, workSizeFootprintRefusal(err)
 	}
 	inputs := WorkSizeInputs{Declared: plan.declared, PathCount: len(footprint.Paths), DomainCount: len(footprint.Domains)}
-	packages := map[string]struct{}{}
-	for _, path := range footprint.Paths {
-		if path.Package != "" {
-			packages[path.Package] = struct{}{}
-		}
-		if path.Unmapped {
-			inputs.UnmappedPathCount++
-		}
-	}
-	inputs.PackageCount = len(packages)
+	inputs.PackageCount, inputs.UnmappedPathCount = footprintPathCounts(footprint.Paths)
 	err = q.QueryRowContext(ctx, `SELECT w.kind,
 		coalesce(p.stage_maturity_override, pr.stage_maturity),
 		coalesce(p.stage_audience_commitment_override, pr.stage_audience_commitment),

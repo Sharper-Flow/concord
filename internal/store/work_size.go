@@ -116,31 +116,40 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 	if len(reached) != len(f.DomainIDs) {
 		return mismatch("the footprint snapshot lists a Domain twice")
 	}
-	packages, unmapped := map[string]struct{}{}, 0
 	for _, path := range f.Paths {
 		for _, domainID := range path.DomainIDs {
 			if _, ok := reached[domainID]; !ok {
 				return mismatch("a footprint path names a Domain the footprint does not reach")
 			}
 		}
-		if path.Package != "" {
-			packages[path.Package] = struct{}{}
-		}
-		if path.Unmapped {
-			unmapped++
-		}
 	}
+	packages, unmapped := footprintPathCounts(f.Paths)
 	switch {
 	case in.PathCount != len(f.Paths):
 		return mismatch("size inputs count a different number of paths than the footprint names")
 	case in.DomainCount != len(f.DomainIDs):
 		return mismatch("size inputs count a different number of Domains than the footprint reaches")
-	case in.PackageCount != len(packages):
+	case in.PackageCount != packages:
 		return mismatch("size inputs count a different number of packages than the footprint resolves")
 	case in.UnmappedPathCount != unmapped:
 		return mismatch("size inputs count a different number of unmapped paths than the footprint shows")
 	}
 	return nil
+}
+
+// footprintPathCounts counts the distinct packages and the unmapped paths a
+// footprint names; the size inputs and the fold's snapshot check share it.
+func footprintPathCounts(paths []FootprintPath) (packages, unmapped int) {
+	seen := map[string]struct{}{}
+	for _, path := range paths {
+		if path.Package != "" {
+			seen[path.Package] = struct{}{}
+		}
+		if path.Unmapped {
+			unmapped++
+		}
+	}
+	return len(seen), unmapped
 }
 
 // readWorkSize reads the current size record of a work item; ok is false

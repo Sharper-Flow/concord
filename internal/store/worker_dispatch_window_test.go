@@ -1706,3 +1706,66 @@ func dispatchSessionWorktree(t *testing.T, s *Store, workID string) string {
 	insertWorkerWorktreeEntry(t, s, workID, path)
 	return path
 }
+
+// A born-failed dispatch is its attempt's terminal record: no worker.failed
+// follows it and no derived failure record names it. The attempt is
+// finished, so another session's next dispatch takes nothing over.
+func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "takeover-born-failed"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	job := &WorkerJobBinding{JobID: "job:" + workID}
+	attempt := "attempt:" + workID + ":born"
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
+	packet := dispatchWorkerPacket(t, s, workID, "repair", attempt)
+	packet["schema_version"] = WorkerPacketSchemaVersion
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	if err := dispatchJobPacketForTest(t, s, workID, attempt, fixture.owner, "takeover-born-authorization", packet); err != nil {
+		t.Fatalf("authorize the born-failed attempt: %v", err)
+	}
+	window := attributionDispatchWindow(t, s, workID, attempt)
+	observation := &WorkerFailureObservation{
+		Observer: WorkerFailureObserverHostAdapter,
+		Phase:    WorkerFailurePhaseDispatch,
+		Cause:    WorkerFailureCauseIdentityProvenance,
+		Basis:    WorkerFailureBasisHypothesis,
+		Sources: []WorkerFailureSource{{
+			Kind: WorkerFailureSourceHostEvent, Locator: "evt-readback-1", Digest: testDigestC,
+			Message: "the executing model did not match the declared identity",
+			Host: &WorkerFailureHostObservation{
+				Tag: WorkerFailureHostTagTerminal, EventType: "session.error",
+				SessionID: "ses-born-failed", MessageID: "msg-born-failed",
+				ErrorName: "undeclared_model", ErrorCode: "identity_mismatch",
+			},
+		}},
+	}
+	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+		AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
+		ReadbackModel: "provider/executing-model", Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
+		WorkerJob: job, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: observation},
+	})}
+	if err := s.Transact(ctx, func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(ctx, transaction, dispatch, "principal/operator", "client/concord-1")
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(ctx, transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("record the born-failed dispatch: %v", err)
+	}
+	otherRef, err := WorkflowActorRef(diagnosisS1Actor(workID, "other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchAction := WorkflowActionDefinition{ID: "dispatch_worker", ExecutionMode: ActionFenced, RequiredCapability: WorkerDispatchCapability}
+	takeover, err := workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef)
+	if err != nil || takeover != nil {
+		t.Fatalf("another session's dispatch over the born-failed attempt = takeover %+v err %v, want none", takeover, err)
+	}
+}

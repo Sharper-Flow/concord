@@ -20,7 +20,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingFixture()
@@ -92,7 +92,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if staleDispatch.Outcome != OutcomeError || staleDispatch.Error == nil || staleDispatch.Error.Kind != "missing_evidence" || !strings.Contains(staleDispatch.Error.Message, "design") {
 		t.Fatalf("obsolete design did not block dispatch: %+v", staleDispatch.Error)
 	}
-	if workflowIssue31Version(t, s) != version {
+	if workOneVersion(t, s) != version {
 		t.Fatal("refused dispatch changed work")
 	}
 	definition, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1")
@@ -143,7 +143,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("oversized replacement accepted: %+v", refused.Error)
 	}
-	if workflowIssue31Version(t, s) != version {
+	if workOneVersion(t, s) != version {
 		t.Fatal("invalid replacement changed work version")
 	}
 	// The v2 worker-job revision was recorded under the now-superseded
@@ -153,7 +153,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	// verification capability class, so the recorded checks cannot
 	// be empty.
 	recordReadyRetryJobWithChecks(t, s, service, env, "job:design-correction-replace", 3, []string{"go test ./internal/store/"})
-	version = workflowIssue31Version(t, s)
+	version = workOneVersion(t, s)
 	currentDispatch := dispatch(version, "design-current-dispatch")
 	if currentDispatch.Outcome != OutcomeOK {
 		t.Fatalf("current replacement did not restore dispatch admission: %+v", currentDispatch.Error)

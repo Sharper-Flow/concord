@@ -25,7 +25,7 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("window-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -96,7 +96,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("satisfy-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -168,7 +168,7 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("partial-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -243,7 +243,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcherVersion := verdictItemVersion(t, s, workID)
+	dispatcherVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("derived-budget-worker-"+workID, WorkflowActorRecorded, workID, dispatcherRef, map[string]any{
 		"work_id": workID, "expected_version": dispatcherVersion, "resulting_version": dispatcherVersion + 1,
 		"actor_ref": dispatcherRef, "principal_ref": dispatcher.PrincipalRef, "client_ref": dispatcher.ClientRef,

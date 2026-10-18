@@ -115,7 +115,7 @@ func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffe
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
 		t.Fatal(err)
 	}
-	counts.Version = workflowReplayWorkVersion(t, s)
+	counts.Version = workOneVersion(t, s)
 	return counts
 }
 
@@ -370,7 +370,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	version := workflowReplayWorkVersion(t, s)
+	version := workOneVersion(t, s)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -551,7 +551,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
 			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
-			beforeVersion := workflowReplayWorkVersion(t, s)
+			beforeVersion := workOneVersion(t, s)
 			beforeChallenges := countWorkflowApprovalChallenges(t, s)
 
 			data, marshalErr := json.Marshal(struct {
@@ -595,7 +595,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			if got := countWorkflowEvents(t, s); got != beforeEvents {
 				t.Fatalf("replay changed event count from %d to %d (op=%s)", beforeEvents, got, opID)
 			}
-			if got := workflowReplayWorkVersion(t, s); got != beforeVersion {
+			if got := workOneVersion(t, s); got != beforeVersion {
 				t.Fatalf("replay changed work version from %d to %d", beforeVersion, got)
 			}
 			if got := countWorkflowApprovalChallenges(t, s); got != beforeChallenges {
@@ -670,7 +670,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
-	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workflowReplayWorkVersion(t, s), 10) + `}`
+	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workOneVersion(t, s), 10) + `}`
 	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	idempotencyChanged := "[]"
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
@@ -702,15 +702,6 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 		t.Fatal(err)
 	}
 	return opID
-}
-
-func workflowReplayWorkVersion(t *testing.T, s *store.Store) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 func countWorkflowEvents(t *testing.T, s *store.Store) int {

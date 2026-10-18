@@ -24,8 +24,8 @@ func seedResearchWork(t *testing.T, s *Store, ids ...string) {
 	}
 	for i, id := range ids {
 		events = append(events,
-			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
-			Event{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, int64(i)).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+			Event{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, int64(i)).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 		)
 	}
 	expected := map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0}
@@ -35,14 +35,6 @@ func seedResearchWork(t *testing.T, s *Store, ids ...string) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: expected}); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func mustJSONBytes(value any) []byte {
-	data, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-	return data
 }
 
 func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
@@ -940,9 +932,9 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 	events := []Event{
 		{EventID: "architecture-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "architecture-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: "architecture-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "architecture-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: "architecture-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "spike", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: "architecture-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: "architecture-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
+		{EventID: "architecture-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": "spike", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0, VersionRef(SubjectWorkItem, "spike"): 0}}); err != nil {
 		t.Fatal(err)
@@ -997,14 +989,14 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {
 		t.Fatal("obsolete Epic work kind was accepted by the store")
 	}
 }
 
 func operationEventForResearch(id, kind string, subjectID string, payload map[string]any) Event {
-	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: subjectID, Actor: "test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(payload)}
+	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: subjectID, Actor: "test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(payload)}
 }
 
 // A consumed revision is immutable, so a researcher who learns one more thing must

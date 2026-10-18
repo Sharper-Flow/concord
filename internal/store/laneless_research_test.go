@@ -53,15 +53,6 @@ func seedLanelessResearchItem(t *testing.T, workID string) (*Store, WorkflowActo
 	return s, owner
 }
 
-func lanelessInstanceStep(t *testing.T, s *Store, workID string) string {
-	t.Helper()
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	return step
-}
-
 // The definition-selected fold itself pins the selecting session: no other
 // write path is needed for a lane-less instance to name an executor.
 func TestDefinitionSelectedPinsSelectingActorAsExecutor(t *testing.T) {
@@ -79,7 +70,7 @@ func TestDefinitionSelectedPinsSelectingActorAsExecutor(t *testing.T) {
 	if executing != ownerRef {
 		t.Fatalf("execution_actor_ref=%q, want the selecting actor %q", executing, ownerRef)
 	}
-	if step := lanelessInstanceStep(t, s, workID); step != "conclude" {
+	if step := currentStep(t, s, workID); step != "conclude" {
 		t.Fatalf("current_step=%q, want conclude", step)
 	}
 }
@@ -98,7 +89,7 @@ func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
 	}
 
 	operatorRef, _ := WorkflowActorRef(operator)
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRecorded := workflowEvent("issue970-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("issue970-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	premiseCompleted := workflowActionCompletedFixture("issue970-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "conclude", "confirm_premise")
@@ -106,7 +97,7 @@ func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
 		t.Fatalf("premise confirmation: %v", err)
 	}
 
-	completeVersion := verdictItemVersion(t, s, workID)
+	completeVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

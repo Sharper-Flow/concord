@@ -32,15 +32,6 @@ func reclaimedFixturePayload(workID string, claimOpID string) string {
 		WorktreeSetID(workID), claimOpID)
 }
 
-func convergeWorkVersion(t *testing.T, s *Store, workID string) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
-}
-
 func convergeEntryState(t *testing.T, s *Store, workID, projectID string) string {
 	t.Helper()
 	var state string
@@ -90,7 +81,7 @@ func TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent(t *testing.T) {
 	if got := convergeEntryState(t, s, "work-unfolded", "project-w"); got != worktreeEntryReclaimed {
 		t.Fatalf("folded entry state=%q", got)
 	}
-	if got := convergeWorkVersion(t, s, "work-unfolded"); got != 4 {
+	if got := readWorkVersion(t, s, "work-unfolded"); got != 4 {
 		t.Fatalf("convergence must not advance the version, got %d", got)
 	}
 	if got := convergeClaimState(t, s, "wt-work-unfolded"); got != worktreeStateReclaimed {
@@ -160,7 +151,7 @@ func TestReclaimWorktreeConvergenceAdvancesPendingStoredVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := convergeWorkVersion(t, s, "work-pending"); got != 4 {
+	if got := readWorkVersion(t, s, "work-pending"); got != 4 {
 		t.Fatalf("pending stored advance must land, got version %d", got)
 	}
 	if got := convergeEntryState(t, s, "work-pending", "project-w"); got != worktreeEntryReclaimed {

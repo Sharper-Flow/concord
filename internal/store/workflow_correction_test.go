@@ -79,7 +79,7 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": startEpoch,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
@@ -88,7 +88,7 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("fresh start_execution: %v", err)
 	}
-	dispatchVersion := verdictItemVersion(t, s, workID)
+	dispatchVersion := readWorkVersion(t, s, workID)
 	dispatchStart := workflowEventWithActor("dispatch-start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
 		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch,
@@ -136,7 +136,7 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	const workID = "issue1013-late-verdict-preflight"
 	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	reviewer := verdictReviewer(t, s, workID)
-	verdictVersion := verdictItemVersion(t, s, workID)
+	verdictVersion := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), verdictVersion, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict: %v", err)
 	}
@@ -1430,7 +1430,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-no-approval"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		version := verdictItemVersion(t, fixture.store, workID)
+		version := readWorkVersion(t, fixture.store, workID)
 		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -1453,7 +1453,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-stale-version"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		version := verdictItemVersion(t, fixture.store, workID)
+		version := readWorkVersion(t, fixture.store, workID)
 		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -1699,7 +1699,7 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor("reset-count-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -1986,7 +1986,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval",
@@ -2082,7 +2082,7 @@ func runDuplicateRecoveryWithApproval(t *testing.T, s *Store, workID string, pay
 	t.Helper()
 	approvalRef := strings.Repeat("a", 64)
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-recovery", ActorClass: ActorOperator}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -2225,7 +2225,7 @@ func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	historical, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"previous_contract_version": 1, "new_contract_version": 2,
@@ -2432,7 +2432,7 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval",

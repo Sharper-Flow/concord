@@ -75,7 +75,7 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 		t.Fatalf("pin omits supersede_contract while the projection is ambiguous; intents = %v", intentActionIDs(pin.NextValidIntents))
 	}
 	if err := WorkflowActionPreflightWithRegistry(ctx, f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: f.workID, ExpectedVersion: verdictItemVersion(t, f.store, f.workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
+		WorkID: f.workID, ExpectedVersion: readWorkVersion(t, f.store, f.workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
 	}); err != nil {
 		t.Fatalf("preflight refused the duplicate recovery: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestWorkflowSupersedeDuplicateRecoveryStaysClosedOnATerminalInstance(t *tes
 		t.Fatalf("discovery on the terminal instance = %v, want the shared immutability refusal", err)
 	}
 	if err := WorkflowActionPreflightWithRegistry(ctx, f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: f.workID, ExpectedVersion: verdictItemVersion(t, f.store, f.workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
+		WorkID: f.workID, ExpectedVersion: readWorkVersion(t, f.store, f.workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
 	}); err == nil {
 		t.Fatal("preflight admitted supersede_contract on a terminal instance")
 	} else if !errors.As(err, &failure) || failure.Detail != "terminal workflow instance is immutable" {

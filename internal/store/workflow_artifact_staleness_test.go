@@ -83,14 +83,6 @@ func stalenessCapabilityDispatch(t *testing.T, s *Store, workID, attemptID strin
 	stalenessEvent(t, s, workID, string(WorkerDispatched), `{"attempt_id":"`+attemptID+`","capability_class":"implementation"}`)
 }
 
-// stalenessSeedWorkerDelivery records the completed worker attempt and its
-// dispatched-then-accepted delivery the correction prerequisites read: a
-// worker_attempts row (fold-guarded), the worker.dispatched event, and the
-// accepted completion that binds it.
-func stalenessSeedWorkerDelivery(t *testing.T, s *Store, workID, attemptID string) {
-	stalenessSeedWorkerDeliveryAt(t, s, workID, attemptID, "execute")
-}
-
 // stalenessSeedWorkerDeliveryAt seeds the completed worker attempt and its
 // dispatched-then-accepted delivery at the named producing step.
 func stalenessSeedWorkerDeliveryAt(t *testing.T, s *Store, workID, attemptID, step string) {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import gc
 import hashlib
 import io
 import json
@@ -19,6 +20,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
@@ -58,6 +60,30 @@ for _name, _directory in (
     _path = Path(_PRIVATE_HOME.name) / _directory
     _path.mkdir()
     os.environ[_name] = str(_path)
+
+# Under an "error" filter, a ResourceWarning raised in a finalizer is
+# unraisable: Python prints it and the run still passes. unittest's runner
+# installs its own "default" filter, so setUpModule arms the guard after it.
+_LEAKS: list[str] = []
+_DEFAULT_UNRAISABLEHOOK = sys.unraisablehook
+
+
+def _record_leak(unraisable: sys.UnraisableHookArgs) -> None:
+    if isinstance(unraisable.exc_value, ResourceWarning):
+        _LEAKS.append(str(unraisable.exc_value))
+    _DEFAULT_UNRAISABLEHOOK(unraisable)
+
+
+def setUpModule() -> None:
+    warnings.simplefilter("error", ResourceWarning)
+    sys.unraisablehook = _record_leak
+
+
+def tearDownModule() -> None:
+    gc.collect()
+    sys.unraisablehook = _DEFAULT_UNRAISABLEHOOK
+    if _LEAKS:
+        raise AssertionError("the suite leaked resources:\n" + "\n".join(_LEAKS))
 
 
 def default_root_overlap() -> list[str]:
@@ -1261,7 +1287,7 @@ esac''',
         """Runtime tool discovery cannot strand a committed fixture migration."""
         self.prepare_a_blocked_release()
         database = self.data_root / "migration-fixture.sqlite"
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store, store:
             store.execute("CREATE TABLE payload (value TEXT)")
             store.execute("INSERT INTO payload VALUES ('preserved')")
             store.execute("PRAGMA user_version = 111")
@@ -1271,7 +1297,7 @@ esac''',
                 "operation": installer.CORE_UPGRADE_OPERATION,
                 "release_root": str(self.data_root / "v1.1.0"),
             }), encoding="utf-8")
-            with sqlite3.connect(database) as store:
+            with contextlib.closing(sqlite3.connect(database)) as store, store:
                 store.execute("ALTER TABLE payload ADD COLUMN migrated INTEGER NOT NULL DEFAULT 1")
                 store.execute("PRAGMA user_version = 112")
         environment = self.plan_env(blocked=False)
@@ -1281,7 +1307,7 @@ esac''',
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
         (self.commands / "opencode").unlink()
         self.assertIsNone(shutil.which("opencode", path=environment["PATH"]))
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.fence_path.exists())
@@ -1294,7 +1320,7 @@ esac''',
         self.assertEqual(manifest["version"], "v1.1.0")
         self.assertFalse(self.prepared_path.exists())
         self.assertFalse(self.fence_path.exists())
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
             self.assertEqual(store.execute("SELECT * FROM payload").fetchall(), [("preserved", 1)])
 

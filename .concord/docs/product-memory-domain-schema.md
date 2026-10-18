@@ -7,7 +7,7 @@
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
 > CD-0003 D2/D3 and the generic authoritative event log remain binding.
-> **Amended by CD-0041 and CD-0213:** `domains` replace `components` as canonical
+> **Amended by CD-0222 and CD-0213:** `domains` replace `components` as canonical
 > Product-internal architecture; business grouping lives in Linear; typed
 > architecture relation families and bounded compatibility upcasters are required.
 

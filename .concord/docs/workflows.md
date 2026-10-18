@@ -1,6 +1,6 @@
 # Concord Workflows: A Plurality of Purpose-Built Types
 
-> **Status:** Aligned v5 with CD-0006/CD-0007/CD-0041. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v5 with CD-0006/CD-0007/CD-0222. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).

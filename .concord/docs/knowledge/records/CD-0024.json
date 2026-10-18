@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be2ff3010ee2a0a52bfbc851cd49717b326d32b150c1294e50e3478a928c30bc",
+  "sha256": "sha256:b4d58598e01a2008b34db7c1ac16965df457bf89aae8c88c727f5277b6a25c1b",
   "status": "accepted",
   "summary": "Historical record of the Epic reachability change and one-time TS9 exception; CD-0042 closes its pre-go-live version and model-trial policy without creating a current compatibility path.",
   "tags": [

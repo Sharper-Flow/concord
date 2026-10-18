@@ -6,8 +6,8 @@
   execution boundary for Domain exclusivity
 - **Approval:** The operator approved this bounded reconciliation duty and its
   execution claim boundary.
-- **Related:** CD-0041, CD-0088, CD-0095, CD-0096, CD-0118
-- **Amends:** CD-0041 D6 where it binds the active architecture footprint to
+- **Related:** CD-0222, CD-0088, CD-0095, CD-0096, CD-0118
+- **Amends:** CD-0222 D6 where it binds the active architecture footprint to
   contract approval
 - **Preserves:** Local Git and SQLite as audit authorities; the clean-tree,
   merged-branch, and observed-session reclaim gates; operator approval for

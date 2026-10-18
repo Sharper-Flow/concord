@@ -7,7 +7,7 @@
 **Issue:** [#118](https://github.com/Sharper-Flow/concord/issues/118).
 **Depends on:** [#117](https://github.com/Sharper-Flow/concord/issues/117).
 **Preserves:** CD-0009 D7/D8, PM6, CD-0020, and C18.
-**Amended by:** CD-0041 replaces `component_ids` with `domain_ids` and makes
+**Amended by:** CD-0222 replaces `component_ids` with `domain_ids` and makes
 Domain references validate against the Git-derived canonical Domain projection.
 
 ## Context
@@ -70,7 +70,7 @@ A document would turn those into write-time conventions.
 
 **A tag lookup now.** No canonical tag registry exists. Adding one merely to
 validate this relation would create another authority before there is a
-demonstrated owner or writer. CD-0041 later creates the Git-authoritative Domain
+demonstrated owner or writer. CD-0222 later creates the Git-authoritative Domain
 registry, so Domain lookup is now required rather than rejected.
 
 **A research tool surface.** Rejected by operator direction. The schema does not

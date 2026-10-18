@@ -15,7 +15,7 @@
 > `archived_work_linked` event/projection, §9.8's maintenance cursor) is deferred;
 > live projections are unbounded with a recorded revisit trigger; backup retention
 > stays out of scope. The authority guarantees in §1, §5, §6, §8 and §7.1 stand.
-> **Amended by CD-0041, CD-0042, and CD-0142:** historical scope uses `domain_ids` and
+> **Amended by CD-0222, CD-0042, and CD-0142:** historical scope uses `domain_ids` and
 > `archived_work_domains`; #197 replaces component scope directly on the
 > pre-go-live primary path without an upcaster or compatibility window.
 > CD-0142 defines a separate, operator-directed removal boundary for nonterminal

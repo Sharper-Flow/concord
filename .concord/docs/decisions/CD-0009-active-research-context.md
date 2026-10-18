@@ -7,7 +7,7 @@
 **Accepted by operator:** 2026-08-07
 **Scope:** Epic identity, C7 research tracking, active research-pack data,
 staleness/revision behavior, archive promotion, and deletion.
-**Amended by:** CD-0041 replaces the Product-facing Epic term and D1/D1a shape
+**Amended by:** CD-0222 replaces the Product-facing Epic term and D1/D1a shape
 with secondary Initiative context; D2–D8 remain binding.
 **Amends:** CD-0002/PM3's event-only live-state boundary for one explicitly
 retention-bounded WIP fact type; PM6/PM7 archive compaction; C7; the Phase 2 Epic
@@ -135,7 +135,7 @@ active_research_consumers
 ```
 
 All enum values are closed and schema-validated. Finding/source links use composite
-foreign keys. CD-0022 as amended by CD-0041 adds the durable-knowledge applies-to
+foreign keys. CD-0022 as amended by CD-0222 adds the durable-knowledge applies-to
 vocabulary at finding level: `home` carries no explicit scopes and `explicit`
 carries declared Product, Project, Domain, and tag scopes. Pack/revision IDs are generated and never intentionally reused, but no
 permanent tombstone or deleted-ID registry remains after deletion.

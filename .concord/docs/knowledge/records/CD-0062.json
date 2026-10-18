@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:47515e33799a3d48ea5c44b66ab8dd8b50be304395d3957edabe71620ae66884",
+  "sha256": "sha256:9766e240f59401f758426839d0dbf1a61474c026a63529914667af3202c2b11b",
   "status": "accepted",
-  "summary": "A law record homed to the Product root declares product_wide_rationale: a stated, bounded reason why no child Domain owns it. Child-homed law must not carry the field. The CD-0041 D9.2 upcast writes an explicit undecided marker instead of inventing a claim, and check-domain-registry.py refuses any record still carrying it. law_domain_homes gains the column under migration 45 so the claim survives the PM1.Q10 projection proof. Manifest version 1.2 tightens in place because CD-0042 D1 keeps Concord pre-go-live with no compatibility cohort.",
+  "summary": "A law record homed to the Product root declares product_wide_rationale: a stated, bounded reason why no child Domain owns it. Child-homed law must not carry the field. The CD-0222 D9.2 upcast writes an explicit undecided marker instead of inventing a claim, and check-domain-registry.py refuses any record still carrying it. law_domain_homes gains the column under migration 45 so the claim survives the PM1.Q10 projection proof. Manifest version 1.2 tightens in place because CD-0042 D1 keeps Concord pre-go-live with no compatibility cohort.",
   "tags": [
     "domains",
     "knowledge-index",

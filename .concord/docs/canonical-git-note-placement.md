@@ -13,7 +13,7 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
-> **Amended by CD-0041:** `domain_ids` replace `component_ids` in new note
+> **Amended by CD-0222:** `domain_ids` replace `component_ids` in new note
 > front matter; legacy notes upcast during the bounded Domain migration.
 
 ## Context
@@ -139,7 +139,7 @@ note into a state dump. Accepted PM7 requires these bounded historical-scope fie
 before a note's live work can become projection-prune-eligible; older notes need the
 specified backfill and proof verification first.
 
-During CD-0041 migration, a legacy `component_ids` field maps one-for-one to
+During CD-0222 migration, a legacy `component_ids` field maps one-for-one to
 `domain_ids` with retained IDs. New compaction writes only `domain_ids`; the
 legacy field is never emitted after the manifest/Domain cutover.
 

@@ -8,10 +8,10 @@
   does not need agent-surface versions yet, and must delete code outside the primary
   path on 2026-08-19; the public record is
   [issue #195 comment](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5347857526)
-- **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0031, CD-0041, TS1,
+- **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0031, CD-0222, TS1,
   TS5–TS9
 - **Amends:** CD-0005 D6/D8/D9 and implementation acceptance; CD-0024 D3/D4;
-  CD-0031's agent-surface identity; CD-0041's pre-go-live surface sequencing; TS7,
+  CD-0031's agent-surface identity; CD-0222's pre-go-live surface sequencing; TS7,
   TS8, and TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
   client bootstrap; fail-closed unknown input; durable Product/event authority; release

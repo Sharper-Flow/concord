@@ -5,11 +5,10 @@
 - **Scope:** Where planning facts live, how agents read and write them, which
   Linear facts Concord keeps, and how pull requests link to Linear,
   [Concord (CON) issue 801](https://linear.app/sharper-flow/issue/CON-801)
-- **Amends:** CD-0041 D8 and D9 items 4-5 as a compatible amendment in place
 - **Preserves:** CD-0122 in full, CD-0156 in full, CD-0142 removal handoff,
   CD-0146 external-reference collision refusal, repository review and merge
   evidence, and branch and worktree isolation
-- **Related:** CD-0036, CD-0041, CD-0122, CD-0142, CD-0146, CD-0156
+- **Related:** CD-0036, CD-0122, CD-0222, CD-0142, CD-0146, CD-0156
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
   The decision cancels CON-35 and CON-501 and rejects repair of the Concord
   planning mirror.

@@ -9,7 +9,7 @@
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
-> **Amended direction:** CD-0041 requires typed architecture binding for
+> **Amended direction:** CD-0222 requires typed architecture binding for
 > Product-changing work; CD-0213 removes the Initiative route.
 > CD-0042 makes the generated current manifest the only pre-go-live surface
 > identity; this contract does not authorize partial Domain writes or any planning write.

@@ -11,13 +11,13 @@
   below on the same date.
 - **Amended:** 2026-10-17. D4 and its verification key the tier on the record
   that declares a conflict, the only record that can withdraw it.
-- **Related:** CD-0006, CD-0015, CD-0036, CD-0041, and
+- **Related:** CD-0006, CD-0015, CD-0036, CD-0222, and
   `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
   outcome substitution, CD-0036 revision identity and breaking-law cutovers, and
-  CD-0041 Domain-bound contracts
+  CD-0222 Domain-bound contracts
 
 ## Context
 

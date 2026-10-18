@@ -6,7 +6,7 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-21; the
   public record is
   [issue #273 comment](https://github.com/Sharper-Flow/concord/issues/273#issuecomment-5370947874)
-- **Related:** CD-0018 (relation-kind declaration precedent), CD-0041
+- **Related:** CD-0018 (relation-kind declaration precedent), CD-0222
   (architecture bindings own the work-to-Domain dimension),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
 - **Preserves:** the closed relation vocabulary in the fold grammar, the

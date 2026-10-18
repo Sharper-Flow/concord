@@ -25,7 +25,7 @@ to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
 mechanics; CD-0009 fixes research work identity and active-pack
-retention as amended by CD-0041. CD-0222 makes Product law and architectural
+retention as amended by CD-0222. CD-0222 makes Product law and architectural
 concordance Priority 1, replaces opaque component authority with canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
@@ -92,7 +92,7 @@ re-litigate them silently.
   breaking change blocks. Version stamps are the deterministic fallback.
 - **Constraint:** no polling, timers, automatic downstream rewrites, or heuristic
   blockers. Heuristics may suggest edges but cannot authorize them.
-- **Amended by CD-0041:** Product-changing contracts declare one home Domain,
+- **Amended by CD-0222:** Product-changing contracts declare one home Domain,
   all affected Domains, exact law revisions, and authorized writes. Intersecting
   affected Domains require an operator-approved resolution pinned to both
   contract versions before both items hold execution authority.
@@ -107,7 +107,7 @@ re-litigate them silently.
 - **Effect:** recorded in `workflows.md` §2.2 and `self-documentation.md` §1.3.
 
 ### R4. Product → Domain primary navigation
-- **Direction, amended by CD-0041:** Durable Product knowledge is navigated
+- **Direction, amended by CD-0222:** Durable Product knowledge is navigated
   **Product → Domain**. Workflows and changes are architecture-bound history from
   the Domain view, not the
   top-level browse path.
@@ -497,7 +497,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > replaces CD-0003 D1's generic materialized spine with explicit typed Product-memory
 > projections, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
 > C15 and TS1–TS9 are now accepted separately.
-> **Amended by CD-0041:** component is not a lasting first-class projection.
+> **Amended by CD-0222:** component is not a lasting first-class projection.
 > Follow-up implementation migrates stable component identities one-for-one into
 > canonical Domains and adds endpoint-specific Domain relations; historical PM3
 > evidence remains intact.

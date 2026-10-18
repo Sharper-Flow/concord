@@ -11,7 +11,7 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0041, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
+> **Amended by CD-0222, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
 > Concord stores no grouping kind or membership; architecture-overlap resolutions extend the
 > work-pair grammar.
 > CD-0142 adds operator-directed removal of nonterminal execution projections
@@ -63,7 +63,7 @@ summary flags to drift from truth. Accepted PM5 now supplies Q6 membership ident
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
 
-CD-0009 as amended by CD-0041 and CD-0213 fixes one ordinary work-item kind without adding
+CD-0009 as amended by CD-0222 and CD-0213 fixes one ordinary work-item kind without adding
 lifecycle states:
 
 - `research`: independently trackable investigation that may conclude `no change`.

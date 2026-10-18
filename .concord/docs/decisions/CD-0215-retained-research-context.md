@@ -5,7 +5,7 @@
 - **Approval:** `CON-816` A1, accepted under operator delegation on 2026-10-09;
   calendar expiration was rejected.
 - **Supersedes:** [CD-0009](CD-0009-active-research-context.md)
-- **Preserves:** [CD-0041](CD-0041-architecture-bound-product-law.md) Initiative
+- **Preserves:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) Initiative
   context, [CD-0022](CD-0022-active-research-finding-scope.md) applicability,
   PM3 event authority, PM10 recovery, and separate durable promotion.
 - **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),

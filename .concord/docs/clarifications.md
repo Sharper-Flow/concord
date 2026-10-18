@@ -165,8 +165,8 @@ re-litigate them silently.
 ## 🔴 Blocking — need before building anything
 
 ### C1. Where does Concord itself live? ✅ Accepted 2026-08-07
-- **Decision:** CD-0007 selects public `Sharper-Flow/concord`, Go module
-  `github.com/sharper-flow/concord`, default branch `main`, MIT, one Product
+- **Decision:** CD-0007 selects public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord), Go module
+  [`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord), default branch `main`, MIT, one Product
   version, GitHub Releases plus a Concord installer, and public-repository authority
   after the audited bootstrap tag.
 - **Execution status:** the contract was accepted on 2026-08-06, and bootstrap

@@ -7,8 +7,8 @@
   removal of dead code, instructions, and outdated documentation
 - **Approval:** Operator accepted the drafted decision on 2026-08-20; the public
   record is [issue #219](https://github.com/Sharper-Flow/concord/issues/219).
-  The operator directed D6 for
-  [Concord (CON) issue 1164](https://linear.app/sharper-flow/issue/CON-1164)
+  The operator approved the exact amendment text for
+  [Concord (CON) issue 1164](https://linear.app/sharper-flow/issue/CON-1164).
 - **Related:** CD-0026 (learning capture and the drift audit), CD-0021 (floor
   condition scope), CD-0010 (pre-readiness development authority), CD-0013 D11
   (reserved workflow action surface), CD-0036 (law supersession), CD-0055
@@ -141,9 +141,11 @@ Law keeps one canonical current statement per obligation. A compatible amendment
 edits the owning record in place and states only the current rule. A breaking
 replacement keeps the old record as `superseded` because CD-0036 quiescence and
 CD-0222 D3 read that supersession; the record leaves the current-law view, and
-its callers and citations move to the successor. A document that is not law and
-no longer describes the current design is deleted with its manifest and coverage
-shards. Git history, not a current-tree copy, holds its earlier text.
+its callers and citations move to the successor. A non-law document that claims
+to describe the current design but has been fully replaced is deleted with its
+manifest and coverage shards. Git history holds its earlier text. Historical
+research and lessons that still serve current evidence are not obsolete design
+descriptions; their historical text is not rewritten under CD-0222 D1.
 
 Required checks refuse mechanically established gaps: undeclared unreachable Go
 functions and packages, unprocessed knowledge documents, missing cited files or
@@ -218,3 +220,6 @@ would fail on every unrelated edit while still not proving the document is true.
 - `scripts/check-doc-contract.py` resolves current citations in accepted law,
   published knowledge, and shipped instructions; `scripts/test-doc-contract.py`
   proves the refusal and the passing counterpart for each population.
+- `scripts/generate-agent-lanes.py --check` refuses unprojected agent definitions;
+  `scripts/test-generate-agent-lanes.py` proves the refusal and the passing
+  counterpart in `AgentDirectoryInventoryTests`.

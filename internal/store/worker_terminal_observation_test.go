@@ -393,6 +393,10 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 	}
 	stepID := "repair"
 	expected := int64(2)
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, fixture.workID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	startPayload := mustJSONValue(map[string]any{
 		"work_id": fixture.workID, "expected_version": expected, "resulting_version": expected + 1,
 		"step_id": stepID, "action_id": "dispatch_worker", "attempt_epoch": 1,
@@ -406,6 +410,7 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 		"worker_attempt_id":           attemptID,
 		"worker_packet_digest":        "sha256:" + strings.Repeat("c", 64),
 		"worker_packet_predicate_ids": []string{},
+		"worker_worktree_identity":    workerWorktreeIdentity(canonical),
 	})
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

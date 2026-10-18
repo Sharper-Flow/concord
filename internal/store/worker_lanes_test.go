@@ -106,6 +106,7 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
+	authorizeWorkerFixtureDispatch(t, s, "worker-mismatch", "dispatch-mismatch")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-mismatch", "dispatch-mismatch", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +151,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("completed then failed", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		authorizeWorkerFixtureDispatch(t, s, "terminal-completed-first", "terminal-completed-first-attempt")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-completed-first", "terminal-completed-first-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -163,6 +165,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("duplicate completed event identity differs", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		authorizeWorkerFixtureDispatch(t, s, "terminal-duplicate", "terminal-duplicate-attempt")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-duplicate", "terminal-duplicate-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -199,6 +202,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[1]
 		attemptID := "terminal-model-mismatch-attempt"
+		authorizeWorkerFixtureDispatch(t, s, "terminal-model-mismatch", attemptID)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-model-mismatch", attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -241,6 +245,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[2]
 	dispatchID := "dispatch-complete"
+	authorizeWorkerFixtureDispatch(t, s, "worker-complete", dispatchID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-complete", dispatchID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -716,16 +721,26 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 // tests; this seed keeps the discharge rules testable in isolation.
 func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptID string, predicateIDs []string) {
 	t.Helper()
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"dispatch-authorization-start-"+attemptID, WorkflowActionStarted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	payload := map[string]any{
 		"work_id": workID, "step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1),
 		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": "operator:test",
-		"worker_attempt_id":    attemptID,
-		"worker_packet_digest": "sha256:" + strings.Repeat("f", 64),
+		"worker_attempt_id":        attemptID,
+		"worker_packet_digest":     "sha256:" + strings.Repeat("f", 64),
+		"worker_worktree_identity": workerWorktreeIdentity(canonical),
 	}
 	if predicateIDs != nil {
 		payload["worker_packet_predicate_ids"] = predicateIDs
 	}
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
 	if err != nil {
 		t.Fatal(err)

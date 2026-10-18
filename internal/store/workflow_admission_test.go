@@ -164,9 +164,9 @@ func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := int64(100)
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 	reviewAttempt := "attempt:" + workID + ":review-class"
-	reviewGateRunAttemptWithVerdict(t, s, workID, reviewAttempt, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	reviewGateRunAttemptWithVerdict(t, s, workID, reviewAttempt, reviewGateLane(t, "review"), ownerRef, "ship", at)
 
 	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if defErr != nil {

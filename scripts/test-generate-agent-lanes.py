@@ -127,7 +127,7 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn('"*": deny', lane_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_denies_every_concord_tool(self):
-        # CD-0017 D4, extended by CD-0196. The tool ids come from the two
+        # CD-0017 D4, extended by CD-0223. The tool ids come from the two
         # tool-surface contracts, so the check reads them from there too.
         ids = generator.concord_tool_ids()
         self.assertIn("concord_work_start", ids)

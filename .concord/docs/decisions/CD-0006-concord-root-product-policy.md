@@ -5,7 +5,7 @@
 **Decision owner:** Operator
 **Scope:** Concord purpose, workflow constitution, governance, operator boundary,
 knowledge authority, audience policy, release evidence, and Advance migration.
-**Amended by:** CD-0041 adds Domain-bound Product law, architecture-overlap
+**Amended by:** CD-0222 adds Domain-bound Product law, architecture-overlap
 resolution, and the revised priority order to D5/D10/R3.
 **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
 for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).

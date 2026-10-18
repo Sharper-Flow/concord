@@ -20,7 +20,7 @@ The checks:
   D4  every declared Domain is the home of at least one current law record
   D3  every home_domain_id and applies_to_domain_ids entry resolves, and
       applicability never restates the home, since that would imply a second
-      owner where CD-0041 D3 allows exactly one
+      owner where CD-0222 D3 allows exactly one
   D5  every relation target resolves, is not the Domain itself, and every
       governing_law_ids entry names a current law record
   D2  the root Domain has no parent and every child parents to the root

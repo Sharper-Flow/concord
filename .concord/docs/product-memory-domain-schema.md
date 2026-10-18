@@ -7,7 +7,7 @@
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
 > CD-0003 D2/D3 and the generic authoritative event log remain binding.
-> **Amended by CD-0041 and CD-0213:** `domains` replace `components` as canonical
+> **Amended by CD-0222 and CD-0213:** `domains` replace `components` as canonical
 > Product-internal architecture; business grouping lives in Linear; typed
 > architecture relation families and bounded compatibility upcasters are required.
 
@@ -58,7 +58,7 @@ PM4/PM5/C15 semantics (now settled separately).
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
 | Managed-resource identity | first-class typed canonical identity need for infra/SaaS resources because stage and sharing attach | Q1 ownership and Product context | C15 selects resource-first identity, one owner plus consumers, typed locators and work links; exact subtype/index DDL remains implementation design |
 | `domain_events` | generic append-only authoritative log (`payload_version`, kind, subject, actor, time, payload) | Q7 and all rebuilds | PM4 supplies lifecycle/relation event semantics; migration/upcasting and event-subject representation remain implementation design |
-| active research context | CD-0009 retention-bounded direct SQLite tables for packs/revisions/findings/sources/consumers; never retained events or Git knowledge | active work context | delete only after proof-backed archive; PM8 still excludes blobs |
+| active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never retained events or Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
 
 ### Minimum typed fields
@@ -113,7 +113,7 @@ storage representation remains implementation design.
 
 ### 3.1a Retention-bounded active-context exception
 
-CD-0009 explicitly excludes active research-pack content from `domain_events`.
+CD-0215 D4 excludes research-pack content from `domain_events`.
 Research packs are WIP context, not Product/work history: one versioned transactional
 operation surface owns direct SQLite pack tables while the owner is nonterminal, and
 proof-backed archive deletes those rows. Product/work identity, lifecycle,

@@ -49,7 +49,7 @@ Runtime implementation proceeds only when all of these are true:
    cross-workflow impact propagation.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
    attempt fencing, external conditions, and schema/history evolution.
-7. CD-0009 fixes active research context as bounded working context, not a second
+7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
 8. The accepted storage-spine conformance slice has a public verification plan.
 

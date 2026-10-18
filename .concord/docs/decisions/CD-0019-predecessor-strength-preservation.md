@@ -4,7 +4,7 @@
 **Date:** 2026-08-13.
 **Approval:** Operator direction, 2026-08-13.
 **Type:** Preservation and method decision.
-**Relates:** [`../specs-as-laws.md`](../specs-as-laws.md), [`../self-documentation.md`](../self-documentation.md), [`../concord-knowledge-index.md`](../concord-knowledge-index.md), [`../advance-predecessor-lessons.md`](../advance-predecessor-lessons.md), CD-0009, CD-0010.
+**Relates:** [`../specs-as-laws.md`](../specs-as-laws.md), [`../self-documentation.md`](../self-documentation.md), [`../concord-knowledge-index.md`](../concord-knowledge-index.md), [`../advance-predecessor-lessons.md`](../advance-predecessor-lessons.md), CD-0010.
 
 ## Context
 
@@ -67,7 +67,7 @@ pre-decided here.
 ### D4. Mandates and methods; does not authorize implementation
 
 Under CD-0010, each feature's research and shape-fixing proceeds as GitHub Issues,
-CD-0009 research packs, and subsequent shape-fixing decision records. This CD
+research packs, and subsequent shape-fixing decision records. This CD
 establishes the preservation mandate and research-informed method only. No feature
 is implemented by virtue of this decision.
 
@@ -111,5 +111,5 @@ evidence-backed.
 
 ## Supersession
 
-None. Does not supersede CD-0009, CD-0010, or any existing constitutional doc;
+None. Does not supersede CD-0010 or any existing constitutional doc;
 mandates and methods alongside them.

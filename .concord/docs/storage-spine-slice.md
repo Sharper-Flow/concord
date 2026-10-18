@@ -12,8 +12,7 @@
 > [`compaction-retention-policy.md`](./compaction-retention-policy.md),
 > [`clarifications.md`](./clarifications.md),
 > [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md), and
-> [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md), and
-> [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md).
+> [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md).
 > **Language/boundary:** Go core, `database/sql` + `modernc.org/sqlite`, short-lived
 > CLI invocation, no daemon. TS6 decides any adapter.
 > **Binding mechanism input:** CD-0008 D1–D7 governs worktree authority, immutable-subject
@@ -49,7 +48,7 @@ The slice must preserve these decisions without reinterpretation:
 8. **Accepted PM4 lifecycle/relations:** five lifecycle states; derived
    blocked/ready/active/terminal views; canonical typed edges; atomic supersession;
    cycle rejection; explicit reopen; foreign key (FK) clean external blockers.
-9. **Accepted PM7 retention:** verified terminal work can transition atomically from
+9. **Accepted compaction-retention-policy retention:** verified terminal work can transition atomically from
    live projections to git-derived historical projections through bounded lazy
    pruning; `domain_events` remains replay authority and pruned IDs never reopen.
 
@@ -71,7 +70,7 @@ Implement only enough to exercise the accepted contract:
   event-version history;
 - a storage-neutral adapter for the PM1 scenario corpus;
 - no agent tools, plugin, MCP server, compaction automation, or production deploy;
-- no active research-pack implementation; this slice must only preserve CD-0009's
+- no active research-pack implementation; this slice must only preserve the research
   boundary by keeping research content out of retained `domain_events`.
 
 Event subjects are the one deliberate application-validated referential seam: SQLite
@@ -175,6 +174,6 @@ miss. Failure reopens the owning PM decision; it never authorizes a repair layer
 - No comparative engine benchmark or PoC absent an accepted SQLite falsifier; no test
   is used retroactively to choose PM1–PM5 architecture.
 - No CLI-command-to-agent-tool mapping; TS1–TS7 own that surface.
-- No production readiness claim; PM6/PM7 fix note placement and projection retention,
+- No production readiness claim; PM6 and compaction-retention-policy fix note placement and projection retention,
   and PM8 excludes WIP-byte storage; PM9 rejects a separate receipt; PM10 defines
   backup, restore, and garbage collection.

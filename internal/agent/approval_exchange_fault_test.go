@@ -46,13 +46,13 @@ func assertApprovalInvalidRefusal(t *testing.T, err error, message string) {
 	}
 }
 
-// assertStoreFault requires the store's own classification to reach the
-// caller unchanged.
-func assertStoreFault(t *testing.T, err error, kind store.FailureKind, op string) {
+// assertStoreFault requires the store's unavailable fault from op to reach
+// the caller unchanged.
+func assertStoreFault(t *testing.T, err error, op string) {
 	t.Helper()
 	var failure *store.Failure
-	if !errors.As(err, &failure) || failure.Kind != kind || failure.Op != op {
-		t.Fatalf("error = %#v, want store %s from %s", err, kind, op)
+	if !errors.As(err, &failure) || failure.Kind != store.KindUnavailable || failure.Op != op {
+		t.Fatalf("error = %#v, want store %s from %s", err, store.KindUnavailable, op)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestCreateApprovalFromChallengeSeparatesRefusalsFromStoreFaults(t *testing.
 		}, func(t *testing.T, err error) { assertApprovalInvalidRefusal(t, err, "approval challenge invalid") }},
 		{"challenge read fault", func(t *testing.T, db *store.Store, _ *Invocation, _ *ApprovalCheck) {
 			execFixtureSQL(t, db, `ALTER TABLE agent_approval_challenges RENAME COLUMN host_assertion_digest TO host_assertion_digest_unreadable`)
-		}, func(t *testing.T, err error) { assertStoreFault(t, err, store.KindUnavailable, "agent_challenge_read") }},
+		}, func(t *testing.T, err error) { assertStoreFault(t, err, "agent_challenge_read") }},
 		{"challenge consumption lost race", func(t *testing.T, db *store.Store, _ *Invocation, _ *ApprovalCheck) {
 			execFixtureSQL(t, db, `CREATE TRIGGER challenge_consume_lost_race BEFORE UPDATE ON agent_approval_challenges BEGIN SELECT RAISE(IGNORE); END`)
 		}, func(t *testing.T, err error) {
@@ -82,7 +82,7 @@ func TestCreateApprovalFromChallengeSeparatesRefusalsFromStoreFaults(t *testing.
 		{"challenge consumption fault", func(t *testing.T, db *store.Store, _ *Invocation, _ *ApprovalCheck) {
 			execFixtureSQL(t, db, `CREATE TRIGGER challenge_consume_fault BEFORE UPDATE ON agent_approval_challenges BEGIN SELECT RAISE(ABORT, 'challenge consume fault'); END`)
 		}, func(t *testing.T, err error) {
-			assertStoreFault(t, err, store.KindUnavailable, "agent_challenge_consume")
+			assertStoreFault(t, err, "agent_challenge_consume")
 		}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestApprovalAuthorityActorSeparatesRefusalsFromStoreFaults(t *testing.T) {
 		{"approval read fault", true, func(t *testing.T, db *store.Store, _ *Invocation, _ *string) {
 			execFixtureSQL(t, db, `ALTER TABLE agent_approvals RENAME COLUMN protected_evidence_ref TO protected_evidence_ref_unreadable`)
 		}, func(t *testing.T, err error) {
-			assertStoreFault(t, err, store.KindUnavailable, "agent_approval_authority")
+			assertStoreFault(t, err, "agent_approval_authority")
 		}},
 		{"approval not consumed", false, func(*testing.T, *store.Store, *Invocation, *string) {}, func(t *testing.T, err error) {
 			assertApprovalInvalidRefusal(t, err, "approval authority was not exactly consumed")
@@ -137,7 +137,7 @@ func TestApprovalAuthorityActorSeparatesRefusalsFromStoreFaults(t *testing.T) {
 		}},
 		{"challenge read fault", true, func(t *testing.T, db *store.Store, _ *Invocation, _ *string) {
 			execFixtureSQL(t, db, `ALTER TABLE agent_approval_challenges RENAME COLUMN host_assertion_digest TO host_assertion_digest_unreadable`)
-		}, func(t *testing.T, err error) { assertStoreFault(t, err, store.KindUnavailable, "agent_challenge_read") }},
+		}, func(t *testing.T, err error) { assertStoreFault(t, err, "agent_challenge_read") }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

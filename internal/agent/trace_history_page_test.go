@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -140,6 +141,79 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	for field := range workflowShape {
 		if _, ok := published[field]; !ok {
 			t.Fatalf("published page emits %q outside the derived workflow_read field set: %s", field, envelope.Result)
+		}
+	}
+}
+
+// TestTraceHistoryBindsTheContractVersionSelector proves the history input
+// reaches the store selector: an approved version answers that contract,
+// a version the work never had refuses unknown_scope, and contract events
+// render their versions.
+func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
+	t.Parallel()
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
+	version := seedAgentWorkflow(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
+		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
+		version = workflowIssue31Version(t, s)
+	}
+	if approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "history-selector-approve"); approved.Outcome != OutcomeOK {
+		t.Fatalf("approve_contract = %+v", approved.Error)
+	}
+
+	history := func(contractVersion int) Envelope {
+		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "event_kinds": []string{store.WorkflowContractApproved}, "contract_version": contractVersion})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, env)
+	}
+	selected := history(1)
+	if selected.Outcome != OutcomeOK {
+		t.Fatalf("history contract_version 1 = %+v", selected.Error)
+	}
+	var page struct {
+		Events []struct {
+			Kind            string `json:"kind"`
+			ContractVersion int    `json:"contract_version"`
+		} `json:"events"`
+		Workflow struct {
+			Contract struct {
+				Version int `json:"version"`
+			} `json:"contract"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(selected.Result, &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Workflow.Contract.Version != 1 || len(page.Events) != 1 || page.Events[0].ContractVersion != 1 {
+		t.Fatalf("selected history = %s", selected.Result)
+	}
+	refused := history(9)
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" {
+		t.Fatalf("history contract_version 9 = outcome %s error %+v, want unknown_scope", refused.Outcome, refused.Error)
+	}
+}
+
+// TestTraceHistoryContractVersionInputBounds proves the published input
+// refuses a selector outside 1..2147483647 before the handler runs. The
+// store reads a zero selector as the active contract, so a zero that
+// reached the handler would answer the active contract instead of refusing.
+func TestTraceHistoryContractVersionInputBounds(t *testing.T) {
+	t.Parallel()
+	for _, valid := range []string{`{"work_id":"work-1"}`, `{"work_id":"work-1","contract_version":1}`, `{"work_id":"work-1","contract_version":2147483647}`} {
+		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(valid), false); err != nil {
+			t.Fatalf("valid history input refused: %s: %v", valid, err)
+		}
+	}
+	for _, invalid := range []string{`{"work_id":"work-1","contract_version":0}`, `{"work_id":"work-1","contract_version":-1}`, `{"work_id":"work-1","contract_version":2147483648}`, `{"work_id":"work-1","contract_version":"1"}`, `{"work_id":"work-1","contract_version":null}`} {
+		if err := ValidateOperationPayload("concord_work_trace", "history", []byte(invalid), false); err == nil {
+			t.Fatalf("history input accepted: %s", invalid)
 		}
 	}
 }

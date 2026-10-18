@@ -21,6 +21,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
+import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -176,11 +177,11 @@ function requiredFields(value: JSONRecord, fields: string[]): void {
 }
 
 // The route test drives the real `concord` binary against a real store. A
-// clean checkout has no binary on PATH; declare the test skipped when neither
-// CONCORD_BIN nor a Go toolchain can produce one, so a suite run without the
+// clean checkout has no binary on PATH; declare the test skipped when no
+// Go toolchain can build one, so a suite run without the
 // toolchain reports a skip, never a silent pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 
@@ -216,18 +217,15 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   const toolchainBin = join(toolchain.stdout.trim(), "bin")
   const searchPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== toolchainBin)
   process.env.PATH = [toolchainBin, ...searchPath].join(delimiter)
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    sharedCoreBinary ??= (async () => {
-      const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
-      await mkdir(binRoot, { recursive: true })
-      const path = join(binRoot, "concord")
-      const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-      return path
-    })()
-    binary = await sharedCoreBinary
-  }
+  sharedCoreBinary ??= (async () => {
+    const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
+    await mkdir(binRoot, { recursive: true })
+    const path = join(binRoot, "concord")
+    const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    return path
+  })()
+  const binary = await sharedCoreBinary
   const repo = join(root, "repo")
   const dbPath = join(root, "concord.db")
   const configPath = join(repo, "opencode.jsonc")
@@ -553,7 +551,11 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
       sessions.get(path!.id as string)!.info.metadata = (body as JSONRecord).metadata
       return { response: new Response(null, { status: 200 }) }
     },
-    post: async () => { sessionCreates++; throw new Error("recovery and dispatch must not create a coordinator session") },
+    post: async request => {
+      if (request.url === SESSION_MESSAGES_ROUTE) return acknowledgeNativeSubtask(request)
+      sessionCreates++
+      throw new Error("recovery and dispatch must not create a coordinator session")
+    },
   })
   let taskLaunches = 0
   const opening = (context: any, packet: JSONRecord, agent: string) => {
@@ -832,7 +834,7 @@ routeDeclaration("composes implementation and independent review through one ord
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
@@ -1118,7 +1120,7 @@ routeDeclaration("composes implementation and independent review through one ord
     // submits its own verdict, the adapter mints the operator challenge, the
     // host approval signs it, and the verdict records under the operator
     // identity rather than a distinct agent session.
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, evaluation_evidence: [packet.attempt_id] }] } } }, context)
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, verdict_kind: "ok", evaluation_evidence: [packet.attempt_id] }] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string
@@ -1654,7 +1656,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
           return { data: { id: path?.id, directory: worktree, metadata, ...(path?.id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
         },
         patch: async () => { metadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }; return { response: new Response(null, { status: 200 }) } },
-        post: async () => { throw new Error("dispatch must not change the host session") },
+        post: acknowledgeNativeSubtask,
       })
       const calls: Array<{ argv: string[]; input: JSONRecord }> = []
       const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
@@ -1821,7 +1823,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -1927,7 +1929,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -2012,7 +2014,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)

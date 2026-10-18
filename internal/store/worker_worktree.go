@@ -17,11 +17,26 @@ func validateWorkerDispatchWorktree(ctx context.Context, q queryer, workID, sess
 	return err
 }
 
-// workerAttemptProjectTx resolves ownership from the attempt's own dispatch
-// authorization, including reclaimed entries whose native directory is gone.
-// Legacy authorizations without a worktree binding cannot prove a Project:
-// they retain the conservative occupancy check across the whole work item.
-func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (string, error) {
+func validateWorkerCompletionWorktree(ctx context.Context, tx *sql.Tx, workID, attemptID, sessionWorktree string) error {
+	if err := validateWorkerDispatchWorktree(ctx, tx, workID, sessionWorktree); err != nil {
+		return err
+	}
+	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID, "worker_complete", "restore the attempt's recorded worktree claim before completion")
+	if err != nil {
+		return err
+	}
+	if projectID == "" {
+		return newFailure(KindUnauthorizedDispatch, "worker_complete", "worker completion requires its original dispatch Project", false, "verify the attempt's dispatch authorization and original Project claim")
+	}
+	_, err = activeWorkerClaimedWorktreeForProject(ctx, tx, workID, projectID, sessionWorktree)
+	return err
+}
+
+// workerAttemptProjectTx resolves completion or abandonment ownership from the
+// attempt's dispatch authorization, including reclaimed entries whose directory
+// is gone. Unbound legacy authorizations cannot prove a Project: completion
+// refuses them, while abandonment checks occupancy across the whole work item.
+func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID, operation, recovery string) (string, error) {
 	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
 	if err != nil {
 		var failure *Failure
@@ -47,7 +62,7 @@ func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID s
 			return entry.ProjectID, nil
 		}
 	}
-	return "", newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt worktree identity has no recorded Project", false, "restore the attempt's recorded worktree claim before abandonment")
+	return "", newFailure(KindWorktreeOwnershipConflict, operation, "worker attempt worktree identity has no recorded Project", false, recovery)
 }
 
 // canonicalWorkerRecoveryPath resolves surviving ancestors without requiring
@@ -78,6 +93,10 @@ func canonicalWorkerRecoveryPath(value string) (string, error) {
 // authorized dispatch can name the claim its authorization rested on and a
 // caller can compare against it after any host process restart.
 func activeWorkerClaimedWorktree(ctx context.Context, q queryer, workID, sessionWorktree string) (string, error) {
+	return activeWorkerClaimedWorktreeForProject(ctx, q, workID, "", sessionWorktree)
+}
+
+func activeWorkerClaimedWorktreeForProject(ctx context.Context, q queryer, workID, projectID, sessionWorktree string) (string, error) {
 	if workID == "" || sessionWorktree == "" {
 		return "", newFailure(KindUnauthorizedDispatch, "worker_dispatch", "worker dispatch requires a work item and host session worktree", false, "refresh the host session boundary")
 	}
@@ -87,7 +106,7 @@ func activeWorkerClaimedWorktree(ctx context.Context, q queryer, workID, session
 	}
 	active := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.State != worktreeEntryActive {
+		if entry.State != worktreeEntryActive || (projectID != "" && entry.ProjectID != projectID) {
 			continue
 		}
 		canonical, canonicalErr := canonicalWorkerWorktreePath(entry.Path)

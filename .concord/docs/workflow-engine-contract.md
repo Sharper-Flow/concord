@@ -56,7 +56,7 @@ with the two schemas it cites. This record fills the implementation boundary
 CD-0013 left open: the common representation, the definition registry and
 digest check, the instance state machine, the event families, the V15
 projections and folds, outcome evaluation, the ordered completion gate, actor
-distinctness, impact edges and notices, external condition resolution,
+distinctness, impact edges and notices, external condition refusal,
 dispatch, and the built-in family graphs.
 
 ## Contract
@@ -65,7 +65,7 @@ The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, the event
 families, the projections and folds, outcome evaluation and strength, the
 ordered completion gate, the actor tuple and evaluator distinctness, impact
-edges and notices, external condition resolution, dispatch, and the built-in
+edges and notices, external condition refusal, dispatch, and the built-in
 family graphs and actions. Section 13 records implementation-deferred items
 and carries no obligation.
 
@@ -184,8 +184,8 @@ drift. No fallback definition, newer version, or response-wording path is accept
 | `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
 | `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
 | `running` | `blocked` | unresolved dependency or condition discovered | internal-inline |
-| `blocked` | `awaiting_condition` | a typed external condition is registered | internal-inline |
-| `awaiting_condition` | `running` | owning resolver supplies valid evidence | internal-inline |
+| `blocked` | `awaiting_condition` | a typed external condition is registered (historical pins only) | internal-inline |
+| `awaiting_condition` | `running` | owning resolver supplies valid evidence (no resolver exists; CD-0234 D1) | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `awaiting_condition`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
@@ -407,16 +407,16 @@ uses the same fold over the prefix through `seq` and is read-only.
 
 ## 6. Outcome evaluation and strength
 
-The approved predicate is immutable. The evaluator receives the approved
-predicate, delivered predicate/verdict, ground-truth resolver, immutable evidence
-bindings, and the executing actor. It returns `satisfied`, `verdict_kind`, and
-`incomparable_with_approved`.
+The approved predicate is immutable. The verdict actor, distinct from the
+executing actor, is the evaluator (CD-0235 D1). For each approved predicate it
+applies the rules below to the delivery and its bound evidence, and records
+`verdict_kind` and `incomparable_with_approved`.
 
-Before evaluation, the submitted predicate is validated against the pinned
-definition's `outcome_schema`, not only against the generic outcome union. The
-validator rejects a predicate kind outside `allowed_kinds` and an outcome token
-not in `allowed_outcome_tokens`. An inline decision record is validated whenever
-one is supplied. This check runs for all seven families; the generic union is only
+At contract approval and again at completion, each approved predicate is
+validated against the pinned definition's `outcome_schema`, not only against the
+generic outcome union. The validator rejects a predicate kind outside
+`allowed_kinds` and an outcome token not in `allowed_outcome_tokens`. An inline
+decision record is validated whenever one is supplied. This check runs for all seven families; the generic union is only
 the syntax check, while the selected definition is the authority for meaning.
 
 1. **`exists`:** resolve every approved subject on the named ground-truth surface.
@@ -434,16 +434,15 @@ the syntax check, while the selected definition is the authority for meaning.
    `accepted_decision` or `insufficient_evidence` token additionally requires the
    bound decision record in §6.1, and the record's decision token must sit in the
    approved `allowed` set. A token outside the set is weaker/mismatched.
-4. **`check`:** resolve the registered evaluator against the exact immutable
-   subject and compare its closed result with `expected_result`. The evaluator
-   owns behavioral strength. It must return `stronger_or_equal`, `weaker`, or
-   `incomparable`; `incomparable` is surfaced as `outcome_mismatch`, with no retry
-   authority. A changed immutable subject is stale evidence, not a new result.
+4. **`check`:** evaluate the named check against the exact immutable subject
+   and compare its closed result with `expected_result`. The verdict actor owns
+   behavioral strength and records stronger-or-equal as `ok`; weaker and
+   incomparable are surfaced as `outcome_mismatch`, with no retry authority. A
+   changed immutable subject is stale evidence, not a new result.
 
-For all four kinds, unreadable data produces an undetermined result and cannot be
-treated as a pass. `outcome_mismatch` is the required typed semantic refusal for a
-weaker or incomparable delivery; the TS7 envelope amendment required by CD-0013
-D10 ships with the later surface-version change, not this documentation pass.
+For all four kinds, unreadable data produces an undetermined result, which the
+verdict actor never records as `ok`. `outcome_mismatch` is the typed refusal
+for a verdict that records a weaker or incomparable delivery.
 
 Job-oracle controls use exit-status results and retained execution references
 (CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
@@ -458,10 +457,12 @@ containing framed questions, options with source-backed evidence, decision,
 rationale, consequences, inputs, proof of concept (POC) findings (or an explicit no-POC value),
 supersession position, reviewer actor, operator acceptance, and for
 `insufficient_evidence`, recorded unknowns plus what would be required to decide.
-Evaluation and completion read the latest accepted row in
+The verdict actor reads the latest accepted row in
 `workflow_decision_records` — the row `record_decision` writes and
-`accept_decision` accepts — and require its decision token inside the approved
-`allowed` set. Contract approval validates the predicate kind and its allowed
+`accept_decision` accepts — and records `ok` only when its decision token sits
+inside the approved `allowed` set. A lifecycle completion outside the workflow
+gate reads the same row and refuses with `decision_record_required` when the
+row is missing or its token is outside the pinned definition's allowed tokens. Contract approval validates the predicate kind and its allowed
 tokens, and validates an inline record only when one is supplied. An unaccepted
 record does not satisfy the predicate or unblock a dependent managed work unit.
 
@@ -479,7 +480,7 @@ are stable:
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
 | 4 | Verdict is present, its actor tuple is complete, and it is distinct from the executing actor | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
 | 5 | Premise is confirmed by an operator-typed actor | `approval_required` | `request_approval` |
-| 6 | The predicate is strengthening/satisfied and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
+| 6 | Every approved predicate's latest verdict is `ok` and comparable, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
 | 7 | Contract, verdict, evidence bindings, impact notices, terminal metadata, and `workflow.completed` append commit atomically | `operation_conflict` | `reconcile_operation` |
 
 The same transaction performs the reverse-edge impact scan and notice deduplication
@@ -521,6 +522,14 @@ event stores the tuple once in `workflow.actor_recorded`; later events carry onl
 verdict is distinct from an agent executor but must still carry a complete tuple.
 Any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
+
+Every new `record_verdict` call supplies an explicit `verdict_kind` for each
+judged predicate: `ok`, `outcome_mismatch`, or `insufficient_evidence`. An omitted,
+null, empty, or undeclared kind refuses the entire action before any event,
+durable operation, work-version update, or workflow-projection change. No verdict
+kind is inferred. This authoring rule applies to new calls on earlier definition
+pins too. Stored events, released definition data and digests, historical decoder
+schemas, replay, and rebuild retain their recorded meaning.
 
 For `confirm_premise`, the invoking agent tuple is never converted to an
 operator by changing `actor_class`, and `confirming_actor_ref` is not accepted
@@ -596,17 +605,14 @@ A contract revision uses the same reverse-edge direction and emits `breaking`
 when an active hard dependent consumed the superseded contract. It emits
 `non-breaking` for every other inbound dependent.
 
-## 10. External condition resolution
+## 10. External conditions
 
-The engine exposes no wait daemon and performs no polling. Resolution is explicit
-on request or at a consequential boundary:
-
-```go
-type ConditionResolver interface {
-    Resolve(ctx context.Context, condition ExternalCondition,
-        now time.Time) (Resolution, error)
-}
-```
+The engine exposes no wait daemon, performs no polling, and has no condition
+resolver (CD-0234 D1). No retained family declares an action that
+opens, resolves, or cancels a condition. Recorded conditions fold, read, and
+rebuild. A consequential action on work with an open condition refuses with
+`not_terminal`. The table states the owning-authority evidence a resolver added by
+a later decision must require.
 
 `await_type` is closed to:
 
@@ -674,15 +680,25 @@ The corpus records `engine_status=engine_shipped`. The checker compares every sc
 error kind with the current closed envelope enum; unknown classifications fail
 validation rather than being downgraded to prose or generic success.
 
-### Corpus clarification note (issue #31)
+### Scenarios that bind production routes
 
-WF09 previously asserted `unauthorized` for an undeclared `replace_outcome`
-request. That request fails the workflow graph's declared-action transition
-check before actor authorization, so the accepted assertion is corrected to
-`invalid_transition`. The correction is recorded here rather than hidden in the
-harness; the structured corpus request retains the action ID, pinned definition,
-actor, expected version, and request identity that make the classification
-reproducible.
+WF09, WF22, and WF25 each bind their criterion to a production route.
+
+- WF09 sends `approve_contract`, the only declared action that writes an
+  approved end-state, at the `execution` step. The step does not declare the
+  action, so the graph's declared-action check refuses it with
+  `invalid_transition` before actor authorization, and no contract event is
+  written.
+- WF22 commits `checkpoint_context`, abandons an uncommitted `record_proposal`
+  transaction, rebuilds projections from the event log, and reads the resume
+  state through the continuity read (CD-0016). Its resume step is `proposal`,
+  a step of the pinned `workflow.implementation` definition.
+- WF25 leaves a compaction publication claim pending, then repeats the
+  publication under a new idempotency key without an approval. The agent
+  boundary returns `approval_required`, and the attempt epoch does not advance.
+  Compaction requires an approval on every publication, so WF25 covers
+  durable-operation claims only. The fenced-start takeover of a held attempt
+  is a separate route for criterion 25, covered by its own tests.
 
 ## 12. Built-in family graphs and actions
 
@@ -742,7 +758,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (CD-0156) |
 | `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |
 | `start_execution`, `start_repair`, `start_refine`, `start_run`, `start_poc`, `start_action` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed` |
-| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the checkpoint payload is the typed resume boundary |
+| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the folded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
 | `bind_evidence` | `workflow.evidence_bound`; the producer names a completed durable operation, for example a green verify-tier run at `worktree_verify:sha256:<digest>` |
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |
@@ -886,8 +902,10 @@ interpret the v1 carriers:
    effective-rigor evaluation routine are implementation work.
 
 The contract does not invent the deferred check catalog, surface registry, audience
-storage, or a new family. Implementers must refuse unknown values until those
-registries are separately supplied.
+storage, or a new family. Until a decision supplies the check catalog or the
+surface registry, no registry resolves `check_ref` and `surface`
+values; approval checks their grammar and the verdict actor interprets them
+(CD-0235 D3). Implementers must refuse every other unknown value.
 
 ## Acceptance criteria
 
@@ -896,8 +914,8 @@ registries are separately supplied.
   Then the engine refuses with invariant_violation and the instance remains
   planned.
 
-- Given an approved outcome over two capabilities and a delivered outcome over
-  one of them
+- Given an approved outcome over two capabilities and an independent verdict
+  that records a delivery over one of them as weaker
   When complete is dispatched
   Then the engine refuses with outcome_mismatch and appends no
   workflow.completed event.
@@ -928,8 +946,8 @@ executed against production dispatch by
   scenario, which dispatches approve_contract without an end-state and asserts
   an invariant_violation refusal with the instance still planned.
 - Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
-  delivery covers one capability of an approved two-capability outcome and
-  asserts an outcome_mismatch refusal with no completion event.
+  independent verdict records the delivery as `outcome_mismatch` and which
+  asserts an outcome_mismatch refusal with no completion event (CD-0235 D2).
 - Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
   scenario, whose verdict actor equals the executing actor and asserts the
   refusal.

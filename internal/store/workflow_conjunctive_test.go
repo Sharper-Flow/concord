@@ -2,16 +2,28 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 )
 
-// TestPinnedConjunctiveContractCompletes is the pinned reproduction for the
-// single-predicate storage defect. The approval payload names both an exists
-// and an absent predicate, then drives the workflow through completion.
-func TestPinnedConjunctiveContractCompletes(t *testing.T) {
-	t.Parallel()
+// conjunctiveVerdict is one recorded verdict of the conjunctive fixture.
+type conjunctiveVerdict struct {
+	predicateID  string
+	kind         string
+	evidence     string
+	incomparable bool
+}
+
+// conjunctiveVerdicts is the fixture's passing verdict set: an ok verdict for
+// each approved predicate.
+var conjunctiveVerdicts = []conjunctiveVerdict{{"predicate:present", "ok", "evidence:verification", false}, {"predicate:absent", "ok", "evidence:review", false}}
+
+// seedConjunctiveCompletion seeds a contract approving an exists and an absent
+// predicate, records the given independent verdicts and the operator premise
+// confirmation, and returns the completion event for the folded version. The
+// error is the seeding operation's, so a test can assert a fold refusal.
+func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*Store, Event, error) {
+	t.Helper()
 	s := openTemp(t)
 	seedWork(t, s, "conjunctive-work")
 	seedWorkflowLaw(t, s)
@@ -55,21 +67,22 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 		workflowEvent("conjunctive-review", WorkflowEvidenceBound, "conjunctive-work", map[string]any{
 			"work_id": "conjunctive-work", "expected_version": version + 6, "resulting_version": version + 7, "evidence_kind": "review", "immutable_subject_ref": "evidence:review", "producer_id": "principal/review", "producer_run_ref": "conjunctive-review", "producer_watermark": "request/review", "observed_at": "2026-08-09T00:00:00Z",
 		}),
-		workflowEventWithActor("conjunctive-present-verdict", WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
-			"work_id": "conjunctive-work", "expected_version": version + 7, "resulting_version": version + 8, "contract_version": 1, "predicate_id": "predicate:present", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:verification"}, "incomparable_with_approved": false,
-		}),
-		workflowEventWithActor("conjunctive-absent-verdict", WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
-			"work_id": "conjunctive-work", "expected_version": version + 8, "resulting_version": version + 9, "contract_version": 1, "predicate_id": "predicate:absent", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": false,
-		}),
-		workflowEventWithActor("conjunctive-premise", WorkflowPremiseConfirmed, "conjunctive-work", operator, map[string]any{
-			"work_id": "conjunctive-work", "expected_version": version + 9, "resulting_version": version + 10, "contract_version": 1, "confirming_actor_ref": operator,
-		}),
 	)
-	events[7].PayloadVersion = 2
-	events[8].PayloadVersion = 2
 	events[3].PayloadVersion = 3
+	next := version + 7
+	for _, verdict := range verdicts {
+		event := workflowEventWithActor("conjunctive-verdict-"+verdict.predicateID, WorkflowVerdictRecorded, "conjunctive-work", operator, map[string]any{
+			"work_id": "conjunctive-work", "expected_version": next, "resulting_version": next + 1, "contract_version": 1, "predicate_id": verdict.predicateID, "verdict_kind": verdict.kind, "verdict_actor_ref": operator, "evaluation_evidence": []string{verdict.evidence}, "incomparable_with_approved": verdict.incomparable,
+		})
+		event.PayloadVersion = 2
+		events = append(events, event)
+		next++
+	}
+	events = append(events, workflowEventWithActor("conjunctive-premise", WorkflowPremiseConfirmed, "conjunctive-work", operator, map[string]any{
+		"work_id": "conjunctive-work", "expected_version": next, "resulting_version": next + 1, "contract_version": 1, "confirming_actor_ref": operator,
+	}))
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "conjunctive-work"): 2}}); err != nil {
-		t.Fatal(err)
+		return s, Event{}, err
 	}
 	finalVersion := readWorkVersion(t, s, "conjunctive-work")
 	completion := workflowEventWithActor("conjunctive-completion", WorkflowCompleted, "conjunctive-work", operator, map[string]any{
@@ -77,6 +90,18 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 		"premise_confirmed": true, "evidence_count": 2, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
 	completion.PayloadVersion = 2
+	return s, completion, nil
+}
+
+// TestPinnedConjunctiveContractCompletes is the pinned reproduction for the
+// single-predicate storage defect. The approval payload names both an exists
+// and an absent predicate, then drives the workflow through completion.
+func TestPinnedConjunctiveContractCompletes(t *testing.T) {
+	t.Parallel()
+	s, completion, err := seedConjunctiveCompletion(t, conjunctiveVerdicts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("conjunctive completion: %v", err)
 	}
@@ -90,48 +115,50 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 	}
 }
 
-func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testing.T) {
+// CD-0235 D2: completion refuses on the recorded independent verdict. A
+// missing verdict for an approved predicate is missing evidence, and a
+// recorded outcome_mismatch on an approved absence, such as a subject that
+// was relocated rather than removed, refuses whatever else holds, and so does
+// an ok verdict marked incomparable. No refusal appends a completion.
+func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
 	t.Parallel()
-	definition := workflowFixtureDefinition(t, 1)
-	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
-	_, err := EvaluateWorkflowOutcomePredicateSet(
-		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
-		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:extra", Predicate: check}},
-		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}, GroundTruth: conjunctiveGroundTruth{}},
-	)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindOutcomeMismatch {
-		t.Fatalf("unapproved delivered predicate error = %v, want %s", err, KindOutcomeMismatch)
+	for _, testCase := range []struct {
+		name     string
+		verdicts []conjunctiveVerdict
+		want     FailureKind
+	}{
+		{"missing absent verdict", conjunctiveVerdicts[:1], KindMissingEvidence},
+		{"relocated absence", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "outcome_mismatch", "evidence:review", false}}, KindOutcomeMismatch},
+		{"incomparable ok verdict", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "ok", "evidence:review", true}}, KindOutcomeMismatch},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			s, completion, err := seedConjunctiveCompletion(t, testCase.verdicts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = CompleteWorkflow(context.Background(), s, completion)
+			if !hasFailureKind(err, testCase.want) {
+				t.Fatalf("completion error = %v, want %s", err, testCase.want)
+			}
+			var completions int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "conjunctive-work", WorkflowCompleted).Scan(&completions); err != nil {
+				t.Fatal(err)
+			}
+			if completions != 0 {
+				t.Fatalf("refused completion appended %d workflow.completed events", completions)
+			}
+		})
 	}
 }
 
-func TestWorkflowOutcomePredicateSetRejectsMissingApprovedPredicate(t *testing.T) {
+// A verdict cannot answer a predicate the contract did not approve (CD-0006
+// R1): the verdict fold refuses it, so no recorded verdict set can carry one
+// to completion.
+func TestConjunctiveVerdictForAnUnapprovedPredicateIsRefusedAtTheFold(t *testing.T) {
 	t.Parallel()
-	definition := workflowFixtureDefinition(t, 1)
-	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
-	_, err := EvaluateWorkflowOutcomePredicateSet(
-		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}, {PredicateID: "predicate:required", Predicate: check}},
-		[]WorkflowNamedOutcomePredicate{{PredicateID: "predicate:approved", Predicate: check}},
-		WorkflowOutcomeEvaluationContext{Registry: BuiltinWorkflowRegistry(), DefinitionPin: WorkflowDefinitionPin{Ref: definition.Definition.Ref, Version: definition.Definition.Version, Digest: definition.Digest}, GroundTruth: conjunctiveGroundTruth{}},
-	)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
-		t.Fatalf("uncovered approved predicate error = %v, want %s", err, KindMissingEvidence)
-	}
-}
-
-type conjunctiveGroundTruth struct{}
-
-func (conjunctiveGroundTruth) Resolve(string, string) (WorkflowGroundTruth, error) {
-	return GroundTruthPresent, nil
-}
-
-func TestWorkflowOutcomePredicateVacuityChecksAbsentConjunct(t *testing.T) {
-	t.Parallel()
-	if !workflowOutcomePredicateVacuous("absent", "scope-absent") {
-		t.Fatal("an already absent conjunct must be vacuous")
-	}
-	if workflowOutcomePredicateVacuous("exists", "scope-absent") {
-		t.Fatal("an absent ground truth must not make an exists conjunct vacuous")
+	_, _, err := seedConjunctiveCompletion(t, []conjunctiveVerdict{{"predicate:extra", "ok", "evidence:review", false}})
+	if !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("unapproved predicate verdict error = %v, want %s", err, KindInvalidPayload)
 	}
 }

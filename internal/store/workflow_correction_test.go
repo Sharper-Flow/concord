@@ -71,19 +71,41 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	ctx := context.Background()
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID + ":late-verdict-fresh"
-	attemptEpoch := int64(2)
+	// Fresh execution follows the seed's two starts. Its dispatch authorization
+	// owns the fourth epoch.
+	startEpoch := int64(3)
+	attemptEpoch := int64(4)
 	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 	if err != nil {
 		t.Fatal(err)
 	}
 	version := verdictItemVersion(t, s, workID)
 	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": attemptEpoch,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": startEpoch,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
 		"execution_model": preferredModelForLane(lane),
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("fresh start_execution: %v", err)
+	}
+	dispatchVersion := verdictItemVersion(t, s, workID)
+	dispatchStart := workflowEventWithActor("dispatch-start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
+		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch-late:" + workID,
+		"actor_ref": ownerRef, "execution_model": preferredModelForLane(lane),
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{dispatchStart, {
+		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": dispatchVersion + 1, "resulting_version": dispatchVersion + 2,
+			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"actor_ref": ownerRef, "worker_worktree_identity": workerFixtureWorktreeIdentity(t, s, workID),
+			"worker_packet_predicate_ids": []string{},
+		}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
+		t.Fatalf("fresh dispatch action completion: %v", err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "dispatch-late-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
@@ -92,20 +114,8 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	}}}); err != nil {
 		t.Fatalf("fresh dispatch: %v", err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC())}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("fresh complete: %v", err)
-	}
-	dispatchVersion := verdictItemVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef,
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
-		t.Fatalf("fresh dispatch action completion: %v", err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-acceptor", SessionRef: "session/" + workID + "-late-verdict-acceptor", ActorClass: ActorAgent}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
@@ -274,8 +284,8 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
-			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
+		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
+			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
 		}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
@@ -288,8 +298,8 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if result.ResultingVersion != 11 {
-		t.Fatalf("rejection result version=%d, want 11", result.ResultingVersion)
+	if result.ResultingVersion != 13 {
+		t.Fatalf("rejection result version=%d, want 13", result.ResultingVersion)
 	}
 
 	var workerAttempt, diagnosis string
@@ -333,10 +343,10 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatalf("rejected completed result has retry approval binding %#v", binding)
 	}
 	start := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2,
+		"work_id": workID, "expected_version": 13, "resulting_version": 14, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef,
 	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 13}}); err != nil {
 		t.Fatalf("start fresh correction attempt: %v", err)
 	}
 	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID))
@@ -348,7 +358,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch:" + workID, OperationID: "dispatch:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch:" + workID, RequestID: "request:dispatch:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
 	})
@@ -373,7 +383,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "dispatch-foreign:" + workID, OperationID: "dispatch-foreign:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-foreign:" + workID, RequestID: "request:dispatch-foreign:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
 	})
@@ -391,7 +401,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		WorkID: workID, ExpectedVersion: 14, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "dispatch-valid:" + workID, OperationID: "dispatch-valid:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-valid:" + workID, RequestID: "request:dispatch-valid:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(6, 0).UTC(),
 	}); err != nil {
@@ -476,7 +486,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		EventID: "worker-completed-corrective-" + workID,
 		Kind:    WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(41, 1).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 	}}}); err != nil {
 		t.Fatalf("complete corrective worker attempt: %v", err)
 	}
@@ -699,8 +709,9 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 			t.Fatalf("cycle %d start_execution: %v", cycle, err)
 		}
+		recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 		var attemptEpoch int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='start_execution' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
 			t.Fatal(err)
 		}
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
@@ -713,7 +724,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 			EventID: fmt.Sprintf("completed-%s-%d", workID, cycle), Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 			Actor: "worker:test", OccurredAt: time.Unix(31+cycle, 0).UTC(), PayloadVersion: 1,
-			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
 		}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -1507,8 +1518,8 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
-			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
+		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
+			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},
 		}), Actor: owner, EvidenceRefs: []string{"evidence:mutation envelope locator with spaces and a length far beyond the one hundred twenty eight byte response bound"},
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "rejectcharset:" + workID, OperationID: "rejectcharset:" + workID,
@@ -1722,7 +1733,7 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchCountingAttempt(t, s, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
-	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatalf("complete corrective worker attempt: %v", err)
 	}

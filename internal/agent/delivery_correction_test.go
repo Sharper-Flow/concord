@@ -163,9 +163,13 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	// unchanged original, under coordinator provenance only. The core
 	// records the coordinator's evidence and never claims a verification of
 	// any forge or merge state.
-	projection, err := store.ReadWorkflowProjection(context.Background(), s, store.WorkflowReadRequest{WorkID: "work-1"})
+	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	projection := workflowRead.Workflow
+	if projection == nil {
+		t.Fatal("Q7 omitted the recorded workflow")
 	}
 	assertion := projection.DeliveryAssertion
 	if assertion == nil || assertion.Correction == nil {
@@ -186,7 +190,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	// fail closed when a reader drops them: the read must stay able to name
 	// the exact target a correction admission consumes and the artifact the
 	// correction overlay selects.
-	published, err := publishedWorkflowRead(&projection)
+	published, err := publishedWorkflowRead(projection)
 	if err != nil {
 		t.Fatal(err)
 	}

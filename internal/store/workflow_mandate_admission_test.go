@@ -117,14 +117,14 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 				t.Fatal(err)
 			}
 			at := int64(100)
-			epoch := reviewGateDriveRejection(t, fixture, workID, &at)
+			reviewGateDriveRejection(t, fixture, workID, &at)
 			attempt := "attempt:" + workID + ":review-2"
-			reviewGateRunAttemptWithVerdict(t, s, workID, attempt, epoch, reviewGateLane(t, "review"), ownerRef, verdict, at)
+			reviewEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attempt, reviewGateLane(t, "review"), ownerRef, verdict, at)
 			refineProofSeedGreenRun(t, s, workID, strings.Repeat("e", 64))
 			setAdmissionMandate(t, s, workID)
-			payload := json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attempt, epoch))
+			payload := json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attempt, reviewEpoch))
 			if verdict == "ship" {
-				payload = json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d,"delivery_artifact":"artifact:mandate-agreement","delivery_state":"asserted"}`, attempt, epoch))
+				payload = json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d,"delivery_artifact":"artifact:mandate-agreement","delivery_state":"asserted"}`, attempt, reviewEpoch))
 			}
 			for _, bound := range []bool{false, true} {
 				if bound {

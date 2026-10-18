@@ -2,13 +2,10 @@
 """Validate and deterministically generate native-run status projections."""
 from __future__ import annotations
 
-import argparse
 import json
-import subprocess
-import sys
 from pathlib import Path
 
-from vocabulary_utils import check_schema_keywords, digest, fail, schema_validate
+from vocabulary_utils import fail, generate_projections, gofmt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,52 +36,29 @@ func NativeRunStatusAllowed(phase, status string) bool {{
 \t_, ok := nativeRunStatuses[phase][status]
 \treturn ok
 }}
-
-func NativeRunStatusIsFailure(phase, status string) bool {{
-\treturn nativeRunStatuses[phase][status]
-}}
 '''
 
 
+def semantic(vocabulary: dict) -> None:
+    phases = vocabulary["phases"]
+    phase_names = [phase["phase"] for phase in phases]
+    if len(set(phase_names)) != len(phase_names):
+        fail("native run phases must be unique")
+    for phase in phases:
+        statuses = [item["status"] for item in phase["statuses"]]
+        if len(set(statuses)) != len(statuses):
+            fail(f"native run statuses must be unique within phase {phase['phase']}")
+
+
+def project(vocabulary: dict, vocabulary_digest: str) -> dict[Path, str]:
+    return {
+        ROOT / "internal/store/generated_native_run_statuses.go": gofmt(go_projection(vocabulary)),
+        ROOT / "contracts/native-run-statuses.digest": vocabulary_digest + "\n",
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--check", action="store_true",
-                        help="fail on native-run status projection drift instead of writing generated files")
-    args = parser.parse_args()
-    try:
-        check = args.check
-        vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
-        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-        check_schema_keywords(schema)
-        schema_validate(vocabulary, schema, schema, "vocabulary")
-        phases = vocabulary["phases"]
-        phase_names = [phase["phase"] for phase in phases]
-        if len(set(phase_names)) != len(phase_names):
-            fail("native run phases must be unique")
-        for phase in phases:
-            statuses = [item["status"] for item in phase["statuses"]]
-            if len(set(statuses)) != len(statuses):
-                fail(f"native run statuses must be unique within phase {phase['phase']}")
-        vocabulary_digest = digest(vocabulary)
-        expected = {
-            ROOT / "internal/store/generated_native_run_statuses.go": subprocess.run(
-                ["gofmt"], input=go_projection(vocabulary), text=True, capture_output=True, check=True
-            ).stdout,
-            ROOT / "contracts/native-run-statuses.digest": vocabulary_digest + "\n",
-        }
-        if check:
-            for path, content in expected.items():
-                if not path.is_file() or path.read_text(encoding="utf-8") != content:
-                    fail(f"generated native-run statuses drift: {path.relative_to(ROOT)}")
-        else:
-            for path, content in expected.items():
-                path.parent.mkdir(exist_ok=True)
-                path.write_text(content, encoding="utf-8")
-        print(vocabulary_digest)
-        return 0
-    except (OSError, json.JSONDecodeError, ValueError, subprocess.CalledProcessError) as exc:
-        print(f"native-run status generation failed: {exc}", file=sys.stderr)
-        return 1
+    return generate_projections("native-run status", VOCABULARY, SCHEMA, ROOT, project, semantic)
 
 
 if __name__ == "__main__":

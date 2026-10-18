@@ -545,6 +545,10 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, effectStep, ownerRef)
+	// The authorization just opened the step's newest action start, so the
+	// dispatch evidence and the accept below name its recorded epoch.
+	authEpoch := latestStepStartEpoch(t, s, workID, effectStep)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: dispatchID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
@@ -553,7 +557,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -567,14 +571,14 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
 		Payload: mustJSONValue(map[string]any{
 			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-			"step_id": effectStep, "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"step_id": effectStep, "action_id": "dispatch_worker", "attempt_epoch": authEpoch, "worker_attempt_id": attemptID,
 			"actor_ref": ownerRef,
 		}),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
 		t.Fatal(err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(authEpoch)+`}`), 0, acceptor); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return refineReturnRouteWorkerLabeled(t, fixture, workID, acceptor, label)
@@ -897,7 +901,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, fixture.store, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

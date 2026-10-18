@@ -150,7 +150,7 @@ func TestValidateWorkerContextFindingsAggregateBytesRefuseNeverTruncate(t *testi
 // workerCompletedContextFindingsEvent builds one current-version completion
 // event whose payload carries the supplied findings beside full reported
 // evidence for the lane.
-func workerCompletedContextFindingsEvent(workID, eventID, attemptID, model string, lane LaneDefinition, findings []WorkerContextFinding, version int) Event {
+func workerCompletedContextFindingsEvent(workID, eventID, attemptID, model string, lane LaneDefinition, findings []WorkerContextFinding, version int, directory string) Event {
 	evidence := make([]WorkerReportEvidence, 0, len(lane.EvidenceObligations))
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
@@ -158,6 +158,7 @@ func workerCompletedContextFindingsEvent(workID, eventID, attemptID, model strin
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence, ContextFindings: findings,
+		WorkerDirectory: directory,
 	})}
 }
 
@@ -189,11 +190,16 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
 	findings := []WorkerContextFinding{contextFindingFixture(), {Kind: "direction", Statement: "the reader joins declarations without parsing narrative", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{"a", "b"}, DomainID: workContextTestRoot, ProductWideRationale: workContextRootRationale}}
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-findings-complete", "repair", ownerRef)
 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-complete", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("completion with typed findings refused: %v", err)
 	}
@@ -244,17 +250,22 @@ func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-findings-claims", "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-claims", "attempt-findings-claims", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-findings-claims"))
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(short.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
 	payload.Evidence = payload.Evidence[:1]
 	short.Payload = mustJSONValue(payload)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{short}})
+	err = ApplyOperation(context.Background(), s, Operation{Events: []Event{short}})
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "undischarged") {
 		t.Fatalf("findings beside undischarged obligations error = %v, want an undischarged-obligation refusal", err)
 	}
@@ -355,10 +366,11 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)
+		authorizeWorkerFixtureDispatch(t, s, "work-rebuild", "attempt-rebuild")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild", "attempt-rebuild", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		legacyCompletion := Event{EventID: "rebuild-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-rebuild", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-rebuild", "readback_model": model, "report_schema_version": WorkerReportSchemaVersion, "evidence_origin": WorkerEvidenceLegacyUnavailable})}
+		legacyCompletion := Event{EventID: "rebuild-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-rebuild", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-rebuild", "readback_model": model, "report_schema_version": WorkerReportSchemaVersion, "evidence_origin": WorkerEvidenceLegacyUnavailable, "worker_directory": workerFixtureDirectory(t, s, "work-rebuild")})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyCompletion}}); err != nil {
 			t.Fatalf("legacy v4 completion refused on append: %v", err)
 		}
@@ -381,10 +393,15 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)
 		findings := []WorkerContextFinding{contextFindingFixture()}
+		ownerRef, err := WorkflowActorRef(fixture.owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-rebuild-findings", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
@@ -425,7 +442,7 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fabricated", "attempt-fabricated", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		fabricated := workerCompletedContextFindingsEvent("work-fabricated", "fabricated-complete", "attempt-fabricated", model, lane, []WorkerContextFinding{contextFindingFixture()}, 4)
+		fabricated := workerCompletedContextFindingsEvent("work-fabricated", "fabricated-complete", "attempt-fabricated", model, lane, []WorkerContextFinding{contextFindingFixture()}, 4, "")
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fabricated}})
 		if !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("fabricated v4 findings error = %v, want %s", err, KindInvalidPayload)

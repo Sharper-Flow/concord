@@ -49,13 +49,13 @@ func TestHistoricalAcceptedNoShipReviewWithoutRejectionRecovers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			attemptID := "attempt:" + workID + ":review"
-			reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
+			noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
 			acceptor := historicalReviewAcceptor(t, s, workID)
 			// Replay the historical advancing acceptance without rewriting its
 			// disposition or adding a rejection or delivery assertion.
-			reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, epoch, acceptor)
+			reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, noShipEpoch, acceptor)
 			reviewGateRequireStep(t, s, workID, "delivery")
 			var rejections int
 			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil || rejections != 0 {
@@ -146,19 +146,20 @@ func TestHistoricalReviewGateDoesNotBorrowUnacceptedNoShipReport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			attemptID := "attempt:" + workID + ":review"
+			var acceptEpoch int64
 			switch verdict {
 			case "":
-				reviewGateRunAttempt(t, s, workID, attemptID, "refine", epoch, reviewGateLane(t, "review"), ownerRef, 100)
+				acceptEpoch = reviewGateRunAttempt(t, s, workID, attemptID, "refine", reviewGateLane(t, "review"), ownerRef, 100)
 			case "ship":
-				reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, verdict, 100)
+				acceptEpoch = reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, verdict, 100)
 			default:
-				reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
+				reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
 				attemptID = "attempt:" + workID + ":implementation"
-				reviewGateRunAttempt(t, s, workID, attemptID, "refine", epoch, reviewGateLane(t, "implementation"), ownerRef, 102)
+				acceptEpoch = reviewGateRunAttempt(t, s, workID, attemptID, "refine", reviewGateLane(t, "implementation"), ownerRef, 102)
 			}
-			reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, epoch, historicalReviewAcceptor(t, s, workID))
+			reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, acceptEpoch, historicalReviewAcceptor(t, s, workID))
 			reviewGateRequireStep(t, s, workID, "delivery")
 			pin, err := ReadWorkPin(context.Background(), s, workID)
 			if err != nil {
@@ -177,9 +178,9 @@ func TestHistoricalReviewGateDoesNotBorrowUnacceptedNoShipReport(t *testing.T) {
 func acceptedNoShipRepairToRefine(t *testing.T, fixture workflowReturnRouteFixture, workID, ownerRef, attemptID string, at int64) {
 	t.Helper()
 	s := fixture.store
-	epoch := reviewGateStartStep(t, s, workID, "execution", "start_execution", fixture.owner)
-	reviewGateRunAttempt(t, s, workID, attemptID, "execution", epoch, reviewGateLane(t, "implementation"), ownerRef, at)
-	if err := reviewGateAcceptResult(t, s, workID, attemptID, epoch, reviewGateAcceptor(workID)); err != nil {
+	reviewGateStartStep(t, s, workID, "execution", "start_execution", fixture.owner)
+	authEpoch := reviewGateRunAttempt(t, s, workID, attemptID, "execution", reviewGateLane(t, "implementation"), ownerRef, at)
+	if err := reviewGateAcceptResult(t, s, workID, attemptID, authEpoch, reviewGateAcceptor(workID)); err != nil {
 		t.Fatalf("accept the corrective implementation: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "refine")
@@ -199,10 +200,10 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 		if cycle > 1 {
 			acceptedNoShipRepairToRefine(t, fixture, workID, ownerRef, fmt.Sprintf("attempt:%s:repair-%d", workID, cycle), 95+cycle*10)
 		}
-		epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+		reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 		attemptID := fmt.Sprintf("attempt:%s:review-%d", workID, cycle)
-		reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100+cycle*10)
-		reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, epoch, acceptor)
+		reviewEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100+cycle*10)
+		reviewGateSeedAcceptAtRefine(t, s, workID, attemptID, reviewEpoch, acceptor)
 		if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
 			t.Fatalf("correction %d: %v", cycle, err)
 		}
@@ -245,18 +246,18 @@ func TestAcceptedNoShipReviewDebtSettlesAfterFreshReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptor := historicalReviewAcceptor(t, s, workID)
-	epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	noShipID := "attempt:" + workID + ":no-ship"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipID, epoch, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
-	reviewGateSeedAcceptAtRefine(t, s, workID, noShipID, epoch, acceptor)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShipID, reviewGateLane(t, "review"), ownerRef, "no_ship", 100)
+	reviewGateSeedAcceptAtRefine(t, s, workID, noShipID, noShipEpoch, acceptor)
 	if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
 		t.Fatal(err)
 	}
 	acceptedNoShipRepairToRefine(t, fixture, workID, ownerRef, "attempt:"+workID+":repair", 150)
-	epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	shipID := "attempt:" + workID + ":ship"
-	reviewGateRunAttemptWithVerdict(t, s, workID, shipID, epoch, reviewGateLane(t, "review"), ownerRef, "ship", 200)
-	if err := acceptRefineResult(t, s, workID, shipID, epoch, acceptor); err != nil {
+	shipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, shipID, reviewGateLane(t, "review"), ownerRef, "ship", 200)
+	if err := acceptRefineResult(t, s, workID, shipID, shipEpoch, acceptor); err != nil {
 		t.Fatalf("fresh settling review: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

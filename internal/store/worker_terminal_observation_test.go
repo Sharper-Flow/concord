@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -45,12 +46,64 @@ func workerTerminalEventThroughSeam(t *testing.T, s *Store, event Event) {
 
 func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Store, event Event) {
 	t.Helper()
+	if event.Kind == WorkerCompleted {
+		event = workerCompletionAtClaim(t, s, event)
+	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, event)
 		return err
 	}); err != nil {
 		t.Fatalf("terminal ingest refused %s: %v", event.EventID, err)
 	}
+}
+
+func workerCompletionAtClaim(t *testing.T, s *Store, event Event) Event {
+	t.Helper()
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.WorkerDirectory == "" {
+		payload.WorkerDirectory = workerFixtureDirectory(t, s, event.SubjectID)
+	}
+	event.Payload = mustJSONValue(payload)
+	return event
+}
+
+// The corpus cannot state the hash of a runtime claim path. An omitted identity
+// cannot express a legacy authorization; Go tests own that case.
+func workerDispatchAuthorizationAtClaim(t *testing.T, s *Store, event Event) Event {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["worker_worktree_identity"] = workerFixtureWorktreeIdentity(t, s, event.SubjectID)
+	event.Payload = mustJSONValue(payload)
+	t.Logf("materialized dispatch worktree identity for %s", event.EventID)
+	return event
+}
+
+func workerFixtureWorktreeIdentity(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workerWorktreeIdentity(canonical)
+}
+
+func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var directory string
+	err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, WorktreeSetID(workID)).Scan(&directory)
+	if errors.Is(err, sql.ErrNoRows) {
+		directory = t.TempDir()
+		insertWorkerWorktreeEntry(t, s, workID, directory)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 // stubbedDeliveryRunner answers the delivery probe without touching the
@@ -231,7 +284,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-zero")
 		if !consumedPresent {
@@ -289,12 +342,13 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		defer fixture.store.Close()
 		s := fixture.store
 		attemptID := "attempt-frontier-historical"
+		insertWorkerWorktreeEntry(t, s, fixture.workID, t.TempDir())
 		seedHistoricalDispatchWindowRaw(t, s, fixture, attemptID)
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
 		workerTerminalEventThroughSeam(t, s, completion)
 		if _, present := dispatchCompletionFrontier(t, s, fixture.workID, attemptID); present {
 			t.Fatal("a historical authorization carries a recorded frontier; raw history must stay absent")
@@ -326,7 +380,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 	prepareCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID)
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-1'`, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
@@ -362,6 +416,10 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 	}
 	stepID := "repair"
 	expected := int64(2)
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, fixture.workID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	startPayload := mustJSONValue(map[string]any{
 		"work_id": fixture.workID, "expected_version": expected, "resulting_version": expected + 1,
 		"step_id": stepID, "action_id": "dispatch_worker", "attempt_epoch": 1,
@@ -375,6 +433,7 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 		"worker_attempt_id":           attemptID,
 		"worker_packet_digest":        "sha256:" + strings.Repeat("c", 64),
 		"worker_packet_predicate_ids": []string{},
+		"worker_worktree_identity":    workerWorktreeIdentity(canonical),
 	})
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

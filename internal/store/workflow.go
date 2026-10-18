@@ -955,14 +955,11 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		if p.ArchitectureBinding != nil {
 			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 		}
-		if len(p.LawModifies) != 0 {
-			// CD-0222 D5: a contract that
-			// does not change Product truth may revise derived law in-contract.
-			// The replay path skips the check because the approved contract
-			// already carried the tiers it named at approval time.
-			if isWorkflowReplay(ctx) {
-				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
-			}
+		if len(p.LawModifies) != 0 && !isWorkflowReplay(ctx) {
+			// Live writes enforce CD-0222 D5 against the current Git tiers.
+			// Replay retains admitted revision lines without re-reading that
+			// mutable projection. The contract's law pins, when present,
+			// are still shape-checked below.
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
 				return err
 			}
@@ -2924,30 +2921,13 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 	if executionActor == "" || actorRef == "" {
 		return false, nil
 	}
-	var dispatchSeq int64
-	var attemptID string
-	err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, beforeSeq).Scan(&dispatchSeq, &attemptID)
-	if err != nil && err != sql.ErrNoRows {
-		return false, workflowProjectionError(err, "cannot inspect worker dispatches for the workflow writing authority")
+	writer, live, _, err := workflowFencedWriter(ctx, q, workID, executionActor, beforeSeq)
+	if err != nil {
+		return false, err
 	}
-	writer := executionActor
-	live := false
-	if err == nil {
-		err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&writer)
-		if err != nil && err != sql.ErrNoRows {
-			return false, workflowProjectionError(err, "cannot inspect worker attempt disposals for the workflow writing authority")
-		}
-		live = err == sql.ErrNoRows
-		if writer == "" {
-			writer = executionActor
-		}
-	}
-	if live {
-		// A live lane attempt keeps the lane as sole writer.
-		return actorRef == executionActor, nil
-	}
-	if fenced {
-		// A fenced action keeps its executor and disposer rule.
+	if live || fenced {
+		// A live lane attempt keeps the lane as sole writer; a fenced action
+		// keeps its executor and disposer rule.
 		return actorRef == writer, nil
 	}
 	// Any recorded coordinator actor is admitted; an actor that is the
@@ -2958,6 +2938,41 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 		return false, workflowProjectionError(err, "cannot inspect worker dispatch actors for the workflow writing authority")
 	}
 	return laneActors == 0, nil
+}
+
+// workerAttemptDisposalActions lists, as SQL literals, the workflow actions
+// that record a lane attempt's result decision and so end its hold.
+const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure'`
+
+// workflowFencedWriter names the actor that holds a fenced attempt's writing
+// authority before beforeSeq, and the sequence at which it took it: the lane
+// of a live lane attempt from its dispatch, the actor that disposed of the
+// latest lane attempt from its disposal, or the executing actor from no
+// recorded sequence (zero).
+func workflowFencedWriter(ctx context.Context, q queryer, workID, executionActor string, beforeSeq int64) (writer string, live bool, since int64, err error) {
+	var dispatchSeq int64
+	var attemptID string
+	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, beforeSeq).Scan(&dispatchSeq, &attemptID)
+	if err == sql.ErrNoRows {
+		return executionActor, false, 0, nil
+	}
+	if err != nil {
+		return "", false, 0, workflowProjectionError(err, "cannot inspect worker dispatches for the workflow writing authority")
+	}
+	var disposalSeq int64
+	var disposer string
+	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN (`+workerAttemptDisposalActions+`) AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&disposalSeq, &disposer)
+	if err == sql.ErrNoRows {
+		// The dispatch pins the lane as the executing actor.
+		return executionActor, true, dispatchSeq, nil
+	}
+	if err != nil {
+		return "", false, 0, workflowProjectionError(err, "cannot inspect worker attempt disposals for the workflow writing authority")
+	}
+	if disposer == "" {
+		disposer = executionActor
+	}
+	return disposer, false, disposalSeq, nil
 }
 
 // workflowStepFences reports whether any action on the step runs fenced, and so

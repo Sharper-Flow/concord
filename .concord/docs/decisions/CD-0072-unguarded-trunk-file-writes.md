@@ -7,6 +7,8 @@
 - **Approval:** Operator decision of 2026-08-21 accepted losing this
   enforcement rather than shipping an editor plugin to retain it; recorded
   here on that authority (surfaced by issue #317)
+- **Amendment approval:** The operator approved the managed-worker capability
+  amendment in-session on 2026-10-17 for [Concord (CON) issue 1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
 - **Related:** #130 (worktree isolation as external safety authority),
   CD-0008, [`capability-placement.md`](../capability-placement.md) §1,
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
@@ -25,12 +27,10 @@ code: `authority.go` refuses the grant before any operation runs. The second
 through an editor-host hook before execution — the predecessor shipped as a
 plugin in its own tooling.
 
-Concord has no surface that could hold that hook.
-[`capability-placement.md`](../capability-placement.md) §1 enumerates
-Concord's surfaces — durable state, agent tool operations, the operator CLI,
-generated agent definitions, host scripts for standalone cross-tool
-executables — and an interception point inside another tool's write path is
-none of them: a host script cannot intercept a call another tool makes.
+Ordinary file-write protection belongs to the host that owns write execution.
+Concord does not intercept ordinary writes by their target or checkout.
+Managed-worker tool admission enforces lane capabilities instead. It does not
+inspect write destinations or restore raw file-write trunk protection.
 
 On 2026-08-21 the operator chose to accept losing this enforcement rather
 than ship an editor plugin to retain it. The choice was never recorded, and
@@ -68,7 +68,11 @@ enforced.
 
 ## Invariants
 
-1. No Concord change introduces an editor-host write-interception hook.
+1. Concord does not intercept ordinary file writes by their target or checkout.
+   Managed-worker tool admission may enforce the lane capability registry
+   before a tool runs, including editor and shell tool identities. That
+   admission does not inspect write destinations or apply to unmanaged host
+   work. It is not a filesystem sandbox.
 2. The grant-level main-checkout refusal is not weakened to make the halves
    read consistently.
 

@@ -80,7 +80,8 @@ file bodies, transcripts, and command output in the artifact that owns them.
 
 Do not poll any channel. For an external check that must finish before your
 next action, start the `concord_ci_watch` tool and end the turn: it wakes this
-session with the result.
+session with the result. To watch a pull request after a push, pass the pushed
+commit as `head_sha`, so the watch never judges the head the push replaced.
 
 ## Publication
 

@@ -11,6 +11,58 @@ import (
 	"time"
 )
 
+func TestWorkerCompletionRequiresObservedDirectory(t *testing.T) {
+	for _, route := range []string{"generic", "authenticated"} {
+		for _, explicitEmpty := range []bool{false, true} {
+			name := "omitted"
+			if explicitEmpty {
+				name = "empty"
+			}
+			t.Run(route+"/"+name, func(t *testing.T) {
+				s := openTemp(t)
+				workID, attemptID := "work-directory-required", "attempt-directory-required"
+				insertWorkerWorktreeEntry(t, s, workID, t.TempDir())
+				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
+					t.Fatal(err)
+				}
+				event := workerCompletionWithDirectory(workID, "completion-directory-required", attemptID, "")
+				if explicitEmpty {
+					var payload map[string]any
+					if err := json.Unmarshal(event.Payload, &payload); err != nil {
+						t.Fatal(err)
+					}
+					payload["worker_directory"] = ""
+					event.Payload = mustJSONValue(payload)
+				}
+				before := countRows(t, s, "domain_events")
+				var err error
+				if route == "generic" {
+					err = ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
+				} else {
+					err = s.Transact(context.Background(), func(tx *Transaction) error {
+						_, err := ApplyWorkerEvidenceOperationTx(context.Background(), tx, event)
+						return err
+					})
+				}
+				var failure *Failure
+				if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
+					t.Fatalf("completion failure = %v, want unauthorized_dispatch", err)
+				}
+				if got := countRows(t, s, "domain_events"); got != before {
+					t.Fatalf("missing-directory completion added %d events", got-before)
+				}
+				var lifecycle string
+				if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&lifecycle); err != nil {
+					t.Fatal(err)
+				}
+				if lifecycle != "dispatched" {
+					t.Fatalf("attempt lifecycle = %q, want dispatched", lifecycle)
+				}
+			})
+		}
+	}
+}
+
 func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 	t.Run("mismatch refuses without a terminal event", func(t *testing.T) {
 		s := openTemp(t)
@@ -72,6 +124,7 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		workID := "work-worker-directory-match"
 		attemptID := "attempt-worker-directory-match"
 		insertWorkerWorktreeEntry(t, s, workID, claimed)
+		authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
@@ -85,6 +138,12 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		}
 		if lifecycle != "completed" {
 			t.Fatalf("attempt lifecycle = %q, want completed", lifecycle)
+		}
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+		if err := RebuildFromLog(context.Background(), s); err != nil {
+			t.Fatalf("completion replay probed a removed directory: %v", err)
 		}
 	})
 }

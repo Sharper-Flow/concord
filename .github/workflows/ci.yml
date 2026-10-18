@@ -131,14 +131,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -224,9 +218,9 @@ jobs:
       - name: Validate storage vocabulary authority
         run: python3 scripts/check-vocabulary-authority.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-branch-freshness.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check && python3 scripts/generate-lane-step-dispatch.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-work-sizes.py --check && python3 scripts/generate-branch-freshness.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check && python3 scripts/generate-lane-step-dispatch.py --check
       - name: Validate work-item and native-run vocabularies
-        run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py
+        run: python3 scripts/check-work-kinds.py && python3 scripts/check-native-run-statuses.py && python3 scripts/check-work-sizes.py
       - name: Validate archived-work knowledge-kind vocabulary
         run: python3 scripts/check-archived-work-kind.py
       - name: Validate rigor-class vocabulary
@@ -277,6 +271,8 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
+      - name: Validate the package-to-Domain map
+        run: python3 scripts/check-package-domains.py
       - name: Test legislative reference grammar and defaults
         run: python3 scripts/test-knowledge-authority.py
       - name: Test release and installer tooling
@@ -284,7 +280,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-conflict-rules.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-committed-content.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-conflict-rules.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-check-committed-content.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py
 
       - name: Restore write access to the uv fixture cache
         if: always()
@@ -393,14 +389,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -459,14 +449,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -531,14 +515,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -603,14 +581,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -657,14 +629,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -705,14 +671,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -762,14 +722,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord

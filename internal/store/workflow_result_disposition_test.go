@@ -56,20 +56,21 @@ func crossAttemptEventPayload(t *testing.T, s *Store, workID, kind, attemptID st
 
 // crossAttemptFixture is one seeded workflow.research v19 instance parked at
 // the worker-dispatch step, with the shared lane, dispatcher, and attempt
-// identities the disposition tests reuse. The fixture is synthetic and
+// identities the disposition tests reuse. The owner dispatches both lanes and
+// rejects: another session's dispatch over an undecided result is a
+// takeover. The fixture is synthetic and
 // openTemp-backed; no live store state participates.
 type crossAttemptFixture struct {
-	fixture            workflowReturnRouteFixture
-	s                  *Store
-	workID             string
-	step               string
-	definition         WorkflowDefinition
-	researchLane       LaneDefinition
-	reviewLane         LaneDefinition
-	researchDispatcher WorkflowActor
-	reviewDispatcher   WorkflowActor
-	attemptR           string
-	attemptV           string
+	fixture      workflowReturnRouteFixture
+	s            *Store
+	workID       string
+	step         string
+	definition   WorkflowDefinition
+	researchLane LaneDefinition
+	reviewLane   LaneDefinition
+	dispatcher   WorkflowActor
+	attemptR     string
+	attemptV     string
 }
 
 func seedCrossAttemptFixture(t *testing.T, workID string) crossAttemptFixture {
@@ -86,18 +87,17 @@ func seedCrossAttemptFixtureAtStep(t *testing.T, workID, step string) crossAttem
 		t.Fatal("workflow.research v19 is not registered")
 	}
 	f := crossAttemptFixture{
-		fixture:            seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, step, []string{}, []string{}),
-		workID:             workID,
-		step:               step,
-		definition:         registered.Definition,
-		researchLane:       reviewGateLane(t, "research"),
-		reviewLane:         reviewGateLane(t, "review"),
-		researchDispatcher: diagnosisS1Actor(workID, "research-dispatcher"),
-		reviewDispatcher:   diagnosisS1Actor(workID, "review-dispatcher"),
-		attemptR:           "attempt:" + workID + ":1",
-		attemptV:           "attempt:" + workID + ":2",
+		fixture:      seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, step, []string{}, []string{}),
+		workID:       workID,
+		step:         step,
+		definition:   registered.Definition,
+		researchLane: reviewGateLane(t, "research"),
+		reviewLane:   reviewGateLane(t, "review"),
+		attemptR:     "attempt:" + workID + ":1",
+		attemptV:     "attempt:" + workID + ":2",
 	}
 	f.s = f.fixture.store
+	f.dispatcher = f.fixture.owner
 	return f
 }
 
@@ -143,7 +143,7 @@ func (f crossAttemptFixture) dispatch(t *testing.T, attemptID string, lane LaneD
 func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane LaneDefinition, at int64) {
 	t.Helper()
 	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-		jobBoundCompletionEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, lane, time.Unix(at, 0).UTC(), nil),
+		jobBoundCompletionEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, lane, time.Unix(at, 0).UTC(), nil, workerFixtureDirectory(t, f.s, f.workID)),
 	}}); err != nil {
 		t.Fatalf("record the completed report of %s: %v", attemptID, err)
 	}
@@ -156,7 +156,7 @@ func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane
 func (f crossAttemptFixture) completeReviewNoShip(t *testing.T, attemptID string, at int64) {
 	t.Helper()
 	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-		reviewLaneVerdictCompleteEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, f.reviewLane, "no_ship", time.Unix(at, 0).UTC()),
+		reviewLaneVerdictCompleteEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, f.reviewLane, "no_ship", time.Unix(at, 0).UTC(), workerFixtureDirectory(t, f.s, f.workID)),
 	}}); err != nil {
 		t.Fatalf("record the no_ship review report of %s: %v", attemptID, err)
 	}
@@ -167,9 +167,9 @@ func (f crossAttemptFixture) completeReviewNoShip(t *testing.T, attemptID string
 // dispatched and completed at epoch 2.
 func (f crossAttemptFixture) buildTwoAttemptHistory(t *testing.T) {
 	t.Helper()
-	f.dispatch(t, f.attemptR, f.researchLane, f.researchDispatcher)
+	f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
 	f.completeReport(t, f.attemptR, f.researchLane, 21)
-	f.dispatch(t, f.attemptV, f.reviewLane, f.reviewDispatcher)
+	f.dispatch(t, f.attemptV, f.reviewLane, f.dispatcher)
 	f.completeReviewNoShip(t, f.attemptV, 22)
 }
 
@@ -492,7 +492,7 @@ func TestCrossAttemptRejectionExactPairTable(t *testing.T) {
 	f := seedCrossAttemptFixture(t, workID)
 	f.buildTwoAttemptHistory(t)
 	attemptW := "attempt:" + workID + ":3"
-	f.dispatch(t, attemptW, f.researchLane, f.researchDispatcher) // dispatched, never completed
+	f.dispatch(t, attemptW, f.researchLane, f.dispatcher) // dispatched, never completed
 	epochR := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR)
 	epochV := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptV)
 	epochW := crossAttemptDispatchEpoch(t, f.s, workID, attemptW)
@@ -695,7 +695,7 @@ func TestCrossAttemptRejectionOnceOnly(t *testing.T) {
 		Payload: f.rejectRequest(t, versionBefore, f.attemptR, epochR, "", 50).Payload, Actor: f.fixture.owner,
 	}
 	replayRan := false
-	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, func(transaction *Transaction) (bool, error) {
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, func(transaction *Transaction) (bool, error) {
 		tx, err := transactionSQL(transaction, "cross-attempt-replay-witness")
 		if err != nil {
 			return false, err
@@ -738,14 +738,14 @@ func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
 	attemptC1 := "attempt:" + workID + ":1"
 	attemptC2 := "attempt:" + workID + ":2"
 	attemptC3 := "attempt:" + workID + ":3"
-	f.dispatch(t, attemptC1, f.reviewLane, f.reviewDispatcher)
+	f.dispatch(t, attemptC1, f.reviewLane, f.dispatcher)
 	epochC1 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC1)
 	f.completeReviewNoShip(t, attemptC1, 31)
 
 	// The next dispatch start at a checkpoint step closes the eligibility
 	// interval: the checkpoint exact-once timing retires C1's eligibility
 	// even before C2 completes.
-	f.dispatch(t, attemptC2, f.reviewLane, f.reviewDispatcher)
+	f.dispatch(t, attemptC2, f.reviewLane, f.dispatcher)
 	epochC2 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC2)
 	if results := f.rejectableResults(t, 0); len(results) != 0 {
 		t.Fatalf("rejectable results after the later checkpoint dispatch start = %#v, want the earlier review retired", results)
@@ -792,7 +792,7 @@ func TestCrossAttemptEvidenceHoldThenRejectCheckpoint(t *testing.T) {
 
 	// Another completed review stays open: the hold-mode acceptance did not
 	// silently dispose of the route, and a fresh review rejects beside it.
-	f.dispatch(t, attemptC3, f.reviewLane, f.reviewDispatcher)
+	f.dispatch(t, attemptC3, f.reviewLane, f.dispatcher)
 	epochC3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptC3)
 	f.completeReviewNoShip(t, attemptC3, 38)
 	if results := f.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptC3, epochC3) {
@@ -1002,10 +1002,10 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 		packet["inputs"].(map[string]any)["correction"] = correction
 		return packet
 	}
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.researchDispatcher, retryPacket(t)); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, retryPacket(t)); err != nil {
 		t.Fatalf("dispatch the correction-consuming retry: %v", err)
 	}
-	f.materializeDispatch(t, attemptW, f.researchLane, f.researchDispatcher)
+	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptW, f.researchLane, 60)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, f.s, f.acceptAttemptRequest(t, readWorkVersion(t, f.s, workID), "accept_worker_result", attemptW, epochV+1, "retry", 61)); err != nil {
 		t.Fatalf("accept the retry's completed result: %v", err)
@@ -1094,7 +1094,7 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 	}
 
 	// Missing correction: the plain packet refuses the dispatch.
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.researchDispatcher, joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)); err == nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)); err == nil {
 		t.Fatal("a dispatch whose packet omits the standing correction unexpectedly succeeded")
 	} else {
 		var refusal *Failure
@@ -1107,7 +1107,7 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 	substituted := *correctionPacketSource(t, substitutedPacket)
 	substituted.SourceEventSeq++
 	substitutedPacket["inputs"].(map[string]any)["correction"] = &substituted
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.researchDispatcher, substitutedPacket); err == nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, substitutedPacket); err == nil {
 		t.Fatal("a dispatch whose packet substitutes the correction source unexpectedly succeeded")
 	} else {
 		var refusal *Failure
@@ -1129,10 +1129,10 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 	// The correct dispatch materializes a fresh attempt at the next epoch.
 	researchDispatchBytes := crossAttemptEventPayload(t, f.s, workID, WorkerDispatched, f.attemptR)
 	reviewReportBytes := crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, f.attemptV)
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.researchDispatcher, correctionPacket(t)); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, correctionPacket(t)); err != nil {
 		t.Fatalf("dispatch the correction-consuming retry: %v", err)
 	}
-	f.materializeDispatch(t, attemptW, f.researchLane, f.researchDispatcher)
+	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
 	epochW := crossAttemptDispatchEpoch(t, f.s, workID, attemptW)
 	if epochW != epochV+1 {
 		t.Fatalf("the retry attempt's epoch = %d, want the next epoch %d", epochW, epochV+1)
@@ -1178,6 +1178,105 @@ func correctionPacketSource(t *testing.T, packet map[string]any) *WorkflowCorrec
 		t.Fatal("the correction packet carries no derived correction context")
 	}
 	return correction
+}
+
+// The combined rejection's retry answers to the dispatch admission (CD-0198
+// D5), the takeover rule included. Rejecting an earlier result with a retry
+// while another session's later attempt is undecided refuses the whole call;
+// the rejection alone still commits, and the retry dispatch then carries the
+// takeover approval of its own.
+func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *testing.T) {
+	t.Parallel()
+	const workID = "cross-attempt-combined-takeover"
+	ctx := context.Background()
+	f := seedCrossAttemptFixture(t, workID)
+	other := diagnosisS1Actor(workID, "other-dispatcher")
+	otherRef, err := WorkflowActorRef(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, f.s, workID)
+	if err := applyWorkflowTestOperation(ctx, f.s, Operation{Events: []Event{
+		workflowEvent("combined-takeover-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": otherRef, "principal_ref": other.PrincipalRef, "client_ref": other.ClientRef, "agent_ref": other.AgentRef, "session_ref": other.SessionRef, "actor_class": "agent"}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("record the other session's actor: %v", err)
+	}
+	f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
+	f.completeReport(t, f.attemptR, f.researchLane, 21)
+	epochR := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR)
+	var laneR string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptR).Scan(&laneR); err != nil {
+		t.Fatal(err)
+	}
+	fields, err := json.Marshal(map[string]any{"attempt_id": f.attemptV, "worker_packet": joinPacketFor(t, f.s, workID, f.step, f.attemptV, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, f.s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, f.s, workID), ActionID: "dispatch_worker", Payload: fields, Actor: other,
+		ApprovedTakeover: &WorkflowStartTakeover{HeldEpoch: epochR, HolderActorRef: laneR}, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
+		AcceptedInputsDigest: cd0059TestDigest(t, "combined-takeover-inputs"), ContractDigest: testManifestDigest, Tool: "concord_work_transition",
+		IdempotencyKey: "combined-takeover-review", RequestID: "combined-takeover-review", IdempotencyIdentity: "combined-takeover-review", OperationID: "combined-takeover-review", PrincipalRef: other.PrincipalRef, Now: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("the other session's approved review dispatch: %v", err)
+	}
+	f.materializeDispatch(t, f.attemptV, f.reviewLane, other)
+	f.completeReviewNoShip(t, f.attemptV, 22)
+
+	versionBefore := readWorkVersion(t, f.s, workID)
+	combined := f.rejectRequest(t, versionBefore, f.attemptR, epochR, "combined", 51)
+	combined.Payload = mustJSONValue(map[string]any{
+		"attempt_id": f.attemptR, "attempt_epoch": epochR,
+		"diagnosis":     "the epoch-1 research result does not satisfy the approved outcome",
+		"strategy":      "redo the research obligation in a fresh fenced attempt",
+		"predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:research-rejection"},
+		"retry": map[string]any{"lane_id": f.researchLane.ID},
+	})
+	_, err = invokeWorkflowActionForCD0059(ctx, t, f.s, combined)
+	var refusal *Failure
+	if !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired || !strings.Contains(refusal.RecoveryAction, "reject without the retry payload") || !strings.Contains(refusal.Detail, "reject without the retry payload") {
+		t.Fatalf("combined retry over the other session's undecided review = %v, want approval_required naming the rejection-only route", err)
+	}
+	if rejections := f.rejectionCount(t, f.attemptR, epochR); rejections != 0 {
+		t.Fatalf("rejection completions after the refused combined call = %d, want none", rejections)
+	}
+	if got := readWorkVersion(t, f.s, workID); got != versionBefore {
+		t.Fatalf("version after the refused combined call = %d, want %d", got, versionBefore)
+	}
+	if _, err := f.invokeReject(t, versionBefore, f.attemptR, epochR, "rejection-only", 52); err != nil {
+		t.Fatalf("the rejection-only escape: %v", err)
+	}
+	epochV := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptV)
+	var laneV string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptV).Scan(&laneV); err != nil {
+		t.Fatal(err)
+	}
+	retryAttempt := f.attemptR + ":retry"
+	correction, err := workflowCorrectionContextForDispatch(ctx, f.s.DatabaseForTesting(), workID, f.step, retryAttempt)
+	if err != nil || correction == nil {
+		t.Fatalf("correction context for the retry dispatch = %v err %v, want the rejection's", correction, err)
+	}
+	retryPacket := joinPacketFor(t, f.s, workID, f.step, retryAttempt, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+	retryPacket["inputs"].(map[string]any)["correction"] = correction
+	retryFields, err := json.Marshal(map[string]any{"attempt_id": retryAttempt, "worker_packet": retryPacket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := func(key string, approved *WorkflowStartTakeover) error {
+		_, err := invokeWorkflowActionForCD0059(ctx, t, f.s, WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, f.s, workID), ActionID: "dispatch_worker", Payload: retryFields, Actor: f.dispatcher,
+			ApprovedTakeover: approved, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
+			AcceptedInputsDigest: cd0059TestDigest(t, key+"-inputs"), ContractDigest: testManifestDigest, Tool: "concord_work_transition",
+			IdempotencyKey: key, RequestID: key, IdempotencyIdentity: key, OperationID: key, PrincipalRef: f.dispatcher.PrincipalRef, Now: time.Now().UTC(),
+		})
+		return err
+	}
+	if err := retry("combined-escape-unapproved", nil); !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired {
+		t.Fatalf("unapproved retry dispatch over the other session's undecided review = %v, want approval_required", err)
+	}
+	if err := retry("combined-escape-approved", &WorkflowStartTakeover{HeldEpoch: epochV, HolderActorRef: laneV}); err != nil {
+		t.Fatalf("the approved retry dispatch that completes the escape: %v", err)
+	}
 }
 
 // TestCrossAttemptRejectRetryCombinedAtomicity pins the combined reject+retry
@@ -1310,7 +1409,7 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 
 	// Another same-class completed result must not silently dispose of R.
 	attemptW := "attempt:" + workID + ":3"
-	f.dispatch(t, attemptW, f.researchLane, f.researchDispatcher)
+	f.dispatch(t, attemptW, f.researchLane, f.dispatcher)
 	epochW := crossAttemptDispatchEpoch(t, f.s, workID, attemptW)
 	f.completeReport(t, attemptW, f.researchLane, 60)
 	if results := f.rejectableResults(t, 0); !crossAttemptResultsContain(results, f.attemptR, epochR) || !crossAttemptResultsContain(results, f.attemptV, epochV) || !crossAttemptResultsContain(results, attemptW, epochW) {
@@ -1405,7 +1504,7 @@ func TestCrossAttemptRejectionDispatchWindowAuthority(t *testing.T) {
 	// A later dispatch authorization that no worker evidence ever consumes:
 	// the CD-0193 unused-window shape at a non-checkpoint step.
 	attemptW3 := "attempt:" + workID + ":3"
-	f.authorizeDispatch(t, attemptW3, f.researchLane, f.researchDispatcher)
+	f.authorizeDispatch(t, attemptW3, f.researchLane, f.dispatcher)
 	epochW3 := crossAttemptDispatchEpoch(t, f.s, workID, attemptW3)
 	if epochW3 != epochV+1 {
 		t.Fatalf("the unused authorization's epoch = %d, want the next epoch %d", epochW3, epochV+1)

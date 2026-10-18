@@ -294,6 +294,14 @@ var migrationTailReversals = map[int][]string{
 	129: {
 		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
 	},
+	130: {
+		`DROP TABLE knowledge_package_domains`,
+		`DROP TABLE law_coverage_anchors`,
+		`DROP TABLE law_evidence_paths`,
+	},
+	131: {
+		`DROP TABLE work_size_assessments`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

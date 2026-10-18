@@ -21,6 +21,14 @@ const unlandedClaims = new Map<string, string>()
 
 const pendingVacateDestinations = new Map<string, string>()
 
+// samePath compares an absolute path the host reported with one Concord
+// claimed. Both are absolute and already resolved, so only a trailing
+// separator distinguishes two spellings of one directory.
+export function samePath(left: string, right: string): boolean {
+  const trim = (value: string) => (value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value)
+  return trim(left) === trim(right)
+}
+
 // recordUnlandedClaimedWorktree records the claimed worktree of a work_start
 // move that refused as metadata-only, whose tool context has not landed.
 // A later confirmed landing for the same session replaces the record.

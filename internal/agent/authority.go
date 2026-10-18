@@ -467,7 +467,10 @@ func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, erro
 		return Authority{}, authorityRefusal("project host prober and matcher are required")
 	}
 	client, key, err := s.Store.TrustedClientWithKey(ctx, in.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("client or key is not active"))
+	}
+	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
 	host, err := s.ProbeProjectHost(ctx, in.Directory, in.Worktree)
@@ -504,10 +507,23 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 		return Authority{}, authorityRefusal("project host matcher is required")
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, in.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("client or key is not active"))
+	}
+	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
 	return s.authorizeResolved(ctx, tx, host, in, client)
+}
+
+// trustedClientRefusalFor maps an absent or inactive client to the caller's
+// refusal. Other errors retain their own classification.
+func trustedClientRefusalFor(err, refusal error) error {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+		return refusal
+	}
+	return err
 }
 
 func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, client store.TrustedClientRecord) (Authority, error) {
@@ -1052,18 +1068,18 @@ func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.T
 	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
 	challenge, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity)
 	if err != nil {
-		return "", errors.New("approval challenge not found")
+		return "", approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge not found")
 	}
 	challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
-		return "", errors.New("approval challenge invalid")
+		return "", approvalInvalid("approval challenge invalid")
 	}
 	var scope map[string]any
 	if json.Unmarshal([]byte(challenge.ScopeJSON), &scope) != nil || !validChallengeScope(scope) || !scopeWithinAuthority(scope, authority) {
 		return "", authorityRefusal("approval challenge exceeds current authorized scope")
 	}
 	if err := store.ConsumeApprovalChallengeTx(ctx, tx, challengeRef, identity, s.now().Format(time.RFC3339Nano)); err != nil {
-		return "", errors.New("approval challenge consumption lost race")
+		return "", approvalRefusalFor(err, store.KindProjectionConflict, "approval challenge consumption lost race")
 	}
 	raw := make([]byte, 32)
 	if _, err = rand.Read(raw); err != nil {
@@ -1152,7 +1168,7 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "held_attempt_holder": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
@@ -1166,8 +1182,8 @@ func validChallengeScope(scope map[string]any) bool {
 			if text, ok := value.(string); !ok || (text != "primary" && text != "secondary") {
 				return false
 			}
-		case "failed_attempt_id", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
-			if key == "failed_attempt_id" {
+		case "failed_attempt_id", "held_attempt_holder", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
+			if key == "failed_attempt_id" || key == "held_attempt_holder" {
 				if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
 					return false
 				}
@@ -1236,7 +1252,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "correction_attempts": true, "product": true, "initiative": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "held_attempt_epoch": true, "correction_attempts": true, "product": true, "initiative": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false
@@ -1268,26 +1284,47 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	if err := s.authorityReady("agent_approval_consume"); err != nil {
 		return err
 	}
-	if tx == nil || len(ref) != 64 {
+	if tx == nil {
 		return transactionInvalid("agent_approval_consume")
+	}
+	// Every reference that names no usable approval for this exact check is
+	// an invalid approval (workflow-engine contract §11 step 4), whichever
+	// caller reaches it. Store faults keep their own kind.
+	if _, err := hex.DecodeString(ref); len(ref) != 64 || err != nil {
+		return approvalInvalid("approval reference malformed")
 	}
 	approval, err := store.ReadApprovalTx(ctx, tx, ref)
 	if err != nil {
-		return errors.New("approval not found")
+		return approvalRefusalFor(err, store.KindProjectionNotFound, "approval not found")
 	}
 	approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
 	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
-		return errors.New("approval binding invalid")
+		return approvalInvalid("approval binding invalid")
 	}
 	wantScope, _ := json.Marshal(check.Scope)
 	wantVersions, _ := json.Marshal(check.Versions)
 	if string(wantScope) != approval.ScopeJSON || string(wantVersions) != approval.VersionJSON {
-		return errors.New("approval scope or version invalid")
+		return approvalInvalid("approval scope or version invalid")
 	}
 	if err := store.ConsumeApprovalTx(ctx, tx, ref, s.now().Format(time.RFC3339Nano)); err != nil {
-		return errors.New("approval was already consumed")
+		return approvalRefusalFor(err, store.KindProjectionConflict, "approval was already consumed")
 	}
 	return nil
+}
+
+func approvalInvalid(message string) error {
+	return newRuntimeFailure("approval_invalid", message, "request_approval", false)
+}
+
+// approvalRefusalFor renders the one store outcome that means the approval
+// itself is unusable as the approval_invalid refusal message names. Every
+// other error is a store fault and keeps its own classification.
+func approvalRefusalFor(err error, refusal store.FailureKind, message string) error {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.Kind == refusal {
+		return approvalInvalid(message)
+	}
+	return err
 }
 
 // ApprovalAuthorityActorTx derives the operator actor from durable core-owned
@@ -1304,18 +1341,18 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 	}
 	authority, err := store.ReadApprovalAuthorityTx(ctx, tx, approvalRef)
 	if err != nil {
-		return actor, errors.New("consumed approval authority is unavailable")
+		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "consumed approval authority is unavailable")
 	}
 	if authority.ClientRef != in.ClientRef || authority.UsedCount < authority.MaxUses || authority.MaxUses != 1 || !strings.HasPrefix(authority.ProtectedEvidenceRef, "approval-challenge:") {
-		return actor, errors.New("approval authority was not exactly consumed")
+		return actor, approvalInvalid("approval authority was not exactly consumed")
 	}
 	challengeRef := strings.TrimPrefix(authority.ProtectedEvidenceRef, "approval-challenge:")
 	if authority.ChallengeStatus != "consumed" {
-		return actor, errors.New("approval challenge was not exactly consumed")
+		return actor, approvalInvalid("approval challenge was not exactly consumed")
 	}
 	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
 	if _, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity); err != nil {
-		return actor, errors.New("approval challenge is not bound to the invoking session")
+		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge is not bound to the invoking session")
 	}
 	policyDigest := sha256Hex([]byte("approval-policy-v1\x00" + authority.ClientRef + "|" + authority.PrincipalRef + "|" + authority.CapabilitiesJSON + "|" + authority.ProductScopeJSON + "|" + authority.ProjectScopeJSON))
 	actor = store.WorkflowActor{
@@ -1340,7 +1377,7 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 	executing := store.WorkflowActor{PrincipalRef: authority.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
 	executingRef, err := store.WorkflowActorRef(executing)
 	if err != nil || actorRef == executingRef {
-		return store.WorkflowActor{}, errors.New("approval authority actor relabels the invoking agent")
+		return store.WorkflowActor{}, approvalInvalid("approval authority actor relabels the invoking agent")
 	}
 	return actor, nil
 }

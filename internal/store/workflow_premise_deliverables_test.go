@@ -52,7 +52,7 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 		setup := scenario.Setup
 		setup.EventHistory = history
 		store := openTemp(t)
-		if err := replayWorkflowCorpusSetup(ctx, store, setup, registered, actorRef, true); err != nil {
+		if err := replayWorkflowCorpusSetup(ctx, t, store, setup, registered, actorRef, true); err != nil {
 			t.Fatal(err)
 		}
 		return store, scenario.Setup.FixtureRefs.WorkItem
@@ -199,7 +199,7 @@ func replayPremiseQuestionAtAcceptance(t *testing.T, drop ...string) (*Store, st
 	setup := scenario.Setup
 	setup.EventHistory = history
 	store := openTemp(t)
-	if err := replayWorkflowCorpusSetup(ctx, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
+	if err := replayWorkflowCorpusSetup(ctx, t, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
 		t.Fatal(err)
 	}
 	workID := scenario.Setup.FixtureRefs.WorkItem

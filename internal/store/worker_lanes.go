@@ -364,8 +364,7 @@ type WorkerCompletedPayload struct {
 	ReadbackModel       string `json:"readback_model"`
 	ReportSchemaVersion string `json:"report_schema_version"`
 	// WorkerDirectory is the directory the host session reported at completion.
-	// An empty value preserves compatibility with adapters that predate this
-	// boundary.
+	// Live appends require this proof; replay trusts the recorded payload.
 	WorkerDirectory string `json:"worker_directory,omitempty"`
 	// Evidence is the reported discharge of the dispatching lane's declared
 	// obligations. It is empty exactly when EvidenceOrigin is
@@ -1542,13 +1541,14 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed report_schema_version does not match the schema identity the attempt was dispatched with", false, "report the report_schema_version the dispatch packet carried")
 	}
 	// The host session can retain its old process directory after the host moves
-	// the session record. Refuse a reported directory that is not an active claim
-	// before the completion event can make the attempt terminal. The boundary
-	// reads the live host filesystem, which replay neither owns nor can reach:
+	// the session record. Completion requires its reported directory to match an
+	// active claim in the dispatch Project, which abandonment also resolves from
+	// the recorded authorization. The boundary reads the live host filesystem,
+	// which replay neither owns nor can reach:
 	// reclaimed worktrees no longer resolve, so replay trusts the recorded
 	// dispatch evidence instead.
-	if payload.WorkerDirectory != "" && !isWorkflowReplay(ctx) {
-		if err := validateWorkerDispatchWorktree(ctx, tx, event.SubjectID, payload.WorkerDirectory); err != nil {
+	if !isWorkflowReplay(ctx) {
+		if err := validateWorkerCompletionWorktree(ctx, tx, event.SubjectID, payload.AttemptID, payload.WorkerDirectory); err != nil {
 			return err
 		}
 	}
@@ -1769,7 +1769,7 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 // unreadable lease set releases nothing, and so does any live lease that
 // started at or before the row.
 func validateNoLiveWorkerSession(ctx context.Context, tx *sql.Tx, workID, attemptID string) error {
-	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID)
+	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID, "worker_fail", "restore the attempt's recorded worktree claim before abandonment")
 	if err != nil {
 		return err
 	}

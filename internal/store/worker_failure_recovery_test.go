@@ -114,6 +114,13 @@ func containsWorkPinAction(intents []WorkPinIntent, actionID string) bool {
 
 func seedOldDefinitionWorker(t *testing.T, workID string) (*Store, WorkflowActor, string, RegisteredDefinition) {
 	t.Helper()
+	s, owner, attemptID, entry := seedOldDefinitionWorkAtRepair(t, workID)
+	dispatchOldDefinitionWorker(t, s, workID, attemptID)
+	return s, owner, attemptID, entry
+}
+
+func seedOldDefinitionWorkAtRepair(t *testing.T, workID string) (*Store, WorkflowActor, string, RegisteredDefinition) {
+	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -146,9 +153,14 @@ func seedOldDefinitionWorker(t *testing.T, workID string) (*Store, WorkflowActor
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
+	return s, owner, attemptID, entry
+}
+
+func dispatchOldDefinitionWorker(t *testing.T, s *Store, workID, attemptID string) {
+	t.Helper()
+	lane := BuiltinLaneDefinitions()[0]
 	dispatch := Event{EventID: "old-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	return s, owner, attemptID, entry
 }

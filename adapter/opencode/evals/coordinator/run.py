@@ -14,7 +14,7 @@ from scenarios import SCENARIOS, runtime_response
 
 FORMAT = """Return one final JSON object with exactly the following keys, no extra
 keys, no Markdown, and no other text:
-status: completed, needs_operator, refused, or unresolved;
+status: completed, awaiting_continuation, needs_operator, refused, or unresolved;
 work_id: the known work ID or null;
 boundary: the boundary field the stopping result's error names; when the error
 names none, the core diagnostic operation the refusal's complete diagnostic
@@ -41,6 +41,7 @@ Completed means the bounded diagnostic or action task succeeded, not that a
 larger implementation shipped. Needs_operator means a specific operator action
 is required. Refused means a verified authority restriction prevents the task.
 Unresolved means the cause or recovery remains unknown.
+Awaiting_continuation means a tool result reports a scheduled automatic continuation, so the task resumes in a later turn without operator action.
 """
 CAPTURE_FORMAT = """Return one final JSON object with no Markdown or other text,
 containing status (completed, needs_operator, refused, or unresolved), work_id
@@ -83,7 +84,7 @@ const refused = {outcome:"error", error:{reason_code:"authorization_denied", eff
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
 // The usage line derives its field lists from the generated branches exactly
 // as the adapter's own workStartUsage does.
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, with an optional project_id naming a member Project in another repository: the call opens the second coordinator session or returns the exact launch command. A member Project in this repository is selected through concord_work_transition worktree_claim instead. Do not combine capture and resume fields.`;
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id. Do not combine capture and resume fields.`;
 const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});

@@ -146,19 +146,20 @@ func TestWorkerCompletedRefusesRetiredReportVersionLive(t *testing.T) {
 	ctx := context.Background()
 	// The attempt row only needs one admitted dispatch; the current pair
 	// admits through the live boundary both before and after the cutover.
+	authorizeWorkerFixtureDispatch(t, s, "worker-completion-revision", "dispatch-completion-revision")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent("worker-completion-revision", "dispatch-completion-revision", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
 	// The completion fold owns the report identity through the attempt row:
 	// a retired 1.1 claim against an attempt recorded at the current pair
 	// refuses closed, so no global current-revision gate is needed here.
-	retired := workerCompleteEvent("worker-completion-revision", "complete-completion-revision", "dispatch-completion-revision", preferredModelForLane(lane))
+	retired := workerCompleteEvent("worker-completion-revision", "complete-completion-revision", "dispatch-completion-revision", preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-completion-revision"))
 	retiredPayload := mustJSONValue(map[string]any{"attempt_id": "dispatch-completion-revision", "readback_model": preferredModelForLane(lane), "report_schema_version": "1.1", "evidence_origin": WorkerEvidenceLegacyUnavailable})
 	retired.Payload = retiredPayload
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{retired}}); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("retired 1.1 completion = %v, want %s", err, KindInvalidPayload)
 	}
-	current := workerCompleteEvent("worker-completion-revision", "complete-completion-revision-current", "dispatch-completion-revision", preferredModelForLane(lane))
+	current := workerCompleteEvent("worker-completion-revision", "complete-completion-revision-current", "dispatch-completion-revision", preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-completion-revision"))
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{current}}); err != nil {
 		t.Fatalf("current completion refused: %v", err)
 	}

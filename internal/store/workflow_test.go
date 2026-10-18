@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -286,9 +285,30 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if state != "completed" {
 		t.Fatalf("workflow state = %q, want completed", state)
 	}
+	// A replay that the action boundary's pre-preflight hook reports as handled
+	// commits through the durable commit owner and never runs the complete
+	// action again. The hook here detects the committed completion event.
 	beforeReplay := s.DurableCommits()
-	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
+	replayRan := false
+	replay := WorkflowActionPreflightRequest{WorkID: "complete-work", ExpectedVersion: finalVersion, ActionID: "complete"}
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, BuiltinWorkflowRegistry(), replay, func(transaction *Transaction) (bool, error) {
+		tx, err := transactionSQL(transaction, "completion-replay")
+		if err != nil {
+			return false, err
+		}
+		var completed int
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE event_id=? AND kind=?`, completion.EventID, WorkflowCompleted).Scan(&completed); err != nil {
+			return false, err
+		}
+		return completed == 1, nil
+	}, nil, func(*Transaction) error {
+		replayRan = true
+		return nil
+	}); err != nil {
 		t.Fatalf("completion replay: %v", err)
+	}
+	if replayRan {
+		t.Fatal("completion replay ran the complete action a second time")
 	}
 	if after := s.DurableCommits(); after != beforeReplay+1 {
 		t.Fatalf("completion replay bypassed the durable commit owner: %d -> %d", beforeReplay, after)
@@ -353,122 +373,6 @@ func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
 	}
 }
 
-type explicitConditionResolver struct {
-	calls int
-}
-
-func (r *explicitConditionResolver) Resolve(_ context.Context, _ ExternalCondition, _ time.Time) (Resolution, error) {
-	r.calls++
-	return Resolution{ResolutionEvidence: []string{"evidence:valid"}, ResolvedByEvent: "condition-resolution-event", ActorRef: "principal/resolver"}, nil
-}
-
-func TestWorkflowConditionResolutionIsExplicitAndUsesAuthoritativeEvidence(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "explicit-condition-work")
-	seedWorkflowAuthority(t, s, "explicit-condition-authority", "explicit-condition-work", "principal/resolver", "request:condition", []string{"evidence:valid"})
-	added := workflowEventWithActor("explicit-condition-added", WorkflowConditionAdded, "explicit-condition-work", "principal/resolver", map[string]any{
-		"work_id": "explicit-condition-work", "expected_version": 2, "resulting_version": 3, "condition_id": "condition:explicit", "await_type": "timer", "await_ref": "deadline:one", "resolution_authority": "durable_operation:explicit-condition-authority",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{added}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "explicit-condition-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	resolver := &explicitConditionResolver{}
-	if err := ResolveWorkflowCondition(context.Background(), s, "explicit-condition-work", "condition:explicit", resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
-	}
-	if resolver.calls != 1 {
-		t.Fatalf("resolver calls = %d, want one explicit resolution", resolver.calls)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='explicit-condition-work' AND condition_id='condition:explicit'`).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "resolved" {
-		t.Fatalf("condition state = %q, want resolved", state)
-	}
-}
-
-type boundaryConditionResolver struct {
-	resolutions map[string]Resolution
-	errors      map[string]error
-}
-
-func (r *boundaryConditionResolver) Resolve(_ context.Context, condition ExternalCondition, _ time.Time) (Resolution, error) {
-	if err := r.errors[condition.ConditionID]; err != nil {
-		return Resolution{}, err
-	}
-	return r.resolutions[condition.ConditionID], nil
-}
-
-func TestWorkflowConsequentialBoundaryResolvesEligibleConditionsOnly(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "boundary-work")
-	seedWorkflowAuthority(t, s, "boundary-authority-one", "boundary-work", "principal/one", "request/one", []string{"evidence:one"})
-	seedWorkflowAuthority(t, s, "boundary-authority-two", "boundary-work", "principal/two", "request/two", []string{"evidence:two"})
-	events := []Event{
-		workflowEvent("boundary-add-one", WorkflowConditionAdded, "boundary-work", map[string]any{"work_id": "boundary-work", "expected_version": 2, "resulting_version": 3, "condition_id": "condition:one", "await_type": "ci_result", "await_ref": "run:one", "resolution_authority": "durable_operation:boundary-authority-one"}),
-		workflowEvent("boundary-add-two", WorkflowConditionAdded, "boundary-work", map[string]any{"work_id": "boundary-work", "expected_version": 3, "resulting_version": 4, "condition_id": "condition:two", "await_type": "pr_merge", "await_ref": "pr:two", "resolution_authority": "durable_operation:boundary-authority-two"}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "boundary-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	resolver := &boundaryConditionResolver{
-		resolutions: map[string]Resolution{"condition:one": {ResolutionEvidence: []string{"evidence:one"}, ResolvedByEvent: "boundary-resolve-one", ActorRef: "principal/one"}},
-		errors:      map[string]error{"condition:two": errors.New("provider state is not terminal")},
-	}
-	resolved, err := ResolveWorkflowConditionsAtBoundary(context.Background(), s, "boundary-work", resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC))
-	if err != nil || resolved != 1 {
-		t.Fatalf("resolved=%d err=%v, want one eligible condition", resolved, err)
-	}
-	var one, two, version string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:one'`).Scan(&one); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id='boundary-work' AND condition_id='condition:two'`).Scan(&two); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='boundary-work'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if one != "resolved" || two != "open" || version != "5" {
-		t.Fatalf("condition states/version = %s/%s/%s, want resolved/open/5", one, two, version)
-	}
-}
-
-func TestWorkflowConsequentialBoundaryRollsBackEarlierResolutionOnInvalidEvidence(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "boundary-rollback-work")
-	seedWorkflowAuthority(t, s, "boundary-rollback-one", "boundary-rollback-work", "principal/one", "request/one", []string{"evidence:one"})
-	seedWorkflowAuthority(t, s, "boundary-rollback-two", "boundary-rollback-work", "principal/two", "request/two", []string{"evidence:two"})
-	events := []Event{
-		workflowEvent("boundary-rollback-add-one", WorkflowConditionAdded, "boundary-rollback-work", map[string]any{"work_id": "boundary-rollback-work", "expected_version": 2, "resulting_version": 3, "condition_id": "condition:one", "await_type": "ci_result", "await_ref": "run:one", "resolution_authority": "durable_operation:boundary-rollback-one"}),
-		workflowEvent("boundary-rollback-add-two", WorkflowConditionAdded, "boundary-rollback-work", map[string]any{"work_id": "boundary-rollback-work", "expected_version": 3, "resulting_version": 4, "condition_id": "condition:two", "await_type": "pr_merge", "await_ref": "pr:two", "resolution_authority": "durable_operation:boundary-rollback-two"}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "boundary-rollback-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	resolver := &boundaryConditionResolver{resolutions: map[string]Resolution{
-		"condition:one": {ResolutionEvidence: []string{"evidence:one"}, ResolvedByEvent: "boundary-rollback-resolve-one", ActorRef: "principal/one"},
-		"condition:two": {ResolutionEvidence: []string{"evidence:forged"}, ResolvedByEvent: "boundary-rollback-resolve-two", ActorRef: "principal/two"},
-	}}
-	if _, err := ResolveWorkflowConditionsAtBoundary(context.Background(), s, "boundary-rollback-work", resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err == nil {
-		t.Fatal("invalid boundary evidence was accepted")
-	}
-	var states, version string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT group_concat(condition_state, ',') FROM workflow_external_conditions WHERE work_id='boundary-rollback-work' ORDER BY condition_id`).Scan(&states); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='boundary-rollback-work'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if states != "open,open" || version != "4" {
-		t.Fatalf("boundary rollback states/version = %s/%s, want open,open/4", states, version)
-	}
-}
-
 type completionGateCase struct {
 	name             string
 	requiredEvidence []string
@@ -514,67 +418,34 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 	}
 }
 
-func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T) {
+// TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission holds CD-0234
+// D2 at the owning boundary: the boundary takes no resolver, and a
+// consequential action on work with an open condition answers the single
+// admission refusal before authorization or mutation runs, writing nothing.
+func TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission(t *testing.T) {
 	t.Parallel()
-	t.Run("success commits resolution and action", func(t *testing.T) {
-		s, request, resolver := seedBoundaryActionRequest(t, "action-boundary-success", false)
-		var completedBefore int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='action-boundary-success' AND kind=?`, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
-			t.Fatal(err)
-		}
-		if err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), nil, appendActionCompletion); err != nil {
-			t.Fatal(err)
-		}
-		assertConditionState(t, s, "action-boundary-success", "condition:gate", "resolved")
-		assertTableCount(t, s, "workflow_external_conditions", 1)
-		var completed int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='action-boundary-success' AND kind=?`, WorkflowActionCompleted).Scan(&completed); err != nil {
-			t.Fatal(err)
-		}
-		if completed != completedBefore+1 {
-			t.Fatalf("action completion events=%d, want %d", completed, completedBefore+1)
-		}
-	})
-	for _, testCase := range []struct {
-		name      string
-		authorize func(*Transaction) error
-		mutate    func(*Transaction) error
-		addSecond bool
-		resolver  *boundaryConditionResolver
-	}{
-		{name: "later preflight failure", addSecond: true, resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-later-preflight", ActorRef: "principal/condition"}}, errors: map[string]error{"condition:later": errors.New("later condition is ineligible")}}},
-		{name: "authorization denial", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-auth-denial", ActorRef: "principal/condition"}}}, authorize: func(*Transaction) error { return errors.New("authorization denied") }, mutate: func(*Transaction) error { return nil }},
-		{name: "mutation failure", resolver: &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-mutation-failure", ActorRef: "principal/condition"}}}, mutate: func(*Transaction) error { return errors.New("action mutation failed") }},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			workID := "action-boundary-" + strings.ReplaceAll(testCase.name, " ", "-")
-			s, request, _ := seedBoundaryActionRequest(t, workID, testCase.addSecond)
-			var completedBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
-				t.Fatal(err)
-			}
-			// The case resolver replaces the helper's own, so the second condition
-			// is added before authorization and one transaction owns the boundary.
-			if testCase.addSecond {
-				if err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, testCase.resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), testCase.authorize, testCase.mutate); err == nil {
-					t.Fatal("later preflight failure was accepted")
-				}
-			} else if err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, testCase.resolver, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), testCase.authorize, testCase.mutate); err == nil {
-				t.Fatal("downstream failure was accepted")
-			}
-			assertConditionState(t, s, workID, "condition:gate", "open")
-			var resolvedEvents, completedEvents int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowConditionResolved).Scan(&resolvedEvents); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedEvents); err != nil {
-				t.Fatal(err)
-			}
-			if resolvedEvents != 0 || completedEvents != completedBefore {
-				t.Fatalf("rolled-back events resolved=%d completed=%d/%d", resolvedEvents, completedEvents, completedBefore)
-			}
-		})
+	s, request := seedBoundaryActionRequest(t, "action-boundary-open-condition")
+	var eventsBefore int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
 	}
+	called := false
+	err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), request, func(*Transaction) error {
+		called = true
+		return nil
+	}, func(*Transaction) error {
+		called = true
+		return nil
+	})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindNotTerminal || failure.Detail != "consequential action has unresolved external conditions" || failure.Op != "workflow_action_preflight" {
+		t.Fatalf("boundary error=%v failure=%+v, want the admission not_terminal refusal", err, failure)
+	}
+	if called {
+		t.Fatal("boundary ran authorization or mutation on work with an open condition")
+	}
+	assertConditionState(t, s, "action-boundary-open-condition", "condition:gate", "open")
+	assertTableCount(t, s, "domain_events", eventsBefore)
 }
 
 func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
@@ -587,7 +458,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	result, err := DeriveWorkflowReady(context.Background(), s, "ready-unreadable")
+	result, err := deriveWorkflowReady(context.Background(), s.DatabaseForTesting(), "ready-unreadable")
 	if err != nil || result.Ready || len(result.UnknownConditions) != 1 || result.UnknownConditions[0] != "condition:gate" {
 		t.Fatalf("ready result=%+v err=%v", result, err)
 	}
@@ -787,7 +658,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 	}
 }
 
-func seedBoundaryActionRequest(t *testing.T, workID string, addSecond bool) (*Store, WorkflowActionPreflightRequest, *boundaryConditionResolver) {
+func seedBoundaryActionRequest(t *testing.T, workID string) (*Store, WorkflowActionPreflightRequest) {
 	t.Helper()
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, openCondition: true})
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -795,39 +666,7 @@ func seedBoundaryActionRequest(t *testing.T, workID string, addSecond bool) (*St
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if addSecond {
-		seedWorkflowAuthority(t, s, "boundary-second-"+workID, workID, "principal/second", "request/second", []string{"evidence:second"})
-		event := workflowEvent("boundary-second-event-"+workID, WorkflowConditionAdded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "condition_id": "condition:later", "await_type": "ci_result", "await_ref": "run:later", "resolution_authority": "durable_operation:boundary-second-" + workID})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-			t.Fatal(err)
-		}
-		version++
-	}
-	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Actor: actor}
-	return s, request, &boundaryConditionResolver{resolutions: map[string]Resolution{"condition:gate": {ResolutionEvidence: []string{"evidence:condition"}, ResolvedByEvent: "boundary-default-resolution-" + workID, ActorRef: "principal/condition"}}}
-}
-
-func appendActionCompletion(transaction *Transaction) error {
-	tx, err := transactionSQL(transaction, "test_action_completion")
-	if err != nil {
-		return err
-	}
-	var workID string
-	var version int64
-	if err := tx.QueryRow(`SELECT work_id,version FROM workflow_instances JOIN work_items ON work_items.id=workflow_instances.work_id WHERE current_step='execution' ORDER BY work_id DESC LIMIT 1`).Scan(&workID, &version); err != nil {
-		return err
-	}
-	var actor string
-	if err := tx.QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&actor); err != nil {
-		return err
-	}
-	payload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": actor}
-	raw, _ := json.Marshal(payload)
-	event := Event{EventID: "boundary-action-completed-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: raw}
-	if _, err := appendEvent(context.Background(), tx, event, true); err != nil {
-		return err
-	}
-	return foldRegisteredEvent(context.Background(), tx, event)
+	return s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "execution", ActionID: "start_execution", Actor: actor}
 }
 
 func assertConditionState(t *testing.T, s *Store, workID, conditionID, want string) {

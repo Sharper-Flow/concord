@@ -250,7 +250,12 @@ func TestDispatchRefusesStaleWorkContextPacket(t *testing.T) {
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-stale")
 	defer fixture.store.Close()
 	declareSampleWorkContext(t, fixture, "the first declaration stands")
+	ownerRef, actorErr := WorkflowActorRef(fixture.owner)
+	if actorErr != nil {
+		t.Fatal(actorErr)
+	}
 	job := seedReadyWorkerJob(t, fixture)
+	recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-stale-report", "repair", ownerRef)
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -261,15 +266,19 @@ func TestDispatchRefusesStaleWorkContextPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	reported := []WorkerContextFinding{{Kind: "observation", Statement: "the terminal report adds a finding the packet never saw", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("terminal report refused: %v", err)
+	}
+	startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
+	if startsBefore != 1 {
+		t.Fatalf("dispatch_worker starts before refusal = %d, want 1 from setup", startsBefore)
 	}
 	err = dispatchWorkContextAttempt(t, fixture, packet)
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "worker packet does not consume the current work context") {
 		t.Fatalf("stale packet error = %v, want %s refusing the stale work context", err, KindInvalidPayload)
 	}
-	if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 0 {
-		t.Fatalf("dispatch_worker started events = %d, want 0 on refusal", got)
+	if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != startsBefore {
+		t.Fatalf("dispatch_worker starts after refusal = %d, want unchanged pre-refusal count %d", got, startsBefore)
 	}
 }
 

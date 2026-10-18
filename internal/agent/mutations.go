@@ -45,8 +45,11 @@ type captureMutationInput struct {
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
-	GoverningRequirements []string       `json:"governing_requirements"`
-	Approval              *approvalInput `json:"approval"`
+	GoverningRequirements []string `json:"governing_requirements"`
+	// SizeInputs is what the change will touch, for the work-size model
+	// (CD-0229 D4). It carries no size: the model decides it.
+	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
+	Approval   *approvalInput              `json:"approval"`
 }
 type reviseMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -922,6 +925,33 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 	}
 }
 
+// supersededAttemptBindings reads the attempt a fenced action would
+// supersede and binds it into the approval challenge. A worker dispatch after
+// a failed attempt below the convergence wall binds that failed attempt
+// (CD-0148); the store checks escalated convergence at dispatch. A fenced
+// start, a worker dispatch among them, over an unfinished attempt another
+// actor holds binds the held holder and epoch (CD-0013 criterion 25).
+func (r runtime) supersededAttemptBindings(ctx context.Context, registry store.DefinitionRegistry, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowRetryApprovalBinding, *store.WorkflowStartTakeover, error) {
+	var retry *store.WorkflowRetryApprovalBinding
+	if action.ID == "dispatch_worker" {
+		binding, err := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, workID)
+		if err != nil {
+			return nil, nil, err
+		}
+		retry = binding
+	}
+	if !store.WorkflowActionOpensHeldAttempt(action) {
+		return retry, nil, nil
+	}
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	if err != nil || takeover == nil {
+		return retry, nil, err
+	}
+	scope["held_attempt_holder"] = takeover.HolderActorRef
+	versions["held_attempt_epoch"] = takeover.HeldEpoch
+	return retry, takeover, nil
+}
+
 // applyRetryApprovalBinding installs the retry-approval scope bindings a
 // retry approval binds to, and returns the bound contract version. A contract
 // version of zero is the absence of a contract, not a version: pre-contract
@@ -1101,24 +1131,19 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		contractVersion = version
 		versions["contract"] = contractVersion
 	}
-	retryApproval := false
-	if in.ActionID == "dispatch_worker" {
-		binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, in.WorkID)
-		if bindingErr != nil {
-			return failureEnvelope(base, bindingErr), nil
-		}
-		if binding != nil {
-			// Only failed retries below the convergence wall need an exact
-			// approval. The store checks escalated convergence at dispatch.
-			retryApproval = true
-			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
-		}
+	retryBinding, takeover, err := r.supersededAttemptBindings(ctx, registry, action, in.WorkID, grant, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	retryApproval := retryBinding != nil
+	if retryApproval {
+		contractVersion = applyRetryApprovalBinding(scope, versions, retryBinding)
 	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
 	}
-	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval
+	requiresApproval := action.Approval == store.ActionApprovalRequired || retryApproval || takeover != nil
 	// Approval admission uses the same execution history as the store's
 	// self-evaluation refusal, including execution before lease rotation.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
@@ -1214,7 +1239,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1246,7 +1271,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if in.ActionID == "dispatch_worker" {
 			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {
 				return err
@@ -1256,7 +1281,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval || takeover != nil})
 			if err != nil {
 				return err
 			}
@@ -1280,25 +1305,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		base.ResolvedScope = scopeFromMap(scope)
-		// CD-0039 D7/D8: a native report that the approved logical operation
-		// did not complete successfully classifies the action partial. The
-		// native steps are durable attributed facts; ok is reserved for
-		// successful native predicates.
-		if execution.NativeRun != nil && store.NativeRunStatusIsFailure(execution.NativeRun.Phase, execution.NativeRun.Status) {
-			report := execution.NativeRun
-			ref := OperationRef{ID: operationID, Kind: "workflow_action", Version: "1", State: OperationPartial, CurrentStep: report.Phase, UpdatedAt: r.Authority.now()}
-			partialErr := TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: "native authority reported the operation did not complete successfully"}
-			partialErr.Details = map[string]any{
-				"health_failure":   report.Phase + ":" + report.Status + " by " + report.ReportingAuthorityRef + " at " + report.AssertedAt,
-				"rollback_result":  report.EvidenceRef,
-				"native_run_id":    report.RunID,
-				"native_phase":     report.Phase,
-				"native_status":    report.Status,
-				"reporting_client": report.ReportingAuthorityRef,
-			}
-			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
-			return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
-		}
 		resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
 		if enrichErr != nil {
 			return enrichErr
@@ -1493,6 +1499,18 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
+	// The size reads one Product's knowledge home, so a sized capture names
+	// Projects of exactly one Product.
+	var sizePlan *store.WorkSizePlan
+	if in.SizeInputs != nil {
+		if len(productIDs) != 1 {
+			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
+		}
+		var sizeErr error
+		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
+			return failureEnvelope(base, sizeErr), nil, true
+		}
+	}
 	for _, products := range productsByProject {
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
@@ -1541,8 +1559,17 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
 			return nil, nil, nil, err
 		}
+		eventIDs := result.EventIDs
+		if sizePlan != nil {
+			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			eventIDs = append(eventIDs, sized...)
+		}
+		// work.sized does not change the work item's version.
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, nil), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), eventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }
@@ -1977,7 +2004,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 			}
 			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				return err
 			}
 		}
@@ -3619,7 +3646,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		_, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck)
 		if approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -3818,7 +3845,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
 		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
-			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			response = failureEnvelope(base, approvalErr)
 			resultRejected = true
 			return errors.New("approval invalid")
 		}
@@ -4792,14 +4819,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 	return err
 }
 
-func mutationApprovalFailure(base Envelope, err error) Envelope {
-	var refusal *runtimeFailure
-	if !errors.As(err, &refusal) {
-		err = newRuntimeFailure("approval_invalid", err.Error(), "request_approval", false)
-	}
-	return failureEnvelope(base, err)
-}
-
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
@@ -4900,7 +4919,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
 			_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck)
 			if err != nil {
-				response = mutationApprovalFailure(base, err)
+				response = failureEnvelope(base, err)
 				resultRejected = true
 				return errors.New("approval invalid")
 			}
@@ -5202,7 +5221,7 @@ func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProject
 func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, _ Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
-		return operator, "", fmt.Errorf("signed host approval assertion is required")
+		return operator, "", approvalInvalid("signed host approval assertion is required")
 	}
 	approvalRef, err := r.Authority.AcceptHostApprovalTx(ctx, tx, host, inv, *r.Envelope.HostApproval, check)
 	if err != nil {
@@ -5220,7 +5239,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "held_attempt_holder" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

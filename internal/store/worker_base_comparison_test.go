@@ -20,9 +20,9 @@ func baseComparisonFixture() *WorkerBaseComparison {
 
 // baseComparisonCompleteEvent builds a reported completion whose evidence
 // covers the lane and whose optional base_comparison is the given value.
-func baseComparisonCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, comparison *WorkerBaseComparison) Event {
+func baseComparisonCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, comparison *WorkerBaseComparison, directory string) Event {
 	evidence := laneCoveringEvidence(lane)
-	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, BaseComparison: comparison}
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, BaseComparison: comparison}
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
 }
 
@@ -34,10 +34,11 @@ func TestWorkerCompletionCarriesBaseComparisonDurably(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	attemptID := "base-comparison-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "base-comparison", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	complete := baseComparisonCompleteEvent("base-comparison", "base-comparison-complete", attemptID, lane, baseComparisonFixture())
+	complete := baseComparisonCompleteEvent("base-comparison", "base-comparison-complete", attemptID, lane, baseComparisonFixture(), workerFixtureDirectory(t, s, "base-comparison"))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}}); err != nil {
 		t.Fatalf("completion carrying base_comparison was refused: %v", err)
 	}
@@ -85,10 +86,11 @@ func TestWorkerCompletionAdmitsBaseComparisonSchemaBounds(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "base-comparison-bound-attempt"
+			authorizeWorkerFixtureDispatch(t, s, "base-comparison-bound", attemptID)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-bound", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{baseComparisonCompleteEvent("base-comparison-bound", "base-comparison-bound-complete", attemptID, lane, testCase.comparison)}}); err != nil {
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{baseComparisonCompleteEvent("base-comparison-bound", "base-comparison-bound-complete", attemptID, lane, testCase.comparison, workerFixtureDirectory(t, s, "base-comparison-bound"))}}); err != nil {
 				t.Fatalf("completion at the schema bound was refused: %v", err)
 			}
 			var stored []byte
@@ -137,7 +139,7 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
-			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{baseComparisonCompleteEvent("base-comparison-shape", "base-comparison-shape-complete", attemptID, lane, testCase.comparison)}})
+			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{baseComparisonCompleteEvent("base-comparison-shape", "base-comparison-shape-complete", attemptID, lane, testCase.comparison, workerFixtureDirectory(t, s, "base-comparison-shape"))}})
 			if !hasFailureKind(err, KindInvalidPayload) {
 				t.Fatalf("shape error = %v, want %s", err, KindInvalidPayload)
 			}
@@ -163,10 +165,11 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "no-comparison-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "no-comparison", attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("no-comparison", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	complete := workerCompleteEventV2("no-comparison", "no-comparison-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, laneCoveringEvidence(lane))
+	complete := workerCompleteEventV2("no-comparison", "no-comparison-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, laneCoveringEvidence(lane), workerFixtureDirectory(t, s, "no-comparison"))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}}); err != nil {
 		t.Fatalf("completion without base_comparison was refused: %v", err)
 	}
@@ -177,7 +180,7 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	if strings.Contains(string(stored), "base_comparison") {
 		t.Fatalf("payload without a comparison carries the field anyway: %s", stored)
 	}
-	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane))
+	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane), "")
 	upcast, err := upcastWorkerCompletedV1(legacy)
 	if err != nil {
 		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)

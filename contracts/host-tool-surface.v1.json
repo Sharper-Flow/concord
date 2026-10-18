@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "concord_work_start",
-      "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume project_id names a member Project in another repository and opens the second session or returns the launch command. A same-repository Project uses worktree_claim.",
+      "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume takes only work_id and claims in the calling session's Project; another Project here uses worktree_claim; another repository needs a host-started session.",
       "args": {
         "oneOf": [
           {
@@ -29,6 +29,20 @@
               "priority": {"maximum": 100, "minimum": -100, "type": "integer"},
               "raised_from_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
               "ref": {"maxLength": 128, "minLength": 1, "type": "string"},
+              "size_inputs": {
+                "additionalProperties": false,
+                "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
+                "properties": {
+                  "behavior": {"description": "A phrase for the behavior the change will alter, when the files are not known yet.", "maxLength": 256, "minLength": 1, "type": "string"},
+                  "blast_radius": {"description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).", "enum": ["contained", "package", "cross_package", "external"], "type": "string"},
+                  "estimated_production_lines": {"description": "Production lines you expect to add or change, tests excluded.", "maximum": 100000, "minimum": 1, "type": "integer"},
+                  "paths": {"description": "Repository-relative files or directories the change will edit.", "items": {"maxLength": 512, "minLength": 1, "type": "string"}, "maxItems": 64, "type": "array", "uniqueItems": true},
+                  "security": {"description": "True when the change touches authentication, authorization, secrets, or data safety.", "type": "boolean"},
+                  "user_visible": {"description": "True when the change removes or reverses behavior users see, or changes UI or UX.", "type": "boolean"}
+                },
+                "required": ["security", "user_visible", "blast_radius", "estimated_production_lines"],
+                "type": "object"
+              },
               "tags": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
               "task": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
               "title": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},
@@ -41,7 +55,6 @@
           {
             "additionalProperties": false,
             "properties": {
-              "project_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
               "work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}
             },
             "required": ["work_id"]
@@ -52,7 +65,7 @@
     },
     {
       "name": "concord_ci_watch",
-      "description": "Start watching GitHub CI and return at once: the concord ci-wait verb runs as a plugin-owned child with zero model turns, and this session receives the terminal JSON report as a message when the wait ends. Pass repo (owner/name), one selector (kind pr, sha, or run with its value), and optionally mode (checks or merge) and time_seconds_max.",
+      "description": "Start watching GitHub CI and return at once: the concord ci-wait verb runs as a plugin-owned child with zero model turns, and this session receives the terminal JSON report as a message when the wait ends. Pass repo (owner/name), one selector (kind pr, sha, or run with its value), and optionally mode (checks or merge) and time_seconds_max. After a push to the pull request, also pass head_sha, the pushed commit: the wait then judges that commit, never the head it replaces.",
       "args": {
         "type": "object",
         "properties": {
@@ -73,6 +86,11 @@
               "value": {"type": "string", "minLength": 1, "maxLength": 64}
             }
           },
+          "head_sha": {
+            "type": "string",
+            "description": "For a pr selector: the commit to judge, usually the one just pushed. The wait stays pending until the pull request head reaches it.",
+            "pattern": "^[0-9a-f]{40}$"
+          },
           "mode": {"type": "string", "description": "Wait mode: checks (default) or merge.", "enum": ["checks", "merge"]},
           "time_seconds_max": {
             "type": "integer",
@@ -83,6 +101,53 @@
         },
         "required": ["repo", "selector"],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "concord_worker_read",
+      "description": "Read one byte page of an original declared pinned reading for the calling dispatched worker. Supply only ordinal, offset, and length. The host binds the active packet, attempt, and worktree. Returns source identity, whole-content hash, byte offsets, EOF, base64 data, and text when the page is complete UTF-8. No path, ref, packet replacement, state query, workflow authority, or changed-checkout fallback.",
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Zero-based index in the original packet's required_reading list."},
+          "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Nonnegative raw-byte offset."},
+          "length": {"type": "integer", "minimum": 1, "maximum": 4096, "description": "Page length in raw bytes, from 1 through 4096."}
+        },
+        "required": ["ordinal", "offset", "length"]
+      }
+    },
+    {
+      "name": "concord_worker_diff",
+      "description": "Read one byte page of the authorized review's committed diff. Supply only offset and length. The host binds the first editing dispatch subject under this contract, the held review subject, and the pinned job's literal path scope. Returns both commits, whole-diff hash, byte offsets, EOF, base64 data, and text when the page is complete UTF-8. No worker-selected path or ref, replacement packet, mutable-checkout fallback, or workflow authority.",
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Nonnegative raw-byte offset."},
+          "length": {"type": "integer", "minimum": 1, "maximum": 4096, "description": "Page length in raw bytes, from 1 through 4096."}
+        },
+        "required": ["offset", "length"]
+      }
+    },
+    {
+      "name": "concord_worker_check",
+      "description": "Execute one recorded native control for the calling authorized worker. Supply only control_id from the original worker job's acceptance_oracle.controls. The host binds the actual child, packet, job, preparation, subject, and worktree and returns the existing native producer's result. Ordinary job checks strings are requirements, not executable controls. No argv, cwd, runner, state inventory, or workflow authority.",
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "control_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "x-minBytes": 2,
+            "x-maxBytes": 128,
+            "pattern": "^[^\\x09-\\x0d \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$",
+            "description": "The exact recorded control identifier, with no Unicode whitespace and 2-128 UTF-8 bytes."
+          }
+        },
+        "required": ["control_id"]
       }
     }
   ]

@@ -2,10 +2,10 @@
 // adapter tests spawn: a private TEST_TELEMETRY_DIR whose mode file holds
 // the exact bytes "off", so counters never run and no uploader starts.
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 const go = Bun.which("go")
 if (!go) throw new Error("testenv: the go binary is required for adapter telemetry tests")
@@ -115,5 +115,80 @@ test("preload cleans its run root when the go env probe fails", () => {
   } finally {
     rmSync(runTmp, { recursive: true, force: true })
     rmSync(binDir, { recursive: true, force: true })
+  }
+})
+
+test("preload arms fresh telemetry before the go env cache query", () => {
+  const runTmp = mkdtempSync(join(tmpdir(), "concord-adapter-testenv-query-"))
+  try {
+    // A fake go, visible only to this child through PATH, that validates the
+    // preload's exact env-query argv and echoes the environment it actually
+    // received, so the assertions observe what the query passed to Go.
+    const binDir = join(runTmp, "fixture-bin")
+    mkdirSync(binDir, { mode: 0o700 })
+    const startupHome = join(runTmp, "startup-home")
+    const poisonedTelemetry = join(runTmp, "startup-telemetry")
+    const marker = `fixture-go-${randomUUID()}`
+    writeFileSync(
+      join(binDir, "go"),
+      `#!/usr/bin/env bun
+const expected = ["env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE", "GOENV"]
+const argv = process.argv.slice(2)
+if (argv.length !== expected.length || argv.some((value, index) => value !== expected[index])) {
+  console.error("fixture go: unexpected argv " + JSON.stringify(argv))
+  process.exit(9)
+}
+process.stdout.write(JSON.stringify({
+  GOPATH: process.env.HOME,
+  GOMODCACHE: process.env.TEST_TELEMETRY_DIR,
+  GOCACHE: process.env.TEST_TELEMETRY_DIR,
+  GOENV: "${marker}",
+}))
+`,
+      { mode: 0o755 },
+    )
+    const nestedTest = `import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+
+test("the cache query keeps startup HOME and receives armed telemetry", () => {
+  const startupHome = process.env.TEST_EXPECTED_STARTUP_HOME!
+  const poisoned = process.env.TEST_EXPECTED_STARTUP_TELEMETRY!
+  const armed = process.env.TEST_TELEMETRY_DIR!
+  expect(process.env.GOENV).toBe(process.env.TEST_EXPECTED_GOENV)
+  expect(process.env.GOPATH).toBe(startupHome)
+  expect(armed).not.toBe(poisoned)
+  expect(process.env.GOMODCACHE).toBe(armed)
+  expect(process.env.GOMODCACHE).not.toBe(poisoned)
+  expect(readFileSync(join(armed, "mode"), "utf8")).toBe("off")
+})
+`
+    writeFileSync(join(runTmp, "one.test.ts"), nestedTest)
+    const env: Record<string, string | undefined> = { ...process.env }
+    // This child owns a private run root; an inherited fixture run root would
+    // move the preload's root outside it and past this finally's cleanup.
+    delete env.TEST_CONCORD_FIXTURE_RUN_ROOT
+    Object.assign(env, {
+      TMPDIR: runTmp,
+      HOME: startupHome,
+      // Bun can cache imported sources before the preload isolates HOME.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      TEST_TELEMETRY_DIR: poisonedTelemetry,
+      TEST_EXPECTED_STARTUP_HOME: startupHome,
+      TEST_EXPECTED_STARTUP_TELEMETRY: poisonedTelemetry,
+      TEST_EXPECTED_GOENV: marker,
+      PATH: `${binDir}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+    })
+    const child = Bun.spawnSync(
+      [process.execPath, "test", "--preload", join(import.meta.dir, "test_preload.ts"), "one.test.ts"],
+      { cwd: runTmp, env },
+    )
+    expect(child.exitCode, child.stderr.toString()).toBe(0)
+    const report = child.stdout.toString() + child.stderr.toString()
+    expect(report).toContain("1 pass")
+    expect(report).toContain("0 fail")
+    expect(readdirSync(runTmp).sort()).toEqual(["fixture-bin", "one.test.ts"])
+  } finally {
+    rmSync(runTmp, { recursive: true, force: true })
   }
 })

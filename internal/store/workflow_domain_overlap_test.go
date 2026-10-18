@@ -746,7 +746,7 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 	}
 	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "overlap-result-accept", OperationID: "overlap-result-accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "overlap-result-accept", RequestID: "request:overlap-result-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 	})
@@ -876,7 +876,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
-			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("TEST_CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 1}), Actor: owner,
+			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("TEST_CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 2}), Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "overlap-race-accept", OperationID: "overlap-race-accept",
 			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "overlap-race-accept", RequestID: "request:overlap-race-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 		})

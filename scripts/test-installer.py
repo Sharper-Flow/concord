@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import gc
 import hashlib
 import io
 import json
@@ -19,6 +20,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
@@ -35,6 +37,65 @@ import install as installer
 
 
 SCRIPT = Path(__file__).with_name("install.py")
+
+# The roots an installer child resolves without --root, under the environment
+# this suite started in. Every installer command locks and recovers the root it
+# resolves, so a child that resolves one of these acts on the operator's live
+# installation.
+with contextlib.redirect_stderr(io.StringIO()):
+    _OPERATOR_PATHS = installer.paths_for(None)
+OPERATOR_ROOTS = (_OPERATOR_PATHS.data_home, _OPERATOR_PATHS.config_home, _OPERATOR_PATHS.bin_dir)
+
+# Every child inherits this process's environment or a copy of it, so the
+# private home and XDG roots cover children that pass no --root. The directory
+# is removed when the interpreter exits.
+_PRIVATE_HOME = tempfile.TemporaryDirectory(prefix="concord-installer-test-home-")
+for _name, _directory in (
+    ("HOME", "home"),
+    ("XDG_DATA_HOME", "data"),
+    ("XDG_CONFIG_HOME", "config"),
+    ("XDG_STATE_HOME", "state"),
+    ("XDG_CACHE_HOME", "cache"),
+):
+    _path = Path(_PRIVATE_HOME.name) / _directory
+    _path.mkdir()
+    os.environ[_name] = str(_path)
+
+# Under an "error" filter, a ResourceWarning raised in a finalizer is
+# unraisable: Python prints it and the run still passes. unittest's runner
+# installs its own "default" filter, so setUpModule arms the guard after it.
+_LEAKS: list[str] = []
+_DEFAULT_UNRAISABLEHOOK = sys.unraisablehook
+
+
+def _record_leak(unraisable: sys.UnraisableHookArgs) -> None:
+    if isinstance(unraisable.exc_value, ResourceWarning):
+        _LEAKS.append(str(unraisable.exc_value))
+    _DEFAULT_UNRAISABLEHOOK(unraisable)
+
+
+def setUpModule() -> None:
+    warnings.simplefilter("error", ResourceWarning)
+    sys.unraisablehook = _record_leak
+
+
+def tearDownModule() -> None:
+    gc.collect()
+    sys.unraisablehook = _DEFAULT_UNRAISABLEHOOK
+    if _LEAKS:
+        raise AssertionError("the suite leaked resources:\n" + "\n".join(_LEAKS))
+
+
+def default_root_overlap() -> list[str]:
+    """Name each default root a child of this process would share with the operator."""
+    with contextlib.redirect_stderr(io.StringIO()):
+        paths = installer.paths_for(None)
+    return [
+        f"{name}={resolved} overlaps {protected}"
+        for name, resolved in (("data_home", paths.data_home), ("config_home", paths.config_home), ("bin_dir", paths.bin_dir))
+        for protected in OPERATOR_ROOTS
+        if resolved.is_relative_to(protected) or protected.is_relative_to(resolved)
+    ]
 
 
 def _repository_snapshot(root: Path) -> dict[str, bytes]:
@@ -1226,7 +1287,7 @@ esac''',
         """Runtime tool discovery cannot strand a committed fixture migration."""
         self.prepare_a_blocked_release()
         database = self.data_root / "migration-fixture.sqlite"
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store, store:
             store.execute("CREATE TABLE payload (value TEXT)")
             store.execute("INSERT INTO payload VALUES ('preserved')")
             store.execute("PRAGMA user_version = 111")
@@ -1236,7 +1297,7 @@ esac''',
                 "operation": installer.CORE_UPGRADE_OPERATION,
                 "release_root": str(self.data_root / "v1.1.0"),
             }), encoding="utf-8")
-            with sqlite3.connect(database) as store:
+            with contextlib.closing(sqlite3.connect(database)) as store, store:
                 store.execute("ALTER TABLE payload ADD COLUMN migrated INTEGER NOT NULL DEFAULT 1")
                 store.execute("PRAGMA user_version = 112")
         environment = self.plan_env(blocked=False)
@@ -1246,7 +1307,7 @@ esac''',
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
         (self.commands / "opencode").unlink()
         self.assertIsNone(shutil.which("opencode", path=environment["PATH"]))
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.fence_path.exists())
@@ -1259,7 +1320,7 @@ esac''',
         self.assertEqual(manifest["version"], "v1.1.0")
         self.assertFalse(self.prepared_path.exists())
         self.assertFalse(self.fence_path.exists())
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
             self.assertEqual(store.execute("SELECT * FROM payload").fetchall(), [("preserved", 1)])
 
@@ -2026,11 +2087,10 @@ esac''',
         self.assertIn('"keep": true', config)
 
     def test_install_recognizes_a_tuple_entry_and_keeps_its_options(self) -> None:
-        """CD-0182: an operator tuple entry with a session opener survives an upgrade."""
-        opener = ["my-tabs", "new-tab", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"]
+        """CD-0182: an operator tuple entry with its options survives an upgrade."""
         entry = self.plugin_entry_path()
         self.config.write_text(
-            json.dumps({"keep": True, "plugin": [[entry, {"session_opener": opener}], "/operator/other"]}, indent=2),
+            json.dumps({"keep": True, "plugin": [[entry, {"operator_label": "ops"}], "/operator/other"]}, indent=2),
             encoding="utf-8",
         )
         self.make_release("v1.0.0")
@@ -2042,7 +2102,7 @@ esac''',
         tuples = [item for item in plugin if isinstance(item, list)]
         self.assertEqual(len(tuples), 1)
         self.assertEqual(tuples[0][0], entry)
-        self.assertEqual(tuples[0][1]["session_opener"], opener)
+        self.assertEqual(tuples[0][1]["operator_label"], "ops")
         self.assertIn("/operator/other", plugin)
 
     def test_uninstall_removes_a_tuple_entry_whole(self) -> None:
@@ -2051,7 +2111,7 @@ esac''',
         tuple_text = (
             "    [\n"
             + f"      {json.dumps(entry)},\n"
-            + '      {"session_opener": ["my-tabs", "new", "--x[]y", "{command}"]}\n'
+            + '      {"operator_label": ["ops", "a]b"]}\n'
             + "    ]"
         )
         self.config.write_text(
@@ -2067,7 +2127,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -2077,7 +2137,7 @@ esac''',
         self.config.write_text(
             '{\n  "keep": true,\n  "plugin": [\n'
             '    /* [ comment bracket */ "/operator/other",\n'
-            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}]\n'
+            '    ["' + entry + '", {"operator_label": "ops"}]\n'
             '  ]\n}\n',
             encoding="utf-8",
         )
@@ -2088,7 +2148,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         # The comment stays, the neighbour stays, and the result still parses.
         self.assertIn("comment bracket", config)
         plugin = installer.jsonc_data(config)["plugin"]
@@ -2099,7 +2159,7 @@ esac''',
         entry = self.plugin_entry_path()
         self.config.write_text(
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}] /* after */,\n'
+            '    ["' + entry + '", {"operator_label": "ops"}] /* after */,\n'
             '    "/operator/other"\n  ]\n}\n',
             encoding="utf-8",
         )
@@ -2110,7 +2170,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -3974,7 +4034,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     ENTRY = "/tools/concord-plugin.ts"
 
     def test_plan_keeps_a_tuple_entry_untouched(self) -> None:
-        text = '{\n  "plugin": [\n    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        text = '{\n  "plugin": [\n    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         self.assertEqual(installer.plan_plugin_entry(text, self.ENTRY), text)
 
     def test_plan_still_adds_a_bare_entry_when_absent(self) -> None:
@@ -3985,11 +4045,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_remove_drops_the_whole_tuple_and_keeps_neighbours(self) -> None:
         text = (
             '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}],\n'
-            '    ["%s", {"session_opener": ["x", "a]b", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x", "a]b"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         self.assertIn("/operator/plugin", result)
         self.assertIn("/operator/other", result)
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4000,11 +4060,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    /* [ comment bracket */ "/operator/other",\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         self.assertIn("comment bracket", result)
         self.assertIn("/operator/other", result)
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4014,7 +4074,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "plugin": [\n'
             '    // [ comment bracket\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
@@ -4026,11 +4086,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    ["/operator/other"],\n'
-            '    ["%s", /* ] comment */ {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", /* ] comment */ {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The neighbour survives whole and the remainder still parses: a span
         # that ended at the comment's ']' would strand the comment body.
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4040,12 +4100,12 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         """A comment between the tuple and its separating comma hides nothing."""
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}] /* after */, "/operator/other"\n  ]\n}\n'
+            '    ["%s", {"labels": ["x"]}] /* after */, "/operator/other"\n  ]\n}\n'
             % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The neighbour survives and the remainder still parses: a span that
         # stopped at the comment would strand a leading comma before it.
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4054,12 +4114,12 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_remove_skips_a_line_comment_between_the_tuple_and_its_comma(self) -> None:
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}] // tuple note\n'
+            '    ["%s", {"labels": ["x"]}] // tuple note\n'
             '    ,\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -4067,11 +4127,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    "/operator/other", /* tuple note */\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The comma before the comment goes with the tuple; a span that kept
         # it would leave a trailing comma after "/operator/other".
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4082,11 +4142,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
             '{\n  "keep": true,\n  "plugin": [\n'
             '    "/operator/other",\n'
             '    // tuple note\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -4270,6 +4330,11 @@ class StandaloneInstallerTest(unittest.TestCase):
     """
 
     def run_standalone(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # The child runs without --root, as the operator does, so it must
+        # inherit an environment whose default roots are private to the suite.
+        overlap = default_root_overlap()
+        if overlap:
+            self.fail("refusing to start a standalone installer on the operator's default roots: " + "; ".join(overlap))
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "concord-installer.py"
             script.write_bytes(SCRIPT.read_bytes())
@@ -4290,6 +4355,8 @@ class StandaloneInstallerTest(unittest.TestCase):
         # status may report nothing installed; it must not fail to start.
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("NameError", result.stderr)
+        # status locks the data root it resolved and leaves it in place.
+        self.assertTrue((Path(os.environ["XDG_DATA_HOME"]) / "concord").is_dir(), result.stderr)
 
     def test_a_failure_to_derive_reports_its_cause(self) -> None:
         """The raise path must name the module, not NameError.

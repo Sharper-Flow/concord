@@ -651,7 +651,7 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 
 	t.Run("rebuild after removing the fixture repository performs no git lookup", func(t *testing.T) {
 		dbPath := freshMigratedCLIDatabase(t)
-		record(t, dbPath)
+		_, _, _, _, head := record(t, dbPath)
 		_, recordedPayload := rawWorkerPayloadJSON(t, dbPath, "complete-replay")
 		if !strings.Contains(recordedPayload, "observed_delivery") {
 			t.Fatalf("the recorded completion lost the observation: %s", recordedPayload)
@@ -667,8 +667,15 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.ApplyOperation(context.Background(), replayStore, store.Operation{Events: events}); err != nil {
-			t.Fatalf("the recorded evidence did not fold into the witness log: %v", err)
+		// Seed the recorded log, not a new live completion whose original
+		// workflow authorization is deliberately absent from this witness.
+		if _, err := replayStore.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project-1','claim-replay','work/replay',?,?,'repo-1','active','now','{}')`, store.WorktreeSetID("work-1"), head, cliFixtureWorktree(t, dbPath)); err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if _, err := replayStore.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
+				t.Fatalf("the recorded evidence did not fold into the witness log: %v", err)
+			}
 		}
 		replayStore.Close()
 		_, replayPayload := rawWorkerPayloadJSON(t, replayDBPath, "complete-replay")

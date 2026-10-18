@@ -109,10 +109,10 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Look up work across Projects | Covered | Q6, `internal/store/query.go` |
 | Read the typed history of one unit of work | Covered | Q7, `internal/store/query.go` |
 | Read the typed relation graph around one unit of work | Covered | Q8, `internal/store/query.go` |
-| Navigate portfolio → Product → work from a terminal surface | Excluded | Per CD-0219, the interactive terminal browse surface retired with the launcher TUI; the operator enters work by naming it to `concord zl` or `concord session`, and no Concord surface browses portfolio → Product → work interactively. |
-| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the entry route, which the store query family delivers to agent and CLI readers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
-| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work through the entry route and opening a session that authors it. The entry stays read-only and work creation keeps a single write authority. |
-| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the session entry resolves the oldest waiting session for the work it starts. |
+| Navigate portfolio → Product → work from a terminal surface | Excluded | Per CD-0219, the interactive terminal browse surface retired with the launcher TUI, and the session entry route is removed; the operator reaches work through host-started sessions and the store query family, and no Concord surface browses portfolio → Product → work interactively. |
+| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the operator's session and the agent read surface, which the store query family delivers to agent and CLI readers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
+| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work and a session that authors it. The operator surface stays read-only and work creation keeps a single write authority. |
+| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`). |
 
 ## 3. Implementation changes
 
@@ -150,7 +150,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Explore a bounded architectural question, record options, and reach a recorded decision | Covered | `architecture_spike` workflow definition, `internal/store/workflow_registry.go` |
 | Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
-| Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
+| Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `supersede_contract` in `internal/store/workflow_event_constructors.go` |
 | Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, authored as a file with its record and coverage shards and published through a reviewed pull request (CD-0026 D3); the record's evidence paths stay audited by `scripts/check-knowledge-index.py`. |
 | Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
 
@@ -162,7 +162,7 @@ Executing operational procedures with approval, conditions, and rollback.
 |---|---|---|
 | Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Covered | `ops_runbook` workflow definition, `internal/store/workflow_registry.go` |
 | Roll back a partially executed operation | Covered | `rollback_run` action, `internal/store/workflow_registry.go` |
-| Wait on an external signal without polling, and distinguish waiting from never-completable | Covered for waiting | `add_condition` / `resolve_condition` / `cancel_condition`, `internal/store/workflow_conditions.go`. Distinguishing never-completable is tracked as issue #87. |
+| Wait on an external signal without polling, and distinguish waiting from never-completable | Excluded | Accepted [CD-0234](./decisions/CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2: no retained workflow family can open a condition and no resolver or wait authority exists, so no runtime path waits on an external signal. Recorded conditions stay readable and block consequential actions. |
 | Record the health of an operational run | Covered | `record_health` action, `internal/store/workflow_registry.go` |
 | Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
@@ -198,7 +198,7 @@ Territory that appears across all six and is an outcome in its own right.
 | Rebuild every projection from the event log without loss | Covered | `internal/store/reconstruction.go`; rebuild byte-equality scenario in `.concord/scenarios/workflow-engine.v1.json` |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
 | Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
-| Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `replace_outcome` / `supersede_contract` (`internal/store/workflow_revision.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
+| Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
 | Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4: always-on behavioural policy is an instruction and on-demand methodology is a skill. Both are host-owned surfaces, not durable coordination state. [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) makes this the governing rule for worker lane methodology and records the channel it must travel. |
 
 ---
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 58 |
+| Covered | 57 |
 | Not covered | 0 |
-| Excluded with reason | 17 |
+| Excluded with reason | 18 |
 
 **Total enumerated outcomes: 75.**
 

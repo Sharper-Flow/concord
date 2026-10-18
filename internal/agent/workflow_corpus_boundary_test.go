@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,6 +51,96 @@ func TestWorkflowCorpusWF56CarriesVacateReclaimBoundary(t *testing.T) {
 	}
 	if len(scenario.Expected.Assertions) < 2 {
 		t.Fatalf("WF56 has too few boundary assertions: %d", len(scenario.Expected.Assertions))
+	}
+}
+
+// TestWorkflowCorpusWF25TakeoverOfStuckClaimRequiresApproval runs CD-0013
+// criterion 25 on compaction publication, the only production route that
+// claims a durable operation. Compaction publishes only terminal work, so the
+// run uses the compaction fixture's cancelled work item. A publication that
+// crashed after its committed proof leaves its first claim pending; a new
+// claim on that operation must consume an issued approval.
+func TestWorkflowCorpusWF25TakeoverOfStuckClaimRequiresApproval(t *testing.T) {
+	t.Parallel()
+	scenario := readWorkflowBoundaryScenario(t, "WF25-operator-takeover-approval")
+	if scenario.Action != "takeover_attempt" || scenario.Request.Approval.ApprovalRef != nil {
+		t.Fatalf("WF25 action=%q approval_ref=%v, want an unapproved takeover_attempt", scenario.Action, scenario.Request.Approval.ApprovalRef)
+	}
+	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
+	key := scenario.Request.Idempotency.Key
+	claims := func() (string, []string) {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT op_id, attempt_epoch, COALESCE(result_kind,'pending') FROM durable_operations WHERE work_id='work-cancelled' AND step_id=? AND step_kind=? ORDER BY attempt_epoch`, scenario.Request.Operation.StepID, scenario.Request.Operation.StepKind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var opID string
+		var epochs []string
+		for rows.Next() {
+			var epoch int64
+			var result string
+			if err := rows.Scan(&opID, &epoch, &result); err != nil {
+				t.Fatal(err)
+			}
+			epochs = append(epochs, fmt.Sprintf("%d:%s", epoch, result))
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return opID, epochs
+	}
+	stuckClaim := []string{"1:pending"}
+
+	service.publicationObserver = func(phase string) error {
+		if phase == "verify_commit" {
+			return errors.New("crash after the committed proof")
+		}
+		return nil
+	}
+	if stuck := publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, key+"-stuck"); stuck.Outcome != OutcomePartial {
+		t.Fatalf("WF25 interrupted publication outcome=%s error=%+v, want partial", stuck.Outcome, stuck.Error)
+	}
+	service.publicationObserver = nil
+	opID, epochs := claims()
+	if !slices.Equal(epochs, stuckClaim) {
+		t.Fatalf("WF25 claims after the interrupted publication = %v, want %v", epochs, stuckClaim)
+	}
+
+	unapproved := newCancelledNotePublication(t, s, grant, home, key)
+	response := dispatchMutation(t, s, service, unapproved.request(), unapproved.env)
+	_, epochs = claims()
+	communication := map[string]any{}
+	if response.Error != nil {
+		communication["error"] = map[string]any{"kind": response.Error.Kind}
+	}
+	assertAgentCorpus(t, map[string]any{
+		"communication": communication,
+		"authority":     map[string]any{"attempt": map[string]any{"owner_changed": !slices.Equal(epochs, stuckClaim)}},
+	}, scenario.Expected.Assertions)
+
+	// The boundary refuses a reference it never issued. Only the refusal and
+	// the unchanged claim are asserted: the error kind it returns today is not
+	// the contracted approval_invalid.
+	forged := newCancelledNotePublication(t, s, grant, home, key+"-unissued")
+	request, env := forged.approvedBy(t, privateKey, strings.Repeat("ab", 32))
+	if refused := dispatchMutation(t, s, service, request, env); refused.Outcome != OutcomeError {
+		t.Fatalf("WF25 unissued approval reference outcome=%s, want error", refused.Outcome)
+	}
+	if _, epochs = claims(); !slices.Equal(epochs, stuckClaim) {
+		t.Fatalf("WF25 claims after an unissued approval reference = %v, want %v", epochs, stuckClaim)
+	}
+
+	if approved := publishCancelledNoteWithKey(t, s, service, grant, privateKey, home, key+"-approved"); approved.Outcome != OutcomeOK {
+		t.Fatalf("WF25 approved takeover outcome=%s error=%+v", approved.Outcome, approved.Error)
+	}
+	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
+		t.Fatalf("WF25 claims after the approved takeover = %v, want [1:pending 2:completed]", epochs)
+	}
+	_, staleErr := store.CompleteStep(context.Background(), s, store.CompleteRequest{OpID: opID, AttemptEpoch: 1, ResultKind: store.ResultCompleted, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: key + "-late", RequestID: key + "-late", ObservedAt: fixedTime()})
+	var failure *store.Failure
+	if !errors.As(staleErr, &failure) || failure.Kind != store.KindStaleAttempt {
+		t.Fatalf("WF25 late completion of the superseded claim = %v, want stale_attempt", staleErr)
 	}
 }
 

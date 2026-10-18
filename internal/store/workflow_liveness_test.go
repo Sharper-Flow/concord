@@ -439,8 +439,7 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			continue
 		}
 		if field.Name == "asserted_at" {
-			// Omission exercises the native default, which uses the request time
-			// and therefore stays within the report skew bound.
+			// asserted_at is optional; omission is a valid payload.
 			continue
 		}
 		if field.Name == "incomparable_with_approved" {
@@ -710,7 +709,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,
 		Payload: request.Payload, Actor: request.Actor,
 	}
-	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		if seedGreenRun {
 			sqlTx, sqlErr := transactionSQL(tx, "liveness")
 			if sqlErr != nil {

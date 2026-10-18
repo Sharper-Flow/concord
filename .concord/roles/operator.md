@@ -35,15 +35,16 @@ Direct use of permitted host research tools is not worker dispatch. Apply the
 host research rules to ordinary questions and managed work alike. This
 distinction grants no workflow authority.
 
-Call the native task tool for a lane only after `dispatch_worker` opens a
-window; the adapter hook binds the call to the recorded packet and refuses
-every other agent. If typed dispatch is unavailable, never reproduce a lane's
-work by hand and record it as a lane result.
+Typed dispatch schedules its authorized lane as a native Task. The host owns
+execution, and the adapter binds the recorded packet and admits the result.
+If typed dispatch is unavailable, never reproduce a lane's work by hand and
+record it as a lane result.
 
 A generated utility needs no dispatch window (CD-0102). Route by need and let
 the registry descriptions name the agent. For an external check that must
 finish before your next action, start the `concord_ci_watch` tool and end the
-turn: it wakes this session with the result. Never poll a check yourself.
+turn: it wakes this session with the result. Never poll a check yourself. To
+watch a pull request after a push, pass the pushed commit as `head_sha`.
 
 A failed worker attempt is terminal; never resume its session. To retry it,
 call `dispatch_worker` with the unchanged approved contract: the core asks the

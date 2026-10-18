@@ -57,9 +57,15 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "convergence-findings-" + tc.name
-			s, owner, first, _ := seedOldDefinitionWorker(t, workID)
+			s, owner, first, _ := seedOldDefinitionWorkAtRepair(t, workID)
 			defer s.Close()
 			worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			workerRef, actorErr := WorkflowActorRef(worker)
+			if actorErr != nil {
+				t.Fatal(actorErr)
+			}
+			recordWorkerFixtureDispatchAuthorization(t, s, workID, first, "repair", workerRef)
+			dispatchOldDefinitionWorker(t, s, workID, first)
 			for n, findings := range [][]string{{"finding:a", "finding:b"}, {"finding:a", "finding:b"}, tc.latest} {
 				attemptID := first
 				if n > 0 {
@@ -69,7 +75,7 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 					}
 				}
 				lane := BuiltinLaneDefinitions()[0]
-				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventForLane(workID, "complete-"+attemptID, attemptID, lane, time.Unix(21, 0).UTC())}}); err != nil {
+				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventForLane(workID, "complete-"+attemptID, attemptID, lane, time.Unix(21, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 					t.Fatal(err)
 				}
 				fields := map[string]any{"attempt_id": attemptID, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair"), "diagnosis": "a reproduced defect remains", "strategy": "fix the remaining finding", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:convergence"}}

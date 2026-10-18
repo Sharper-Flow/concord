@@ -11,7 +11,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -226,11 +225,12 @@ type researchReadInput struct {
 }
 
 type historyInput struct {
-	WorkID     string    `json:"work_id"`
-	Direction  string    `json:"direction"`
-	EventKinds []string  `json:"event_kinds"`
-	Page       pageInput `json:"page"`
-	Limit      int       `json:"limit,omitempty"`
+	WorkID          string    `json:"work_id"`
+	Direction       string    `json:"direction"`
+	EventKinds      []string  `json:"event_kinds"`
+	ContractVersion int64     `json:"contract_version,omitempty"`
+	Page            pageInput `json:"page"`
+	Limit           int       `json:"limit,omitempty"`
 }
 type observationReadInput struct {
 	WorkID string    `json:"work_id"`
@@ -262,6 +262,13 @@ type workIDInput struct {
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`
 	DomainID  string    `json:"domain_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
+}
+type domainFootprintInput struct {
+	ProductID string    `json:"product_id"`
+	Paths     []string  `json:"paths,omitempty"`
+	Behavior  string    `json:"behavior,omitempty"`
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
 }
@@ -1258,6 +1265,8 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readKnowledgeResolveNote(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
+	case "concord_domain.footprint":
+		return r.readDomainFootprint(ctx, base, input)
 	default:
 		return base, errors.New("unsupported read operation")
 	}
@@ -1479,12 +1488,14 @@ type workSummary struct {
 	// declares it on work_summary, so every summary carries the band.
 	// DefectIntake rides the same authoritative reads: the immutable defect
 	// classification and the core's sibling snapshot, so a coordinator can
-	// retrieve the canonical cluster keys without reading storage.
+	// retrieve the canonical cluster keys without reading storage. Size, the
+	// current size record, rides the same reads.
 	Task            string                      `json:"task,omitempty"`
 	ValueStatement  string                      `json:"value_statement,omitempty"`
 	Tags            []string                    `json:"tags,omitzero"`
 	WorkflowTypeRef string                      `json:"workflow_type_ref,omitempty"`
 	DefectIntake    *store.DefectClassification `json:"defect_intake,omitempty"`
+	Size            *store.WorkSizeSummary      `json:"size,omitempty"`
 	Urgency         string                      `json:"urgency"`
 	Lifecycle       string                      `json:"lifecycle"`
 	Version         int64                       `json:"version"`
@@ -1509,7 +1520,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}
@@ -1654,6 +1665,12 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		if e.Reason != "" {
 			event["reason"] = e.Reason
 		}
+		if e.ContractVersion != nil {
+			event["contract_version"] = *e.ContractVersion
+		}
+		if e.PreviousContractVersion != nil {
+			event["previous_contract_version"] = *e.PreviousContractVersion
+		}
 		events = append(events, event)
 	}
 	payload := map[string]any{"events": events}
@@ -1667,27 +1684,16 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }
 
-// publishedWorkflowReadFields derives the published workflow_read field set
+// workflowReadPublishedFields derives the published workflow_read field set
 // from the generated contract's $defs/workflow_read/properties. The contract
 // schema is the declared boundary, so the published read is exactly the set
 // it declares: a projection field the contract names is published, and one it
 // does not name is dropped, without a hand-maintained list that can drift.
-var (
-	publishedWorkflowReadOnce   sync.Once
-	publishedWorkflowReadFields map[string]struct{}
-)
-
-func workflowReadPublishedFields() map[string]struct{} {
-	publishedWorkflowReadOnce.Do(func() {
-		publishedWorkflowReadFields = map[string]struct{}{}
-		defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-		read, _ := defs["workflow_read"].(map[string]any)
-		properties, _ := read["properties"].(map[string]any)
-		for field := range properties {
-			publishedWorkflowReadFields[field] = struct{}{}
-		}
-	})
-	return publishedWorkflowReadFields
+func workflowReadPublishedFields() map[string]any {
+	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
+	read, _ := defs["workflow_read"].(map[string]any)
+	properties, _ := read["properties"].(map[string]any)
+	return properties
 }
 
 // publishedWorkflowRead shapes the store projection into the published
@@ -1703,13 +1709,35 @@ func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string
 	if err := json.Unmarshal(raw, &shaped); err != nil {
 		return nil, err
 	}
-	published := workflowReadPublishedFields()
-	for field := range shaped {
-		if _, ok := published[field]; !ok {
-			delete(shaped, field)
+	pruneWorkflowReadObject(shaped, workflowReadPublishedFields())
+	return shaped, nil
+}
+
+// pruneWorkflowReadObject follows inline object and array shapes. Referenced
+// definitions remain unchanged and are checked by payload validation.
+func pruneWorkflowReadObject(value, properties map[string]any) {
+	for field, child := range value {
+		schema, ok := properties[field].(map[string]any)
+		if !ok {
+			delete(value, field)
+			continue
+		}
+		switch child := child.(type) {
+		case map[string]any:
+			if nested, ok := schema["properties"].(map[string]any); ok {
+				pruneWorkflowReadObject(child, nested)
+			}
+		case []any:
+			items, _ := schema["items"].(map[string]any)
+			if nested, ok := items["properties"].(map[string]any); ok {
+				for _, item := range child {
+					if object, ok := item.(map[string]any); ok {
+						pruneWorkflowReadObject(object, nested)
+					}
+				}
+			}
 		}
 	}
-	return shaped, nil
 }
 
 // ContinuityPayload is the single public rendering of CD-0016 continuity.

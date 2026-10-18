@@ -167,18 +167,7 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		names = insertWorkerEvidenceField(names, 11, "observation_digest")
 		values = insertWorkerEvidenceField(values, 11, a.ObservationDigest)
 	}
-	var b strings.Builder
-	b.WriteString(prefix)
-	for i, name := range names {
-		value := values[i]
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len([]byte(value))))
-		b.WriteByte(':')
-		b.WriteString(value)
-		b.WriteByte('|')
-	}
-	return []byte(b.String())
+	return canonicalClientAssertion(prefix, names, values)
 }
 
 // insertWorkerEvidenceField inserts value into fields at the given position,
@@ -307,7 +296,7 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, assertion.ClientRef)
 	if err != nil {
-		return "", errors.New("trusted client unavailable")
+		return "", trustedClientRefusalFor(err, errors.New("trusted client unavailable"))
 	}
 	if client.Status != "active" || key.Status != "active" || key.KeyID == "" {
 		return "", errors.New("trusted client is not active")

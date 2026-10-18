@@ -98,7 +98,7 @@ func produceContractCorrectionWorker(t *testing.T, s *Store, workID, label strin
 	}); err != nil {
 		t.Fatalf("producing lane dispatch: %v", err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "correction-completed-"+workID+"-"+label, attemptID, lane, time.Now().UTC())}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "correction-completed-"+workID+"-"+label, attemptID, lane, time.Now().UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("complete producing worker: %v", err)
 	}
 	assertStale("completed but unaccepted worker", "execution", correction != nil)

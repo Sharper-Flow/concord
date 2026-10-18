@@ -317,9 +317,9 @@ func deepCopyJSONDocument(t *testing.T, document map[string]any) map[string]any 
 // record_alignment declares the combinations; implementation v14 first
 // carried it, so a retained pin and the current head run the same corpus.
 func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
-	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 32)
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", builtinWorkflowCurrentVersions["workflow.implementation"])
 	if !ok {
-		t.Fatal("implementation v32 is not registered")
+		t.Fatal("the implementation head is not registered")
 	}
 	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 14)
 	if !ok {

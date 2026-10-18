@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
 	"time"
 )
 
@@ -14,6 +13,13 @@ import (
 type WorkflowReadRequest struct {
 	WorkID string
 	Limit  int
+	// ContractVersion, when nonzero, selects one recorded contract version
+	// instead of the active one. The contract, architecture binding, and
+	// Product-truth flag then describe that version from its own pin; the
+	// stale-law check and operator question belong to the active contract
+	// and are omitted; the instance fields stay current. A version the work
+	// never had refuses unknown_scope.
+	ContractVersion int64
 	// Now pins the read-time clock for await-health derivation; zero means
 	// wall clock.
 	Now time.Time
@@ -35,9 +41,84 @@ type WorkflowReadContract struct {
 	LawModifies         []string                     `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
 	RigorClass          string                       `json:"rigor_class"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ChangesProductTruth *bool                        `json:"changes_product_truth,omitempty"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
+	ApprovedAt          string                       `json:"approved_at,omitempty"`
+	ApprovedBy          string                       `json:"approved_by,omitempty"`
+	SupersededBy        *int64                       `json:"superseded_by,omitempty"`
+	DefinitionPin       WorkflowContractPinRead      `json:"definition_pin,omitzero"`
+}
+
+// WorkflowContractDefinitionPin is the workflow definition a contract version
+// was approved under. Verified reports whether the registry still verifies it.
+type WorkflowContractDefinitionPin struct {
+	Ref      string `json:"ref"`
+	Version  int64  `json:"version"`
+	Digest   string `json:"digest"`
+	Verified bool   `json:"verified"`
+}
+
+// WorkflowContractPinRead distinguishes a pin nobody read (absent from the
+// JSON) from a contract recorded without one (null).
+type WorkflowContractPinRead struct {
+	Read bool
+	Pin  *WorkflowContractDefinitionPin
+}
+
+func (p WorkflowContractPinRead) IsZero() bool { return !p.Read }
+
+func (p WorkflowContractPinRead) MarshalJSON() ([]byte, error) { return json.Marshal(p.Pin) }
+
+// readWorkflowContractVersion reads one recorded contract version and every
+// enrichment keyed by it. It answers sql.ErrNoRows when the work never had
+// that version. A verified pin answers changes_product_truth; the active
+// read overwrites it with the instance's flag.
+func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, version int64) (WorkflowReadContract, error) {
+	var contract WorkflowReadContract
+	var required, routes, mandates, modifies string
+	var supersededBy sql.NullInt64
+	var pin WorkflowContractDefinitionPin
+	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,approved_at,approved_by,superseded_by,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Version, &pin.Digest)
+	if err == sql.ErrNoRows {
+		return contract, err
+	}
+	if err != nil {
+		return contract, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
+		return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+	}
+	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
+	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
+	contract.SpecMandate = nonNilStrings(contract.SpecMandate)
+	contract.LawModifies = nonNilStrings(contract.LawModifies)
+	if supersededBy.Valid {
+		contract.SupersededBy = &supersededBy.Int64
+	}
+	contract.DefinitionPin.Read = true
+	if pin.Ref != "" {
+		registered, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
+		pin.Verified = verifyErr == nil
+		contract.DefinitionPin.Pin = &pin
+		if pin.Verified {
+			changes := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+			contract.ChangesProductTruth = &changes
+		}
+	}
+	if contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.LawRevisions, err = readWorkflowLawRevisions(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	if contract.SelfRepair, err = readWorkflowSelfRepair(ctx, q, workID, contract.Version); err != nil {
+		return contract, err
+	}
+	return contract, nil
 }
 
 type WorkflowReadPredicate struct {
@@ -162,16 +243,10 @@ type WorkflowReadProjection struct {
 	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
 }
 
-// ReadWorkflowProjection returns one bounded, point-in-time workflow
-// observation. The database snapshot is never modified by this function.
-func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
+// readWorkflowProjectionTx returns the bounded workflow observation from the
+// caller's snapshot. An absent instance returns an empty projection.
+func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowReadRequest) (WorkflowReadProjection, error) {
 	var out WorkflowReadProjection
-	if s == nil || s.db == nil {
-		return out, newFailure(KindUnavailable, "workflow_read", "store is not open", false, "open the authority database")
-	}
-	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
-		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
-	}
 	if request.Limit <= 0 {
 		request.Limit = 32
 	}
@@ -179,9 +254,9 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, newFailure(KindInvalidOperation, "workflow_read", "workflow read limit exceeds the bounded maximum", false, "reduce the read limit")
 	}
 	var activeActor sql.NullString
-	if err := s.db.QueryRowContext(ctx, `SELECT instance_state,current_step,definition_ref,definition_version,definition_digest,execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&out.State, &out.CurrentStep, &out.Definition.Ref, &out.Definition.Version, &out.Definition.Digest, &activeActor); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT instance_state,current_step,definition_ref,definition_version,definition_digest,execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&out.State, &out.CurrentStep, &out.Definition.Ref, &out.Definition.Version, &out.Definition.Digest, &activeActor); err != nil {
 		if err == sql.ErrNoRows {
-			return out, newFailure(KindProjectionNotFound, "workflow_read", "workflow instance is not recorded", false, "reread_entities")
+			return out, nil
 		}
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
@@ -190,7 +265,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	if err != nil {
 		return out, err
 	}
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, s.db, request.WorkID, "workflow_read")
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_read")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
 	}
@@ -204,15 +279,15 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
-	out.ParkedDelivery = parkedDeliveryRead(ctx, s, registered.Definition, request.WorkID, out.CurrentStep, out.State)
-	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, s.db, request.WorkID)
+	out.ParkedDelivery = parkedDeliveryRead(ctx, q, registered.Definition, request.WorkID, out.CurrentStep, out.State)
+	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, q, request.WorkID)
 	if assertionErr != nil {
 		return out, assertionErr
 	}
 	out.DeliveryAssertion = deliveryAssertion
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
-	if err := s.db.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
+	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
@@ -221,38 +296,28 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
 
-	var contract WorkflowReadContract
-	var required, routes, mandates, modifies string
-	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
-	if err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
-		}
-		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-		contract.LawModifies = nonNilStrings(contract.LawModifies)
-		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, s.db, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, s.db, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
+	version := activeContractVersion
+	if request.ContractVersion != 0 {
+		version = request.ContractVersion
+	}
+	contract, err := readWorkflowContractVersion(ctx, q, request.WorkID, version)
+	switch {
+	case err == sql.ErrNoRows && request.ContractVersion != 0:
+		return out, newFailure(KindUnknownScope, "workflow_read", "the work item has no such contract version", false, "choose a contract version the work item recorded")
+	case err == sql.ErrNoRows:
+	case err != nil:
+		return out, err
+	case request.ContractVersion != 0:
+		out.ChangesProductTruth = contract.ChangesProductTruth != nil && *contract.ChangesProductTruth
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
-		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, s.db, request.WorkID, contract.Version)
-		if err != nil {
-			return out, err
-		}
+	default:
+		changes := out.ChangesProductTruth
+		contract.ChangesProductTruth = &changes
+		out.ArchitectureBinding = contract.ArchitectureBinding
+		out.Contract = &contract
 		if len(contract.SpecMandate) != 0 {
-			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, s.db, request.WorkID)
+			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, q, request.WorkID)
 			if homeErr != nil {
 				return out, homeErr
 			}
@@ -260,22 +325,22 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 			if mandateErr != nil {
 				return out, mandateErr
 			}
-			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, s.db, homeProjectID, homeLocatorID, request.WorkID, contract.Version, currentMandate)
+			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, q, homeProjectID, homeLocatorID, request.WorkID, contract.Version, currentMandate)
 			if err != nil {
 				return out, err
 			}
 		}
-	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
-	}
-	if out.Contract != nil {
-		out.OperatorQuestion, err = ReadWorkflowOperatorQuestion(ctx, s, request.WorkID)
+		var workVersion int64
+		if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&workVersion); err != nil {
+			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
+		}
+		out.OperatorQuestion, out.WithheldOperatorQuestion, err = workflowOperatorQuestionTx(ctx, q, request.WorkID, out.CurrentStep, workVersion, out.Definition, contract)
 		if err != nil {
 			return out, err
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
+	rows, err := q.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow candidates", true, "retry once the database is readable", err)
 	}
@@ -293,7 +358,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
+	rows, err = q.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow conditions", true, "retry once the database is readable", err)
 	}
@@ -335,7 +400,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	}
 	rows.Close()
 	out.AwaitHealth = health
-	ready, err := DeriveWorkflowReady(ctx, s, request.WorkID)
+	ready, err := deriveWorkflowReady(ctx, q, request.WorkID)
 	if err != nil {
 		return out, err
 	}
@@ -343,7 +408,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = append(out.BlockingConditions, ready.BlockingConditions...)
 	out.UnreadableConditions = append(out.UnreadableConditions, ready.UnknownConditions...)
 
-	rows, err = s.db.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
+	rows, err = q.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow impact notices", true, "retry once the database is readable", err)
 	}
@@ -362,12 +427,12 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	rows.Close()
 
 	var warnings string
-	if err := s.db.QueryRowContext(ctx, `SELECT json_extract(payload,'$.warnings') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, request.WorkID, WorkflowCompleted).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
+	if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.warnings') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, request.WorkID, WorkflowCompleted).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
 		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "rebuild projections from the event log")
 		}
 	}
-	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, s.db, request.WorkID)
+	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, q, request.WorkID)
 	if warningErr != nil {
 		return out, warningErr
 	}
@@ -386,173 +451,19 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	return out, nil
 }
 
-// WorkflowResumeBoundary is the production read of the last committed
-// checkpoint. The boundary is event-log-derived: the checkpoint projection is
-// joined back to its persisted checkpoint event before it is returned.
-type WorkflowResumeBoundary struct {
-	StepID       string `json:"step_id"`
-	CheckpointID string `json:"checkpoint_id"`
-	Source       string `json:"source"`
-}
-
-func ResumeWorkflow(ctx context.Context, s *Store, workID string) (WorkflowResumeBoundary, error) {
-	var boundary WorkflowResumeBoundary
-	var resumeCursor, eventID string
-	if s == nil || s.db == nil {
-		return boundary, newFailure(KindUnavailable, "workflow_resume", "store is not open", false, "open the authority database")
-	}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT c.resume_cursor,c.checkpoint_id,e.event_id
-		FROM workflow_checkpoints c
-		JOIN domain_events e ON e.subject_type=? AND e.subject_id=c.work_id AND e.kind=? AND json_extract(e.payload,'$.checkpoint_id')=c.checkpoint_id
-		WHERE c.work_id=? AND e.kind=?
-		ORDER BY e.seq DESC LIMIT 1`, SubjectWorkItem, WorkflowActionCheckpointed, workID, WorkflowActionCheckpointed).Scan(&resumeCursor, &boundary.CheckpointID, &eventID)
-	if err == sql.ErrNoRows {
-		return boundary, newFailure(KindProjectionNotFound, "workflow_resume", "workflow has no committed checkpoint", false, "reread_entities")
-	}
-	if err != nil {
-		return boundary, wrapFailure(KindUnavailable, "workflow_resume", "cannot read committed checkpoint", true, "retry once the database is readable", err)
-	}
-	if eventID == "" || resumeCursor == "" {
-		return boundary, newFailure(KindInvariantViolation, "workflow_resume", "checkpoint event has no resume boundary", false, "rebuild projections from the event log")
-	}
-	boundary.StepID = resumeCursor
-	boundary.Source = "event_log"
-	return boundary, nil
-}
-
-// readWorkflowSummaryTx is the transaction-local adapter used by the existing
-// PM1.Q7 history surface. It mirrors only bounded read fields, not the
-// complete ReadWorkflowProjection.
-func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*WorkflowReadProjection, error) {
-	var out WorkflowReadProjection
-	if tx == nil {
-		return nil, newFailure(KindUnavailable, "workflow_read", "read transaction is not open", false, "open the authority database")
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT instance_state,current_step,definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&out.State, &out.CurrentStep, &out.Definition.Ref, &out.Definition.Version, &out.Definition.Digest); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history summary", true, "retry once the database is readable", err)
-	}
-	out.WorkID = workID
-	registered, err := verifyReadWorkflowDefinition(out.Definition)
-	if err != nil {
-		return nil, err
-	}
-	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	out.Ready = true
-	out.CandidateIDs = []string{}
-	out.Conditions = []WorkflowReadCondition{}
-	out.UnresolvedConditions = []string{}
-	out.OverdueAwaits = []string{}
-	out.AwaitHealth = []WorkflowReadCondition{}
-	out.UnreadableConditions = []string{}
-	out.BlockingConditions = []string{}
-	out.ImpactNotices = []WorkflowReadNotice{}
-	out.CompletionWarnings = []string{}
-	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, tx, workID)
-	if assertionErr != nil {
-		return nil, assertionErr
-	}
-	out.DeliveryAssertion = deliveryAssertion
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_read")
-	if contractErr != nil && contractErr != sql.ErrNoRows {
-		return nil, contractErr
-	}
-	var contract WorkflowReadContract
-	var required, routes, mandates string
-	var modifies, rigorClass string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &rigorClass); err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
-		}
-		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-		contract.LawModifies = nonNilStrings(contract.LawModifies)
-		contract.RigorClass = rigorClass
-		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
-		if err != nil {
-			return nil, err
-		}
-		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, workID, contract.Version)
-		if err != nil {
-			return nil, err
-		}
-		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)
-		if err != nil {
-			return nil, err
-		}
-		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
-		if err != nil {
-			return nil, err
-		}
-		out.ArchitectureBinding = contract.ArchitectureBinding
-		out.Contract = &contract
-		var workVersion int64
-		if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&workVersion); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
-		}
-		out.OperatorQuestion, out.WithheldOperatorQuestion, err = workflowOperatorQuestionTx(ctx, tx, workID, out.CurrentStep, workVersion, out.Definition, contract)
-		if err != nil {
-			return nil, err
-		}
-	} else if err != sql.ErrNoRows {
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history contract", true, "retry once the database is readable", err)
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT 32`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history conditions", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var condition WorkflowReadCondition
-		if err := rows.Scan(&condition.ID, &condition.AwaitType, &condition.AwaitRef, &condition.ResolutionAuthority, &condition.State); err != nil {
-			rows.Close()
-			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow history condition", true, "retry once the database is readable", err)
-		}
-		out.Conditions = append(out.Conditions, condition)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot finish reading workflow history conditions", true, "retry once the database is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot close workflow history conditions", true, "retry once the database is readable", err)
-	}
-	for _, condition := range out.Conditions {
-		if condition.State != "open" {
-			continue
-		}
-		out.UnresolvedConditions = append(out.UnresolvedConditions, condition.ID)
-		out.Ready = false
-		var owner string
-		if strings.HasPrefix(condition.ResolutionAuthority, "durable_operation:") && tx.QueryRowContext(ctx, `SELECT work_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, strings.TrimPrefix(condition.ResolutionAuthority, "durable_operation:")).Scan(&owner) == nil && owner == workID {
-			out.BlockingConditions = append(out.BlockingConditions, condition.ID)
-		} else {
-			out.UnreadableConditions = append(out.UnreadableConditions, condition.ID)
-		}
-	}
-	if out.Conditions == nil {
-		out.Ready = true
-	}
-	return &out, nil
-}
-
 // parkedDeliveryRead derives the CD-0166 parked-delivery observation for a
 // work item whose current step is the delivery gate. ParkedSeconds is a
 // read-time display age taken from the work item's last update; elapsed time
 // holds no authority here, matching the await-health boundary, so an old park
 // is labeled and never resolved by clock. A terminal instance that left the
 // gate uncrossed reads as unreconciled.
-func parkedDeliveryRead(ctx context.Context, s *Store, definition WorkflowDefinition, workID, currentStep, state string) *WorkflowReadParkedDelivery {
+func parkedDeliveryRead(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep, state string) *WorkflowReadParkedDelivery {
 	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		return nil
 	}
 	parked := &WorkflowReadParkedDelivery{WorkID: workID, StepID: currentStep, ResumeAction: "record_delivery"}
 	var updatedAt string
-	if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM work_items WHERE id=?`, workID).Scan(&updatedAt); err == nil {
+	if err := q.QueryRowContext(ctx, `SELECT updated_at FROM work_items WHERE id=?`, workID).Scan(&updatedAt); err == nil {
 		if touched, parseErr := time.Parse(time.RFC3339, updatedAt); parseErr == nil {
 			if age := int64(time.Now().UTC().Sub(touched).Seconds()); age > 0 {
 				parked.ParkedSeconds = age

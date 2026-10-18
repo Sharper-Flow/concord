@@ -4,6 +4,7 @@
 package workflowcorpus
 
 var AgentBoundaryScenarioIDs = []string{
+	"WF25-operator-takeover-approval",
 	"WF39-action-error-envelope",
 	"WF46-event-version-fail-closed",
 	"WF56-session-vacate-then-reclaim-passes-gate",

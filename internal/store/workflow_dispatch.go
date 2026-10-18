@@ -41,7 +41,11 @@ type WorkflowActionExecutionRequest struct {
 	// FailedRetryApproved is set by the boundary after consuming the exact
 	// approval for a failed retry below the limit. It cannot open the
 	// convergence wall and is never decoded from request input.
-	FailedRetryApproved  bool
+	FailedRetryApproved bool
+	// ApprovedTakeover names the held attempt whose exact approval the
+	// boundary consumed for this fenced start. It is never decoded from
+	// request input.
+	ApprovedTakeover     *WorkflowStartTakeover
 	AcceptedInputsDigest string
 	IdempotencyIdentity  string
 	OperationID          string
@@ -83,11 +87,6 @@ type WorkflowActionExecutionResult struct {
 	ChangedRefs      []string
 	ResultingVersion int64
 	Result           json.RawMessage
-	// NativeRun is the attributed report this action recorded, if any. A
-	// failure-classified report makes the logical operation partial (CD-0039
-	// D7/D8): the native steps are durable facts, the approved change did not
-	// complete successfully, and ok is reserved for successful predicates.
-	NativeRun *NativeRunReport
 }
 
 // WorkflowActionDefinitionFor returns the registered action policy after the
@@ -400,6 +399,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return result, err
 	}
+	if action := workflowActionDefinitionByID(entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
+		if err := guardStartTakeover(ctx, tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+			return result, err
+		}
+	}
 	payload := guards.defaultedPayload()
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
 		return result, err
@@ -464,7 +468,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err != nil {
 		return result, err
 	}
-	result.NativeRun = assembly.nativeRun
 
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
 	if err != nil {
@@ -874,8 +877,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 	eventID := request.OperationID + ":semantic"
 	switch request.ActionID {
-	case "start_run", "record_health", "rollback_run", "cleanup_run":
-		return workflowNativeRunPhaseEvents(request, fields, eventID, expected)
 	case "checkpoint_context":
 		return workflowContextCheckpointEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "cross_context_boundary":
@@ -919,39 +920,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	default:
 		return nil, nil
 	}
-}
-
-// workflowNativeRunPhaseEvents stays in this file: the native-run status
-// vocabulary guard pins NativeRunStatusAllowed(phase, status) to the
-// dispatch surface (scripts/check-native-run-statuses.py).
-func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	// CD-0039 D5/D6: the native-run actions carry typed phase payloads.
-	// The action ID fixes the phase; callers never choose it.
-	phaseByAction := map[string]string{"start_run": "start", "record_health": "health", "rollback_run": "rollback", "cleanup_run": "cleanup"}
-	phase := phaseByAction[request.ActionID]
-	runID, runOK := workflowFieldString(fields, "run_id")
-	subjectRef, subjectOK := workflowFieldString(fields, "native_subject_ref")
-	status, statusOK := workflowFieldString(fields, "status")
-	evidenceRef, evidenceOK := workflowFieldString(fields, "evidence_ref")
-	evidenceDigest, digestOK := workflowFieldString(fields, "evidence_digest")
-	assertedAt := workflowFieldStringDefault(fields, "asserted_at", request.Now.Format(time.RFC3339Nano))
-	missing := []string{}
-	for name, ok := range map[string]bool{"run_id": runOK, "native_subject_ref": subjectOK, "status": statusOK, "evidence_ref": evidenceOK, "evidence_digest": digestOK} {
-		if !ok {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 || runID == "" || subjectRef == "" || status == "" || evidenceRef == "" || evidenceDigest == "" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", request.ActionID+" requires typed native-run fields: run_id, native_subject_ref, status, evidence_ref, evidence_digest", false, "supply the native authority's attributed report fields")
-	}
-	if !NativeRunStatusAllowed(phase, status) {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", status+" is not a "+phase+" status", false, "use the closed status vocabulary for this phase")
-	}
-	nativeEvent, err := buildNativeRunEvent(eventID+":native-run", request.WorkID, request.Actor, request.Now, expected, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt)
-	if err != nil {
-		return nil, err
-	}
-	return []Event{nativeEvent}, nil
 }
 
 func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
@@ -1172,10 +1140,6 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 			}
 		}
 	}
-	var actionGroundTruth map[string]any
-	if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
-		_ = json.Unmarshal(payload, &actionGroundTruth)
-	}
 	var outcomePredicates []workflowContractPredicatePayload
 	if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
 		_ = json.Unmarshal(rawPredicates, &outcomePredicates)
@@ -1186,39 +1150,22 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 		if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
 			outcomePredicates = []workflowContractPredicatePayload{}
 		} else {
-			outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+			outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", "")
 			outcome := workflowFieldRaw(fields, "outcome")
 			if len(outcome) != 0 && string(outcome) != "null" {
 				var predicate map[string]any
 				if json.Unmarshal(outcome, &predicate) == nil {
-					outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+					outcomeKind = workflowFieldStringDefaultMap(predicate, "kind", outcomeKind)
 				}
 			}
 			outcomePayload := workflowFieldRaw(fields, "outcome_payload")
 			if len(outcomePayload) == 0 {
 				outcomePayload = defaultWorkflowOutcome(definition, fields)
 			}
-			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
-		}
-	}
-	for _, predicate := range outcomePredicates {
-		var groundTruth map[string]any
-		groundTruthValue := ""
-		if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
-			groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
-		}
-		if groundTruthValue == "" {
-			groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
-		}
-		if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
+			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKind, OutcomePayload: outcomePayload}}
 		}
 	}
 	return outcomePredicates, nil
-}
-
-func workflowOutcomePredicateVacuous(kind, groundTruth string) bool {
-	return (kind == "exists" && strings.HasSuffix(groundTruth, "-present")) || (kind == "absent" && strings.HasSuffix(groundTruth, "-absent"))
 }
 
 func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {

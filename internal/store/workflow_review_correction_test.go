@@ -26,24 +26,15 @@ func reviewGateLane(t *testing.T, capabilityClass string) LaneDefinition {
 	return LaneDefinition{}
 }
 
-// reviewGateRunAttempt records the lane dispatch, its dispatch_worker action
-// completion, and the completed report for one worker attempt. The dispatch
-// carries the lane's capability class, which is how the review gate tells a
-// review attempt from a repair attempt.
-func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID string, epoch int64, lane LaneDefinition, ownerRef string, at int64) {
+// reviewGateRunAttempt records the attempt's dispatch_worker authorization,
+// worker.dispatched evidence, and completed report; it returns the attempt's
+// recorded authorization epoch, which later accepts and rejects must name.
+func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID string, lane LaneDefinition, ownerRef string, at int64) int64 {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "review-gate-dispatch-action-" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": stepID, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef,
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, stepID, ownerRef)
+	// The authorization just opened the step's newest action start, so the
+	// latest start epoch is this attempt's recorded authorization epoch.
+	epoch := latestStepStartEpoch(t, s, workID, stepID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "review-gate-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
@@ -52,10 +43,11 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC()),
+		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC(), workerFixtureDirectory(t, s, workID)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	return epoch
 }
 
 func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) int64 {
@@ -122,7 +114,7 @@ func reviewGateRejectResult(t *testing.T, s *Store, workID, attemptID string, ep
 }
 
 // reviewGateDriveRejection drives the repair pass, then the refinement pass
-// whose review rejects, and returns the refinement attempt epoch.
+// whose review rejects, and returns the refinement step's start epoch.
 func reviewGateDriveRejection(t *testing.T, fixture workflowReturnRouteFixture, workID string, at *int64) int64 {
 	t.Helper()
 	s := fixture.store
@@ -134,9 +126,9 @@ func reviewGateDriveRejection(t *testing.T, fixture workflowReturnRouteFixture, 
 	implement := reviewGateLane(t, "implementation")
 	review := reviewGateLane(t, "review")
 
-	repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 	repairAttempt := "attempt:" + workID + ":repair"
-	reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, implement, ownerRef, *at)
+	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", implement, ownerRef, *at)
 	*at += 2
 	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
 		t.Fatalf("accept repair: %v", err)
@@ -144,9 +136,9 @@ func reviewGateDriveRejection(t *testing.T, fixture workflowReturnRouteFixture, 
 
 	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	reviewAttempt := "attempt:" + workID + ":review-1"
-	reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", refineEpoch, review, ownerRef, *at)
+	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, *at)
 	*at += 2
-	reviewGateRejectResult(t, s, workID, reviewAttempt, refineEpoch, acceptor)
+	reviewGateRejectResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor)
 	return refineEpoch
 }
 
@@ -183,7 +175,7 @@ func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
 			// The repaired implement result's exit refuses while no fresh
 			// accepted review covers it, on either route.
 			repairedAttempt := "attempt:" + workID + ":repair-1"
-			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, implement, ownerRef, at)
+			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", implement, ownerRef, at)
 			at += 2
 			err = route.exit(t, s, workID, repairedAttempt, refineEpoch, acceptor, nil, true)
 			var failure *Failure
@@ -211,9 +203,9 @@ func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
 			// Its acceptance is itself the fresh review, so it rides the
 			// combined accept on both routes and advances into the gate.
 			freshReview := "attempt:" + workID + ":review-2"
-			reviewGateRunAttempt(t, s, workID, freshReview, "refine", refineEpoch, review, ownerRef, at)
+			freshEpoch := reviewGateRunAttempt(t, s, workID, freshReview, "refine", review, ownerRef, at)
 			at += 2
-			if err := acceptRefineResult(t, s, workID, freshReview, refineEpoch, acceptor); err != nil {
+			if err := acceptRefineResult(t, s, workID, freshReview, freshEpoch, acceptor); err != nil {
 				t.Fatalf("accept after fresh review refused: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")
@@ -281,9 +273,9 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 			review := reviewGateLane(t, "review")
 			at := int64(100)
 
-			repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+			reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
 			repairAttempt := "attempt:" + workID + ":repair"
-			reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, implement, ownerRef, at)
+			repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", implement, ownerRef, at)
 			at += 2
 			if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
 				t.Fatalf("accept repair: %v", err)
@@ -292,11 +284,11 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 			refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			// Two review attempts dispatch before the rejection.
 			earlyReview := "attempt:" + workID + ":review-early"
-			reviewGateRunAttempt(t, s, workID, earlyReview, "refine", refineEpoch, review, ownerRef, at)
+			reviewGateRunAttempt(t, s, workID, earlyReview, "refine", review, ownerRef, at)
 			at += 2
 			rejectedReview := "attempt:" + workID + ":review-rejected"
-			reviewGateRunAttempt(t, s, workID, rejectedReview, "refine", refineEpoch, review, ownerRef, at)
-			reviewGateRejectResult(t, s, workID, rejectedReview, refineEpoch, acceptor)
+			rejectedEpoch := reviewGateRunAttempt(t, s, workID, rejectedReview, "refine", review, ownerRef, at)
+			reviewGateRejectResult(t, s, workID, rejectedReview, rejectedEpoch, acceptor)
 
 			// The refine exit behind the pre-rejection review refuses: a
 			// review settles the debt only when its dispatch postdates the
@@ -338,10 +330,10 @@ func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T
 			// Review B dispatches and completes after the rejection; the
 			// implement repair C dispatches and completes after B.
 			earlyFreshReview := "attempt:" + workID + ":review-2"
-			reviewGateRunAttempt(t, s, workID, earlyFreshReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
+			reviewGateRunAttempt(t, s, workID, earlyFreshReview, "refine", reviewGateLane(t, "review"), ownerRef, at)
 			at += 2
 			repairedAttempt := "attempt:" + workID + ":repair-1"
-			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", reviewGateLane(t, "implementation"), ownerRef, at)
 			at += 2
 
 			// The refine exit behind the review that predates the repaired
@@ -367,7 +359,7 @@ func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T
 			// the fresh review. Before its acceptance the pin advertises
 			// exactly that acceptance and still withholds the delivery exit.
 			settlingReview := "attempt:" + workID + ":review-3"
-			reviewGateRunAttempt(t, s, workID, settlingReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
+			settlingEpoch := reviewGateRunAttempt(t, s, workID, settlingReview, "refine", reviewGateLane(t, "review"), ownerRef, at)
 			at += 2
 			pin, pinErr = ReadWorkPin(ctx, s, workID)
 			if pinErr != nil {
@@ -382,7 +374,7 @@ func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T
 
 			// The settling accept advances into the gate, and the gate
 			// crossing admits the reviewed change.
-			if err := acceptRefineResult(t, s, workID, settlingReview, refineEpoch, acceptor); err != nil {
+			if err := acceptRefineResult(t, s, workID, settlingReview, settlingEpoch, acceptor); err != nil {
 				t.Fatalf("accept after the repair-postdating review refused: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "delivery")
@@ -421,9 +413,9 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 			acceptor := reviewGateAcceptor(workID)
 			at := int64(100)
 
-			workEpoch := reviewGateStartStep(t, s, workID, tc.verdictStep, tc.startAction, fixture.owner)
+			reviewGateStartStep(t, s, workID, tc.verdictStep, tc.startAction, fixture.owner)
 			workAttempt := "attempt:" + workID + ":work"
-			reviewGateRunAttempt(t, s, workID, workAttempt, tc.verdictStep, workEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+			workEpoch := reviewGateRunAttempt(t, s, workID, workAttempt, tc.verdictStep, reviewGateLane(t, "implementation"), ownerRef, at)
 			at += 2
 			if err := reviewGateAcceptResult(t, s, workID, workAttempt, workEpoch, acceptor); err != nil {
 				t.Fatalf("accept %s result: %v", tc.verdictStep, err)
@@ -431,14 +423,14 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 
 			// A rejected refinement review, then the repaired implement
 			// result whose accept seeds the parked gate position.
-			refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			reviewAttempt := "attempt:" + workID + ":review-1"
-			reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
+			reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", reviewGateLane(t, "review"), ownerRef, at)
 			at += 2
-			reviewGateRejectResult(t, s, workID, reviewAttempt, refineEpoch, acceptor)
+			reviewGateRejectResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor)
 			repairedAttempt := "attempt:" + workID + ":repair-1"
-			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
-			reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, refineEpoch, acceptor)
+			repairedEpoch := reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", reviewGateLane(t, "implementation"), ownerRef, at)
+			reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, repairedEpoch, acceptor)
 			reviewGateRequireStep(t, s, workID, "delivery")
 
 			// The instance stays pinned to the current version, whose gate

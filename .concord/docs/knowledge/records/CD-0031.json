@@ -25,12 +25,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:edbe721aa2ec8c7f941a815a70b40974a2689af2d0a8a9ab747f0643ed523767",
+  "sha256": "sha256:92b3a8cc7e74273b446588cd5481919e5d77329d61d82add13dedb8aadf4627d",
   "status": "accepted",
-  "summary": "Launcher-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity before OpenCode starts; the launcher remains identity-only.",
+  "summary": "Host-started operator sessions receive one generated, digest-bound packet rendered from canonical continuity through work-start preparation; the host start stays identity-only, and the per-turn hook re-renders the same bytes (CD-0090).",
   "tags": [
     "continuity",
-    "launcher",
+    "session-prepare",
     "agent-surface"
   ],
   "title": "Core-derived operator session boot"

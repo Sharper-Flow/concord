@@ -70,7 +70,7 @@ test("ci watch publishes only repo and selector as required through the host def
   expect(published).toEqual(hostToolSchemas.concord_ci_watch)
   expect(published.required).toEqual(["repo", "selector"])
   expect(published.additionalProperties).toBe(false)
-  expect(Object.keys(published.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(published.properties).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(output.description).toBe(plugin.tool.concord_ci_watch.description)
 })
 
@@ -80,7 +80,7 @@ test("the plugin registration set equals the complete host tool catalog", async 
   // registration.
   const plugin = await ConcordAdapterPlugin()
   const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
-  expect(catalog.length).toBe(11)
+  expect(catalog.length).toBe(14)
   expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 
@@ -155,12 +155,12 @@ describe("plugin entry registers the session compacting hook", () => {
     // the hook is resolved.
     const hook = await compactingHook()
     hostControlPlane().bind({
-      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the tab stub" }, response: new Response(null, { status: 200 }) }),
+      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the closure notice" }, response: new Response(null, { status: 200 }) }),
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     })
     const output = { context: [] as string[] }
     await hook({ sessionID: "session-compact" }, output)
-    expect(output.context).toEqual(["Goal: Ship the tab stub"])
+    expect(output.context).toEqual(["Goal: Ship the closure notice"])
   })
 
   test("leaves a title without the goal prefix out of the compaction context", async () => {
@@ -854,6 +854,8 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
 // and leaves it bound changes what every later test file sees when the runner
 // shares one process, so every binding is undone as soon as its test ends.
 afterEach(() => {
+  dispatchWindows().close("session-plugin")
+  dispatchWindows().takeInFlight("session-plugin")
   hostControlPlane().bind(undefined)
   configureCiWatch({ reset: true })
   bindCiWatchClient(undefined)
@@ -865,4 +867,7 @@ afterEach(() => {
 // The factory claims a host lease at load, which fails against the unstamped
 // repository placeholder and closes the adapter transport. Later test files
 // share this process, so the factory tests leave the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(() => {
+  expect(dispatchWindows().inFlightAttempt("session-plugin")).toBeNull()
+  configureHostLease({ reset: true })
+})

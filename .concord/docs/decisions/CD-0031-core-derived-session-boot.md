@@ -4,22 +4,26 @@
 **Approval date:** 2026-08-16.
 **Approval:** Operator-approved GitHub issue #100 and implementation direction.
 **Related:** C18, CD-0016, CD-0017, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
+**Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the pre-OpenCode launch obligation
+under the Snowball coordinator's operator-delegated approval. The packet
+is consumed by work-start preparation and the per-turn continuity hook.
 
 > **Subsequent decision:** CD-0090 registers a per-turn runtime continuity hook in the adapter plugin entry. The "OpenCode host hooks and plugins are unnecessary" clause in §Consequences records the state when CD-0031 was accepted: the boot packet covered session start, and CD-0090 closes the mid-session window the boot packet cannot.
 
 ## Decision
 
-A launcher-started operator session receives a bounded, versioned session-boot
-packet before OpenCode starts. Concord derives the packet from the canonical
-CD-0016 continuity projection. The launcher still hands Product/work identity
+A host-started operator session receives a bounded, versioned session-boot
+packet through work-start preparation. Concord derives the packet from the
+canonical CD-0016 continuity projection. The host hands Product/work identity
 only; it does not read workflow state or decide what happens next.
 
-The launcher starts the same Concord binary with its internal `session` command
-and the existing identity environment. That child opens the authority database,
-calls `ReadWorkflowContinuity`, renders the same `ContinuityPayload` returned by
-`concord_work_trace.continuity`, validates the packet, and then starts OpenCode
-with the exact JSON as its initial prompt. A derivation or validation failure
-stops before OpenCode starts.
+The `concord session` child process and its pre-OpenCode launch obligation
+are removed. Work-start preparation reads one boundary record, renders the
+same `ContinuityPayload` returned by `concord_work_trace.continuity` through
+the retained packet renderer, and validates the packet before the session
+takes a managed action. A derivation or validation failure stops before
+managed action. The per-turn hook re-renders the same bytes through
+`sessionboot.Build` (CD-0090).
 
 ## Contract
 
@@ -60,17 +64,20 @@ operator use shows that observation visibility is insufficient.
 
 C18 remains unchanged in substance:
 
-- the launcher model and renderer carry identity only;
-- launch adds no durable write, workflow action, or second state derivation;
-- the core child uses the same typed projection and watermark as the agent read;
-- a stale launcher screen is harmless because session boot rereads current state.
+- the host start carries identity only;
+- work-start preparation adds no durable write, workflow action, or second
+  state derivation;
+- preparation and the per-turn hook use the same typed projection and
+  watermark as the agent read;
+- a stale prepared packet is harmless because managed action rereads current
+  state.
 
 ## Consequences
 
 The top-level operator session now has a stronger context boundary than prose
-instructions: it receives durable intent before its first action. OpenCode host
-hooks and plugins are unnecessary. Product-only launches have no selected work,
-so they remain identity-only and derive no workflow packet.
+instructions: it receives durable intent before its first managed action.
+OpenCode host hooks and plugins are unnecessary. A host-started session with
+no selected work stays identity-only and derives no workflow packet.
 
 The hand-written OpenCode adapter version and range now come from the generated
 manifest version. This removes a drift path that otherwise made any post-3.0

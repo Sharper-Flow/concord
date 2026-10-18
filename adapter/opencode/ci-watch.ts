@@ -29,9 +29,9 @@ import path from "node:path"
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { concordBinaryPath } from "./dispatch"
 import { hostControlPlane, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type PluginClientHost, type RouteResult } from "./move-session"
+import { promptAndConfirm as deliverHostPrompt, readSessionIdentity as hostSessionIdentity, type SessionIdentity } from "./host-prompt"
 
 const SESSION_STATUS_ROUTE = "/session/status"
-const PROMPT_ASYNC_ROUTE = "/session/{id}/prompt_async"
 const LOG_ROUTE = "/log"
 
 // The part metadata key that marks a user message as this module's operator
@@ -47,15 +47,12 @@ const CI_WATCH_REDELIVERY_METADATA = "concord.ci_watch_redelivery"
 export type CiWatchArgs = {
   repo: string
   selector: { kind: "pr" | "sha" | "run"; value: string }
+  head_sha?: string
   mode?: "checks" | "merge"
   time_seconds_max?: number
 }
 
 type CiWaitReport = { status: string; reason?: string; state_file?: string; [key: string]: unknown }
-
-// The session's persisted choice, shaped as the host prompt payload fields
-// that carry it, so every prompt spreads it unchanged.
-type SessionIdentity = { agent?: string; model?: { providerID: string; modelID: string }; variant?: string }
 
 type ActiveWatch = {
   id: string
@@ -195,6 +192,7 @@ function projectCiObservation(watch: ActiveWatch, report: CiWaitReport, startedA
   if (sha === null) gaps.push("sha_unknown")
   if (report.head_sha !== undefined && head === null) gaps.push("invalid_head_sha")
   if (watch.args.selector.kind === "sha" && sha !== watch.args.selector.value) gaps.push("subject_mismatch")
+  if (watch.args.head_sha !== undefined && sha !== watch.args.head_sha) gaps.push("subject_mismatch")
   let checks: CiWatchCounts | null = null
   if (report.checks !== undefined) {
     const raw = report.checks as Record<string, unknown> | null
@@ -371,6 +369,7 @@ const ciWatchContract = hostToolSchemas.concord_ci_watch
 const ciWatchRepoSchema = ciWatchContract.properties.repo
 const ciWatchSelectorSchema = ciWatchContract.properties.selector
 const ciWatchModeSchema = ciWatchContract.properties.mode
+const headPattern = new RegExp(ciWatchContract.properties.head_sha.pattern)
 const ciWatchBudgetSchema = ciWatchContract.properties.time_seconds_max
 const repoPattern = new RegExp(ciWatchRepoSchema.pattern)
 
@@ -450,6 +449,10 @@ export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   if (matchedKind === "pr" && !/^[0-9]+$/.test(value)) return "a pr selector value must be a pull request number"
   if (matchedKind === "sha" && !/^[0-9a-f]{40}$/.test(value)) return "a sha selector value must be a 40-character commit SHA"
   if (matchedKind === "run" && !/^[0-9]+$/.test(value)) return "a run selector value must be a run id"
+  if (record.head_sha !== undefined) {
+    if (matchedKind !== "pr") return "head_sha applies only to a pr selector"
+    if (typeof record.head_sha !== "string" || !headPattern.test(record.head_sha)) return "head_sha must be a 40-character lowercase commit SHA"
+  }
   if (record.mode !== undefined && !ciWatchModeSchema.enum.some((candidate) => candidate === record.mode)) {
     return `mode must be ${ciWatchModeSchema.enum.join(" or ")}`
   }
@@ -462,6 +465,7 @@ export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   return {
     repo: record.repo,
     selector: { kind: matchedKind, value },
+    ...(record.head_sha === undefined ? {} : { head_sha: record.head_sha as string }),
     ...(record.mode === undefined ? {} : { mode: record.mode as "checks" | "merge" }),
     ...(record.time_seconds_max === undefined ? {} : { time_seconds_max: record.time_seconds_max as number }),
   }
@@ -500,7 +504,7 @@ function cancelledCallerRefusal(): string {
 
 function watchKey(sessionID: string, args: CiWatchArgs): string {
   const selector = `${args.selector.kind}:${args.selector.value}`
-  return `${sessionID}|${args.repo}|${selector}|${args.mode ?? "checks"}`
+  return `${sessionID}|${args.repo}|${selector}|${args.head_sha ?? ""}|${args.mode ?? "checks"}`
 }
 
 function refusalResult(reason: string): { title: string; output: string } {
@@ -517,6 +521,7 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
       watch_id: watch.id,
       repo: watch.args.repo,
       selector: watch.args.selector,
+      ...(watch.args.head_sha === undefined ? {} : { head_sha: watch.args.head_sha }),
       mode: watch.args.mode ?? "checks",
       time_seconds_max: watch.args.time_seconds_max ?? 1800,
       state_file: watch.stateFile,
@@ -632,6 +637,7 @@ function verbRequestBody(watch: ActiveWatch): string {
   return JSON.stringify({
     repo: watch.args.repo,
     selector: watch.args.selector,
+    ...(watch.args.head_sha === undefined ? {} : { head_sha: watch.args.head_sha }),
     ...(watch.args.mode === undefined ? {} : { mode: watch.args.mode }),
     ...(watch.args.time_seconds_max === undefined ? {} : { time_seconds_max: watch.args.time_seconds_max }),
     state_file: watch.stateFile,
@@ -854,14 +860,7 @@ async function settle(watch: ActiveWatch, report: CiWaitReport, sliceObservation
 }
 
 async function promptAndConfirm(sessionID: string, text: string, metadata?: Record<string, unknown>): Promise<"delivered" | "unconfirmed"> {
-  const identity = await readSessionIdentity(sessionID)
-  await promptAsync(sessionID, identity, text, metadata)
-  const injected = await injectedReportMessageID(sessionID, text)
-  if (injected === null) {
-    throw new Error(`the host never persisted the injected report message for session ${sessionID}`)
-  }
-  const confirmed = await confirmAssistantReply(sessionID, injected)
-  return confirmed ? "delivered" : "unconfirmed"
+  return deliverHostPrompt(requireClient("deliver the terminal report"), sessionID, text, config, metadata)
 }
 
 async function waitForIdle(sessionID: string): Promise<void> {
@@ -886,94 +885,7 @@ async function readSessionStatus(sessionID: string): Promise<string> {
 }
 
 async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> {
-  const client = requireClient("read the session record")
-  const result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host session record answered ${result.response.status}`)
-  const record = (result.data ?? {}) as { agent?: unknown; model?: unknown }
-  const identity: SessionIdentity = {}
-  if (typeof record.agent === "string" && record.agent.length > 0) identity.agent = record.agent
-  if (record.model !== null && typeof record.model === "object") {
-    // The host session record carries the selected model as { id, providerID,
-    // variant? }; the prompt payload's model reference names the same pair
-    // { providerID, modelID }, so the host id maps onto modelID. The variant
-    // travels beside its model, and the host reads "default" as no variant.
-    const model = record.model as { id?: unknown; providerID?: unknown; variant?: unknown }
-    if (typeof model.providerID === "string" && model.providerID.length > 0 && typeof model.id === "string" && model.id.length > 0) {
-      identity.model = { providerID: model.providerID, modelID: model.id }
-      if (typeof model.variant === "string" && model.variant.length > 0 && model.variant !== "default") identity.variant = model.variant
-    }
-  }
-  return identity
-}
-
-async function promptAsync(sessionID: string, identity: SessionIdentity, text: string, metadata?: Record<string, unknown>): Promise<void> {
-  const client = requireClient("deliver the terminal report")
-  const part: Record<string, unknown> = { type: "text", text, synthetic: true }
-  if (metadata !== undefined) part.metadata = metadata
-  const body = { ...identity, parts: [part] }
-  const result = await client.post({ url: PROMPT_ASYNC_ROUTE, path: { id: sessionID }, body, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host prompt_async route answered ${result.response.status}`)
-}
-
-type SessionMessage = {
-  info?: { id?: unknown; role?: unknown; parentID?: unknown; error?: unknown }
-  parts?: Array<{ type?: unknown; text?: unknown }>
-}
-
-async function sessionMessages(sessionID: string): Promise<SessionMessage[]> {
-  const client = requireClient("read the session messages")
-  const result = await client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query: { limit: "20" }, signal: AbortSignal.timeout(10_000) })
-  if (!result.response.ok) throw new Error(`the host session messages route answered ${result.response.status}`)
-  return Array.isArray(result.data) ? (result.data as SessionMessage[]) : []
-}
-
-// The prompt_async route answers 204 before the host's forked prompt persists
-// anything and its response carries no message id, so the injected report is
-// identified by its own text on the session's user messages.
-async function injectedReportMessageID(sessionID: string, text: string): Promise<string | null> {
-  const deadline = Date.now() + config.confirmWindowMs
-  for (;;) {
-    for (const message of await sessionMessages(sessionID)) {
-      const info = message.info
-      if (info === null || typeof info !== "object" || info.role !== "user" || typeof info.id !== "string") continue
-      const parts = Array.isArray(message.parts) ? message.parts : []
-      const carries = parts.some((part) => part !== null && typeof part === "object" && part.type === "text" && part.text === text)
-      if (carries) return info.id
-    }
-    if (Date.now() + config.confirmPollMs > deadline) return null
-    await sleep(config.confirmPollMs)
-  }
-}
-
-// Delivery is proven only by actual assistant output (a non-empty text part
-// or tool activity) on the non-error assistant record the host parented to
-// the injected report message (the host's Assistant schema requires
-// parentID). The host persists that record before the model streams anything
-// and finalizes an interrupted record with an error, so a parented placeholder
-// or an errored record proves no turn ran and must not count as a reply. Any
-// other assistant message is concurrent traffic, not the wake.
-function assistantRecordProvesReply(message: SessionMessage, injectedMessageID: string): boolean {
-  const info = message.info
-  if (info === null || typeof info !== "object") return false
-  if (info.role !== "assistant" || info.parentID !== injectedMessageID) return false
-  if (info.error !== undefined && info.error !== null) return false
-  const parts = Array.isArray(message.parts) ? message.parts : []
-  return parts.some((part) => {
-    if (part === null || typeof part !== "object") return false
-    if (part.type === "tool") return true
-    return part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0
-  })
-}
-
-async function confirmAssistantReply(sessionID: string, injectedMessageID: string): Promise<boolean> {
-  const deadline = Date.now() + config.confirmWindowMs
-  for (;;) {
-    for (const message of await sessionMessages(sessionID)) {
-      if (assistantRecordProvesReply(message, injectedMessageID)) return true
-    }
-    if (Date.now() + config.confirmPollMs > deadline) return false
-    await sleep(config.confirmPollMs)
-  }
+  return hostSessionIdentity(requireClient("read the session record"), sessionID)
 }
 
 // unresolvedSessionDeliveries counts the session's accepted watches that can

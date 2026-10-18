@@ -94,7 +94,7 @@ func newAcceptanceRecoveryFixture(ctx context.Context, t *testing.T, extraRequir
 	setup := scenario.Setup
 	setup.EventHistory = history
 	store := openTemp(t)
-	if err := replayWorkflowCorpusSetup(ctx, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
+	if err := replayWorkflowCorpusSetup(ctx, t, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
 		t.Fatal(err)
 	}
 	workID := scenario.Setup.FixtureRefs.WorkItem
@@ -379,7 +379,7 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	defer s.Close()
 	reviewer := verdictReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
 		t.Fatalf("recording the prior worker verdict refused: %v", err)
 	}
 	setRequiredEvidenceKinds(t, s, workID, "verification", wf04OutstandingKind)

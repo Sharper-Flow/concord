@@ -1290,6 +1290,81 @@ func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	}
 }
 
+// ciWaitServeHead points gh at a stub whose pr view answers headJSON.
+func ciWaitServeHead(t *testing.T, headJSON string) {
+	t.Helper()
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"pr view"*) cat <<'EOC'
+`+headJSON+`
+EOC
+;;
+	*"pr checks"*) exit 97;;
+	*"run view"*) exit 97;;
+`+ciWaitQuietReads+`esac`))
+}
+
+// A watch started beside a push can read the pull request before the push
+// lands. Named with the pushed commit, it judges only that commit: the head it
+// replaces is pending, whatever its checks and merge state say, and the wait
+// latches the pushed commit once the pull request reaches it.
+func TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced,
+		[]ghPRRollup{ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/11/job/1")}))
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
+	code, report := runCiWaitStdin(t, request)
+	if code != 0 || report.Status != "pending" || report.SHA != pushed || report.HeadSHA != replaced || report.Checks != nil || len(report.Failures) != 0 {
+		t.Fatalf("the replaced head's failure must stay pending for the pushed commit, got code=%d report=%+v", code, report)
+	}
+	if !strings.Contains(report.Reason, "not the expected head") {
+		t.Fatalf("the pending reason must say the pull request has not reached the expected head, got %q", report.Reason)
+	}
+
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", pushed, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+	_, report = runCiWaitStdin(t, request)
+	if report.Status != "pending" || report.SHA != pushed || report.HeadSHA != pushed || !strings.Contains(report.Reason, "can merge") {
+		t.Fatalf("the pushed commit must be judged once the pull request reaches it, got %+v", report)
+	}
+
+	const later = "0123456789abcdef0123456789abcdef01234567"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", later, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+	_, report = runCiWaitStdin(t, request)
+	if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != later {
+		t.Fatalf("a head change after the pushed commit is latched must supersede the wait, got %+v", report)
+	}
+}
+
+// A pull request merged or closed at another head never reaches the expected
+// commit, so the wait ends superseded instead of judging the head it found.
+func TestCiWaitPRExpectedHeadNeverReachedIsSuperseded(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	for _, tc := range []struct{ name, mergedAt string }{{"merged", "2026-10-18T04:10:20Z"}, {"closed", ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "CLOSED", tc.mergedAt, replaced, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+			_, report := runCiWaitStdin(t, `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"`+pushed+`"}`)
+			if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != replaced {
+				t.Fatalf("a pull request %s at another head must supersede the wait, got %+v", tc.name, report)
+			}
+		})
+	}
+}
+
+func TestCiWaitExpectedHeadRequiresAPRSelectorAndACommitSHA(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	for name, body := range map[string]string{
+		"sha selector": `{"selector":{"kind":"sha","value":"6459f13778fcad4b42f771ac4988f55897f635f5"},"repo":"o/r","head_sha":"6459f13778fcad4b42f771ac4988f55897f635f5"}`,
+		"short sha":    `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","head_sha":"6459f137"}`,
+	} {
+		code, report := runCiWaitStdin(t, body)
+		if code != 1 || report.Status != "refused" {
+			t.Fatalf("%s: want refused, got code=%d report=%+v", name, code, report)
+		}
+	}
+}
+
 func TestCiWaitRunSelectorConclusions(t *testing.T) {
 	cases := []struct {
 		conclusion string

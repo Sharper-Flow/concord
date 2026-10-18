@@ -646,6 +646,49 @@ test("a duplicate watch for the same session and selector returns the active ide
   await ciWatchSettled(String(first.watch_id))
 })
 
+// A watch started beside a push names the pushed commit, so the verb judges
+// that commit and not the head it replaces. The commit is part of the watched
+// subject: a watch for it never folds into a running watch on the same pull
+// request that names no commit or another one.
+test("a pushed head_sha is validated, reaches every verb slice, and keys its own watch", async () => {
+  const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+  const admitted = validateCiWatchArgs({ ...watchArgs, mode: "merge", head_sha: pushed })
+  expect(admitted).toBeObject()
+  expect((admitted as CiWatchArgs).head_sha).toBe(pushed)
+  for (const refused of [
+    { repo: "owner/name", selector: { kind: "sha", value: pushed }, head_sha: pushed },
+    { repo: "owner/name", selector: { kind: "run", value: "77" }, head_sha: pushed },
+    { ...watchArgs, head_sha: "6459f137" },
+    { ...watchArgs, head_sha: pushed.toUpperCase() },
+  ]) {
+    expect(validateCiWatchArgs(refused), JSON.stringify(refused)).toBeString()
+  }
+
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
+  const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
+  const calls: string[] = []
+  configureCiWatch({
+    spawner: async (_argv, stdin) => {
+      calls.push(stdin)
+      return held.promise
+    },
+  })
+  const replaced = await startWatch(fixture)
+  const named = await startWatch(fixture, { ...watchArgs, head_sha: pushed })
+  expect(named.status).toBe("started")
+  expect(named.watch_id).not.toBe(replaced.watch_id)
+  expect(named.head_sha).toBe(pushed)
+  await until(() => calls.length === 2, "both watches spawn a slice")
+  expect(calls.map((stdin) => JSON.parse(stdin).head_sha)).toEqual([undefined, pushed])
+  held.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "cancelled" }), stderr: "" })
+  await ciWatchSettled(String(replaced.watch_id))
+  await ciWatchSettled(String(named.watch_id))
+})
+
 test("a different selector starts its own watch and each session wakes with its own report", async () => {
   const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)

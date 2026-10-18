@@ -208,7 +208,8 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("internal/store", counts)
         store_count = counts["internal/store"].pop()
         example = f'go-test-shard.py ./internal/store 1 {store_count})" ./internal/store'
-        for path in ("bin/oc-test", "README.md"):
+        prose = {"bin/oc-test": f"shard 1 of {store_count}:", "README.md": f"shard 1 of the {store_count} `internal/store` shards"}
+        for path, phrase in prose.items():
             with self.subTest(path=path):
                 text = (REPOSITORY / path).read_text()
                 for package in counts:
@@ -216,8 +217,7 @@ class TierRoutingTest(unittest.TestCase):
                     self.assertTrue(name in text, f"{path} does not name the sharded package {name}")
                 self.assertTrue(example in text, f"{path} lacks the one-shard example {example}")
                 self.assertEqual(set(re.findall(r"go-test-shard\.py \./internal/store \d+ (\d+)", text)), {store_count})
-        self.assertTrue(f"shard 1 of {store_count}:" in (REPOSITORY / "bin/oc-test").read_text(),
-                        f"bin/oc-test does not say shard 1 of {store_count}")
+                self.assertTrue(phrase in text, f"{path} does not say {phrase}")
 
     def test_smoke_isolates_product_selection_for_adapter_and_json(self):
         result = self.run_wrapper("smoke")

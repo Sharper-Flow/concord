@@ -333,7 +333,7 @@ jobs:
   # internal/store and cmd/concord each run as shard jobs that
   # scripts/go-test-shard.py deals from `go test -list`. verify-tests-rest
   # runs every other package, and verify-tests keeps the required check name
-  # by requiring every shard job.
+  # by requiring verify-tests-rest and every shard job.
   #
   # Shard margin rule: over the last 50 successful runs of this workflow, the
   # 90th percentile of the slowest internal/store shard's test step stays

@@ -2,11 +2,11 @@
 """Print the `go test -run` pattern for one shard of a package's tests.
 
 CI runs `internal/store` and `cmd/concord` as several jobs each, because one
-run of either is too slow for one job; the shard margin rule in
-.github/workflows/ci.yml decides the count. Each job asks this script for its
-share:
+run of either is too slow for one job; for `internal/store`, the shard margin
+rule in .github/workflows/ci.yml sets the count. Job i of n asks this script
+for its share:
 
-    go test -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
+    go test -run "$(python3 scripts/go-test-shard.py ./internal/store <i> <n>)" ./internal/store
 
 The package's top-level tests, examples, and fuzz targets come from
 `go test -list .`, sorted by name, and are dealt round-robin: shard i of n

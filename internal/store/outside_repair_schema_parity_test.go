@@ -437,7 +437,7 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 // {predicate_id, verdict_kind, evaluation_evidence} lives inside each batch
 // entry. The complete batch admits on both admission boundaries, and every
 // proper subset of the entry group is judged on both boundaries in every
-// position it can appear: inside the entry the schema's one required member
+// position it can appear: inside the entry the required predicate and kind
 // splits the subsets into legal minimal entries and refusals, and riding at
 // the top level — beside the batch or alone — every member refuses, because
 // the single form the engine declaration still names for replay carries no
@@ -521,12 +521,12 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 	for _, subset := range properSubsets {
 		label := strings.Join(subset, "+")
 		// The entry's own schema carries the discipline inside the batch:
-		// predicate_id is the one required member, so a subset that
-		// includes it is a legal minimal entry both boundaries admit, and
-		// a subset that omits it is a partial entry both refuse.
+		// predicate_id and verdict_kind are required, so a subset that
+		// includes both is a legal minimal entry both boundaries admit,
+		// and a subset that omits either is a partial entry both refuse.
 		entryErr := core(entryCarrying(subset))
 		entryVerdict := require("entry-carrying-" + label)
-		if containsString(subset, "predicate_id") {
+		if containsString(subset, "predicate_id") && containsString(subset, "verdict_kind") {
 			if entryErr != nil {
 				t.Errorf("core payload validation refuses the legal minimal entry {%s}: %v", label, entryErr)
 			}

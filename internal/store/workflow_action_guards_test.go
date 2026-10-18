@@ -431,7 +431,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
 		t.Fatalf("mandate recovery binding refused: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, s, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, s, workID)); err != nil {
 		t.Fatalf("verdict after mandate recovery binding refused: %v", err)
 	}
 }

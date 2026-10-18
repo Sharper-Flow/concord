@@ -21989,6 +21989,7 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
         },
         "verdict_kind": {
+          "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred.",
           "enum": [
             "ok",
             "outcome_mismatch",
@@ -21998,7 +21999,8 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "required": [
-        "predicate_id"
+        "predicate_id",
+        "verdict_kind"
       ],
       "type": "object"
     },

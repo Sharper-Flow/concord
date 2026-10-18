@@ -12101,7 +12101,8 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "predicate_id"
+        "predicate_id",
+        "verdict_kind"
       ],
       "properties": {
         "predicate_id": {
@@ -12114,7 +12115,8 @@
             "ok",
             "outcome_mismatch",
             "insufficient_evidence"
-          ]
+          ],
+          "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."
         },
         "evaluation_evidence": {
           "type": "array",

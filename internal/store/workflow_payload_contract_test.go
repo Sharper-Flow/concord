@@ -114,7 +114,7 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 			// verdicts item.
 			name:    "wrong registered item bound",
 			action:  "record_verdict",
-			payload: `{"verdicts":[{"predicate_id":"predicate:one","evaluation_evidence":[]}]}`,
+			payload: `{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok","evaluation_evidence":[]}]}`,
 			field:   "evaluation_evidence",
 			rule:    "minimum of 1",
 		},
@@ -255,7 +255,7 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	// The canonical record_verdict batch carries the entry's evaluation
 	// evidence through the generated reference schema: the slash the
 	// reference rule admits must survive the item boundary.
-	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","evaluation_evidence":["artifact:path/with/slash"]}]}`)); err != nil {
+	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok","evaluation_evidence":["artifact:path/with/slash"]}]}`)); err != nil {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
 	}
 	longLawID := "spec:" + strings.Repeat("a", 124)

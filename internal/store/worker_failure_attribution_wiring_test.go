@@ -619,21 +619,6 @@ func attributionIntegrationObservation(t *testing.T, s *Store, leaseID string) *
 	}
 }
 
-// attributionCorrectionPayload builds one request_correction payload with
-// the classic correction fields plus extra members.
-func attributionCorrectionPayload(extra map[string]any) json.RawMessage {
-	fields := map[string]any{
-		"diagnosis":     "the combined run failed its compatibility check",
-		"strategy":      "repair the contributing job and rerun the combined verification",
-		"predicate_ids": []string{"predicate:return-route"},
-		"evidence_refs": []string{"evidence:return-route-verification"},
-	}
-	for name, value := range extra {
-		fields[name] = value
-	}
-	return mustJSONValue(fields)
-}
-
 // TestWorkerFailureAttributionCoordinatorIntegrationCorrection composes the
 // A14 fence end to end: the correction attribution derives from the cited
 // failed run alone through the correction boundary's own derivation, the

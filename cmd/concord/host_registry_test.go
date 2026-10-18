@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,15 +30,6 @@ func (p *probeStub) probe(_ context.Context, argv []string, _ string) ([]byte, e
 		return nil, errors.New("no document for " + argv[0])
 	}
 	return []byte(document), nil
-}
-
-func probeDocument(t *testing.T, document any) string {
-	t.Helper()
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(encoded)
 }
 
 // The session-prepare registry resolution runs exactly one bare probe, and the document that

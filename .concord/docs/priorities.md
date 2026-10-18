@@ -84,6 +84,8 @@ See [`capability-placement.md`](./capability-placement.md).
 
 The order of the sections below carries no rank. The labels R3, P12, and U name
 conflict rules in [`goals.md`](./goals.md) Appendix A.
+[`CD-0230`](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+owns their enforcement, recorded application, and law-change authority.
 
 ### Product law and Domain architecture (goal A)
 
@@ -99,6 +101,11 @@ workflows, and evidence serve that law. Agents enact and change law under R3.
   Product concordance.
 - Semantic analysis may suggest duplicate or conflicting law; it never owns
   persistence, supersession, or blocking.
+- Every change keeps a footprint record at every size, and a tool fills it
+  ([`goals.md`](./goals.md) §2, goal A). The checked package map and the
+  footprint read that joins it to the law index are owned by
+  [`CD-0222`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
+  D2.
 
 See [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 [`specs-as-laws.md`](./specs-as-laws.md), and
@@ -183,11 +190,17 @@ they become blockers or contradictory Product truth.
 - The operator sees what is ready, what is blocked, what overlaps, and what is next.
 - Agents operate inside a Product and Domain context rather than hopping between disconnected projects.
 - Business grouping lives in Linear under CD-0213 and owns no architectural or law authority.
+- See [`CD-0230`](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+  for applying and recording the R2 sequencing rule in
+  [`goals.md`](./goals.md) Appendix A.
 
 ### Composable workflows (goal C)
 
 Goal C in [`goals.md`](./goals.md) §2 defines a workflow as a combination of
 shared parts.
+[`CD-0229`](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+owns how definitions compose those parts and how the decision model sets each
+work item's size.
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and the accepted composition model. Native

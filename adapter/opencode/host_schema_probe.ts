@@ -280,9 +280,9 @@ inspect(ciWatchRoot)
 const ciWatchProperties = object(ciWatchRoot.properties, "ci watch properties")
 if (
   JSON.stringify(Object.keys(ciWatchProperties).sort()) !==
-  JSON.stringify(["mode", "repo", "selector", "time_seconds_max"])
+  JSON.stringify(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
 ) {
-  fail("concord_ci_watch does not publish repo, selector, mode, and time_seconds_max as argument fields")
+  fail("concord_ci_watch does not publish repo, selector, head_sha, mode, and time_seconds_max as argument fields")
 }
 if (JSON.stringify(ciWatchRoot.required) !== JSON.stringify(["repo", "selector"])) fail("concord_ci_watch does not require repo and selector")
 const ciWatchSelector = object(ciWatchProperties.selector, "ci watch selector")

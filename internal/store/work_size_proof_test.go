@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -367,5 +368,25 @@ func TestWorkSizeReplayDerivesTheBasisFromTheLogBeforeTheRecord(t *testing.T) {
 	}
 	if err := foldRecordedEvent(workflowReplayContext(ctx), tx, recorded, scope); err != nil {
 		t.Fatalf("replayed size record refused: %v", err)
+	}
+}
+
+// While a review proof stands unrecorded, an operator size that changes the
+// size waits for the rerun that records it: a resize would otherwise drop the
+// proof from the lineage, and a later rerun could size the change down.
+func TestWorkSizeOverrideWaitsForTheRerunAfterAProof(t *testing.T) {
+	s := openTemp(t)
+	log := largerWork(t, s, "proved-override")
+	log.pass("review-1", "accept_worker_evidence", shipReview())
+	log.refine()
+	log.pass("review-2", "accept_worker_evidence", shipReview(oracleFinding("P1", OracleClassificationDeliveryBlocker)))
+	insertWorkSizeOverrideApproval(t, s, "proved-override", 1)
+	err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, "proved-override", "proved-override-override", WorkSizeSmall))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.RecoveryAction != RecoveryWorkSizeRerun {
+		t.Fatalf("override over a standing proof = %v, want the rerun refusal", err)
+	}
+	if count := countRows(t, s, "work_size_overrides"); count != 0 {
+		t.Fatalf("refused override wrote %d rows", count)
 	}
 }

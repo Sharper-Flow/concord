@@ -92,6 +92,14 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 	if !sized {
 		return WorkSizeRevisionResult{}, newFailure(KindInvalidOperation, "work_size_override", "the work item has no model size to override", false, "run the size model first")
 	}
+	// A standing proof is recorded only by the rerun that releases the D6
+	// stop; an override that changed the size first would resize past it
+	// and drop it from the lineage.
+	if proofs, err := deriveWorkSizeProofsTx(ctx, tx, request.WorkID, 0); err != nil {
+		return WorkSizeRevisionResult{}, err
+	} else if len(proofs) != 0 && request.Size != before.Effective {
+		return WorkSizeRevisionResult{}, newFailure(KindStaleRequiresReview, "work_size_override", "a review proved the work bigger after its size record", false, RecoveryWorkSizeRerun)
+	}
 	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{
 		ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest,
 		ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON,

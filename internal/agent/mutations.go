@@ -3110,6 +3110,8 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_ids": []string{product}}
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
+	scoped := base
+	scoped.ResolvedScope = scopeFromMap(scope)
 	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
 		ProductID:    product,
 		DefaultRef:   in.DefaultRef,
@@ -3117,46 +3119,18 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		RequestID:    in.IdempotencyKey,
 		Now:          r.Authority.now(),
 		Limit:        in.Limit,
+		Admit:        auditReclaimAdmission(scoped, intents),
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
 	}
-	changed := auditReclaimChangedRefs(result.Rows)
-	changed, truncation := boundResultChangedRefs(changed)
-	if truncation != nil {
-		base.Omissions = append(base.Omissions, *truncation)
-	}
-	payload, _ := json.Marshal(map[string]any{
-		"root": result.Root, "rows": result.Rows, "report_only": result.ReportOnly,
-		"changed_refs":       mutationResultChangedRefs(changed),
-		"next_valid_intents": mutationResultIntents(intents),
-	})
-	pins := make([]store.WorkPin, 0, len(changed))
-	var pinless []string
-	reported := 0
-	for _, row := range result.Rows {
-		if row.Outcome != store.WorktreeAuditReclaimed {
-			continue
-		}
-		if reported == len(changed) {
-			break
-		}
-		reported++
-		if row.WorkPin != nil {
-			pins = append(pins, *row.WorkPin)
-		} else {
-			pinless = append(pinless, row.WorkID)
-		}
-	}
-	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-	payload, derivedIntents, err := enrichMutationPayload(payload, pins)
+	report, err := buildAuditReclaimReport(base, result.Root, result.Rows, result.ReportOnly, intents)
+	changed := report.changed
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
 	}
-	if derivedIntents != nil {
-		intents = derivedIntents
-	}
-	base.ResolvedScope = scopeFromMap(scope)
+	base, payload, intents, pinless := report.base, report.payload, report.intents, report.pinless
+	base.ResolvedScope = scoped.ResolvedScope
 	payload, paged := compactAuditReclaimReport(base, payload, changed, intents)
 	base.Omissions = append(base.Omissions, paged...)
 	response := r.mutationResult(base, payload, changed, intents, pinless...)
@@ -3181,24 +3155,19 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	return response, nil
 }
 
-// auditReclaimPostCommitFailure classifies a failure that fired after the
-// audit's row transactions committed. The reclaimed rows in changed already
-// applied, so the envelope keeps the failure's kind and coupled recovery,
-// marks effects possible, and carries the committed refs bounded to the
-// envelope's changed-reference capacity, with a notice accounting for any
-// drop — refused rows never ride along, and the report must stay
-// deliverable whatever the pass size. A valid failure keeps its kind and
-// recovery action. An invalid failure becomes malformed_response, while an
-// empty commit set leaves the no-effect classification truthful.
+// auditReclaimPostCommitFailure classifies a genuine fault that fired after
+// some of the audit's row transactions committed. The reclaimed rows in
+// changed already applied, so the envelope keeps the failure's kind and
+// coupled recovery, marks effects possible, and carries exactly the committed
+// refs; refused rows never ride along, and the admission bound keeps the
+// committed refs within the envelope's capacity. A valid failure keeps its
+// kind and recovery action. An invalid failure becomes malformed_response,
+// while an empty commit set leaves the no-effect classification truthful.
 func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure Envelope) Envelope {
 	refs := append([]ChangedRef(nil), changed...)
-	refs, truncation := boundResultChangedRefs(refs)
 	if len(refs) > 0 && failure.Outcome == OutcomeError && failure.Error != nil {
 		failure.Error.EffectState = EffectPossible
 		failure.ChangedRefs = &refs
-		if truncation != nil {
-			failure.Omissions = append(failure.Omissions, *truncation)
-		}
 	}
 	if err := failure.Validate(); err == nil {
 		return failure
@@ -3207,21 +3176,110 @@ func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure 
 	if len(refs) > 0 {
 		validated.Error.EffectState = EffectPossible
 		validated.ChangedRefs = &refs
-		if truncation != nil {
-			validated.Omissions = append(validated.Omissions, *truncation)
-		}
 	}
 	return validated
 }
 
+// auditReclaimReport is one pass's success report before report-only paging:
+// the payload with its work pins, the envelope base carrying the pin notice,
+// and the intents the pins derive.
+type auditReclaimReport struct {
+	base    Envelope
+	payload json.RawMessage
+	changed []ChangedRef
+	intents []NextIntent
+	pinless []string
+}
+
+// buildAuditReclaimReport builds the report for the given rows. The final
+// result and the admission bound both build through it, so the bound measures
+// exactly the bytes the result reports.
+func buildAuditReclaimReport(base Envelope, root string, rows []store.WorktreeAuditReclaimRow, reportOnly []store.WorktreeDrift, intents []NextIntent) (auditReclaimReport, error) {
+	changed := auditReclaimChangedRefs(rows)
+	report := auditReclaimReport{base: base, changed: changed, intents: intents}
+	payload, err := json.Marshal(map[string]any{
+		"root": root, "rows": rows, "report_only": reportOnly,
+		"changed_refs":       mutationResultChangedRefs(changed),
+		"next_valid_intents": mutationResultIntents(intents),
+	})
+	if err != nil {
+		return report, err
+	}
+	pins := make([]store.WorkPin, 0, len(changed))
+	for _, row := range rows {
+		if row.Outcome != store.WorktreeAuditReclaimed {
+			continue
+		}
+		if row.WorkPin != nil {
+			pins = append(pins, *row.WorkPin)
+		} else {
+			report.pinless = append(report.pinless, row.WorkID)
+		}
+	}
+	report.base.Omissions = append(append([]Notice{}, base.Omissions...), mutationPinOmissions(report.pinless)...)
+	payload, derivedIntents, err := enrichMutationPayload(payload, pins)
+	if err != nil {
+		return report, err
+	}
+	if derivedIntents != nil {
+		report.intents = derivedIntents
+	}
+	report.payload = payload
+	return report, nil
+}
+
+// auditReclaimNoticeCountBound bounds the counts the admission bound reserves
+// for the paging notices, whose final counts are unknown while the pass runs.
+const auditReclaimNoticeCountBound = int64(1<<31 - 1)
+
+// auditReclaimRefusalKindBytes is the result schema's refusal_kind maxLength.
+const auditReclaimRefusalKindBytes = 64
+
+// auditReclaimAdmission is the producer bound the store applies inside each
+// reclaimed row's transaction, so a pass commits only what its success
+// envelope can report (CD-0185). It captures values only: it runs while the
+// store's one pooled connection is held and must never reach the store.
+func auditReclaimAdmission(base Envelope, intents []NextIntent) func(string, []store.WorktreeAuditReclaimRow, []store.WorktreeDrift) bool {
+	return func(root string, rows []store.WorktreeAuditReclaimRow, remaining []store.WorktreeDrift) bool {
+		if len(auditReclaimChangedRefs(rows)) > MaxChangedRefs {
+			return false
+		}
+		return auditReclaimAdmissionBytes(base, intents, root, rows, remaining) <= MaxResultEnvelopeBytes
+	}
+}
+
+// auditReclaimAdmissionBytes measures the smallest success envelope the
+// compaction can reach with rows reported: report_only paged to nothing,
+// every row detail dropped, both paging notices at their bounded counts, and
+// every remaining attempt reserved in its refused form, so no later refusal
+// can push the committed pass past the cap.
+func auditReclaimAdmissionBytes(base Envelope, intents []NextIntent, root string, rows []store.WorktreeAuditReclaimRow, remaining []store.WorktreeDrift) int {
+	minimal := make([]store.WorktreeAuditReclaimRow, 0, len(rows)+len(remaining))
+	for _, row := range rows {
+		row.Detail = ""
+		minimal = append(minimal, row)
+	}
+	reserve := strings.Repeat("x", auditReclaimRefusalKindBytes)
+	for _, drift := range remaining {
+		minimal = append(minimal, store.WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle, Outcome: store.WorktreeAuditRefused, RefusalKind: reserve})
+	}
+	report, err := buildAuditReclaimReport(base, root, minimal, []store.WorktreeDrift{}, intents)
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	bound := auditReclaimNoticeCountBound
+	notices := []Notice{
+		{Kind: "report_only_paged", Count: bound, Details: map[string]any{"classified": bound, "reported": bound}},
+		{Kind: "row_details_omitted", Count: bound, Details: map[string]any{"rows": bound, "with_detail": bound}},
+	}
+	return auditReclaimEnvelopeBytes(report.base, report.payload, report.changed, report.intents, notices)
+}
+
 // boundResultChangedRefs bounds a committed change list to the result
-// envelope's changed-reference capacity. Single-transaction mutations never
-// need this: their over-capacity results roll back and refuse before the
-// effect lands. Audit reclaim is the one mutation whose rows commit in their
-// own transactions ahead of the result, so a pass larger than the capacity
-// cannot refuse its way back to a truthful no-effect report — the list is
-// bounded instead, and the returned notice accounts for the dropped tail so
-// the caller can still reconcile by replaying the pass.
+// envelope's changed-reference capacity. Research retirement reports every
+// candidate in its payload, but a retirement batch can retire more packs than
+// the envelope's auxiliary changed-reference list holds, so the list is
+// bounded and the returned notice accounts for the dropped tail.
 func boundResultChangedRefs(changed []ChangedRef) ([]ChangedRef, *Notice) {
 	if len(changed) <= MaxChangedRefs {
 		return changed, nil

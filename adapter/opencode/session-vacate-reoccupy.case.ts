@@ -124,7 +124,7 @@ afterEach(async () => {
 afterAll(() => configureHostLease({ reset: true }))
 
 const connected =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 
@@ -134,16 +134,13 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     const repo2 = await repositoryFixture(root, "repo-2")
     await mkdir(repoCheckout, { recursive: true })
@@ -411,16 +408,13 @@ connected("a readback outside every Project recovers through the remembered dest
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
   const outside = join(root, "outside")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
@@ -586,16 +580,13 @@ connected("an unreadable ok answer recovers through the same-key replay from the
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
@@ -760,16 +751,13 @@ connected("a same-key replay after a later claim refuses without moving the host
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })

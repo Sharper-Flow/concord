@@ -44,6 +44,21 @@ with contextlib.redirect_stderr(io.StringIO()):
     _OPERATOR_PATHS = installer.paths_for(None)
 OPERATOR_ROOTS = (_OPERATOR_PATHS.data_home, _OPERATOR_PATHS.config_home, _OPERATOR_PATHS.bin_dir)
 
+# Every child inherits this process's environment or a copy of it, so the
+# private home and XDG roots cover children that pass no --root. The directory
+# is removed when the interpreter exits.
+_PRIVATE_HOME = tempfile.TemporaryDirectory(prefix="concord-installer-test-home-")
+for _name, _directory in (
+    ("HOME", "home"),
+    ("XDG_DATA_HOME", "data"),
+    ("XDG_CONFIG_HOME", "config"),
+    ("XDG_STATE_HOME", "state"),
+    ("XDG_CACHE_HOME", "cache"),
+):
+    _path = Path(_PRIVATE_HOME.name) / _directory
+    _path.mkdir()
+    os.environ[_name] = str(_path)
+
 
 def default_root_overlap() -> list[str]:
     """Name each default root a child of this process would share with the operator."""
@@ -4314,6 +4329,8 @@ class StandaloneInstallerTest(unittest.TestCase):
         # status may report nothing installed; it must not fail to start.
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("NameError", result.stderr)
+        # status locks the data root it resolved and leaves it in place.
+        self.assertTrue((Path(os.environ["XDG_DATA_HOME"]) / "concord").is_dir(), result.stderr)
 
     def test_a_failure_to_derive_reports_its_cause(self) -> None:
         """The raise path must name the module, not NameError.

@@ -80,7 +80,7 @@ type CompleteRequest struct {
 	ResultEventIDs []string   `json:"result_event_ids,omitempty"`
 }
 
-// FenceResult is the stable result of a claim, completion, or takeover.
+// FenceResult is the stable result of a claim or completion.
 type FenceResult struct {
 	OpID                  string     `json:"op_id"`
 	WorkID                string     `json:"work_id,omitempty"`
@@ -271,7 +271,7 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 		return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
 	}
 	if current.ResultKind != "" {
-		return FenceResult{}, newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or explicitly take over a new attempt")
+		return FenceResult{}, newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or claim a new attempt")
 	}
 	completed := ""
 	if req.CompletedAt != nil {
@@ -292,27 +292,6 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 	return FenceResult{OpID: req.OpID, AttemptEpoch: req.AttemptEpoch, ResultKind: req.ResultKind, ResultPayload: req.ResultPayload,
 		EvidenceRefs: append([]string(nil), req.EvidenceRefs...), ChangedRefs: append([]string(nil), req.ChangedRefs...), ResumeCursor: req.ResumeCursor,
 		ResultEventIDs: append([]string(nil), req.ResultEventIDs...)}, nil
-}
-
-// OperatorTakeover is the only recovery path that advances an attempt after a
-// prior claim. No expiry, heartbeat, hostname, or liveness inference exists.
-func OperatorTakeover(ctx context.Context, s *Store, req ClaimRequest, approvalRef string) (FenceResult, error) {
-	if strings.TrimSpace(approvalRef) == "" {
-		return FenceResult{}, newFailure(KindApprovalRequired, "operator_takeover", "explicit approval reference is required", false, "supply a non-empty operator approval reference")
-	}
-	if strings.TrimSpace(req.PrincipalRef) == "" || strings.TrimSpace(req.RequestID) == "" {
-		return FenceResult{}, newFailure(KindTakeoverRequired, "operator_takeover", "explicit principal and request ID are required", false, "supply both operator identity fields")
-	}
-	req.ApprovalRef = approvalRef
-	var scope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(req.AcceptedScopeSnapshot), &scope); err != nil {
-		return FenceResult{}, newFailure(KindInvalidOperation, "operator_takeover", "accepted_scope_snapshot is not valid JSON", false, "supply the original accepted scope snapshot")
-	}
-	approval, _ := json.Marshal(approvalRef)
-	scope["approval_ref"] = approval
-	encoded, _ := json.Marshal(scope)
-	req.AcceptedScopeSnapshot = string(encoded)
-	return ClaimStepAuthorized(ctx, s, req, nil)
 }
 
 type idempotencyRow struct {
@@ -521,7 +500,7 @@ func IdempotencyConflict(operationKind, key string) error {
 	return idempotencyConflict(operationKind, key)
 }
 func staleAttempt(opID string, epoch int64) *Failure {
-	return newFailure(KindStaleAttempt, "complete_step", fmt.Sprintf("attempt epoch %d for %s is not current", epoch, opID), false, "reconcile the current attempt or obtain an explicit operator takeover")
+	return newFailure(KindStaleAttempt, "complete_step", fmt.Sprintf("attempt epoch %d for %s is not current", epoch, opID), false, "reconcile the current attempt or claim a new attempt")
 }
 func hasStaleMarker(ids []string) bool {
 	for _, id := range ids {

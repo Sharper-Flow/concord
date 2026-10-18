@@ -286,7 +286,7 @@ const oracleReportText = () => JSON.stringify({
 })
 
 const admittedReport = (): CanonicalLaneReport => {
-  const admitted = resolveWorkerReportFromText(oracleReportText(), reviewPacket())
+  const admitted = resolveWorkerReportFromText(oracleReportText(), reviewPacket(), "provider/host-model")
   if (!("report" in admitted)) throw new Error(admitted.detail)
   return admitted.report
 }
@@ -304,7 +304,7 @@ test("typed oracle findings, resolutions, and receipts ride the canonical report
 test("the worker-echoed candidate subject is stripped from an oracle receipt", () => {
   const packet = reviewPacket()
   delete packet.inputs.work_context!.subject_commit
-  const admitted = resolveWorkerReportFromText(oracleReportText(), packet)
+  const admitted = resolveWorkerReportFromText(oracleReportText(), packet, "provider/host-model")
   if (!("report" in admitted)) throw new Error(admitted.detail)
   const receipt = admitted.report.evidence.find((entry) => entry.oracle_receipt)?.oracle_receipt
   expect(receipt?.subject_commit).toBeUndefined()
@@ -319,7 +319,7 @@ test("the observed candidate subject from the packet's work context is injected 
     domain_groups: [],
     subject_commit: "f".repeat(40),
   }
-  const admitted = resolveWorkerReportFromText(oracleReportText(), packet)
+  const admitted = resolveWorkerReportFromText(oracleReportText(), packet, "provider/host-model")
   if (!("report" in admitted)) throw new Error(admitted.detail)
   const receipt = admitted.report.evidence.find((entry) => entry.oracle_receipt)?.oracle_receipt
   expect(receipt?.subject_commit).toBe("f".repeat(40))

@@ -48,7 +48,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			LawModifies:         []string{"spec-1"},
 			LawRevisions:        []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass:          "prototype_internal",
-			ChangesProductTruth: true,
+			ChangesProductTruth: new(true),
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
 				DomainRegistryContentHash: "sha256:" + repeatHex(),
 				HomeDomainID:              "child",
@@ -373,7 +373,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
 			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
 			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
-			RigorClass: "prototype_internal", ChangesProductTruth: true, ArchitectureBinding: binding,
+			RigorClass: "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
 			SelfRepair: &store.WorkflowSelfRepair{RefusalKind: "missing_evidence", BlockedOperation: "workflow_action", EvidenceRefs: []string{"evidence:repair-1"}},
 		},
 		OperatorQuestion: &store.WorkflowOperatorQuestion{
@@ -1038,6 +1038,7 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
+		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
 	}
 }
 
@@ -1126,6 +1127,7 @@ var readPopulationRows = map[string][]string{
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
 	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
 	"concord_domain.overlaps":                  {"pairs"},
+	"concord_domain.footprint":                 {"laws"},
 }
 
 // readPopulationRowExemptions names every read whose probed input carries no

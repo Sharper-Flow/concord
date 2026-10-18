@@ -81,8 +81,11 @@ function unavailableEnvelope(pending: DispatchRecord, message: string): AgentRes
   }
 }
 
-export async function completeDispatchedWorker(input: LaneCompletionInput, output: LaneCompletionOutput, deps: LaneCompletionDeps = {}): Promise<void> {
+export async function completeDispatchedWorker(input: LaneCompletionInput, output: LaneCompletionOutput | undefined, deps: LaneCompletionDeps = {}): Promise<void> {
   if (input.tool !== TASK_TOOL_ID) return
+  // A failed native subtask has no after-hook result. Its terminal part event
+  // owns settlement, so completion must leave that attempt unclaimed.
+  if (output === undefined) return
   const windows = deps.windows ?? dispatchWindows()
   const record = windows.claimSettlement(input.sessionID, input.callID)
   if (!record) return
@@ -366,17 +369,20 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const state = part.state
   if (!object(state) || state.status !== "error" || typeof state.error !== "string") return null
   const windows = deps.windows ?? dispatchWindows()
-  const pending = windows.inFlight(part.sessionID, part.callID)
+  const pending = windows.inFlightAttempt(part.sessionID)
   if (!pending) return null
+  // Native hooks identify the part; model-issued Task hooks identify its call.
+  // Both identities must come from this exact host part and retained attempt.
+  const callID = pending.callID ?? part.callID
+  if (callID !== part.callID && callID !== part.id) return null
   const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_version, pending.packet.lane_digest)
   if (!lane) return unavailableEnvelope(pending, "in-flight attempt names a lane the registry does not carry")
   const metadata = state.metadata
   if (!object(metadata) || typeof metadata.sessionId !== "string" || !/^ses_[a-zA-Z0-9]+$/.test(metadata.sessionId)) {
     return unavailableEnvelope(pending, "cancelled Task has no host child session identity; retain the in-flight attempt for reconciliation")
   }
-  if (!windows.claimSettlement(part.sessionID, part.callID)) return null
+  if (!windows.claimSettlement(part.sessionID, callID)) return null
   const sessionID = part.sessionID
-  const callID = part.callID
   const observed = observations.take(metadata.sessionId)
   const detail = cancelledDetail(state.error, observed)
   try {

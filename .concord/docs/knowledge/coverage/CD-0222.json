@@ -105,12 +105,16 @@
       "value": "scripts/test-check-domain-registry.py"
     },
     {
-      "kind": "validator",
-      "value": "scripts/check-knowledge-index.py"
+      "kind": "go_test",
+      "value": "internal/store.TestPackageMapChangeKeepsRegistryPin"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestComposeKnowledgeManifestReadsTheLiveShards"
+      "value": "internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-check-package-domains.py"
     }
   ],
   "id": "CD-0222",

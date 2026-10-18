@@ -5,6 +5,10 @@
 - **Scope:** Authored and generated files under `.concord/`; worker edit authority and its enforcement limits.
 - **Time zone:** Eastern Daylight Time (EDT)
 - **Approval:** Snowball coordinator, operator-delegated, 2026-10-10 01:08 EDT
+- **Amendment approval:** The operator approved the capability-enforcement
+  amendment in-session on 2026-10-17 for [Concord (CON) issue 1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
+- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
+  the review-fix amendment in-session.
 - **Related:** [CD-0006](CD-0006-concord-root-product-policy.md), [CD-0036](CD-0036-breaking-law-cutovers.md), [CD-0072](CD-0072-unguarded-trunk-file-writes.md), [CD-0159](CD-0159-authority-tier-for-product-law.md), and [development authority](../development-authority.md).
 - **Preserves:** Product-law approval, revision identity, cutover, host ownership, and the existing lane capability registry.
 
@@ -12,7 +16,8 @@
 
 The `.concord/` directory contains authored Product law, knowledge metadata, coverage declarations, configuration, and generated projections.
 A path alone does not determine edit authority or law status.
-The lane registry grants scoped source edits to implement and design, but non-editing lanes inherit direct editor access from the host.
+The lane registry grants source edits through `edit_scoped_files`; role and job
+scope delimit their use.
 Product-law approval and permission to write a file are different facts.
 
 ## Decision
@@ -38,8 +43,9 @@ The coordinator resolves missing scope or law conflicts; a worker does not expan
 A lane without `edit_scoped_files` must not create, change, delete, or commit repository sources.
 This rule includes law, specifications, knowledge metadata, coverage declarations, and configuration under `.concord/`.
 Research, review, and verify return their assigned reports and evidence instead.
-Their generated definitions deny native file-edit permission and the separate `morph_edit` tool.
-The generator derives these denials from the existing capability registry, not a second writer list.
+Generated definitions deny native shell and named editor tools for lanes
+without `edit_scoped_files`. The generator derives those denials from the
+existing capability registry, not a second writer list.
 
 ### D4. Command artifacts do not confer authoring authority
 
@@ -49,14 +55,44 @@ Generated projections retain their owning generators and must not be hand-edited
 Changing an input, record status, authority tier, or coverage claim is source authoring, not regeneration.
 Refreshing a content hash or canonical encoding does not approve the content or its evidence.
 
+A non-editing lane executes checks only through a packet-bound host capability.
+The worker selects a recorded executable control, never an argv, shell string,
+repository path, or replacement recipe. The host validates the active attempt
+and uses the existing execution and lease owner for that control.
+
+A job's ordinary `checks` strings state requirements, not executable authority.
+An unbacked requirement remains required. The lane reports the missing backing
+and returns a failed status when that gap blocks its assigned result. The
+coordinator supplies approved executable backing; the worker does not infer it.
+
 ### D5. Enforcement is layered and its limits remain explicit
 
-Dispatch admission enforces the lane's permitted step kind.
-Generated host permissions deny named direct edit tools for non-editing lanes.
-Independent review examines the actual Git delta, approved scope, and law-approval evidence before acceptance and merge.
-Document, knowledge, and generator checks validate artifacts; they do not prove who wrote them or approved them.
-These controls do not prevent arbitrary shell writes or establish per-worker attribution in a shared worktree.
-No editor-host write-interception hook or filesystem sandbox is introduced; CD-0072 remains in force.
+Dispatch admission enforces the lane's permitted step kind. Generated host
+permissions deny native shell and named editors for non-editing lanes. They
+never override an operator's narrower host policy with a positive tool grant.
+
+Before a dispatched worker uses a native or directly exposed MCP tool, the
+adapter authenticates the host child, its authorized opening packet, its
+active attempt, and its dispatched worktree. One attempt binds one host child.
+The registered lane capabilities determine a closed tool allowlist. Unknown
+tools refuse before execution. A selected-agent change cannot widen that list.
+
+The opaque Code Mode `execute` tool is denied to every lane. Nested MCP
+admission remains unproved. Enabling that tool requires host-path evidence
+that every nested call reaches the same capability ceiling before execution.
+Direct local repository MCP tools must target the dispatched repository.
+A settling or retired attempt grants no further worker calls.
+
+Independent review examines the actual Git delta, approved scope, and
+law-approval evidence before acceptance and merge. Document, knowledge, and
+generator checks validate artifacts; they do not prove who wrote or approved
+them.
+
+These controls do not establish a filesystem or network sandbox, prevent an
+authorized editing lane's arbitrary shell writes, or attribute writes in a
+shared worktree. Native read and public-source tools retain their host resource
+permissions. No per-path filesystem write interceptor is introduced.
+CD-0072 remains in force. Outside-workflow host actors keep D6's boundary.
 
 ### D6. Outside-workflow changes retain their existing authority boundary
 
@@ -71,13 +107,15 @@ Concord does not change host roles or claim that generated lane permissions gove
 - A separate law-authoring lane duplicates the existing capability and job-scope owners.
 - Review alone leaves non-editing lanes with direct editors despite their declared role.
 - A post-worker diff cannot reliably identify a writer in a shared worktree without a new concurrency and attribution protocol.
-- An editor-host write-interception hook conflicts with CD-0072.
+- Path-based file-write interception changes the accepted trunk enforcement
+  boundary. It is not required for tool-capability admission.
 
 ## Consequences
 
 Implement and design retain approved source authoring, including explicitly bound law changes.
 Research, review, and verify lose direct editor access but retain permitted tests, validators, and report output.
-Shell and host-added tool permissions remain host-owned; generated editor denial is not a complete write sandbox.
+Host permissions remain operator-owned. Capability admission limits tool
+classes and the named local MCP target; it is not a complete resource sandbox.
 No additional approval turn is imposed on derived-law revisions already approved within the contract under CD-0159.
 The separate committed-content rule determines which content belongs in the repository; this decision determines authoring authority.
 Host permission resolution and independent review remain separate evidence obligations, not conclusions from artifact checks.
@@ -89,3 +127,13 @@ Host permission resolution and independent review remain separate evidence oblig
 - `python3 scripts/check-doc-contract.py` checks the decision outline and prose; it does not prove author approval.
 - `python3 scripts/check-knowledge-closure.py --strict` checks registration closure; it does not prove author approval.
 - `python3 scripts/check-knowledge-index.py` checks record identity and content proofs; independent review checks approval and the actual source delta.
+- `bun test adapter/opencode/lane_capabilities.test.ts` exercises direct tool
+  denials, worktree targeting, opening-packet identity, single-child binding,
+  agent changes, attempt retirement, and refusal of the opaque Code Mode
+  `execute` tool. It does not prove nested host-hook admission.
+- `go test ./internal/agent -run '^TestWorkerControl'` exercises the shared
+  signed assertion framing, actual-child policy, revocation, and Product scope.
+- `go test ./internal/store -run '^(TestNativeWorkerControl|TestResolveWorkerControl)'`
+  exercises recorded control resolution, live-attempt joins, child attribution,
+  nonce/lease atomicity, and authorized replay through the existing producer.
+  No ordinary check string may become executable authority.

@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:555db11455e7dede976cd5fb2344d38e3be4ddd64667a08a0d3d297a17ebde74",
+  "sha256": "sha256:80b510a856b3ec8ce85ddf2318ada6b8f689e21fc994121f9a91dc153c021af2",
   "status": "accepted",
-  "summary": "Raw file writes to the trunk checkout through host tooling are deliberately unguarded: the predecessor enforced that half in an editor-host write-interception hook, and no Concord surface can hold such a control because capability-placement section 1 offers no interception point inside another tool's write path. The operator accepted the loss on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not presented as equivalent. The predecessor-coverage record splits its row and cites this decision.",
+  "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Managed-worker admission may enforce the lane capability registry against tool identities before execution, including editors and shell tools, without inspecting write destinations or restricting unmanaged host work. This is not a filesystem sandbox. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and Git-fact reclamation retain their existing authority.",
   "tags": [
     "trunk",
     "worktree",

@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9dbe7b2cc5e6e5d761c9da5019a6477edac83bee83e48a3d2b327b60c0905e42",
+  "sha256": "sha256:405029c3fa3a2455b706282c7d6ea2938c3031cbf3bdb70957fc37420de1af4d",
   "status": "accepted",
   "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. CD-0082 amends the cutover framing without changing these answers.",
   "tags": [

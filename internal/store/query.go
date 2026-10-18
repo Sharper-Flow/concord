@@ -109,6 +109,9 @@ type Q7Request struct {
 	EventKinds []string
 	Limit      int
 	Cursor     string
+	// ContractVersion, when nonzero, selects the recorded contract version
+	// the workflow read describes instead of the active one.
+	ContractVersion int64
 }
 
 type Q8Request struct {
@@ -236,6 +239,11 @@ type TimelineEvent struct {
 	To           *string  `json:"to"`
 	Reason       string   `json:"reason,omitempty"`
 	EvidenceRefs []string `json:"evidence_refs"`
+	// ContractVersion names the contract version a workflow.contract_approved
+	// or workflow.contract_superseded event made; a supersession also names
+	// the version it replaced.
+	ContractVersion         *int64 `json:"contract_version,omitempty"`
+	PreviousContractVersion *int64 `json:"previous_contract_version,omitempty"`
 }
 
 type Q7Result struct {
@@ -1446,13 +1454,9 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	args := []any{req.Work}
 	if req.Cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(req.Cursor)
-		var c struct {
-			Version                  int `json:"version"`
-			QueryID, Work, Direction string
-			Seq                      int64 `json:"seq"`
-		}
-		if e != nil || json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q7" || c.Work != req.Work || c.Direction != direction || c.Seq < 1 {
-			return out, newFailure(KindInvalidCursor, "PM1.Q7", "cursor does not match the event listing", false, "use a cursor returned for the same work and direction")
+		var c q7Cursor
+		if e != nil || json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q7" || c.Work != req.Work || c.Direction != direction || c.ContractVersion != req.ContractVersion || c.Seq < 1 {
+			return out, newFailure(KindInvalidCursor, "PM1.Q7", "cursor does not match the event listing", false, "use a cursor returned for the same work, direction, and contract version")
 		}
 		if direction == "oldest_first" {
 			where = " AND seq > ?"
@@ -1506,32 +1510,42 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	if out.Events == nil {
 		out.Events = []TimelineEvent{}
 	}
+	var nextCursor *string
 	if len(raw) > limit {
 		last := raw[limit-1]
 		raw = raw[:limit]
-		c := struct {
-			Version                  int `json:"version"`
-			QueryID, Work, Direction string
-			Seq                      int64 `json:"seq"`
-		}{1, "PM1.Q7", req.Work, direction, last.GlobalSeq}
-		b, _ := json.Marshal(c)
+		b, _ := json.Marshal(q7Cursor{Version: 1, QueryID: "PM1.Q7", Work: req.Work, Direction: direction, ContractVersion: req.ContractVersion, Seq: last.GlobalSeq})
 		encoded := base64.RawURLEncoding.EncodeToString(b)
-		out.NextCursor = &encoded
+		nextCursor = &encoded
 	}
 	for i := range raw {
 		raw[i].Seq = i + 1
 	}
 	out.Events = raw
 	out.Result = &Q7ResultPayload{Events: out.Events}
-	if workflow, workflowErr := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work}); workflowErr != nil {
+	if workflow, workflowErr := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work, ContractVersion: req.ContractVersion}); workflowErr != nil {
 		return out, workflowErr
+	} else if workflow.WorkID == "" && req.ContractVersion != 0 {
+		return out, newFailure(KindUnknownScope, "PM1.Q7", "the work item has no workflow contract", false, "omit contract_version for work outside a workflow")
 	} else if workflow.WorkID != "" {
 		out.Workflow = &workflow
 		out.Result.Workflow = &workflow
 	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
+	out.NextCursor = nextCursor
 	return out, err
 }
+
+// q7Cursor is the PM1.Q7 event-listing cursor. It binds the work, the
+// direction, and the selected contract version, so a cursor never carries a
+// page across selectors.
+type q7Cursor struct {
+	Version                  int `json:"version"`
+	QueryID, Work, Direction string
+	ContractVersion          int64 `json:"contract_version,omitempty"`
+	Seq                      int64 `json:"seq"`
+}
+
 func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payload []byte) (TimelineEvent, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
@@ -1556,6 +1570,21 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 		if err := json.Unmarshal(raw, &e.EvidenceRefs); err != nil {
 			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event evidence references are malformed", false, "repair the event log before reading history")
 		}
+	}
+	versions := map[string]**int64{}
+	switch kind {
+	case WorkflowContractApproved:
+		versions["contract_version"] = &e.ContractVersion
+	case WorkflowContractSuperseded:
+		versions["new_contract_version"] = &e.ContractVersion
+		versions["previous_contract_version"] = &e.PreviousContractVersion
+	}
+	for name, dst := range versions {
+		var version int64
+		if raw, ok := fields[name]; !ok || json.Unmarshal(raw, &version) != nil || version < 1 {
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "workflow contract event names no contract version", false, "repair the event log before reading history")
+		}
+		*dst = &version
 	}
 	return e, nil
 }

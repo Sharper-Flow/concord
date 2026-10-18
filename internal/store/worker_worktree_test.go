@@ -226,6 +226,50 @@ func TestValidateWorkerCompletionWorktreePreservesStorageFailure(t *testing.T) {
 	}
 }
 
+func TestWorkerAttemptProjectRefusalNamesCaller(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, operation, recovery string
+		completion                bool
+	}{
+		{name: "completion", operation: "worker_complete", recovery: "restore the attempt's recorded worktree claim before completion", completion: true},
+		{name: "abandonment", operation: "worker_fail", recovery: "restore the attempt's recorded worktree claim before abandonment"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := openTemp(t)
+			_, other := seedWorkerCompletionProjectClaims(t, s, true, true)
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE project_id='project-1'; DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if tc.completion {
+				err = validateWorkerCompletionWorktree(ctx, tx, "work-completion", "attempt-completion", other)
+			} else {
+				err = validateNoLiveWorkerSession(ctx, tx, "work-completion", "attempt-completion")
+			}
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindWorktreeOwnershipConflict {
+				t.Fatalf("missing recorded Project failure = %v, want worktree_ownership_conflict", err)
+			}
+			if failure.Op != tc.operation {
+				t.Errorf("failure operation=%q, want %q", failure.Op, tc.operation)
+			}
+			if failure.RecoveryAction != tc.recovery {
+				t.Errorf("failure recovery=%q, want %q", failure.RecoveryAction, tc.recovery)
+			}
+			if failure.Detail != "worker attempt worktree identity has no recorded Project" || failure.RetrySafe {
+				t.Errorf("failure changed detail or retry flag: %+v", failure)
+			}
+		})
+	}
+}
+
 func seedWorkerCompletionProjectClaims(t *testing.T, s *Store, withAuthorization, withIdentity bool) (string, string) {
 	t.Helper()
 	root := t.TempDir()

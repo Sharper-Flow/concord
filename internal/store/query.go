@@ -1489,6 +1489,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	where := ""
 	args := []any{req.Work}
+	var cursorSeq int64
 	if req.Cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(req.Cursor)
 		var c q7Cursor
@@ -1500,7 +1501,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		} else {
 			where = " AND seq < ?"
 		}
-		args = append(args, c.Seq)
+		cursorSeq = c.Seq
 	}
 	order := "DESC"
 	if direction == "oldest_first" {
@@ -1519,6 +1520,11 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	for i, kind := range eventKinds {
 		kindPlaceholders[i] = "?"
 		args = append(args, kind)
+	}
+	if cursorSeq != 0 {
+		// The cursor seq placeholder follows the kind placeholders in the SQL
+		// text, so its bind argument must follow them too.
+		args = append(args, cursorSeq)
 	}
 	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
 	args = append(args, limit+1)

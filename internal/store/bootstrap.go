@@ -1306,7 +1306,7 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 	// Session-prepare reads C19 continuity unconditionally, so a
 	// captured work item pins a workflow instance: a capture that
 	// names no workflow_type_ref (the common case, CD-0035) pins the
-	// kind-driven default instead of skipping initialization (#650).
+	// kind-driven default instead of skipping initialization.
 	// Imported work items stay instance-less; continuity answers for
 	// them with typed workflow absence.
 	workflowRef := req.WorkflowTypeRef

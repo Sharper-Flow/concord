@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // sizeDispatchFixture seeds one work item on the family's current head with
@@ -19,6 +21,86 @@ func sizeDispatchFixture(t *testing.T, workID string) workflowReturnRouteFixture
 func sizeDispatchLane(t *testing.T, capabilityClass string) LaneDefinition {
 	t.Helper()
 	return reviewGateLane(t, capabilityClass)
+}
+
+// recordSizeDispatchAttempt records one implementation-lane dispatch of the
+// named job — its dispatch_worker authorization, the worker.dispatched
+// evidence through the authoritative lane-actor route, and the rejection
+// that disposes the attempt — so the job sits in correction: an
+// implementation attempt rejected since its last satisfaction.
+func recordSizeDispatchAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, attemptID string, job WorkerJobBinding) {
+	t.Helper()
+	s := workerJobSizeStore(fixture)
+	recordSizeDispatchAuthorization(t, s, workID, attemptID, job)
+	if err := appendJobBoundWorkerDispatch(t, s, workID, attemptID, &job); err != nil {
+		t.Fatalf("record implementation dispatch %s: %v", attemptID, err)
+	}
+	version := readWorkVersion(t, s, workID)
+	rejection := map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"action_id": "reject_worker_result", "step_id": "repair", "attempt_id": attemptID, "worker_attempt_id": attemptID,
+		"diagnosis": "the delivered subject does not satisfy the approved predicate",
+		"strategy":  "retry the bounded job from the recorded base",
+	}
+	raw, err := json.Marshal(rejection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
+		workID+":size-rejection:"+attemptID, workID, "principal/operator", time.Unix(22, 0).UTC().Format(time.RFC3339Nano), string(raw)); err != nil {
+		t.Fatalf("record the rejection of %s: %v", attemptID, err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// recordSizeDispatchAuthorization records the dispatch_worker completion the
+// worker.dispatched evidence must match, under the recorded-history route
+// the review-subject fixture uses for folded accept completions.
+func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID string, job WorkerJobBinding) {
+	t.Helper()
+	version := readWorkVersion(t, s, workID)
+	authorization := map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"action_id": "dispatch_worker", "step_id": "repair", "attempt_epoch": 1, "worker_attempt_id": attemptID,
+		"worker_job": map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
+	}
+	raw, err := json.Marshal(authorization)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, ?, 2, ?), (?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
+		workID+":size-started:"+attemptID, workID, "principal/operator", time.Unix(20, 0).UTC().Format(time.RFC3339Nano),
+		mustJSONValue(map[string]any{"work_id": workID, "action_id": "dispatch_worker", "step_id": "repair", "attempt_epoch": 1}),
+		workID+":size-authorization:"+attemptID, workID, "principal/operator", time.Unix(20, 0).UTC().Format(time.RFC3339Nano), string(raw)); err != nil {
+		t.Fatalf("record the dispatch authorization of %s: %v", attemptID, err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // recordEditingJobForTest records one ready editing job from the caller's
@@ -120,6 +202,55 @@ func TestWorkerJobSizePacketProjectsSizeContent(t *testing.T) {
 		binding, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
 		if err != nil || binding == nil {
 			t.Fatalf("read-only packet refused: %v", err)
+		}
+	})
+}
+
+// The caller exclusions are the measured paths of the work's other jobs that
+// are in correction, computed by the core and bound to the implementation
+// packet exactly: a missing, extra, or different set refuses.
+func TestWorkerJobSizeCallerExclusionsBindThePacket(t *testing.T) {
+	const workID = "worker-job-size-caller-exclusions"
+	fixture := sizeDispatchFixture(t, workID)
+	s := workerJobSizeStore(fixture)
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	blocked := &WorkerJobBinding{JobID: "job:blocked", Revision: 1}
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeEditingFields(t, workID, fixture), blocked)
+	recordSizeDispatchAttempt(t, fixture, workID, "attempt:blocked", *blocked)
+	other := &WorkerJobBinding{JobID: "job:other", Revision: 1}
+	recordEditingJobForTest(t, fixture, workID, workerJobSizeEditingFields(t, workID, fixture), other)
+	lane := sizeDispatchLane(t, "implementation")
+	exclusions := []string{"internal/store/worker_jobs.go"}
+	t.Run("implementation packet carries the computed exclusions", func(t *testing.T) {
+		packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions", lane.ID, lane.Version, lane.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, exclusions)
+		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet)); err != nil {
+			t.Fatalf("exclusions-bearing packet refused: %v", err)
+		}
+	})
+	for _, refusal := range []struct {
+		name      string
+		exclusion []string
+	}{
+		{"missing exclusions", nil},
+		{"foreign exclusions", []string{"adapter/opencode/packet.ts"}},
+		{"extra exclusions", []string{"internal/store/worker_jobs.go", "adapter/opencode/packet.ts"}},
+	} {
+		t.Run(refusal.name+" refuse", func(t *testing.T) {
+			packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions-"+strings.ReplaceAll(refusal.name, " ", "-"), lane.ID, lane.Version, lane.Digest)
+			packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, refusal.exclusion)
+			_, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, lane, mustJSONValue(packet))
+			if err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
+				t.Fatalf("exclusions %q error = %v, want the equality refusal", refusal.name, err)
+			}
+		})
+	}
+	t.Run("review lane carries no exclusions", func(t *testing.T) {
+		reviewLane := sizeDispatchLane(t, "review")
+		packet := joinPacketFor(t, s, workID, "repair", "attempt-exclusions-review", reviewLane.ID, reviewLane.Version, reviewLane.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = sizeDispatchPacketJob(t, s, workID, *other, nil)
+		if _, err := validateWorkerPacketJob(context.Background(), s.db, definition, workID, reviewLane, mustJSONValue(packet)); err != nil {
+			t.Fatalf("review packet without exclusions refused: %v", err)
 		}
 	})
 }

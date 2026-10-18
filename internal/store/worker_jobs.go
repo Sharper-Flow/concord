@@ -784,11 +784,16 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 			continue
 		}
 		expected := packetJobFromView(view)
-		// The caller exclusions ride the packet only through the computed
-		// set; at this layer none is computed yet, so any claimed member
-		// drifts from the recorded revision and the equality below refuses
-		// it, on every lane.
-		if claimed.CallerExclusions != nil && lane.CapabilityClass != "implementation" {
+		// The caller exclusions are the core's own computed set: an
+		// implementation dispatch of a size-capable pin carries exactly
+		// what the core computes, and every other lane carries none.
+		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+			exclusions, err := workerJobCallerExclusionsTx(ctx, q, workID, binding.JobID)
+			if err != nil {
+				return nil, err
+			}
+			expected.CallerExclusions = exclusions
+		} else if claimed.CallerExclusions != nil {
 			return nil, refuse("inputs.worker_job carries caller_exclusions, which only an implementation lane of a size-capable definition admits", "build the worker job from the recorded revision without caller exclusions")
 		}
 		recorded, _ := json.Marshal(expected)

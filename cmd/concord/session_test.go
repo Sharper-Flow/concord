@@ -89,15 +89,6 @@ func TestContinuityBlockReadFailureIsSilentOnStdout(t *testing.T) {
 	}
 }
 
-// recordOrchestratorIdentityAt binds the real assertion path to a temporary
-// installation, so a test verifies production behavior rather than a copy of
-// it. The registry resolution arrives from the caller.
-func recordOrchestratorIdentityAt(home string) sessionOrchestratorFunc {
-	return func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
-		return recordOrchestratorIdentity(ctx, home, host, dir, productID, workID, agent)
-	}
-}
-
 // hostCommandAt returns a sessionHostCommandFunc that reports the supplied
 // resolution, standing in for what hostSessionPrepareRegistry resolves in
 // production.

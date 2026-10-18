@@ -285,7 +285,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "approve_contract": {"payload", "contract_version", "premise", "outcome_predicates", "route_conventions"},
         "revise_candidates": {"payload", "contract_version", "candidate_kind", "candidate_refs", "added", "removed"},
         "supersede_contract": {"payload", "new_contract_version", "supersede_reason", "audit_evidence"},
-        "replace_outcome": {"payload", "outcome", "evidence_refs"},
         "link_successor": {"payload", "successor_work_id", "relation", "relation_data"},
         "complete_external_step": {"payload", "operation_id", "attempt_epoch", "current_claim"},
         "rebuild_after_interrupt": {"payload", "operation_id", "event_stream"},

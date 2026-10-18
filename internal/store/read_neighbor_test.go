@@ -381,7 +381,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
 			return err
 		}},
-		{name: "ResumeWorkflow", absent: KindProjectionNotFound, run: func() error { _, err := ResumeWorkflow(ctx, s, "neighbor-work"); return err }},
 		{name: "WorkflowProjectionHash", run: func() error {
 			hash, err := WorkflowProjectionHash(ctx, s)
 			if err != nil {

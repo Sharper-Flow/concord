@@ -1,10 +1,12 @@
 # Concord Specs-as-Laws: Conflict Surfacing & Evolution
 
-> **Status:** Aligned v2 under CD-0006, CD-0015, CD-0035, CD-0036, and
-> CD-0222. Those accepted decisions are binding; this companion explains them.
+> **Status:** Aligned v2 under CD-0006, CD-0015, CD-0035, CD-0036,
+> CD-0222, and CD-0230. Those accepted decisions are binding; this
+> companion explains them.
 > **Purpose:** How Concord makes pruned, architecture-bound specifications its
-> primary Product deliverable while preserving human legislative authority and
-> preventing silent scope cuts or contradictory concurrent work.
+> primary Product deliverable while preserving operator legislative authority
+> over serious changes and preventing silent scope cuts or contradictory
+> concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -14,8 +16,9 @@ a **user's request** challenges existing law, Concord surfaces the conflict and
 lets the user choose: *clarify intent*, *evolve the spec*, or *consciously accept
 scope reduction*. Agents never silently cut scope. Concurrent Product-changing
 work also declares its Domain footprint and exact law revisions, so two cleanly
-merging changes cannot silently enact contradictory Product truth. **The user is
-the legislator.**
+merging changes cannot silently enact contradictory Product truth. **The
+operator legislates serious changes; an agent works non-serious law and
+records why ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4).**
 
 ---
 
@@ -34,13 +37,16 @@ bypassed.
 
 ---
 
-## 2. The principle: specs are laws, the user is the legislator
+## 2. The principle: specs are laws; law-change authority follows CD-0230
 
 - **Specs are laws:** agents respect them; drift is prevented. (ADV strength —
   unchanged.)
-- **The user is the legislator:** only the user can evolve a law, via an explicit
-  spec delta. Agents *propose* evolution; they do **not** unilaterally enact it,
-  and they do **not** unilaterally cut scope to avoid it.
+- **Law-change authority is split by seriousness:** a serious law change needs
+  the operator's approval of its exact text, and at crucial size every law
+  change does; an agent changes non-serious law and records why
+  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4). Agents *propose* serious
+  evolution; they do **not** unilaterally enact it, and they do **not**
+  unilaterally cut scope to avoid it.
 - **A conflict between user intent and a spec law is a *legislative* moment, not a
   *compliance* moment.** It surfaces to the user.
 
@@ -90,8 +96,9 @@ CD-0006 fixes the workflow policy:
 - group requirements that share one root conflict while keeping unrelated conflicts
   separate;
 - present one planning checkpoint, then ask the human one decision at a time;
-- let agents explain and draft, but require human approval for every law change or
-  governed scope reduction;
+- let agents explain and draft, require the operator's approval for serious law
+  changes and governed scope reductions, and record every non-serious law
+  change an agent works ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4);
 - route newly discovered execution conflicts back to planning; and
 - block completion while any law conflict remains unresolved.
 
@@ -157,7 +164,7 @@ shows the legislative moments explicitly.
 | Public predecessor behavior | Concord treatment |
 |---|---|
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
-| Spec deltas modified or superseded accepted law | **Preserved as an outcome** through operator-approved Git law deltas and revision identity. |
+| Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval split by seriousness under CD-0230 D4. |
 | Agreement/design checkpoints surfaced legislative choices | **Preserved as human authority** without requiring one universal workflow shape. |
 | Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
 
@@ -181,7 +188,7 @@ not claim those runtime outcomes are complete.
 | Doc | Link |
 |---|---|
 | `feature-inventory.md` §2.8 | The capability entry. |
-| [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
+| [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws; law-change authority follows CD-0230 D4. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and strict quiescence on law supersession. |
 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
@@ -189,4 +196,5 @@ not claim those runtime outcomes are complete.
 ---
 
 *Specifications are Concord's Product deliverable. Laws bind agents through one
-Domain architecture; only the legislator can change them or accept a scope cut.*
+Domain architecture; law changes follow CD-0230 D4, and only the operator
+accepts a governed scope cut.*

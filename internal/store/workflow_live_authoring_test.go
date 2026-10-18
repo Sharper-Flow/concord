@@ -1254,7 +1254,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	// Research content stays; only the cancelled work's active bindings drop.
 	execStaleRegistryInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
-	pack, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{Identity: researchIdentity("cutover-pack"), OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
+	pack, err := createResearchPack(ctx, s, CreateResearchPackRequest{OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
 	if err != nil {
 		t.Fatal(err)
 	}

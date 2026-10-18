@@ -184,7 +184,7 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{
+		_, err = store.RecordResearchFindingWithinTx(ctx, tx, store.ResearchFindingRequest{
 			PackID: pack.PackID, ExpectedVersion: 2,
 			Finding: store.ResearchFinding{FindingID: "f-1", Kind: store.FindingObservation, Statement: "Original finding", Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}, SourceIDs: []string{"s-1"}},
 		})

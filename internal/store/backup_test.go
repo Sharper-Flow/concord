@@ -354,10 +354,10 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	// context pin.
 	pack := createSimplePack(t, s, "evidence", "evidence-research-owner")
 	recordedSource := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/evidence-spec", Title: "Evidence specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-10-01T00:00:00Z"}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("evidence-source"), PackID: pack.PackID, ExpectedVersion: 1, Revision: 1, Source: recordedSource}); err != nil {
+	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 1, Revision: 1, Source: recordedSource}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("evidence-finding"), PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
+	if _, err := recordResearchFinding(ctx, s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	pinResearch(t, s, "evidence-required-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
@@ -379,7 +379,7 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	// A second research revision: revision 1 stays the exact selection target
 	// while a newer revision 2 carries its own linked descriptor, so the
 	// preserved store must keep the selection reading its exact revision.
-	if _, err := s.AppendResearchRevision(ctx, AppendResearchRevisionRequest{Identity: researchIdentity("evidence-append"), PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
+	if _, err := appendResearchRevision(ctx, s, AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
 	execResearchFixture := func(tag, query string, args ...any) {

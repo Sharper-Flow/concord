@@ -74,7 +74,7 @@ The shared context reader does not reauthorize retained selections against the o
 
 ## Consequences
 
-Direct callers use the sole pack-operation idempotency boundary; agent envelopes compose its transaction-scoped cores with envelope-owned idempotency.
+Agent envelopes own research idempotency; they compose the transaction-scoped pack-operation cores, and no second idempotency boundary exists.
 Trusted-client policy and grant capability allowlists continue to admit `research`.
 All terminal routes release consumer pins; terminalization does not delete owned packs.
 The parent integrates schemas, surface versioning, implementation, and migration without a parallel legacy cleanup route.

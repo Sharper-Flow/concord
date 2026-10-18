@@ -12,7 +12,7 @@
   native subagents started by the host `task` tool. The operator accepted
   this decision on 2026-09-25 in the Concord (CON) work item CON-450.
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
-  CD-0154, CD-0155, CD-0176
+  CD-0154, CD-0176, CD-0213
 - **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
   CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
@@ -212,7 +212,7 @@ The linked open work takes these dispositions:
 | work-d1627ad522600bea9c87c417 content-reachability policy | Independent; D4 |
 | work-57165c6c0285632642ed14f5 handoff matches the session directory | Independent; D1 |
 | work-5604d254ec27df800c0d055a removal strands non-session processes | Independent; D3 covers host sessions only |
-| work-751acb4faaaeeaa76758dd15 route to another Product's work item | Independent; CD-0155 governs Products |
+| work-751acb4faaaeeaa76758dd15 route to another Product's work item | Independent; CD-0213 governs Products |
 
 ## Verification
 

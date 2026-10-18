@@ -19,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:abb82eba602b12d3a3037bcb8925b070f341abad65156d3d3b94fdef444fa2fa",
+  "sha256": "sha256:50a123e80430152d2a5b26b33affffeb85b2a9e8da9520dd55ca0893b0a22dc1",
   "status": "published",
   "summary": "Describes bootstrap and explicitly managed development under CD-0007, CD-0089, and CD-0122. goals.md owns direction; the first-usable floor and release evidence keep their owning records and current maturity requirements.",
   "tags": [

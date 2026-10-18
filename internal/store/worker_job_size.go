@@ -57,7 +57,7 @@ type WorkerJobCallerAllowance struct {
 	ProjectID   string             `json:"project_id"`
 	Mechanisms  []OracleMechanism  `json:"mechanisms"`
 	DomainIDs   []string           `json:"domain_ids"`
-	LawBindings []OracleLawBinding `json:"law_bindings,omitempty"`
+	LawBindings []OracleLawBinding `json:"law_bindings"`
 }
 
 // workflowJobSizeActive reports whether a pinned definition carries the
@@ -122,25 +122,16 @@ func decodeClosedWorkerJobObject[T any](raw json.RawMessage, refusal string) (*T
 // authorWorkerJobSizeTx authors the size members of one record_worker_job
 // call. A pin without the declared members never reaches here with one: the
 // action preflight refuses an undeclared payload member. On a size-capable
-// pin the members are
-// present together or absent together; a full trio is parsed, shape-checked,
+// pin the members are present together or absent together; a full trio is parsed, shape-checked,
 // joined against the active contract's Domain and law boundaries, and held
 // to the job's earlier recorded caps, all before the digest is derived.
 func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, definition WorkflowDefinition, fields map[string]json.RawMessage, payload *WorkerJobRecordedPayload) error {
 	if !workflowJobSizeActive(definition) {
 		return nil
 	}
-	members := []struct {
-		name    string
-		present bool
-	}{
-		{"production_size_max", workerJobSizeFieldPresent(fields, "production_size_max")},
-		{"measurement_basis", workerJobSizeFieldPresent(fields, "measurement_basis")},
-		{"direct_caller_allowance", workerJobSizeFieldPresent(fields, "direct_caller_allowance")},
-	}
 	present := 0
-	for _, member := range members {
-		if member.present {
+	for _, member := range []string{"production_size_max", "measurement_basis", "direct_caller_allowance"} {
+		if workerJobSizeFieldPresent(fields, member) {
 			present++
 		}
 	}
@@ -149,7 +140,7 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 		// capped revision cannot go uncapped: its own history decides.
 		return refuseUncappedRevisionOfCappedJob(ctx, tx, workID, payload.JobID)
 	}
-	if present != len(members) {
+	if present != 3 {
 		return workerJobSizeAuthorFailure(
 			"record_worker_job carries an incomplete size binding: production_size_max, measurement_basis, and direct_caller_allowance are present together or absent together",
 			"carry all three members for an editing job or none for a read-only job")
@@ -282,6 +273,9 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 	if err := validateUniqueOracleReferences(allowance.DomainIDs, func(value string) bool { return len(value) >= 1 && len(value) <= oracleDomainIDMaxBytes },
 		"worker.job_recorded direct_caller_allowance domain_id ", " is outside the Domain identity bound", "worker.job_recorded direct_caller_allowance names Domain ", "name each Domain once per allowance"); err != nil {
 		return err
+	}
+	if allowance.LawBindings == nil {
+		return fail("worker.job_recorded direct_caller_allowance law_bindings must be present, possibly empty", "carry law_bindings as a list, empty when no law binds the allowance")
 	}
 	if len(allowance.LawBindings) > OracleLawBindingsMax {
 		return fail("worker.job_recorded direct_caller_allowance carries more than 8 law bindings", "bind at most 8 pinned law revisions per allowance")

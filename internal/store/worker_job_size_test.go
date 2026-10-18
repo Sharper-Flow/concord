@@ -392,7 +392,7 @@ func workerJobSizeFoldPayload(jobID string, mutate func(payload *WorkerJobRecord
 		Readiness:             &WorkerJobReadiness{Ready: false},
 		ProductionSizeMax:     &sizeCap,
 		MeasurementBasis:      &WorkerJobMeasurementBasis{BaseCommit: testJobSizeBaseCommit(), Paths: []WorkerJobMeasuredPath{{Path: "internal/store/worker_jobs.go", Class: "production"}}},
-		DirectCallerAllowance: &WorkerJobCallerAllowance{ProjectID: "project", Mechanisms: []OracleMechanism{{ProjectID: "project", Path: "internal/store/worker_jobs.go", EntryPoint: "foldWorkerJobRecorded"}}, DomainIDs: []string{"root"}},
+		DirectCallerAllowance: &WorkerJobCallerAllowance{ProjectID: "project", Mechanisms: []OracleMechanism{{ProjectID: "project", Path: "internal/store/worker_jobs.go", EntryPoint: "foldWorkerJobRecorded"}}, DomainIDs: []string{"root"}, LawBindings: []OracleLawBinding{}},
 	}
 	if mutate != nil {
 		mutate(&payload)
@@ -440,6 +440,7 @@ func TestWorkerJobSizeFoldShapeValidation(t *testing.T) {
 		{"generated ref outside the classification", func(payload *WorkerJobRecordedPayload) {
 			payload.MeasurementBasis.Paths[0].GeneratorRef = "scripts/generate-agent-contracts.py"
 		}, "generator_ref outside the generated classification"},
+		{"absent law_bindings", func(payload *WorkerJobRecordedPayload) { payload.DirectCallerAllowance.LawBindings = nil }, "law_bindings must be present"},
 		{"base commit is not a raw oid", func(payload *WorkerJobRecordedPayload) { payload.MeasurementBasis.BaseCommit = "HEAD" }, "must be a raw git commit oid"},
 	} {
 		t.Run(refusal.name, func(t *testing.T) {

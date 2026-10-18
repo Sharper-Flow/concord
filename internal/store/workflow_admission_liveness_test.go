@@ -1368,20 +1368,24 @@ func admissionSeededArchivedProbe(definition WorkflowDefinition) (admissionModel
 // archived family refuses every candidate action with the archived-family
 // refusal. Archived rows permit reads, not public execution.
 func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
+	t.Parallel()
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			for _, witness := range archivedRefusalWitnesses(definition) {
+		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+			t.Parallel()
+			if workflowFamilyArchived(definition.Ref) {
+				for _, witness := range archivedRefusalWitnesses(definition) {
+					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				}
+				return
+			}
+			for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
 				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 			}
-			continue
-		}
-		for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
-			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
-		}
+		})
 	}
 }
 
@@ -1437,20 +1441,24 @@ func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
 // assertion is the same positive refusal totality the well-formed exit check
 // carries.
 func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
+	t.Parallel()
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			for _, witness := range archivedRefusalWitnesses(definition) {
+		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+			t.Parallel()
+			if workflowFamilyArchived(definition.Ref) {
+				for _, witness := range archivedRefusalWitnesses(definition) {
+					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				}
+				return
+			}
+			for _, witness := range admissionStrandedWitnesses(definition) {
 				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 			}
-			continue
-		}
-		for _, witness := range admissionStrandedWitnesses(definition) {
-			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
-		}
+		})
 	}
 }
 

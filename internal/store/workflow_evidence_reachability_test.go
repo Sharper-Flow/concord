@@ -40,13 +40,6 @@ func workflowEvidenceGapDefinition() WorkflowDefinition {
 	}
 }
 
-// workflowEvidenceGapRegistration pins the synthetic definition into the
-// builtin registry at test-binary initialization, the same commitment the
-// fixture family in workflow_test_support_test.go makes: cross-process race
-// workers re-enter the binary without running a helper, so the pin must
-// resolve before any test runs.
-var workflowEvidenceGapRegistration = registerWorkflowEvidenceGapDefinition()
-
 func registerWorkflowEvidenceGapDefinition() RegisteredDefinition {
 	entry, err := BuiltinWorkflowRegistry().Register(workflowEvidenceGapDefinition())
 	if err != nil {

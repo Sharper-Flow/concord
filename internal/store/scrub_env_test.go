@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/gittest"
+	"github.com/sharper-flow/concord/internal/store/storetest/neighbor"
 	"github.com/sharper-flow/concord/internal/testenv"
 )
 
@@ -27,6 +28,12 @@ func TestMain(m *testing.M) {
 	dir := testenv.ScrubEnv()
 	gittest.DisableBackgroundMaintenance()
 	testDatabaseTemplate.dir = dir
+	// Registration builds the whole builtin workflow registry, about a
+	// second of CPU. A SQLite neighbor child only holds a transaction and
+	// never resolves a workflow pin, and tests start one per case.
+	if !neighbor.ChildRequested() {
+		registerTestWorkflowDefinitions()
+	}
 	code := m.Run()
 	os.Exit(testenv.Cleanup(dir, code))
 }

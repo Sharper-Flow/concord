@@ -1,30 +1,39 @@
 # Concord Workflow Type: Architecture Spike
 
-> **Status:** Shaped. Companion to [`workflows.md`](./workflows.md),
+> **Status:** Historical shaped model, not accepted law or an eligible
+> new-execution family. [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+> retires `architecture_spike` without a compatibility alias.
+> Companion to [`workflows.md`](./workflows.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md),
-> [`feature-inventory.md`](./feature-inventory.md) §3.13.
-> **Purpose:** Describe the managed work unit whose deliverable is a **binding
+> [`feature-inventory.md`](./feature-inventory.md) §3.13a.
+> **Purpose:** Describe the shaped model whose deliverable is a **binding
 > architectural decision** — researched, planned, optionally proof of concept (POC) proven —
 > producing no product code and hard-blocking dependent implementation work.
 > **Origin:** User direction, 2026-08-02.
 
 ## TL;DR
 
-Some managed work units exist to **decide**, not to ship. Concord registers
-**Architecture Spike** as a workflow type peer to the implementation change: it
-frames a question, researches it, optionally proves it with a throwaway POC, and
+The model below describes **Architecture Spike**, a family retired for new
+execution. It frames a question, researches it, optionally proves it with a
+throwaway POC, and
 produces a **decision record that binds downstream work until superseded**. It
 has tasks, no sub-spikes, no timebox, and its POC code never merges.
 
+The three retained execution families are listed in
+[`workflows.md` §4](./workflows.md#4-example-workflow-types).
+[CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work)
+still requires a separate reviewed and accepted decision; CD-0218 leaves that
+obligation to the cutover owner's approved successor set. This reference selects
+no successor route, and research reports do not enact legislation.
+
 ---
 
-## 1. Why this type exists
+## 1. Why this type was shaped
 
-Concord's taxonomy ([`workflows.md`](./workflows.md) §3) already covers *options
-research* and *evidence research* with a lightweight, gateless
-research/investigation type. That type is deliberately non-committal: research
-**may resolve to "no change."**
+Concord's taxonomy ([`workflows.md`](./workflows.md) §3) covers *options
+research* and *evidence research*. The shaped model contrasted research with a
+binding decision: research **may resolve to "no change."**
 
 That is exactly wrong for the case where dependent work cannot proceed until an
 architectural question is answered. Such work today has two bad homes:
@@ -62,8 +71,8 @@ names as a defining aspect of a workflow type:
 | Downstream effect | None inherent | Hard-blocks dependent work units |
 | Acceptance | Not required | Reviewer, then user acceptance |
 
-Different completion criteria and different output force mean a different
-registered type. A spike is not a research workflow with a flag.
+Different completion criteria and output force motivated the separate shaped
+type. They do not authorize new capture of the retired family or an alias to research.
 
 ---
 
@@ -97,8 +106,9 @@ projection. See [CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-au
 A spike has **tasks**, the same way a change has tasks. A spike never spawns a
 sub-spike.
 
-This resolves half of [`workflows.md`](./workflows.md) §7.4 (composability) for
-this type: spikes compose **forward** — a spike's decision leads to implementation
+The model's forward-only composition is consistent with
+[`workflows.md` §7, item 1](./workflows.md#7-composition-and-size)
+(CD-0006 R1): a spike's decision leads to implementation
 changes, break-fix workflows, or a later superseding spike — never **downward**
 into nested spikes. Depth stays at one, matching the sub-agent depth invariant the
 operating environment already enforces elsewhere.
@@ -248,8 +258,10 @@ changes from silently absorbing architectural decisions again.
 1. **Relation to external ADR conventions** — is a Concord decision record the
    same artifact, a superset, or a separate track? **Deferred to research** — this
    is the first question the first spike frames, not a design assumption made now.
-2. **Registration mechanics** — inherits [`workflows.md`](./workflows.md) §7.1;
-   the spike type is defined however workflow types generally are.
+2. **Registration mechanics** — current retained families use the shared-part
+   definitions in [`workflows.md` §2](./workflows.md#2-the-workflow-type-model)
+   and [§7](./workflows.md#7-composition-and-size). This shaped model registers
+   no new-execution family.
 3. **Staleness thresholds** — what input drift is high-risk enough to block a
    decision from authorizing downstream work? Couples to
    [`workflows.md`](./workflows.md) §2.3.
@@ -263,15 +275,15 @@ changes from silently absorbing architectural decisions again.
 
 | Doc | Relationship |
 |---|---|
-| [`workflows.md`](./workflows.md) §3, §4 | Registers Architecture Spike in the work-kind taxonomy and example-type table. |
+| [`workflows.md`](./workflows.md) §3, §4 | Separates architectural decisions as a work category from the three retained execution families; no new spike-family capture or alias. |
 | [`workflows.md`](./workflows.md) §2.3 | Staleness policy this type declares. |
-| [`workflows.md`](./workflows.md) §7.4 | This type answers composability for itself: forward only, no nesting. |
+| [`workflows.md` §7, item 1](./workflows.md#7-composition-and-size) | Composition across work items is forward only, without nested execution (CD-0006 R1). |
 | [`specs-as-laws.md`](./specs-as-laws.md) | Conflict-surfacing machinery reused for decision-vs-change contradiction. |
 | [`product-data-model.md`](./product-data-model.md) §8.5 | Evidence judged under the stage in force when produced — mirrored by supersession-not-deletion. |
 | [`product-data-model.md`](./product-data-model.md) §11.1 | Floor-raiser rigor rule, which POC-never-merges keeps out of scope entirely. |
-| [`feature-inventory.md`](./feature-inventory.md) §3.13 | The workflow-type-system capability entry this type is registered under. |
-| [`feature-inventory.md`](./feature-inventory.md) §2.5 / §3.6 | Research trackable — the *adjacent* type this one is deliberately distinct from. |
-| [`clarifications.md`](./clarifications.md) §C2 | Historical storage-spike framing, resolved by CD-0002 and PM1–PM5; the type remains available for genuinely unresolved architecture questions. |
+| [`feature-inventory.md`](./feature-inventory.md) §3.13a | The separate decision obligation, not an eligible spike-family registration. |
+| [`feature-inventory.md`](./feature-inventory.md) §2.5 / §3.6 | Research context belongs to ordinary work; it is not a peer trackable or binding legislation. |
+| [`clarifications.md`](./clarifications.md) §C2 | Historical storage-spike framing, resolved by CD-0002 and PM1–PM5; not authority to capture a retired family. |
 | [`clarifications.md`](./clarifications.md) §C7 | Accepted adjacent model: ordinary research work plus active packs; still distinct because spikes produce binding decisions. |
 
 ---

@@ -13,7 +13,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:631eb9643b8f876e055b29a7b202cf115b364341a472b8e11916de95d344d965",
+  "sha256": "sha256:bac7402cb118eb36fadbf10f89604c80c6815c5b8feae0a6bbd1fd7a1ea7a3d3",
   "status": "published",
   "summary": "Predecessor capability inventory marked non-authorizing in its own header: every capability categorized as transfer, refactor, or new, aligned to priorities without restating them. It is snapshot evidence about the predecessor, not current operational truth, and establishes no transfer plan.",
   "tags": [

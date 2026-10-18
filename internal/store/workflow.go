@@ -955,14 +955,11 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		if p.ArchitectureBinding != nil {
 			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 		}
-		if len(p.LawModifies) != 0 {
-			// CD-0222 D5: a contract that
-			// does not change Product truth may revise derived law in-contract.
-			// The replay path skips the check because the approved contract
-			// already carried the tiers it named at approval time.
-			if isWorkflowReplay(ctx) {
-				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
-			}
+		if len(p.LawModifies) != 0 && !isWorkflowReplay(ctx) {
+			// Live writes enforce CD-0222 D5 against the current Git tiers.
+			// Replay retains admitted revision lines without re-reading that
+			// mutable projection. The contract's law pins, when present,
+			// are still shape-checked below.
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
 				return err
 			}

@@ -162,7 +162,7 @@ Executing operational procedures with approval, conditions, and rollback.
 |---|---|---|
 | Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Covered | `ops_runbook` workflow definition, `internal/store/workflow_registry.go` |
 | Roll back a partially executed operation | Covered | `rollback_run` action, `internal/store/workflow_registry.go` |
-| Wait on an external signal without polling, and distinguish waiting from never-completable | Covered for waiting | `add_condition` / `resolve_condition` / `cancel_condition`, `internal/store/workflow_conditions.go`. Distinguishing never-completable is tracked as issue #87. |
+| Wait on an external signal without polling, and distinguish waiting from never-completable | Excluded | Accepted [CD-0234](./decisions/CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2: no retained workflow family can open a condition and no resolver or wait authority exists, so no runtime path waits on an external signal. Recorded conditions stay readable and block consequential actions. |
 | Record the health of an operational run | Covered | `record_health` action, `internal/store/workflow_registry.go` |
 | Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 58 |
+| Covered | 57 |
 | Not covered | 0 |
-| Excluded with reason | 17 |
+| Excluded with reason | 18 |
 
 **Total enumerated outcomes: 75.**
 

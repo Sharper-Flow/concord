@@ -39,8 +39,6 @@ class NativeRunStatusesFixture(unittest.TestCase):
             "internal/store/generated_native_run_statuses.go",
             "internal/store/schema.go",
             "internal/store/native_runs.go",
-            "internal/store/workflow_dispatch.go",
-            "internal/agent/mutations.go",
             "scripts/generate-native-run-statuses.py",
             "scripts/vocabulary_utils.py",
         ):

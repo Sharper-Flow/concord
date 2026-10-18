@@ -15,7 +15,7 @@ import { runOwnedSuite } from "./owned-suite"
 // `concord` binary on PATH, so without CONCORD_BIN or a Go toolchain the
 // suite reports a skip, never a silent pass.
 const connected =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 

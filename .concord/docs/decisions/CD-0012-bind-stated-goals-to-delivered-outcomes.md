@@ -11,6 +11,10 @@ verification boundary at completion.
 **Amends:** CD-0006 D5 and D10 by extending the approved-mandate pattern from specs
 authorized for modification to end-state required for delivery. Amends the value-statement
 invariant in [`workflows.md`](../workflows.md) §2.1 by giving it a binding counterpart.
+**Amended:** 2026-10-18. [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
+amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
+[CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
+conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
 **Research:** [`R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 

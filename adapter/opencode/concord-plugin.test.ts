@@ -70,7 +70,7 @@ test("ci watch publishes only repo and selector as required through the host def
   expect(published).toEqual(hostToolSchemas.concord_ci_watch)
   expect(published.required).toEqual(["repo", "selector"])
   expect(published.additionalProperties).toBe(false)
-  expect(Object.keys(published.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(published.properties).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(output.description).toBe(plugin.tool.concord_ci_watch.description)
 })
 

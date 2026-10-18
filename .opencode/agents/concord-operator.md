@@ -64,7 +64,8 @@ record it as a lane result.
 A generated utility needs no dispatch window (CD-0102). Route by need and let
 the registry descriptions name the agent. For an external check that must
 finish before your next action, start the `concord_ci_watch` tool and end the
-turn: it wakes this session with the result. Never poll a check yourself.
+turn: it wakes this session with the result. Never poll a check yourself. To
+watch a pull request after a push, pass the pushed commit as `head_sha`.
 
 A failed worker attempt is terminal; never resume its session. To retry it,
 call `dispatch_worker` with the unchanged approved contract: the core asks the

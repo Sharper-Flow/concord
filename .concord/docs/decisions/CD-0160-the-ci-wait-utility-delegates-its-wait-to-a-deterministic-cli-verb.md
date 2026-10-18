@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-20
+- **Amended:** 2026-10-18. D1 admits an optional `head_sha` for a `pr`
+  selector, and D5 judges only that commit until the pull request reaches it.
 - **Scope:** The `ci-wait` utility registry entry; the generated utility body;
   the `concord ci-wait` CLI verb in `cmd/concord`; the wait state file
 - **Approval:** The operator requested deterministic bounded waiting and
@@ -56,7 +58,8 @@ this change.
 
 The core CLI gains `concord ci-wait`. It reads one JSON object from stdin with
 `repo`, one `selector` of kind `pr`, `sha`, or `run`, an optional
-`time_seconds_max`, and an optional absolute `state_file`. It queries GitHub
+`time_seconds_max`, an optional absolute `state_file`, and, for a `pr`
+selector only, an optional 40-character `head_sha`. It queries GitHub
 through read-only `gh` subcommands, classifies the observed state, and prints
 one JSON report.
 
@@ -110,6 +113,15 @@ observed checks no longer belong to the watched commit, so the wait stops with
 `superseded` and names both SHAs. Waiting through the change would report a
 verdict for a SHA the caller did not ask about.
 
+The watched commit is the one `head_sha` names, or the head the first poll
+observes when the caller names none. A wait started beside a push can poll
+before the push lands, and the head it then observes is the one the push
+replaces. With `head_sha`, the wait stays `pending` and judges no checks
+while the pull request head differs from it. A pull request merged or closed
+at another head never reaches the commit, so the wait ends `superseded`. Once
+the head reaches the commit, the wait latches it and a later change
+supersedes the wait as above.
+
 ### D6. The utility allowance narrows to the verb
 
 The registry entry moves to version 2. Its bash allowance is `concord ci-wait`
@@ -148,7 +160,9 @@ own words, never a success.
   refusal paths, its deadline behavior, and the generated body's delegation.
 - The Go tests in `cmd/concord/ci_wait_test.go` prove terminal outcomes for
   passing, failing, cancelled, skipped, pending, and empty check sets; the
-  hung-command kill; the carried deadline; the head-SHA policy; and the
-  selector routing for PR, SHA, and run id.
+  hung-command kill; the carried deadline; the head-SHA policy, including
+  `TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit` and
+  `TestCiWaitPRExpectedHeadNeverReachedIsSuperseded` for a named commit; and
+  the selector routing for PR, SHA, and run id.
 - `go test -race ./cmd/concord/` proves the verb inside the full command
   package suite.

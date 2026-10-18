@@ -165,7 +165,7 @@ Commands read one strict JSON object from stdin:
     accepted values: reason is fixed to cancelled; removal is not archival
   concord ci-wait < JSON stdin
     required: selector, repo
-    optional: mode (pr checks|merge), time_seconds_max, state_file
+    optional: mode (pr checks|merge), head_sha (pr), time_seconds_max, state_file
     accepted values: selector.kind: pr|sha|run; mode: checks|merge
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent

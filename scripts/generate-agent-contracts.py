@@ -1779,8 +1779,8 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
     properties = args.get("properties", {})
     if args.get("type") != "object" or args.get("additionalProperties") is not False:
         fail("concord_ci_watch host schema must be a closed object")
-    if list(properties) != ["repo", "selector", "mode", "time_seconds_max"]:
-        fail("concord_ci_watch must publish exactly repo, selector, mode, and time_seconds_max")
+    if list(properties) != ["repo", "selector", "head_sha", "mode", "time_seconds_max"]:
+        fail("concord_ci_watch must publish exactly repo, selector, head_sha, mode, and time_seconds_max")
     if args.get("required") != ["repo", "selector"]:
         fail("concord_ci_watch must require only repo and selector")
     repo = properties.get("repo", {})
@@ -1799,6 +1799,9 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
     value = selector_properties.get("value", {})
     if value.get("type") != "string" or value.get("minLength") != 1 or value.get("maxLength") != 64:
         fail("concord_ci_watch selector.value must be a string bounded 1..64")
+    head = properties.get("head_sha", {})
+    if head.get("type") != "string" or head.get("pattern") != "^[0-9a-f]{40}$":
+        fail("concord_ci_watch head_sha must be a lowercase 40-character commit SHA")
     if properties.get("mode", {}).get("enum") != ["checks", "merge"]:
         fail("concord_ci_watch mode must admit checks and merge only")
     budget = properties.get("time_seconds_max", {})

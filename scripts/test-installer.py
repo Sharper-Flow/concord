@@ -164,6 +164,7 @@ esac''',
         include_binary_checksum: bool = True,
         agent_names: tuple[str, ...] | None = None,
         generated_agents: bool = False,
+        agent_contents: dict[str, str] | None = None,
     ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
@@ -182,6 +183,8 @@ esac''',
             content = f"agent:{name}:{marker or version}\n"
             if generated_agents:
                 content = (SCRIPT.parents[1] / ".opencode" / "agents" / name).read_text(encoding="utf-8") + "\n" + content
+            if agent_contents and name in agent_contents:
+                content = agent_contents[name]
             (source / "agents" / name).write_text(content, encoding="utf-8")
         binary = (source / "bin" / "concord")
         # The staged core is a shell script so the installer can ask it which
@@ -2825,10 +2828,23 @@ esac''',
         self.config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         global_bytes = self.config.read_bytes()
 
+        machine_dir = self.root / "machine-opencode"
+        machine_dir.mkdir()
+        machine_instructions = machine_dir / "instructions.md"
+        machine_instructions.write_text("Machine instruction sentinel.\n", encoding="utf-8")
+        machine_agent = {
+            "model": "openai/machine-model",
+            "tools": {"read": False},
+            "permission": {"read": "deny", "bash": {"git status *": "deny", "custom-command *": "allow"}},
+        }
+        machine_config = machine_dir / "opencode.jsonc"
+        machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}, "instructions": [str(machine_instructions)]}, indent=2) + "\n", encoding="utf-8")
+        machine_bytes = machine_config.read_bytes()
+
         project = self.root / "consumer"
         project_config = project / ".opencode" / "opencode.jsonc"
         project_config.parent.mkdir(parents=True)
-        project_agent = {"permission": {"bash": {"git status *": "deny", "custom-command *": "allow"}}}
+        project_agent = {"description": "User project description"}
         project_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": project_agent}}, indent=2) + "\n", encoding="utf-8")
         project_bytes = project_config.read_bytes()
         host_agent = self.config.parent / "agents" / "concord-host.md"
@@ -2841,6 +2857,8 @@ esac''',
             self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
             self.assertEqual(installer.jsonc_data(project_config.read_text(encoding="utf-8"))["agent"]["concord-explore"], project_agent)
             self.assertEqual(host_agent.read_bytes(), host_bytes)
+            self.assertEqual(machine_config.read_bytes(), machine_bytes)
+            self.assertEqual(machine_instructions.read_text(encoding="utf-8"), "Machine instruction sentinel.\n")
             binary = os.environ.get("CONCORD_INSTALLER_HOST_PROBE")
             if not binary:
                 return
@@ -2856,7 +2874,7 @@ esac''',
             }), encoding="utf-8")
             # Whitelist the environment: no live host config, plugins, account,
             # or inherited OPENCODE_* variables can affect the resolved agent.
-            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home")}
+            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home"), "OPENCODE_CONFIG_DIR": str(machine_dir)}
             host_env.update({f"XDG_{key}_HOME": str(self.root / directory) for key, directory in (
                 ("CONFIG", "probe-config"), ("DATA", "probe-data"), ("CACHE", "probe-cache"), ("STATE", "probe-state"),
             )})
@@ -2865,19 +2883,26 @@ esac''',
                 self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
                 value = json.loads(resolved.stdout)
                 if args[1] == "agent":
-                    self.assertEqual(value["model"], {"providerID": "openai", "modelID": "test-model"})
+                    self.assertEqual(value["model"], {"providerID": "openai", "modelID": "machine-model"})
+                    self.assertFalse(value["tools"]["read"])
+                    self.assertEqual(next(rule["action"] for rule in reversed(value["permission"]) if rule["permission"] == "read" and rule["pattern"] == "*"), "deny")
                     bash_rules = [rule for rule in value["permission"] if rule["permission"] == "bash"]
                     self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "git status *")), "deny")
                     self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "custom-command *")), "allow")
                     self.assertIn("# concord-explore", value["prompt"])
                 else:
                     self.assertIn(str(instructions), value["instructions"])
+                    self.assertIn(str(machine_instructions), value["instructions"])
 
         assert_user_layers()
         linked = self.run_installer("link", "--project", str(project))
         self.assertEqual(linked.returncode, 0, linked.stderr)
         assert_user_layers()
-        self.make_release("v2.0.0", generated_agents=True)
+        competing_agent = (SCRIPT.parents[1] / ".opencode" / "agents" / "concord-explore.md").read_text(encoding="utf-8")
+        competing_agent = competing_agent.replace("---\n", "---\nmodel: openai/shipped-model\n", 1)
+        competing_agent = competing_agent.replace("\npermission:\n", "\npermission:\n  read: allow\n")
+        competing_agent += "\nagent:concord-explore.md:v2.0.0\n"
+        self.make_release("v2.0.0", generated_agents=True, agent_contents={"concord-explore.md": competing_agent})
         upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
         self.assertIn("agent:concord-explore.md:v2.0.0", target.read_text(encoding="utf-8"))
@@ -2896,6 +2921,8 @@ esac''',
         self.assertIn(str(instructions), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["instructions"])
         self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
         self.assertEqual(host_agent.read_bytes(), host_bytes)
+        self.assertEqual(machine_config.read_bytes(), machine_bytes)
+        self.assertEqual(machine_instructions.read_text(encoding="utf-8"), "Machine instruction sentinel.\n")
         self.assertFalse(target.exists())
 
     def test_agent_files_equal_every_generated_definition(self) -> None:
@@ -3385,6 +3412,7 @@ esac''',
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
         self.assertIn("instructions[]", again.stderr)
         self.assertIn(".opencode/opencode.json", again.stderr)
+        self.assertIn("OPENCODE_CONFIG_DIR", again.stderr)
 
 
     def test_install_without_version_picks_highest_artifact_dir_release(self) -> None:

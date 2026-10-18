@@ -128,22 +128,53 @@ repair rather than losing your edits. Other agent files in that directory stay
 host-owned. If a new release ships a name you already use for a host-authored
 agent, installation refuses; it does not merge, adopt, or delete your file.
 
-Keep model choices in your global `opencode.jsonc` and extra instructions in a
-separate file that you own. For example, add these keys to the existing config:
+Keep machine-wide model choices, tool settings, permissions, and instructions
+in a separate host-owned directory, for example `$HOME/.config/opencode-machine/`.
+Put the overrides in that directory's `opencode.jsonc`:
 
 ```json
 {
   "agent": {
-    "concord-explore": { "model": "provider/model-id" }
+    "concord-explore": {
+      "model": "provider/model-id",
+      "tools": { "read": false },
+      "permission": {
+        "read": "deny",
+        "bash": {
+          "git status *": "deny",
+          "custom-command *": "allow"
+        }
+      }
+    }
   },
   "instructions": ["~/my-agent-instructions.md"]
 }
 ```
 
-OpenCode loads those instructions for every agent, alongside its agent prompt.
-Use an instruction such as “For concord-explore, …” when a rule applies only to
-that role. Concord never writes the instruction file or changes those user
-agent keys. It edits only its own plugin, skills, and project conduct registrations.
+Select that directory when starting OpenCode, or set the same environment
+variable in your host launcher:
+
+```sh
+OPENCODE_CONFIG_DIR="$HOME/.config/opencode-machine" opencode
+```
+
+Use a directory distinct from the normal global OpenCode config root. OpenCode
+still loads its normal config and Concord's generated agents, then loads this
+additional directory's JSON after the global markdown and project configuration.
+Machine overrides therefore win even when a new release adds the same model,
+tool key, or permission. Do not copy agent markdown into the override directory;
+that would load after its JSON and reintroduce the collision.
+
+Move existing machine-specific `agent.<name>` keys from the normal global JSON
+to this file when you need them to override shipped settings. Leave Concord's
+plugin and skills registrations in the normal config. Concord never writes,
+prunes, or unregisters the machine directory. If your launcher omits
+`OPENCODE_CONFIG_DIR`, its overrides do not load.
+
+OpenCode loads the listed instructions for every agent, alongside its agent
+prompt. Use an instruction such as “For concord-explore, …” when a rule applies
+only to that role. Concord never writes the instruction file or changes those
+user agent keys. It edits only its own plugin, skills, and project conduct registrations.
 
 OpenCode merges global JSON before discovered markdown agents. Fields the
 shipped markdown defines win over conflicting global JSON fields: its body
@@ -151,25 +182,10 @@ replaces `agent.<name>.prompt`, and its permission rules can override your
 global rules. Do not use a global `prompt` value to append instructions or
 assume a global permission addition overrides a shipped deny.
 
-For project-specific agent permissions, add an `agent` entry to the project's
+For project-specific settings, add an `agent` entry to the project's
 `.opencode/opencode.jsonc` (or its existing `.opencode/opencode.json`), which
-loads after the global agent definition. This example denies a normally
-allowed command and allows an additional command:
-
-```json
-{
-  "agent": {
-    "concord-explore": {
-      "permission": {
-        "bash": {
-          "git status *": "deny",
-          "custom-command *": "allow"
-        }
-      }
-    }
-  }
-}
-```
+loads after the global agent definition but before the machine override
+directory. Machine policy can therefore constrain project settings too.
 
 Do not duplicate the agent markdown to customize it. Linking, upgrading,
 repairing, unlinking, and uninstalling preserve these user keys. Host permission
@@ -177,7 +193,8 @@ grants do not grant Concord workflow authority. Check the result with
 `opencode debug agent concord-explore` and `opencode debug config`, then start
 a new session to use changed host configuration. The examples follow
 [OpenCode's native merge order](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/config/config.ts#L412-L489)
-and [instruction loading](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/instruction.ts#L135-L168).
+and [directory ordering](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/config/paths.ts#L23-L40),
+with [instruction loading](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/instruction.ts#L135-L168).
 
 Installer regression tests use temporary home and configuration roots. To also check the
 resolved agent with an existing OpenCode binary, run:
@@ -191,7 +208,8 @@ bin/oc-test targeted -- env CONCORD_INSTALLER_HOST_PROBE="$(command -v opencode)
 The host probe copies the installed agent bytes and user settings into an
 isolated config root. It excludes the test release's synthetic adapter files,
 uses `--pure`, and makes no provider request. It checks resolved model and
-permissions plus instruction registration, not a captured model request.
+permissions, tool visibility, and instruction registration against an upgraded
+definition with conflicting defaults, not a captured model request.
 
 ## Prepare, migrate, activate
 

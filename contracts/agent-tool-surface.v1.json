@@ -128,12 +128,13 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, attachments, and unresolved overlap.",
+      "description": "Navigate Product architecture: current Domains, current law, attachments, unresolved overlap, and the footprint of a change.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
         "concord_domain.attachments",
-        "concord_domain.overlaps"
+        "concord_domain.overlaps",
+        "concord_domain.footprint"
       ]
     }
   ],
@@ -1316,6 +1317,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_domain.footprint",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainFootprint",
+      "input_schema": "#/schemas/domain_footprint_input",
+      "result_schema": "#/schemas/domain_footprint_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_transition.correct_delivery",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1817,6 +1839,14 @@
     "work_transition_outside_repair_reconcile_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_reconcile_input",
       "closed": true
+    },
+    "domain_footprint_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_input",
+      "closed": true
+    },
+    "domain_footprint_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_result",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1866,6 +1896,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:61fe877bf3194fdd9431c6894760b23f0d15f27fa0425a2f19960db21191551e",
-  "digest": "sha256:46c74bfb606ca4c823b4168d0df4fa0d95943d2ef4933b8aa8bdd1d1b61d5fd5"
+  "payload_digest": "sha256:fdc3173d7e013aa0ceb0c8241c0928969c386571c1e1d9e36f99dc14fd052154",
+  "digest": "sha256:0f6eddb24e39e0f3c9f80b02e60014262a167cb1739f05fa2fdd88026859040c"
 }

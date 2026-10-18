@@ -8,6 +8,8 @@
   2026-09-02 and rejected a worker that renders no Task card. On 2026-09-08,
   the operator selected explicit managed-session scope for D2 in
   [issue #938](https://github.com/Sharper-Flow/concord/issues/938).
+  On 2026-10-17, the operator approved program-owned native scheduling and
+  host-derived report model identity in the [Concord (CON) issue 1059 amendment batch](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
 - **Amends:** CD-0059 D1 for the worker execution route, not for its
   authorize-before-start rule
@@ -16,27 +18,18 @@
 
 ## Context
 
-`dispatch_worker` starts a worker today by spawning `opencode run` as a child
-process. The adapter authorizes the action against the core first, then spawns.
-The operator sees a detached process. The terminal shows no progress, offers no
-navigation into the worker, and offers no cancellation.
+Worker execution needs the native Task card, child navigation, progress, and
+cancellation. A detached process or a directly created child session does not
+provide that interface.
 
-The terminal renders a worker card only for the tool named `task`. The name is
-fixed in the terminal source. A plugin cannot supply a renderer, and a plugin
-tool under any other name renders no card.
-
-The native tool creates a child session, runs one agent in it, and returns the
-last text part of that session. The model issues the call, so the tool arguments
-originate outside Concord. A packet that the model composes carries no
-provenance Concord can trust.
-
-The tool is also absent from a posture that denies it outright. OpenCode drops
-a tool from the model request when the last rule matching its permission has the
-pattern `*` and the action `deny`.
+An authorized dispatch already determines the lane and its recorded packet.
+Another model-authored launch adds no decision. The program must carry those
+values into native Task execution without gaining model-routing or host
+permission authority.
 
 ## Decision
 
-### D1. Typed dispatch opens one authorization window
+### D1. Typed dispatch authorizes and schedules one native Task
 
 `dispatch_worker` keeps its current validation. It resolves the lane, checks the
 packet against the lane digest, records the attempt, and authorizes the action
@@ -45,6 +38,18 @@ against the core before anything starts.
 The action then opens exactly one authorization window. The window carries the
 work item, the attempt, the lane identity, and the session that requested it. A
 window authorizes one worker start and no more.
+
+Before queueing, the adapter requests the calling agent's native Task
+permission through the host. A core authorization does not bypass that policy.
+The adapter then queues one native subtask in the requesting parent session.
+The host executes it after the dispatching tool returns, without another
+model-authored Task call or a recursive parent prompt loop.
+
+The queue preserves the parent's existing host-selected model and variant.
+The subtask names the registered lane agent without a model or provider
+override. The host resolves the worker's model from the operator's configuration.
+An unconfirmed queue never causes an automatic second launch. The recorded
+attempt must reconcile or close through the existing recovery routes.
 
 ### D2. The plugin binds the packet to the next matching call
 
@@ -87,6 +92,7 @@ Generated utilities are a narrow exception. A coordinator may call one without
 a dispatch window when its session has no managed parent. The hook passes the
 call through unchanged. A lane session has a managed parent, so the hook
 refuses the utility call before the host starts it.
+An admitted utility never consumes a queued lane's authorization window.
 
 The scope decision uses host session identity and recorded participation, not
 agent names, prompts, repository names, or path conventions. Invalid metadata,
@@ -126,16 +132,22 @@ place of the result.
 
 The host wraps that body as `<task id="SESSION_ID" state="...">`, so the worker
 session identifier arrives with the result. Readback evidence therefore survives
-the native route unchanged: the adapter exports that session and reads the
-executing model and executing agent from it, exactly as the child-process route
-did. CD-0058 D1 and CD-0017 D5 keep their evidence without amendment.
+the native route: the adapter reads that child session through the host API
+and obtains its executing model and agent. The adapter populates the report's
+model identity before validation. Worker-authored model values are neither
+required nor authoritative. CD-0058 D1 and CD-0017 D5 keep their evidence.
 
 Dispatch and completion are consequently two adapter entry points, not one call.
-Dispatch authorizes the attempt and opens the window, and it returns before the
-worker runs. Completion receives the result body, exports the worker session,
-resolves the report, signs the dispatch and terminal assertions, and records the
-attempt outcome. A single blocking call cannot span the two, because the host
-runs the worker between them.
+Dispatch authorizes the attempt, opens the window, and queues the native
+subtask before it returns. Completion receives the result body, reads the worker
+session, resolves the report, signs the dispatch and terminal assertions, and
+records the attempt outcome. A single blocking call cannot span the two,
+because the host runs the worker between them.
+
+A failed native subtask may supply no after-hook result before it publishes
+the terminal tool-part event. That event owns failure settlement. Its part
+identity must match the hook identity retained for the attempt, whether the
+host hook identifies the part or its separate tool call.
 
 *(Amended 2026-10-09, [Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of) — the final part carries a framed report.)*
 The worker emits its lane report as one Markdown fence with the info string
@@ -181,8 +193,8 @@ worker cannot run in a worktree the work item does not own.*
   states the required shape and the host applies it.
 - Concord no longer parses a child process. One failure class, the detached
   worker, is removed with the route that produced it.
-- A lane start now depends on the coordinator issuing the call the hook expects.
-  The window makes that dependency explicit and single-use.
+- The program queues the authorized lane. The window binds one native Task
+  without a second model-authored launch step.
 - Unmanaged host sessions retain native Task behavior without Concord workflow
   authority. Managed participation survives changes to the selected agent.
 - The host must persist session metadata and expose parent identity. Enrollment
@@ -228,6 +240,13 @@ authorization has nothing to bind.
 - `adapter/opencode/lane_dispatch.test.ts` verifies that failed enrollment cannot
   authorize dispatch. `adapter/opencode/dispatch_route_end_to_end.test.ts` checks
   enrollment before real core dispatch and preserves the completion route.
+- `adapter/opencode/native-subtask.test.ts` checks exact queued bytes and the
+  parent's host-selected model. `scripts/probe-native-subtask-host.ts` exercises
+  that queue against a real isolated host without a model request.
+- `adapter/opencode/lane_dispatch.test.ts` checks the host Task permission
+  boundary and refuses an unconfirmed launch without a queue retry.
+- `adapter/opencode/lane_completion.test.ts` checks native failure-part identity
+  and leaves an absent after-hook result for the terminal event to settle.
 - The adapter test `lane report resolves from the worker result body` proves D5,
   including the missing-report failure.
 - `TestDispatchRefusesImplementationLaneFromDefaultCheckout` proves D7.

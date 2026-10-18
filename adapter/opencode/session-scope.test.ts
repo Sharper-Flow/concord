@@ -126,6 +126,23 @@ test("a lane session cannot auto-start a generated utility", async () => {
   expect(fixture.writes).toEqual([])
 })
 
+test("a coordinator utility cannot consume a queued lane's authorization window", async () => {
+  const fixture = host([session("scope-window", true)])
+  const plugin = await fixture.plugin()
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
+  dispatchWindows().open("scope-window", packet, "", process.cwd())
+  const utility = { args: { ...args(), subagent_type: "concord-explore" } }
+  const original = structuredClone(utility.args)
+  await plugin["tool.execute.before"](task("scope-window"), utility)
+  expect(utility.args).toEqual(original)
+  expect(dispatchWindows().has("scope-window")).toBe(true)
+  expect(dispatchWindows().inFlightAttempt("scope-window")).toBeNull()
+  const native = { args: { subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" } }
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "native-call" }, native)
+  expect(dispatchWindows().has("scope-window")).toBe(false)
+  expect(dispatchWindows().inFlight("scope-window", "native-call")).not.toBeNull()
+})
+
 test("unmanaged sessions cannot invoke Concord lanes without authorization", async () => {
   const fixture = host([session("scope-direct")])
   const plugin = await fixture.plugin()

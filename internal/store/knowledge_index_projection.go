@@ -525,12 +525,14 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 }
 
 // knowledgeProjectionVersion names the semantics of the projection this
-// binary writes: the digest algorithm and the set of git objects it covers.
-// Bump it when either changes, in the same change that changes the semantics.
+// binary writes: the digest algorithm, the set of git objects it covers, and
+// the rows it projects from them. Bump it when any of these changes, in the
+// same change that changes the semantics, so a row an older binary stamped
+// reads stale and rebuilds.
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 2
+const knowledgeProjectionVersion = 3
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -600,7 +602,11 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if productID != "" && !designated {
 		role = manifestRegisteredSourceRole
 	}
-	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
+	manifest, shards, manifestMissing, err := readKnowledgeManifestShardsRunner(ctx, runGitRunner{}, home.RepoPath, commit, role)
+	if err != nil {
+		return err
+	}
+	architecture, err := prepareKnowledgeArchitecture(shards, manifest, !manifestMissing && productID != "" && designated)
 	if err != nil {
 		return err
 	}
@@ -639,7 +645,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, productID, designated); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, architecture, productID, designated); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -654,6 +660,9 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 // TestDerivedKnowledgeClearOrderRespectsForeignKeys derives the same order
 // from the schema and refuses a drift.
 var derivedKnowledgeClearOrder = []string{
+	"knowledge_package_domains",
+	"law_coverage_anchors",
+	"law_evidence_paths",
 	"law_bodies",
 	"law_relations",
 	"law_cross_source_relations",
@@ -666,7 +675,7 @@ var derivedKnowledgeClearOrder = []string{
 	"domain_registries",
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, preparedProductID string, preparedDesignated bool) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, architecture knowledgeArchitecture, preparedProductID string, preparedDesignated bool) error {
 	var productID string
 	var designated bool
 	var domainProjectionData domainProjection
@@ -751,6 +760,9 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		}
 	}
 	if err := insertKnowledgeLawRelations(ctx, tx, home, commit, laws); err != nil {
+		return err
+	}
+	if err := insertKnowledgeArchitecture(ctx, tx, home, commit, laws, architecture); err != nil {
 		return err
 	}
 	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {

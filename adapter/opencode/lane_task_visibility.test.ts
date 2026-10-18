@@ -1,4 +1,4 @@
-import { test, expect, afterAll, mock } from "bun:test"
+import { test, expect, afterAll, afterEach, mock } from "bun:test"
 import { readFileSync } from "node:fs"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -6,7 +6,14 @@ import { hostControlPlane } from "./move-session"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
 
+afterEach(() => {
+  dispatchWindows().close("session-lane-window")
+  dispatchWindows().takeInFlight("session-lane-window")
+  hostControlPlane().bind(undefined)
+})
+
 afterAll(() => {
+  expect(dispatchWindows().inFlightAttempt("session-lane-window")).toBeNull()
   configureHostLease({ reset: true })
   configureCiWatch({ reset: true })
 })

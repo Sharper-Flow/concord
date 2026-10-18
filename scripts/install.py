@@ -137,6 +137,7 @@ ADAPTER_FILES = (
     "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
+    "lane_capabilities.ts",
     "lane_completion.ts",
     "lane_dispatch.ts",
     "manifest-pin.ts",
@@ -149,7 +150,11 @@ ADAPTER_FILES = (
     "task-result.ts",
     "turn-move-boundary.ts",
     "worker-report-protocol.js",
+    "worker_control.ts",
+    "worker_diff.ts",
     "worker_recovery.ts",
+    "worker_source.ts",
+    "worker_subject.ts",
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (

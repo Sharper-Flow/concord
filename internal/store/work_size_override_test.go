@@ -47,13 +47,8 @@ func runWorkSizeOverride(t *testing.T, s *Store, request WorkSizeOverrideRequest
 
 func readEffectiveWorkSizeForTest(t *testing.T, s *Store, workID string) (WorkSizeDecision, bool) {
 	t.Helper()
-	var decision WorkSizeDecision
-	var sized bool
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var err error
-		decision, sized, err = ReadEffectiveWorkSizeTx(context.Background(), tx, workID)
-		return err
-	}); err != nil {
+	decision, sized, err := readEffectiveWorkSize(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return decision, sized

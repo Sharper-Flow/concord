@@ -145,12 +145,8 @@ func TestResizeSuccessorSupersedesWithoutCompletion(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events WHERE subject_id='resize' AND event_id NOT LIKE 'resize-up:resize:%'`).Scan(&throughSeq); err != nil {
 		t.Fatal(err)
 	}
-	var lineage WorkLineage
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var err error
-		lineage, err = ReadWorkLineageTx(context.Background(), tx, successor)
-		return err
-	}); err != nil {
+	lineage, err := readWorkLineage(context.Background(), s.DatabaseForTesting(), successor)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(lineage, WorkLineage{RootWorkID: "resize", EvidenceSources: []WorkResizeEvidenceSource{{WorkID: "resize", ThroughSeq: throughSeq}}}) {

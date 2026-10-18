@@ -196,17 +196,8 @@ func checkCarriedWorkSizeOverrideTx(ctx context.Context, tx *sql.Tx, event Event
 	return nil
 }
 
-// ReadEffectiveWorkSizeTx reads a work item's size decision inside the
-// caller's transaction. ok is false when the item was never sized; an unsized
-// item is never treated as small.
-func ReadEffectiveWorkSizeTx(ctx context.Context, transaction *Transaction, workID string) (WorkSizeDecision, bool, error) {
-	tx, err := transactionSQL(transaction, "work_size")
-	if err != nil {
-		return WorkSizeDecision{}, false, err
-	}
-	return readEffectiveWorkSize(ctx, tx, workID)
-}
-
+// readEffectiveWorkSize reads a work item's size decision. ok is false when
+// the item was never sized; an unsized item is never treated as small.
 func readEffectiveWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeDecision, bool, error) {
 	model, sized, err := readWorkSize(ctx, q, workID)
 	if err != nil || !sized {

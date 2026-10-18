@@ -48,16 +48,7 @@ type WorkLineage struct {
 	EvidenceSources        []WorkResizeEvidenceSource
 }
 
-// ReadWorkLineageTx reads a work item's resize root inside the caller's
-// transaction.
-func ReadWorkLineageTx(ctx context.Context, transaction *Transaction, workID string) (WorkLineage, error) {
-	tx, err := transactionSQL(transaction, "work_lineage")
-	if err != nil {
-		return WorkLineage{}, err
-	}
-	return readWorkLineage(ctx, tx, workID)
-}
-
+// readWorkLineage reads a work item's resize root.
 func readWorkLineage(ctx context.Context, q queryer, workID string) (WorkLineage, error) {
 	lineage := WorkLineage{RootWorkID: workID}
 	var start sql.NullString

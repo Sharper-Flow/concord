@@ -4621,6 +4621,10 @@
               "kind": {
                 "$ref": "#/$defs/short"
               },
+              "attempt_id": {
+                "type": "string",
+                "minLength": 1
+              },
               "version": {
                 "$ref": "#/$defs/version"
               },

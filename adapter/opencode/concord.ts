@@ -18,7 +18,7 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, samePath, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { queueWorkStartContinuation, clearWorkStartContinuation, resetWorkStartContinuations } from "./work-start-continuation"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
@@ -1480,14 +1480,6 @@ export function validateBranchFreshness(value: unknown): value is BranchFreshnes
 function boundedUTF8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value) <= maxBytes) return value
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
-}
-
-// samePath compares an absolute path the host reported with one Concord
-// claimed. Both are absolute and already resolved, so only a trailing
-// separator distinguishes two spellings of one directory.
-function samePath(left: string, right: string): boolean {
-  const trim = (value: string) => (value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value)
-  return trim(left) === trim(right)
 }
 
 function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}): WorkStartEnvelope {

@@ -220,6 +220,24 @@ test("an unlanded start wakes its session after idle without an operator message
   expect(armedClaimedWorktree(sessionID)).toBeNull()
 })
 
+test("a trailing separator in the host session directory preserves the continuation", async () => {
+  await start()
+  directory = `${claimed}/`
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+  expect(logs).toEqual([])
+})
+
+test.each([origin, null])("an unverified host directory %s suppresses the continuation", async reported => {
+  await start()
+  directory = reported as any
+  await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })
+  await workStartContinuationSettled(sessionID)
+  expect(posts.filter(post => post.url === "/session/{id}/prompt_async")).toHaveLength(0)
+  expect(logs.some(message => message.includes("originating run cannot be verified"))).toBe(true)
+})
+
 test("a stale automatic replay spends no second continuation", async () => {
   await start()
   await plugin.event({ event: { type: "session.idle", properties: { sessionID } } })

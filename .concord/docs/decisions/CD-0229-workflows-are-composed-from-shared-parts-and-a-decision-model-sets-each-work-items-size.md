@@ -13,7 +13,9 @@
   [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
   D2, the steps every implementation item walks;
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) D3, the issue
-  identity of a resize successor
+  identity of a resize successor;
+  [CD-0138](CD-0138-mandatory-refinement-pass.md) D1, the mandatory separate
+  refine step
 - **Preserves:** [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md),
   released definition bytes, digests, and pins; CD-0006 R1 and CD-0013 D8,
   forward-link composition across work items; CD-0218 D1, the three live
@@ -30,6 +32,17 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
+- **Amended:** 2026-10-18.
+- **Revision choice:** This is a compatible amendment under
+  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; this record keeps its ID.
+- **Amendment reason:** D5 needs an explicit exception to the general
+  refine rule. Timing records must distinguish actor submission from the
+  external queue's state.
+- **P12:** This amendment affects only the workflow-engine Domain. It removes
+  or reverses no user-visible behavior, changes no security or data-safety
+  rule, and changes no UI/UX. It is not serious under
+  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+  D4.
 
 ## Context
 
@@ -141,6 +154,10 @@ items (R1). A `larger` change whose second review still finds one inside its
 scope has proved bigger than its size under D6. Those open findings are a
 model input, and the model returns `crucial` for them.
 
+For small work, D5's size-specific composition replaces CD-0138 D1's
+mandatory separate refine step; all other released pins keep that rule
+unchanged.
+
 ### D6. Only the model and the operator change a size
 
 The operator may move a size up or down. The record keeps the operator's size
@@ -164,6 +181,13 @@ action on the defined item, and when the change enters the merge queue. Goal
 B's measure for a small change, one hour or less, reads these two records.
 The targets for `larger` and `crucial` stay open under goals.md §5. No time
 target refuses admission until the operator sets one as a gate.
+
+For this measure, define starts at the first qualifying agent workflow
+action-completed event on the item. Merge-queue entry means the ship step's
+delivery assertion that the delivering actor submitted the change to the
+repository's merge route, with its PR artifact. Both times are stamped by
+the core. These records apply at every size and do not assert the external
+queue's state or impose a wait.
 
 ## Alternatives considered
 

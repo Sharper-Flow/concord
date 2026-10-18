@@ -18,6 +18,10 @@
     },
     {
       "kind": "refines",
+      "target_id": "CD-0138"
+    },
+    {
+      "kind": "refines",
       "target_id": "CD-0213"
     },
     {
@@ -33,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:39d7412ad83e31d38406a6c6249d154c46587f4c6f869b2f1ade5cdb8e934390",
+  "sha256": "sha256:3db2d02e3ac97901cffaaede7dad2f8c8c20151132e6be08dcf4686f486c6cfb",
   "status": "accepted",
   "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions and released versions stay frozen. Every sized work item carries small, larger, or crucial from one deterministic, versioned decision model whose inputs are recorded. Only the operator overrides a size; a resize forward-links a successor that takes over the issue identity. Sized workflows record define start and merge-queue entry.",
   "tags": [

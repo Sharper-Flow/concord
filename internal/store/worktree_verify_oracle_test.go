@@ -82,13 +82,14 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 	if len(recordedSubject) > 0 {
 		f.dispatchSubject = recordedSubject[0]
 	}
-	f.qualify(t, "oracle-branch", "pkg", "pkg/oracle.json", "TestValue")
+	f.qualify(t, "oracle-branch", "pkg", "pkg/oracle.json", "case:fixture", "TestValue")
 	return f
 }
 
 // qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
-// single control without launching it, and authorizes two attempts to execute it.
-func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, testName string) {
+// single control for caseID without launching it, and authorizes two attempts
+// to execute it.
+func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
 	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
@@ -103,6 +104,8 @@ func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, tes
 		t.Fatal(err)
 	}
 	f.bundle = NativeOracleControlBundle{Owner: oracle.Owners[0], Cases: oracle.Cases, Control: oracle.Controls[0]}
+	f.bundle.Cases[0].CaseID = caseID
+	f.bundle.Control.CaseIDs = []string{caseID}
 	f.bundle.Control.Cwd = cwd
 	f.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: recipePath, CommitOID: f.head}
 	f.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(" + testName + ")$", "."}

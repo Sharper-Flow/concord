@@ -164,7 +164,7 @@ func TestStoreTemplateOracleRecipeExecutes(t *testing.T) {
 	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeOracleFixture{s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head, actor: seed.owner}
-	f.qualify(t, "store-oracle", "internal/store", recipePath, selected)
+	f.qualify(t, "store-oracle", "internal/store", recipePath, "case:store-template-fixture", selected)
 	result, err := f.s.VerifyWorktree(ctx, f.request("execute", &f.a))
 	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "pass" || result.ExitCode != 0 {
 		t.Fatalf("execute the template-based control: %+v, %v", result, err)

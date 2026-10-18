@@ -1470,15 +1470,17 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		if workflowFamilyArchived(definition.Ref) {
-			for _, witness := range archivedRefusalWitnesses(definition) {
+		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+			if workflowFamilyArchived(definition.Ref) {
+				for _, witness := range archivedRefusalWitnesses(definition) {
+					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				}
+				return
+			}
+			for _, witness := range admissionStrandedWitnesses(definition) {
 				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 			}
-			continue
-		}
-		for _, witness := range admissionStrandedWitnesses(definition) {
-			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
-		}
+		})
 	}
 }
 

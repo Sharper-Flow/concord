@@ -503,7 +503,7 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     // behind an actual target-context confirmation, and asserts neither an
     // armed turn-move boundary nor successful placement.
     expect(unlanded.error.message).toContain("this refusal arms no turn-move boundary")
-    expect(unlanded.error.message).toContain("ask the operator to send the next message")
+    expect(unlanded.error.message).toContain("one automatic continuation")
     expect(unlanded.error.message).toContain("replay this same work_start request")
     const receiveWorktree = unlanded.worktree_path as string
     expect(receiveWorktree).toBeTruthy()

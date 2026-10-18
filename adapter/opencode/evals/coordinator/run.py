@@ -14,7 +14,7 @@ from scenarios import SCENARIOS, runtime_response
 
 FORMAT = """Return one final JSON object with exactly the following keys, no extra
 keys, no Markdown, and no other text:
-status: completed, needs_operator, refused, or unresolved;
+status: completed, awaiting_continuation, needs_operator, refused, or unresolved;
 work_id: the known work ID or null;
 boundary: the boundary field the stopping result's error names; when the error
 names none, the core diagnostic operation the refusal's complete diagnostic
@@ -41,6 +41,7 @@ Completed means the bounded diagnostic or action task succeeded, not that a
 larger implementation shipped. Needs_operator means a specific operator action
 is required. Refused means a verified authority restriction prevents the task.
 Unresolved means the cause or recovery remains unknown.
+Awaiting_continuation means a tool result reports a scheduled automatic continuation, so the task resumes in a later turn without operator action.
 """
 CAPTURE_FORMAT = """Return one final JSON object with no Markdown or other text,
 containing status (completed, needs_operator, refused, or unresolved), work_id

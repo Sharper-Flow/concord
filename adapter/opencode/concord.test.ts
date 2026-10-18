@@ -2464,9 +2464,8 @@ test("work start refuses a metadata-only move whose tool context has not landed"
     // question/dispatch boundary: it asserts neither.
     expect(result.error.message).toContain("this refusal arms no turn-move boundary")
     expect(result.error.message).not.toContain("A turn-move boundary is active")
-    // The next operator message is the recovery opportunity, and the replay
-    // stays behind an actual target-context confirmation.
-    expect(result.error.message).toContain("ask the operator to send the next message")
+    // A native wake does not replace the target-context confirmation.
+    expect(result.error.message).toContain("one automatic continuation")
     expect(result.error.message).toContain("not placement proof")
     expect(result.error.message).toContain(`actually resolves in ${JSON.stringify(WORKTREE)}`)
     expect(result.error.message).toContain("replay this same work_start request")

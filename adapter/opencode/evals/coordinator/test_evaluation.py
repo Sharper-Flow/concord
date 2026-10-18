@@ -312,7 +312,8 @@ class EvaluationTests(unittest.TestCase):
         # (work-resume exit 2, adapter contact_operator), so no scenario
         # declares a replay allowance and an identical same-turn replay of a
         # refused start fails everywhere.
-        for name in ("genuine-refusal-no-fallback", "stale-context-turn-boundary"):
+        for name in ("genuine-refusal-no-fallback", "stale-context-turn-boundary",
+                     "stale-context-continuation-scheduled"):
             with self.subTest(name=name):
                 case = SCENARIOS[name]
                 calls, events = observation(case)
@@ -464,14 +465,44 @@ class EvaluationTests(unittest.TestCase):
         # substituted, so the evaluated guidance is the shipped guidance.
         source = CONCORD_SOURCE.read_text()
         template = re.search(r'move_context_not_landed", `([^`]+)`', source)
+        recovery = re.search(r'const recovery = scheduled \? ("[^"\n]+") : ("[^"\n]+")', source)
         self.assertIsNotNone(template)
-        rendered = (
-            template.group(1)
-            .replace("${JSON.stringify(target.worktree.path)}", json.dumps(WORKTREE))
-            .replace("${JSON.stringify(context.directory)}", json.dumps("/synthetic/repo"))
-        )
-        served = SCENARIOS["stale-context-turn-boundary"]["start"]["result"]["error"]["message"]
-        self.assertEqual(served, rendered)
+        self.assertIsNotNone(recovery)
+        for name, branch in (("stale-context-turn-boundary", 2),
+                             ("stale-context-continuation-scheduled", 1)):
+            with self.subTest(name=name):
+                rendered = (
+                    template.group(1)
+                    .replace("${JSON.stringify(target.worktree.path)}", json.dumps(WORKTREE))
+                    .replace("${JSON.stringify(context.directory)}", json.dumps("/synthetic/repo"))
+                    .replace("${recovery}", json.loads(recovery.group(branch)))
+                )
+                self.assertNotIn("${", rendered)
+                served = SCENARIOS[name]["start"]["result"]["error"]["message"]
+                self.assertEqual(served, rendered)
+
+    def test_scheduled_continuation_rejects_wrong_dispositions(self):
+        case = SCENARIOS["stale-context-continuation-scheduled"]
+        for field, value in (("status", "completed"), ("status", "needs_operator"),
+                             ("status", "continuing"), ("why_agent_cannot", "none"),
+                             ("recovery_owner", "operator"), ("recovery_owner", "host"),
+                             ("operator_action", {"kind": "send_next_message", "target": None})):
+            with self.subTest(field=field, value=value):
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final[field] = value
+                events[-2]["part"]["text"] = json.dumps(final)
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_scheduled_continuation_does_not_admit_dispatch(self):
+        case = SCENARIOS["stale-context-continuation-scheduled"]
+        calls, events = observation(case)
+        refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
+        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        events.insert(1, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
+            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+        }}})
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_open_session_target_compares_exactly(self):
         # The adapter serves no launch command, so the open_session

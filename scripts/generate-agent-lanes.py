@@ -25,7 +25,7 @@ PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 # The closed named primary set (CD-0154): one release train engineer and one
 # repository-local operator. Primaries are never lanes or utilities.
-PRIMARY_PROFILE_IDS = ("Concord-RTE", "concord-operator")
+PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
@@ -1189,10 +1189,7 @@ def primary_projection(profile: dict, role_source: str) -> str:
 # the profile's denied tools. Every profile that denies at least one tool must
 # carry one, so a new profile fails generation instead of refusing with an
 # empty boundary.
-PRIMARY_PROFILE_REFUSAL_BOUNDARIES = {
-    "Concord-RTE": "",
-    "concord-operator": "",
-}
+PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {}
 LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context"
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 

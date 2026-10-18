@@ -216,7 +216,7 @@ test("a managed session's Concord tool call refuses through agent switches and p
   // The caller is a child of a managed session — the dispatched-lane shape —
   // and its selected agent holds a role-allowed name, so only the host
   // ancestry can refuse it.
-  const fixture = host([session("scope-tool-parent", true), { ...session("scope-tool-managed"), parentID: "scope-tool-parent", agent: "concord-operator" }])
+  const fixture = host([session("scope-tool-parent", true), { ...session("scope-tool-managed"), parentID: "scope-tool-parent", agent: "Concord" }])
   const plugin = await fixture.plugin()
   const execute = async (instance: any, agent: string): Promise<{ output: string }> =>
     instance.tool.concord_product_view.execute(
@@ -226,7 +226,7 @@ test("a managed session's Concord tool call refuses through agent switches and p
   // The role guard passes a role-allowed agent, so this refusal is the
   // managed-ancestry boundary: unauthorized with effect_state none, before
   // the core is reached.
-  const first = JSON.parse((await execute(plugin, "concord-operator")).output)
+  const first = JSON.parse((await execute(plugin, "Concord")).output)
   expect(first.outcome).toBe("error")
   expect(first.error.kind).toBe("unauthorized")
   expect(first.error.adapter_reason).toBe("lane_tool_refusal")

@@ -13,6 +13,11 @@
   this decision on 2026-09-25 in the Concord (CON) work item CON-450.
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
   CD-0154, CD-0176, CD-0213
+- **Amendment reason:** Concord needs no release train engineer; a user may
+  choose one to sequence independent work-item sessions.
+- **Revision choice:** In-place amendment under CD-0036. Repository-local
+  execution, native dispatch, handoffs, and worktree occupancy stay unchanged.
+- **P12:** Serious: the named primary agent and its permission boundary change.
 - **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
   CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
@@ -109,9 +114,11 @@ refusal, so the remaining move refusals keep their existing classification.
 
 Within one repository, the move route of CD-0098 and CD-0103 stays as it is.
 
-`Concord-RTE`, the release train engineer (RTE), sequences independent work-item sessions across authorized
-Projects. Repository-local `concord-operator` sessions own their item decisions
-and hold the execution authority described by this clause. The RTE does not
+Repository-local `Concord` sessions own their item decisions and hold the
+execution authority described by this clause. They need no release train
+engineer (RTE) to complete their work. The user may choose to start `Concord-RTE`
+for concurrent Product or Project work. That optional session sequences the
+independent work-item sessions across authorized Projects. The RTE does not
 claim their worktrees, dispatch their lanes, accept their work, or publish for
 them. Its tool permissions do not transfer their authority. It conveys facts
 and references, not substitute workflow or handoff evidence. Session placement

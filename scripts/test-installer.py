@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import fnmatch
 import gc
 import hashlib
 import io
@@ -2255,6 +2256,20 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(outside.read_text(encoding="utf-8"), '{"keep": true}\n')
 
+    def test_manifest_agent_file_names_admit_concord_and_refuse_a_bare_lowercase_name(self) -> None:
+        # The manifest admits the prefix-free exact primary name Concord.md
+        # alongside the existing concord- and Concord- prefixes, and refuses
+        # any other spelling, so a recorded manifest key cannot reach a
+        # delete outside the managed agent set.
+        manifest_path = self.install_for_manifest_attack()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertIn("Concord.md", manifest["agent_files"])
+        manifest["agent_files"]["concord.md"] = manifest["agent_files"]["Concord.md"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = self.run_installer("uninstall")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid agent file name", result.stderr)
+
     def test_install_process_death_at_every_phase_recovers(self) -> None:
         phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
         for index, phase in enumerate(phases, 1):
@@ -2800,9 +2815,14 @@ esac''',
         self.assertIn(f"cp .opencode/agents/{installer.AGENT_GLOB} release/package/agents/", release_workflow)
         generated = {path.name for path in (SCRIPT.parents[1] / ".opencode" / "agents").glob(installer.AGENT_GLOB)}
         self.assertEqual(set(installer.AGENT_FILES), generated)
+        # The glob admits both named primary files: the prefix-free
+        # Concord.md as well as the hyphenated Concord-RTE.md.
+        for name in ("Concord.md", "Concord-RTE.md", "concord-design.md"):
+            self.assertTrue(fnmatch.fnmatch(name, installer.AGENT_GLOB), name)
         self.assertIn("Concord-RTE.md", installer.AGENT_FILES)
-        self.assertIn("concord-operator.md", installer.AGENT_FILES)
+        self.assertIn("Concord.md", installer.AGENT_FILES)
         self.assertNotIn("concord-coordinator.md", installer.AGENT_FILES)
+        self.assertNotIn("concord-operator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-rte.md", installer.AGENT_FILES)
         self.assertNotIn("concord-RTE.md", installer.AGENT_FILES)
 
@@ -2822,6 +2842,24 @@ esac''',
         self.assertNotEqual(upgraded.returncode, 0)
         self.assertIn("user-authored agent file", upgraded.stderr)
         self.assertEqual(target.read_bytes(), b"host release train engineer\n")
+
+    def test_upgrade_refuses_unmanaged_concord_primary_over_host_file(self) -> None:
+        # The collision rule is not an RTE-only rule: a host's unowned
+        # Concord.md must survive a conflicting upgrade whole.
+        introduced = "Concord.md"
+        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
+        self.make_release("v1.0.0", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.write_bytes(b"host primary agent\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"host primary agent\n")
 
     def test_upgrade_refuses_new_managed_name_over_user_agent(self) -> None:
         introduced = installer.AGENT_FILES[-1]
@@ -2907,61 +2945,84 @@ esac''',
         self.assertEqual(target.read_bytes(), old_content)
         self.assertIn('"version": "v1.0.0"', recovered.stdout)
 
-    # CON-1163: the coordinator profile became the release train engineer.
-    # These two tests pin the rename as one installer transaction: the
-    # previous release's concord-coordinator.md is retired exactly when
-    # Concord-RTE.md is introduced, the rollback restores the retired file
-    # and removes the introduced one, and a host-authored Concord-RTE.md
-    # still refuses the upgrade whole (the collision test above).
+    # The old and new agent names swap in one installer transaction: both
+    # retired files (concord-coordinator.md and concord-operator.md) are
+    # removed exactly when Concord-RTE.md and Concord.md are placed, the
+    # rollback restores both retired files and removes both introduced ones,
+    # and host-authored copies of either new name still refuse the upgrade
+    # whole (the collision tests above).
 
-    def test_upgrade_replaces_retired_coordinator_with_rte(self) -> None:
-        previous = tuple(name for name in installer.AGENT_FILES if name != "Concord-RTE.md") + ("concord-coordinator.md",)
+    def test_upgrade_replaces_both_retired_profiles_with_both_new_names(self) -> None:
+        previous = (
+            tuple(name for name in installer.AGENT_FILES if name not in ("Concord-RTE.md", "Concord.md"))
+            + ("concord-coordinator.md", "concord-operator.md")
+        )
         agents_dir = self.root / "config" / "opencode" / "agents"
         self.make_release("v1.0.0", marker="old", agent_names=previous)
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
-        retired = agents_dir / "concord-coordinator.md"
-        introduced = agents_dir / "Concord-RTE.md"
-        self.assertEqual(retired.read_text(encoding="utf-8"), "agent:concord-coordinator.md:old\n")
-        self.assertFalse(introduced.exists())
+        retired_coordinator = agents_dir / "concord-coordinator.md"
+        retired_operator = agents_dir / "concord-operator.md"
+        introduced_rte = agents_dir / "Concord-RTE.md"
+        introduced_concord = agents_dir / "Concord.md"
+        self.assertEqual(retired_coordinator.read_text(encoding="utf-8"), "agent:concord-coordinator.md:old\n")
+        self.assertEqual(retired_operator.read_text(encoding="utf-8"), "agent:concord-operator.md:old\n")
+        self.assertFalse(introduced_rte.exists())
+        self.assertFalse(introduced_concord.exists())
 
         self.make_release("v2.0.0", marker="new")
         upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
-        self.assertFalse(retired.exists())
-        self.assertEqual(introduced.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
-        # The shipped name has no alias: neither lowercase concord-rte.md
-        # nor wrong-case concord-RTE.md is placed centrally.
+        self.assertFalse(retired_coordinator.exists())
+        self.assertFalse(retired_operator.exists())
+        self.assertEqual(introduced_rte.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
+        self.assertEqual(introduced_concord.read_text(encoding="utf-8"), "agent:Concord.md:new\n")
+        # The shipped names have no aliases: neither a lowercase nor a
+        # wrong-case spelling of either new name is placed centrally.
         self.assertFalse((agents_dir / "concord-rte.md").exists())
         self.assertFalse((agents_dir / "concord-RTE.md").exists())
+        self.assertFalse((agents_dir / "concord.md").exists())
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         self.assertNotIn("concord-coordinator.md", manifest["agent_files"])
+        self.assertNotIn("concord-operator.md", manifest["agent_files"])
         self.assertIn("Concord-RTE.md", manifest["agent_files"])
+        self.assertIn("Concord.md", manifest["agent_files"])
         self.assertNotIn("concord-rte.md", manifest["agent_files"])
         self.assertNotIn("concord-RTE.md", manifest["agent_files"])
+        self.assertNotIn("concord.md", manifest["agent_files"])
 
-    def test_upgrade_rollback_restores_retired_coordinator_and_removes_rte(self) -> None:
-        previous = tuple(name for name in installer.AGENT_FILES if name != "Concord-RTE.md") + ("concord-coordinator.md",)
+    def test_upgrade_rollback_restores_both_retired_files_and_removes_both_new_names(self) -> None:
+        previous = (
+            tuple(name for name in installer.AGENT_FILES if name not in ("Concord-RTE.md", "Concord.md"))
+            + ("concord-coordinator.md", "concord-operator.md")
+        )
         agents_dir = self.root / "config" / "opencode" / "agents"
         self.make_release("v1.0.0", marker="old", agent_names=previous)
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
-        retired = agents_dir / "concord-coordinator.md"
-        introduced = agents_dir / "Concord-RTE.md"
-        old_content = retired.read_bytes()
+        retired_coordinator = agents_dir / "concord-coordinator.md"
+        retired_operator = agents_dir / "concord-operator.md"
+        introduced_rte = agents_dir / "Concord-RTE.md"
+        introduced_concord = agents_dir / "Concord.md"
+        old_coordinator = retired_coordinator.read_bytes()
+        old_operator = retired_operator.read_bytes()
 
         self.make_release("v2.0.0", marker="new")
         stopped = self.run_after_phase(
             "agents_swapped", "install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts)
         )
         self.assertEqual(stopped.returncode, 97, stopped.stderr)
-        self.assertFalse(retired.exists())
-        self.assertEqual(introduced.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
+        self.assertFalse(retired_coordinator.exists())
+        self.assertFalse(retired_operator.exists())
+        self.assertEqual(introduced_rte.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
+        self.assertEqual(introduced_concord.read_text(encoding="utf-8"), "agent:Concord.md:new\n")
 
         recovered = self.run_installer("status")
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
-        self.assertEqual(retired.read_bytes(), old_content)
-        self.assertFalse(introduced.exists())
+        self.assertEqual(retired_coordinator.read_bytes(), old_coordinator)
+        self.assertEqual(retired_operator.read_bytes(), old_operator)
+        self.assertFalse(introduced_rte.exists())
+        self.assertFalse(introduced_concord.exists())
         self.assertIn('"version": "v1.0.0"', recovered.stdout)
 
     def test_uninstall_removes_central_agents_and_current_symlink(self) -> None:

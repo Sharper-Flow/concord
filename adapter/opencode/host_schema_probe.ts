@@ -446,11 +446,11 @@ if (mergeArgIndex !== -1) {
     // deny, so the host merge must drop a tool its no-overlay profile allowed.
     const denyFixture = path.join(isolation, "deny-fixture")
     fs.cpSync(fixture, denyFixture, { recursive: true })
-    const operatorPath = path.join(denyFixture, ".opencode/agents/concord-operator.md")
+    const operatorPath = path.join(denyFixture, ".opencode/agents/Concord.md")
     const operatorText = fs.readFileSync(operatorPath, "utf8")
     if (!operatorText.includes("\npermission:\n")) fail("generated operator frontmatter lost its permission block")
     fs.writeFileSync(operatorPath, operatorText.replace("\npermission:\n", "\npermission:\n  concord_ci_watch: deny\n"))
-    const denyResolved = await runAgent("concord-operator", denyFixture, home)
+    const denyResolved = await runAgent("Concord", denyFixture, home)
     if (denyResolved.concord_ci_watch !== "deny") fail(`deny overlay: the host still resolves concord_ci_watch as ${denyResolved.concord_ci_watch}`)
     // Allow override, agent level over a global-config deny: a lane whose
     // frontmatter allows the watcher regains it from the later agent rule.
@@ -474,7 +474,7 @@ if (mergeArgIndex !== -1) {
       evidence_kind: "resolved profile permissions from the host debug agent route; not a captured provider request and not a live session ruleset",
       registration: { tools: registrationBytes, total_bytes: Object.values(registrationBytes).reduce((sum, size) => sum + size, 0) },
       roles: noOverlay,
-      deny_overlay_agent_level: { role: "concord-operator", change: "frontmatter permission gains concord_ci_watch: deny", resolved_watcher: denyResolved.concord_ci_watch },
+      deny_overlay_agent_level: { role: "Concord", change: "frontmatter permission gains concord_ci_watch: deny", resolved_watcher: denyResolved.concord_ci_watch },
       allow_override_agent_level: { role: "concord-research", change: "frontmatter tools entry allows the watcher over a global-config deny", resolved_watcher: allowResolved.concord_ci_watch, publication_growth_bytes: registrationBytes.concord_ci_watch },
       bounds: { session_overlays: "not exercised; the no-overlay projection is the accepted acceptance boundary, not an immutable ceiling" },
     }

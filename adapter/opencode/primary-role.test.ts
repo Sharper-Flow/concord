@@ -54,10 +54,10 @@ describe("primary role guard", () => {
     expect(message).toContain("records nothing")
   })
 
-  test("the operator and the release train engineer keep every registered Concord tool", async () => {
-    // CON-1163: Concord-RTE replaces concord-coordinator with the
-    // operator's full catalog, so no primary profile denial refuses here.
-    for (const agent of ["concord-operator", "Concord-RTE"]) {
+  test("Concord and the release train engineer keep every registered Concord tool", async () => {
+    // Both primary profiles deny no tool, so no primary profile denial
+    // refuses here.
+    for (const agent of ["Concord", "Concord-RTE"]) {
       for (const toolID of registered) {
         const { calls, definition } = recording()
         expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context(agent))).toBe("ran")
@@ -122,8 +122,8 @@ describe("primary role guard", () => {
     }
   })
 
-  test("unknown host agents, including the retired coordinator, keep established pass-through behavior", async () => {
-    for (const agent of ["concord-coordinator", "concord-repair", "concord-1", "concord-2", "build"]) {
+  test("unknown host agents, including the retired primary names, keep established pass-through behavior", async () => {
+    for (const agent of ["concord-coordinator", "concord-operator", "concord-repair", "concord-1", "concord-2", "build"]) {
       for (const toolID of registered) {
         const { calls, definition } = recording()
         expect(await guardPrimaryRole(toolID, definition).execute({ agent }, context(agent))).toBe("ran")
@@ -131,20 +131,21 @@ describe("primary role guard", () => {
       }
     }
     expect(Object.hasOwn(roleDeniedConcordTools, "concord-repair")).toBe(false)
-    // CON-1163: the retired name is no longer a registered role; a stale
-    // installed definition gets no registry denial and no registry entry.
+    // The retired names are no longer registered roles: a stale installed
+    // definition gets no registry denial and no registry entry.
     expect(Object.hasOwn(roleDeniedConcordTools, "concord-coordinator")).toBe(false)
+    expect(Object.hasOwn(roleDeniedConcordTools, "concord-operator")).toBe(false)
   })
 
   test("the guard reads one generated registry covering exactly the registered roles", () => {
     const agents = Object.keys(roleDeniedConcordTools).sort()
-    expect(agents).toEqual(["Concord-RTE", "concord-operator", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
-    // CON-1163: the RTE holds the full operator catalog — no primary
-    // profile denies a tool, so every remaining refusal is a lane or
-    // utility boundary.
+    expect(agents).toEqual(["Concord-RTE", "Concord", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
+    // Neither primary profile denies a tool, so every remaining refusal is
+    // a lane or utility boundary.
     expect(roleDeniedConcordTools["Concord-RTE"].tools).toEqual([])
-    expect(roleDeniedConcordTools["concord-operator"].tools).toEqual([])
+    expect(roleDeniedConcordTools["Concord"].tools).toEqual([])
     expect(roleDeniedConcordTools["Concord-RTE"].boundary).toBe("")
+    expect(roleDeniedConcordTools["Concord"].boundary).toBe("")
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
       const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
       const granted = new Set<string>()

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Validate the named primary profiles and the inert numbered examples.
 
-The generated named profiles `Concord-RTE` and `concord-operator` ship
+The generated named profiles `Concord-RTE` and `Concord` ship
 as managed agents. scripts/generate-agent-lanes.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
 
   RTE                keeps Build-level permissions, item decisions with the
                      owning session, and human-only approval challenges
-  operator           keeps the delegation anchor and the cross-repository
+  Concord            needs no RTE, keeps the delegation anchor and cross-repository
                      boundary (CD-0178 D2)
   both               no host-specific research tool names in frontmatter, no
                      duplicated conduct obligation, and no routing by
@@ -42,9 +42,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = Path(".opencode/agents")
 NAMED_PROFILE_FILES = (
     "Concord-RTE.md",
-    "concord-operator.md",
+    "Concord.md",
 )
-RTE_BUILD_TOOLS = ("edit", "write", "patch", "morph_edit")
+RTE_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
     "never decides inside another session's item",
     "Never answer a Concord approval challenge",
@@ -52,6 +52,12 @@ RTE_REQUIRED_PHRASES = (
     "Each session owns its design, code, tests, review, law text, publication",
     "Keep Linear current",
     "Report ship status to the operator",
+    "The user may choose to start this optional session",
+)
+CONCORD_REQUIRED_PHRASES = (
+    "You are Concord, the primary agent",
+    "You do not need an RTE session",
+    "The user may choose to start an RTE session",
 )
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
@@ -183,8 +189,9 @@ def flatten(text: str) -> str:
 
 def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
-    if (root / PROFILE_DIR / "concord-coordinator.md").exists():
-        findings.append("retired named primary profile concord-coordinator.md is present")
+    for retired in ("concord-coordinator.md", "concord-operator.md"):
+        if (root / PROFILE_DIR / retired).exists():
+            findings.append(f"retired named primary profile {retired} is present")
     for name in NAMED_PROFILE_FILES:
         path = root / PROFILE_DIR / name
         if not path.is_file():
@@ -199,7 +206,7 @@ def check_named_profiles(root: Path) -> list[str]:
             continue
         findings.extend(
             f"{name} frontmatter names host tool fragment {fragment!r}"
-            for fragment in (HOST_TOOL_FRAGMENTS if name == "Concord-RTE.md" else (*HOST_TOOL_FRAGMENTS, "morph_edit"))
+            for fragment in (*HOST_TOOL_FRAGMENTS, "morph_edit")
             if fragment in frontmatter
         )
         if "mode: primary" not in frontmatter:
@@ -211,25 +218,25 @@ def check_named_profiles(root: Path) -> list[str]:
             for match in [GENERATED_AGENT_ID.search(flat_body)]
             if match is not None
         )
-        if name == "Concord-RTE.md":
-            findings.extend(
-                f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
-                for tool in RTE_BUILD_TOOLS
-                if f"\n  {tool}: allow" not in "\n" + frontmatter
-            )
-            for permission in ("bash", "task"):
-                if f'\n  {permission}:\n    "*": allow' not in "\n" + frontmatter:
-                    findings.append(f"{name} frontmatter does not allow {permission} by default")
-            findings.extend(
-                f"{name} frontmatter denies Concord tool {tool}"
-                for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
-            )
-            findings.extend(
-                f"{name} lost the RTE role rule {phrase!r}"
-                for phrase in RTE_REQUIRED_PHRASES
-                if phrase not in flat_body
-            )
-        else:
+        findings.extend(
+            f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
+            for tool in RTE_BUILD_TOOLS
+            if f"\n  {tool}: allow" not in "\n" + frontmatter
+        )
+        for permission in ("bash", "task"):
+            if f'\n  {permission}:\n    "*": allow' not in "\n" + frontmatter:
+                findings.append(f"{name} frontmatter does not allow {permission} by default")
+        findings.extend(
+            f"{name} frontmatter denies Concord tool {tool}"
+            for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
+        )
+        required_phrases = RTE_REQUIRED_PHRASES if name == "Concord-RTE.md" else CONCORD_REQUIRED_PHRASES
+        findings.extend(
+            f"{name} lost the role rule {phrase!r}"
+            for phrase in required_phrases
+            if phrase not in flat_body
+        )
+        if name == "Concord.md":
             findings.extend(
                 f"{name} lost the delegation anchor marker {marker!r}"
                 for marker in DELEGATION_ANCHOR_MARKERS

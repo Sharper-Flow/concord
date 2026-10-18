@@ -6,13 +6,12 @@
     {
       "id": "Concord-RTE",
       "version": 1,
-      "description": "Concord-RTE — keeps sessions moving, sequences conflicting work, keeps Linear current, and reports ship status; each session owns its item and decisions.",
+      "description": "Concord-RTE — optional coordination for busy Product or Project work; sequences conflicts, keeps Linear current, and reports ship status without deciding for sessions.",
       "role_source": ".concord/roles/rte.md",
       "tools": {
         "edit": "allow",
         "write": "allow",
         "patch": "allow",
-        "morph_edit": "allow",
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
@@ -32,12 +31,14 @@
       "denied_concord_tools": []
     },
     {
-      "id": "concord-operator",
+      "id": "Concord",
       "version": 1,
-      "description": "Concord operator — drives one work item in one repository: shapes it, dispatches the Concord lanes, records verdicts, and completes it.",
-      "role_source": ".concord/roles/operator.md",
+      "description": "Concord — self-sufficient primary agent; owns design, engineering, tests, review, law, publication, CI, deployment, and planning for its item. No RTE session required.",
+      "role_source": ".concord/roles/concord.md",
       "tools": {
         "edit": "allow",
+        "write": "allow",
+        "patch": "allow",
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
@@ -52,8 +53,7 @@
         {"pattern": "rm -rf / *", "action": "deny"}
       ],
       "task": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "concord-*", "action": "allow"}
+        {"pattern": "*", "action": "allow"}
       ],
       "denied_concord_tools": []
     }

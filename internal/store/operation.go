@@ -205,6 +205,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
 	WorkSized:                                 registerEventKind[workSizedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSized, nil),
+	WorkConflictApplied:                       registerEventKind[ConflictApplication](1, 1, nil, EventAppendAuthorityGeneric, foldWorkConflictApplied, validateWorkConflictAppliedPayload),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),

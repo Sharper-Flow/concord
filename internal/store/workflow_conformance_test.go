@@ -261,6 +261,67 @@ func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, 
 	return observeWorkflowStore(ctx, s, workID, beforeSeq, completionErr, nil)
 }
 
+// executeCorpusRebuildAfterInterrupt commits a context checkpoint through the
+// production action core, runs the step's own action and abandons its
+// transaction before commit, rebuilds projections from the event log, and
+// reads the resume state through the production continuity read.
+func executeCorpusRebuildAfterInterrupt(ctx context.Context, s *Store, actionRegistry DefinitionRegistry, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor) (workflowObservation, error) {
+	payload, _ := request.Fields["payload"].(map[string]any)
+	checkpointID, _ := payload["checkpoint"].(string)
+	interruptedStep, _ := payload["uncommitted_step"].(string)
+	run := func(actionID string, expectedVersion int64, fields json.RawMessage, commit bool) error {
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		scope, err := beginFold(ctx, tx)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID, Payload: fields, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key + ":" + actionID, OperationID: request.Operation.OpID + ":" + actionID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key + ":" + actionID, RequestID: request.Idempotency.RequestID + ":" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: corpusNow})
+		_ = scope.close(ctx)
+		if actionErr != nil || !commit {
+			_ = tx.Rollback()
+			return actionErr
+		}
+		return tx.Commit()
+	}
+	checkpoint, _ := json.Marshal(map[string]any{"checkpoint_id": checkpointID, "checkpoint_sequence": 1, "active_unit": "corpus interrupted step", "hypothesis": "the committed checkpoint is the resume boundary", "diagnosis": "the next step action did not commit", "strategy": "resume at the uncommitted step", "touched_refs": []string{workID}, "evidence_refs": []string{"evidence-verification"}, "pending_questions": []string{}, "pending_decisions": []string{}})
+	if err := run("checkpoint_context", request.ExpectedVersion, checkpoint, true); err != nil {
+		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
+	}
+	version, err := workflowCurrentVersion(ctx, s, workID)
+	if err != nil {
+		return workflowObservation{}, err
+	}
+	if interruptedStep != "proposal" {
+		return workflowObservation{}, workflowScenarioGap{"rebuild_after_interrupt interrupts record_proposal only"}
+	}
+	if err := run("record_proposal", version, json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`), false); err != nil {
+		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
+	}
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID, Limit: 1})
+	if err != nil {
+		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
+	}
+	var logSeq int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&logSeq); err != nil {
+		return workflowObservation{}, err
+	}
+	last, source := "", ""
+	if snapshot.LatestCheckpoint != nil {
+		last = snapshot.LatestCheckpoint.CheckpointID
+	}
+	if snapshot.Watermark == fmt.Sprintf("seq:%d", logSeq) {
+		source = "event_log"
+	}
+	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"resume_step": snapshot.WorkflowStep, "last_checkpoint": last, "resume_boundary": map[string]any{"source": source}})
+}
+
 func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor, setup workflowCorpusSetup, fixtures workflowCorpusFixtures) (workflowObservation, error) {
 	impactVerdict, err := corpusImpactVerdict(request.Fields)
 	if err != nil {
@@ -394,14 +455,12 @@ const (
 	corpusActionComplete              workflowCorpusAction = "complete"
 	corpusActionReviseCandidates      workflowCorpusAction = "revise_candidates"
 	corpusActionSupersedeContract     workflowCorpusAction = "supersede_contract"
-	corpusActionReplaceOutcome        workflowCorpusAction = "replace_outcome"
 	corpusActionLinkSuccessor         workflowCorpusAction = "link_successor"
 	corpusActionReplaceCheck          workflowCorpusAction = "replace_check"
 	corpusActionRecordVerdict         workflowCorpusAction = "record_verdict"
 	corpusActionCompleteExternal      workflowCorpusAction = "complete_external_step"
 	corpusActionRebuildAfterInterrupt workflowCorpusAction = "rebuild_after_interrupt"
 	corpusActionRetry                 workflowCorpusAction = "retry_same_action"
-	corpusActionTakeover              workflowCorpusAction = "takeover_attempt"
 	corpusActionDeriveReady           workflowCorpusAction = "derive_ready"
 	corpusActionAddCondition          workflowCorpusAction = "add_condition"
 	corpusActionResolveCondition      workflowCorpusAction = "resolve_condition"
@@ -420,7 +479,7 @@ const (
 )
 
 var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
@@ -433,13 +492,16 @@ func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
 			t.Fatalf("duplicate scenario ID %q", scenario.ID)
 		}
 		seen[scenario.ID] = true
-		if scenario.Number < 1 || scenario.Number > len(want) || want[scenario.Number-1] != scenario.ID {
-			t.Fatalf("scenario %q is not the canonical WF%02d corpus entry", scenario.ID, scenario.Number)
+		if scenario.Number < 1 || scenario.Number > workflowScenarioNumberCeiling || retiredWorkflowScenarioNumbers[scenario.Number] || !strings.HasPrefix(scenario.ID, fmt.Sprintf("WF%02d-", scenario.Number)) {
+			t.Fatalf("scenario %q carries number %d, which is not a live WF number matching its ID", scenario.ID, scenario.Number)
 		}
 	}
-	for _, id := range want {
-		if !seen[id] {
-			t.Fatalf("canonical scenario %q is missing from corpus", id)
+	if len(want) != len(corpus.Scenarios) {
+		t.Fatalf("corpus carries %d scenarios, want the %d canonical IDs", len(corpus.Scenarios), len(want))
+	}
+	for index, scenario := range corpus.Scenarios {
+		if scenario.ID != want[index] {
+			t.Fatalf("corpus entry %d is %q, want canonical %q", index, scenario.ID, want[index])
 		}
 	}
 
@@ -521,6 +583,7 @@ func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *t
 		`observation.State["rigor"] = map[string]any{"proof_depth": "verification"}`,
 		`observation.Effects["domain_transaction"] = map[string]any{"count": 1}`,
 		`"resume_step": "step-2"`,
+		`"resume_step": "proposal"`,
 		`"last_checkpoint": "cp-1"`,
 		`"old_event_upcasted"] = true`,
 		`"new_event_refused"] = true`,
@@ -531,7 +594,7 @@ func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *t
 			t.Fatalf("observation harness contains forbidden constant injection shape %q", pattern)
 		}
 	}
-	for _, required := range []string{"ResumeWorkflow", "readWorkflowReplayEvidence", "workflowObservationAssertionError"} {
+	for _, required := range []string{"ReadWorkflowContinuity", "readWorkflowReplayEvidence", "workflowObservationAssertionError"} {
 		if !strings.Contains(fullSource, required) {
 			t.Fatalf("observation harness lost authoritative constructor %s", required)
 		}
@@ -705,15 +768,23 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	if len(corpus.Scenarios) != 57 {
-		t.Fatalf("scenario count=%d, want 57", len(corpus.Scenarios))
+	if want := workflowScenarioNumberCeiling - len(retiredWorkflowScenarioNumbers); len(corpus.Scenarios) != want {
+		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), want)
 	}
 	return corpus
 }
 
+// The corpus numbers WF01 through WF57. A retired number is never reused, so
+// a scenario ID keeps its number for the life of the corpus.
+const workflowScenarioNumberCeiling = 57
+
+// WF03 and WF52 asserted the label-only vacuity refusal and were retired with
+// CD-0236.
+var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 52: true}
+
 func workflowScenarioIDs() []string {
 	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
+		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF53-unapproved-delivered",
 		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate", "WF57-refine-exit-needs-green-verify-run",
 	}
 }
@@ -1178,28 +1249,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return executeCorpusFencedAction(ctx, s, workID, beforeSeq, action, request)
 	}
 	if action == string(corpusActionRebuildAfterInterrupt) {
-		readErr := RebuildFromLog(ctx, s)
-		if readErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
-		}
-		boundary, resumeErr := ResumeWorkflow(ctx, s, workID)
-		if resumeErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, resumeErr, nil)
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"resume_step": boundary.StepID, "last_checkpoint": boundary.CheckpointID, "resume_boundary": map[string]any{"source": boundary.Source}})
-	}
-	if action == string(corpusActionTakeover) {
-		approval := ""
-		if request.Approval.ApprovalRef != nil {
-			approval = *request.Approval.ApprovalRef
-		}
-		if payload, ok := request.Fields["payload"].(map[string]any); ok {
-			if value, present := payload["approval_ref"]; present {
-				approval, _ = value.(string)
-			}
-		}
-		_, takeErr := OperatorTakeover(ctx, s, ClaimRequest{OpID: request.Operation.OpID, WorkID: workID, WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindInternalSQLite, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, ObservedAt: corpusNow, ContractDigest: testManifestDigest}, approval)
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, takeErr, map[string]any{"attempt": map[string]any{"owner_changed": takeErr == nil}})
+		return executeCorpusRebuildAfterInterrupt(ctx, s, actionRegistry, workID, beforeSeq, request, actor)
 	}
 	if action == string(corpusActionStartDownstream) {
 		target, relationErr := corpusRelatedWorkID(setup, request, fixtures, workID)
@@ -1278,9 +1328,6 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	}
 	if action == string(corpusActionComplete) && hasCorpusFault(setup, "commit_after_verdict_fails") {
 		return executeCorpusCompletionFault(ctx, s, workID, beforeSeq, request, actor)
-	}
-	if action == string(corpusActionReplaceOutcome) {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, ReplaceWorkflowOutcome(ctx, s, workID), nil)
 	}
 
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -1413,7 +1460,7 @@ func corpusCompletionVerificationObligationFromFields(fields map[string]any) (st
 }
 
 func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
-	if request.Operation.OpID == "" || (request.ActionID != string(corpusActionCompleteExternal) && request.ActionID != string(corpusActionRetry) && request.ActionID != string(corpusActionTakeover)) {
+	if request.Operation.OpID == "" || (request.ActionID != string(corpusActionCompleteExternal) && request.ActionID != string(corpusActionRetry)) {
 		return nil
 	}
 	maxEpoch := int64(1)
@@ -2269,8 +2316,10 @@ func workflowFailureObservationKind(err error) string {
 	switch failure.Kind {
 	case KindStaleAttempt:
 		return string(KindOperationConflict)
-	case KindInvalidPayload:
+	case KindInvalidPayload, KindInvalidOperation:
 		return "invalid_input"
+	case KindIllegalLifecycleTransition:
+		return string(KindInvalidTransition)
 	default:
 		return string(failure.Kind)
 	}
@@ -2286,13 +2335,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if actionErr != nil {
 		var failure *Failure
 		if failureAs(actionErr, &failure) {
-			kind := string(failure.Kind)
-			if failure.Kind == KindStaleAttempt {
-				kind = string(KindOperationConflict)
-			} else if failure.Kind == KindInvalidPayload || failure.Kind == KindInvalidOperation {
-				// The agent envelope reports both kinds as invalid_input.
-				kind = "invalid_input"
-			}
+			kind := workflowFailureObservationKind(actionErr)
 			if available, ok := result["workflow_action_available"].(bool); ok && !available {
 				kind = string(KindInvalidTransition)
 			}

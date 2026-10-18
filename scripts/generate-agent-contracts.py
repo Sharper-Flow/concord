@@ -1633,7 +1633,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 61
+    expected_operations = 62
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1806,6 +1806,47 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
         fail("concord_ci_watch time_seconds_max must be an integer bounded 0..1800")
 
 
+def validate_worker_read_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    fields = ["ordinal", "offset", "length"]
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_read host schema must be a closed object")
+    if list(properties) != fields or args.get("required") != fields:
+        fail("concord_worker_read must require only ordinal, offset, and length")
+    for name, minimum, maximum in (("ordinal", 0, 9007199254740991), ("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_diff_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_diff host schema must be a closed object")
+    if list(properties) != ["offset", "length"] or args.get("required") != ["offset", "length"]:
+        fail("concord_worker_diff must require only offset and length")
+    for name, minimum, maximum in (("offset", 0, 9007199254740991), ("length", 1, 4096)):
+        field = properties[name]
+        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
+            fail(f"concord_worker_diff {name} must be an integer bounded {minimum}..{maximum}")
+
+
+def validate_worker_check_host_tool(tool: dict) -> None:
+    args = tool.get("args", {})
+    properties = args.get("properties", {})
+    if args.get("type") != "object" or args.get("additionalProperties") is not False:
+        fail("concord_worker_check host schema must be a closed object")
+    if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
+        fail("concord_worker_check must require only control_id")
+    reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
+    actual = {key: value for key, value in properties["control_id"].items() if key != "description"}
+    expected = {key: value for key, value in reference.items() if key != "description"}
+    if actual != expected:
+        fail("concord_worker_check control_id must use the workflow reference bounds")
+
+
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
@@ -1813,6 +1854,9 @@ def validate_ci_watch_host_tool(tool: dict) -> None:
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
     "concord_ci_watch": validate_ci_watch_host_tool,
+    "concord_worker_read": validate_worker_read_host_tool,
+    "concord_worker_check": validate_worker_check_host_tool,
+    "concord_worker_diff": validate_worker_diff_host_tool,
 }
 
 
@@ -1868,8 +1912,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     def sample(schema):
         schema=resolve(schema)
         if "const" in schema: return schema["const"]
-        if "oneOf" in schema:
-            branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
+        if "oneOf" in schema or "anyOf" in schema:
+            branch=(schema.get("oneOf") or schema["anyOf"])[0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result

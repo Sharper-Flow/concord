@@ -6317,6 +6317,59 @@ ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(even
 ALTER TABLE law_relations ADD COLUMN declarer_law_id TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id));
 `,
 	},
+	{
+		Version:  130,
+		Name:     "knowledge_package_map_and_law_footprint",
+		Breaking: false,
+		SQL: `
+-- CD-0222 D2: the package map, and each law's evidence paths and coverage
+-- anchors, projected from the knowledge home at the scanned commit beside
+-- law_subjects. The rows are git-derived: a rebuild clears and rewrites
+-- them. Every package row carries the map's own content hash, so an absent
+-- map projects no row and no hash. None references law_subjects, so a
+-- binary that predates these tables still clears its own rows. Each
+-- rebuild that writes them writes the same home's watermark row in the same
+-- transaction, and that row's home-pair binding and locator delete guard
+-- cover the home.
+CREATE TABLE knowledge_package_domains (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    package_path       TEXT NOT NULL CHECK(length(package_path) BETWEEN 1 AND 256),
+    domain_id          TEXT NOT NULL CHECK(length(domain_id) > 0),
+    map_content_hash   TEXT NOT NULL CHECK(length(map_content_hash)=71 AND substr(map_content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, package_path, domain_id)
+);
+CREATE TABLE law_evidence_paths (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    path               TEXT NOT NULL CHECK(length(path) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, path)
+);
+CREATE INDEX law_evidence_paths_path ON law_evidence_paths(home_project_id, home_locator_id, path, law_id);
+CREATE TABLE law_coverage_anchors (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    ordinal            INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 31),
+    kind               TEXT NOT NULL CHECK(kind IN ('adapter_test','generated','go_test','scenario','validator')),
+    value              TEXT NOT NULL CHECK(length(value) BETWEEN 1 AND 512),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id, ordinal)
+);
+CREATE TRIGGER knowledge_package_domains_guard_insert BEFORE INSERT ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_update BEFORE UPDATE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_package_domains_guard_delete BEFORE DELETE ON knowledge_package_domains FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'knowledge_package_domains is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_insert BEFORE INSERT ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_update BEFORE UPDATE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_evidence_paths_guard_delete BEFORE DELETE ON law_evidence_paths FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_evidence_paths is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_insert BEFORE INSERT ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_update BEFORE UPDATE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_coverage_anchors_guard_delete BEFORE DELETE ON law_coverage_anchors FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_coverage_anchors is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

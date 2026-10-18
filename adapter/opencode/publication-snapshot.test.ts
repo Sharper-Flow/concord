@@ -4,6 +4,9 @@ import path from "node:path"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
+import { publishWorkerReadDefinition } from "./worker_source"
+import { publishWorkerCheckDefinition } from "./worker_control"
+import { publishWorkerDiffDefinition } from "./worker_diff"
 
 const adapter = await import("./concord")
 
@@ -106,8 +109,8 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
 })
 
 // Registered request tools publish through the production definition hook,
-// with definitions hoisted to the argument root. Work start and CI watch
-// keep their own hooks. Both identified populations must stay below the
+// with definitions hoisted to the argument root. Host tools keep their own
+// hooks. Both identified populations must stay below the
 // serving budget.
 test("all registered parameter schemas stay below the serving budget", async () => {
   const registered = new Map<string, number>()
@@ -134,6 +137,20 @@ test("all registered parameter schemas stay below the serving budget", async () 
   await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, registration)
   expect(registration.jsonSchema).toBeObject()
   registered.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(registration.jsonSchema), "utf8"))
+  const readerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerOutput)
+  expect(readerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_read)
+  expect(readerOutput.description).toEqual(hostToolDescriptions.concord_worker_read)
+  registered.set("concord_worker_read", Buffer.byteLength(JSON.stringify(readerOutput.jsonSchema), "utf8"))
+  const checkerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishWorkerCheckDefinition({ toolID: "concord_worker_check" }, checkerOutput)
+  expect(checkerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_check)
+  expect(checkerOutput.description).toEqual(hostToolDescriptions.concord_worker_check)
+  registered.set("concord_worker_check", Buffer.byteLength(JSON.stringify(checkerOutput.jsonSchema), "utf8"))
+  const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
+  expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
+  registered.set("concord_worker_diff", Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8"))
   // The registered set is exactly the catalog the two tool-surface
   // contracts declare, so a new registration cannot escape the generated
   // denial derivation.

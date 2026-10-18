@@ -21,6 +21,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
+import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -553,7 +554,11 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
       sessions.get(path!.id as string)!.info.metadata = (body as JSONRecord).metadata
       return { response: new Response(null, { status: 200 }) }
     },
-    post: async () => { sessionCreates++; throw new Error("recovery and dispatch must not create a coordinator session") },
+    post: async request => {
+      if (request.url === SESSION_MESSAGES_ROUTE) return acknowledgeNativeSubtask(request)
+      sessionCreates++
+      throw new Error("recovery and dispatch must not create a coordinator session")
+    },
   })
   let taskLaunches = 0
   const opening = (context: any, packet: JSONRecord, agent: string) => {
@@ -832,7 +837,7 @@ routeDeclaration("composes implementation and independent review through one ord
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
@@ -1654,7 +1659,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
           return { data: { id: path?.id, directory: worktree, metadata, ...(path?.id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
         },
         patch: async () => { metadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }; return { response: new Response(null, { status: 200 }) } },
-        post: async () => { throw new Error("dispatch must not change the host session") },
+        post: acknowledgeNativeSubtask,
       })
       const calls: Array<{ argv: string[]; input: JSONRecord }> = []
       const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
@@ -1821,7 +1826,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -1927,7 +1932,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
@@ -2012,7 +2017,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
         sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
         return { response: new Response(null, { status: 200 }) }
       },
-      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+      post: acknowledgeNativeSubtask,
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)

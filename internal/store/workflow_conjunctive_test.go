@@ -125,13 +125,3 @@ type conjunctiveGroundTruth struct{}
 func (conjunctiveGroundTruth) Resolve(string, string) (WorkflowGroundTruth, error) {
 	return GroundTruthPresent, nil
 }
-
-func TestWorkflowOutcomePredicateVacuityChecksAbsentConjunct(t *testing.T) {
-	t.Parallel()
-	if !workflowOutcomePredicateVacuous("absent", "scope-absent") {
-		t.Fatal("an already absent conjunct must be vacuous")
-	}
-	if workflowOutcomePredicateVacuous("exists", "scope-absent") {
-		t.Fatal("an absent ground truth must not make an exists conjunct vacuous")
-	}
-}

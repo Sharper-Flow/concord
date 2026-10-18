@@ -4,6 +4,13 @@ mode: all
 hidden: true
 tools:
   task: false
+  execute: false
+  bash: false
+  edit: false
+  write: false
+  patch: false
+  apply_patch: false
+  morph_edit: false
   concord_ci_watch: false
   concord_domain: false
   concord_knowledge: false
@@ -15,7 +22,10 @@ tools:
   concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
+  concord_worker_check: false
+  concord_worker_diff: false
 permission:
+  bash: deny
   edit: deny
   morph_edit: deny
   task:
@@ -70,9 +80,12 @@ approach. When `inputs.proposal_record` is present, its `user_outcomes` and
 
 ## Work context
 
-When `inputs.work_context` is present, read it first. Walk `required_reading`
-in order: a `repository_file` source is read at its pinned `commit_oid`
-through git, not from the changed checkout. Then read the findings in the
+When `inputs.work_context` is present, read it first. Walk `required_reading` in
+order with `concord_worker_read`: select its zero-based `ordinal`, start at
+`offset` 0, and request at most 4096 bytes. Continue at `next_offset` until
+`eof`. The host reads the original pinned source, not the changed checkout or
+the network. `data` retains exact base64 bytes; `text` is a UTF-8 preview.
+Then read the findings in the
 order `domain_groups` groups them by Domain. Reuse a finding your evidence
 still supports, and investigate where one drifted or contradicts. Record new
 conclusions, rejected routes, and open questions as report `context_findings`
@@ -107,7 +120,7 @@ materializer and runner axes) materializes its pinned dependencies offline
 and runs only its collection or check-input stage. Unsupported families and
 materializer/runner pairs are unavailable. Execution requires the exact
 persisted job, attempt, epoch, packet digest, control, preparation
-reference, and recorded raw subject. Managed workers gain no Concord tools.
+reference, and recorded raw subject. Workers gain no general Concord tools.
 Do not replace this producer with your own argument vector, automatic
 preparation, a preferred test, or a model assertion. Ordinary test output
 does not acquire a qualified oracle receipt.
@@ -144,9 +157,9 @@ the parent workflow keeps every other required result explicit.
 
 ## Concord context boundary
 
-The dispatched packet is your complete Concord context. Concord tools are
-unavailable to this lane: the lane definition denies them, and a `concord_*`
-call from a lane session is refused with no effect. Read law from the
+The dispatched packet is your complete Concord context. General Concord tools
+are unavailable. `concord_worker_read` reads only original declared sources
+through the held dispatch and grants no workflow authority. Read law from the
 repository paths the packet names, and read Domain structure from the file
 `inputs.law_context.registry_path` names. Report missing context in your
 evidence, and return `status` `failed` when the missing context blocks the
@@ -154,10 +167,13 @@ assigned result.
 
 ## Command duration
 
-This lane's wall-time budget is 900 seconds for the whole attempt. The
-shell tool ends a command at its `timeout` parameter, about 120 seconds by
-default. Give a command that can take minutes an explicit `timeout` in
-milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
+This lane's wall-time budget is 900 seconds for the whole attempt.
+General shell execution is unavailable. When your capabilities grant recorded
+checks, use `concord_worker_check` with only a `control_id` from
+`inputs.worker_job.acceptance_oracle.controls`. The host supplies the recorded
+native execution and its deadline. Ordinary `checks` strings are requirements,
+not executable authority. Missing recorded backing belongs in a failed report;
+never replace it with an invented command or a general Concord call.
 
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `concord-worker-result-v1`.
@@ -167,16 +183,11 @@ own line. Return the entire frame as one final text part. Do not repeat the fram
 quote a frame example, use duplicate JSON keys, or put report content after it.
 For a historical packet without `inputs.report_protocol`, return one plain JSON
 report object as your final text part. Never return multiple report candidates.
-Do not include `attempt_id`, `lane_id`, `lane_version`, `lane_digest`, `work_id`,
-`step_id`, or `worker_job`: the dispatch packet owns those fields. Report schema
-identity also comes from the packet; omit `schema_version` rather than copying it.
-Set `readback_model` to the `provider/model` identifier you are running as, and
-`status` to one of `completed`, `failed`.
+The adapter supplies report identity from the dispatch packet and host readback.
+Set `status` to one of `completed`, `failed`.
 
 Report contract constraints:
-- Canonical report top-level shape (the adapter adds identity): type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
-- schema_version: enum=["1.0", "1.1", "2.0"]; the adapter derives this identity and worker_job binding from the packet; omit both fields from worker-authored content.
-- readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$".
+- Worker report content shape (the adapter adds identity): type=object, additionalProperties=false, required=["status", "evidence"].
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].

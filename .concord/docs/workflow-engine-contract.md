@@ -679,15 +679,25 @@ The corpus records `engine_status=engine_shipped`. The checker compares every sc
 error kind with the current closed envelope enum; unknown classifications fail
 validation rather than being downgraded to prose or generic success.
 
-### Corpus clarification note (issue #31)
+### Scenarios that bind production routes
 
-WF09 previously asserted `unauthorized` for an undeclared `replace_outcome`
-request. That request fails the workflow graph's declared-action transition
-check before actor authorization, so the accepted assertion is corrected to
-`invalid_transition`. The correction is recorded here rather than hidden in the
-harness; the structured corpus request retains the action ID, pinned definition,
-actor, expected version, and request identity that make the classification
-reproducible.
+WF09, WF22, and WF25 each bind their criterion to a production route.
+
+- WF09 sends `approve_contract`, the only declared action that writes an
+  approved end-state, at the `execution` step. The step does not declare the
+  action, so the graph's declared-action check refuses it with
+  `invalid_transition` before actor authorization, and no contract event is
+  written.
+- WF22 commits `checkpoint_context`, abandons an uncommitted `record_proposal`
+  transaction, rebuilds projections from the event log, and reads the resume
+  state through the continuity read (CD-0016). Its resume step is `proposal`,
+  a step of the pinned `workflow.implementation` definition.
+- WF25 leaves a compaction publication claim pending, then repeats the
+  publication under a new idempotency key without an approval. The agent
+  boundary returns `approval_required`, and the attempt epoch does not advance.
+  Compaction requires an approval on every publication, so WF25 covers
+  durable-operation claims only. The fenced-start takeover of a held attempt
+  is a separate route for criterion 25, covered by its own tests.
 
 ## 12. Built-in family graphs and actions
 
@@ -747,7 +757,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (CD-0156) |
 | `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |
 | `start_execution`, `start_repair`, `start_refine`, `start_run`, `start_poc`, `start_action` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed` |
-| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the checkpoint payload is the typed resume boundary |
+| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the folded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
 | `bind_evidence` | `workflow.evidence_bound`; the producer names a completed durable operation, for example a green verify-tier run at `worktree_verify:sha256:<digest>` |
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |

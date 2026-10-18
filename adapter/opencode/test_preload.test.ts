@@ -20,10 +20,9 @@ test("preload isolates session variables and default user state in children", ()
 // The preload removes every CONCORD_* variable before a test module loads, so
 // a test that reads CONCORD_BIN as a binary override never sees a value: the
 // override is dead and only hides which binary the test really runs.
-test("no adapter test reads a CONCORD_BIN override the preload removes", () => {
+test("no adapter file reads a CONCORD_BIN override the preload removes", () => {
   const readers = [...new Bun.Glob("**/*.ts").scanSync(import.meta.dir)]
-    .filter((path) => !path.startsWith("node_modules/") && path !== "test_preload.test.ts")
-    .filter((path) => readFileSync(join(import.meta.dir, path), "utf8").includes("process.env.CONCORD_BIN"))
+    .filter((path) => readFileSync(join(import.meta.dir, path), "utf8").includes("process.env." + "CONCORD_BIN"))
     .sort()
   expect(readers).toEqual([])
 })

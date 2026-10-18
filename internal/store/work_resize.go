@@ -39,11 +39,13 @@ type workResizedPayload struct {
 	LinearIdentity         *LinearIssueLink         `json:"linear_identity,omitempty"`
 }
 
-// WorkLineage is a work item's resize root. Without a lineage row the item
-// is its own root.
+// WorkLineage is a work item's resize root and the predecessors' logs its
+// earlier evidence is read from, nearest first. Without a lineage row the
+// item is its own root and reads no other log.
 type WorkLineage struct {
 	RootWorkID             string
 	RootDefineStartEventID *string
+	EvidenceSources        []WorkResizeEvidenceSource
 }
 
 // ReadWorkLineageTx reads a work item's resize root inside the caller's
@@ -68,6 +70,26 @@ func readWorkLineage(ctx context.Context, q queryer, workID string) (WorkLineage
 	}
 	if start.Valid {
 		lineage.RootDefineStartEventID = &start.String
+	}
+	rows, err := q.QueryContext(ctx, `WITH RECURSIVE chain(work_id, depth) AS (
+			SELECT ?, 0
+			UNION ALL SELECT l.predecessor_work_id, c.depth+1 FROM work_resize_lineage l JOIN chain c ON l.successor_work_id=c.work_id)
+		SELECT json_extract(e.payload,'$.evidence_source.work_id'), json_extract(e.payload,'$.evidence_source.through_seq')
+		FROM chain c JOIN work_resize_lineage l ON l.predecessor_work_id=c.work_id JOIN domain_events e ON e.event_id=l.event_id
+		WHERE c.depth>0 ORDER BY c.depth`, workID)
+	if err != nil {
+		return WorkLineage{}, wrapFailure(KindUnavailable, "work_lineage", "cannot read the resize evidence sources", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var source WorkResizeEvidenceSource
+		if err := rows.Scan(&source.WorkID, &source.ThroughSeq); err != nil {
+			return WorkLineage{}, wrapFailure(KindUnavailable, "work_lineage", "cannot scan the resize evidence sources", true, "retry once the database is readable", err)
+		}
+		lineage.EvidenceSources = append(lineage.EvidenceSources, source)
+	}
+	if err := rows.Err(); err != nil {
+		return WorkLineage{}, wrapFailure(KindUnavailable, "work_lineage", "cannot scan the resize evidence sources", true, "retry once the database is readable", err)
 	}
 	return lineage, nil
 }

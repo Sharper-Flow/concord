@@ -170,7 +170,8 @@ test("a worktree_claim landing retires the pending continuation", async () => {
     work_id: "work-1", project_id: "project-1", base_sha: "a".repeat(40), expected_version: 1, idempotency_key: "claim-continuation",
   } } }, context(claimed, "message-claim"))
   const output = typeof result === "string" ? result : result.output
-  expect(JSON.parse(output.split("\n")[0]).outcome, output).toBe("ok")
+  const outcome: string = JSON.parse(output.split("\n")[0]).outcome
+  expect(outcome, output).toBe("ok")
   expect(landingCalls).toEqual(["claim-landing"])
   expect(unlandedClaimedWorktree(sessionID)).toBeNull()
   expect(armedClaimedWorktree(sessionID)).toBe(claimed)
@@ -186,7 +187,8 @@ test("the real vacate route retires the pending continuation without a wake", as
     operation: "session_vacate", input: { idempotency_key: "vacate-continuation" },
   } }, context(claimed, "message-vacate"))
   const output = typeof result === "string" ? result : result.output
-  expect(JSON.parse(output.split("\n")[0]).outcome, output).toBe("ok")
+  const outcome: string = JSON.parse(output.split("\n")[0]).outcome
+  expect(outcome, output).toBe("ok")
   expect(landingCalls).toEqual(["vacate-landing"])
   expect(directory).toBe(origin)
   expect(unlandedClaimedWorktree(sessionID)).toBeNull()

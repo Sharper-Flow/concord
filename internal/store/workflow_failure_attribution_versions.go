@@ -1,7 +1,5 @@
 package store
 
-import "slices"
-
 // The declared input is the direct producer observation only. The recorded
 // block's origin, core-derived identity, input population, sequence, and
 // commit members are core-derived and are never authorable: the generated
@@ -81,15 +79,10 @@ func workflowCorrectionActionDefinitionFor(definition WorkflowDefinition, action
 // definition's own registry content, so every earlier version keeps the
 // payload and digest it shipped.
 func withFailureAttributionCorrection(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID != "request_correction" {
-			continue
-		}
-		definition.ActionDefinitions[index].Payload.Fields = append(slices.Clone(definition.ActionDefinitions[index].Payload.Fields), workflowFailureAttributionField())
-	}
-	return definition
+	return reviseWorkflowAction(definition, "request_correction", failureAttributionCorrection)
 }
+
+var failureAttributionCorrection = withAppendedPayloadField(workflowFailureAttributionField)
 
 // Each builder below ships its family's failure-attribution head (the promoted slice
 // phase 2): the promoted version restates the correction-request payload and

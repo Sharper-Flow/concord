@@ -3,10 +3,13 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
+**Amended:** Concord (CON) issue CON-910 (2026-10-13) re-points the CD-0031
+continuity supply to work-start preparation under the Snowball coordinator's
+operator-delegated approval.
 **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
 **Bounded-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
 
-> **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
+> **Subsequent decision:** CD-0031 supplies core-derived continuity to operator sessions through work-start preparation. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
 > **Subsequent decision:** CD-0090 adds one bounded runtime re-pin surface — a per-turn host plugin hook that re-asserts the pinned projection after context boundaries. The "does not add a generic host hook" clause in §Consequences records the state when CD-0016 was accepted; no generic hook exists, and the added surface holds no authority.
 
@@ -68,7 +71,6 @@ and continuation. The read refuses a continuation whose projection changed, so
 a completed page sequence is one projection. A consumer joins every page before
 it uses the projection's authority. The required content and pre-write reading
 obligations remain unchanged.
-The launcher identity handoff remains unchanged.
 
 ## Work context
 

@@ -36,9 +36,10 @@ The store materialization the record documented keeps its owning contracts.
 The five-tier Product attention kind retired with the Product-row read under
 CD-0224, and no live query derives it.
 `internal/store/domain_reads.go` resolves the governing Domain and its
-architecture overlap. `cmd/concord/session.go` carries the session input, and
-`internal/store/landing_project_query.go` keeps the bounded forwarding reads the
-session entry route applies. No fold-maintained last-activity stamp survives:
+architecture overlap. `cmd/concord/session.go` carries the core-derived
+session context: the bounded packet derivation and validation that
+work-start preparation applies. No fold-maintained last-activity stamp
+survives:
 migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
 amendment carried, so no release's writes can drift a stored stamp behind the
 log (CD-0111).
@@ -56,7 +57,7 @@ column, or a fold advance.
 
 Store event, replay, and query contracts are unchanged. The store
 materialization named in Context keeps its owning contracts and serves the
-JSON agent tools and the session entry route. `updated_at` keeps its
+JSON agent tools and the managed session context. `updated_at` keeps its
 versioned-write meaning.
 
 ## Consequences
@@ -65,7 +66,7 @@ versioned-write meaning.
   `work_items.last_activity_at`, and no recency column or new fold obligation
   replaces it.
 - The store materialization continues to serve the JSON agent tools and the
-  session entry route. No renderer ships (CD-0014).
+  managed session context. No renderer ships (CD-0014).
 - Coverage for the vacated clauses carries an out-of-scope state, not a
   satisfied one.
 

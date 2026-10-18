@@ -6,8 +6,13 @@
 **Type:** Product-law reconciliation (floor definition against accepted contract).
 **Issue:** [#76](https://github.com/Sharper-Flow/concord/issues/76).
 **Refines:** [`priorities.md`](../priorities.md) first-usable floor condition 1.
-**Preserves:** the accepted terminal-launcher contract (C18), including §12
-anti-requirements 1 and 11, and CD-0010.
+**Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes floor reach
+from the launcher to the host-started session and the agent read surface
+under the Snowball coordinator's operator-delegated approval.
+**Preserves:** C18 §12 anti-requirements 1 and 11 — the reach-versus-result-set
+boundary, whose textual home retired with the launcher TUI (CD-0219) and
+whose substance `priorities.md` and `design-constraints.md` own — and
+CD-0010.
 
 ## Context
 
@@ -22,9 +27,11 @@ answers. Only one was a real gap.
 
 ### The authoring gap is real
 
-The launcher performs exactly one action with an external effect: handing work
-identity to a fresh session. `cmd/concord` registers no command that creates
-work. The whole authoring surface — `concord_work_define`,
+At acceptance, the launcher performed exactly one action with an external
+effect: handing work identity to a fresh session, and `cmd/concord`
+registered no command that creates work. That entry route is retired; the
+host starts the session, and the authoring surface is unchanged. The whole
+authoring surface — `concord_work_define`,
 `concord_work_transition`, `concord_work_relate` — is reachable only through a
 grant envelope, and the operator holds no grant. The operator genuinely cannot
 author work outside an agent session.
@@ -40,13 +47,16 @@ Issue #76 conflated reach with cross-Product query.
 ## Decision
 
 **D1. Planning happens through an agent session, and that is the intended path.**
-Condition 1's "plan" is satisfied when the operator can reach the work and open a
-session that authors it. It does not require an operator-side authoring surface.
-The launcher stays read-only and work creation keeps a single write authority.
+Condition 1's "plan" is satisfied when the operator can reach the work and a
+session authors it. It does not require an operator-side authoring surface.
+The operator surface stays read-only — the host starts the session, and
+Concord launches none (CD-0078) — and work creation keeps a single write
+authority.
 
 **D2. "Across the full Product scope" means reach, not cross-Product result
-sets.** Condition 1 is satisfied when every Product in the portfolio is reachable
-from the launcher. A query returning work or knowledge spanning several Products
+sets.** Condition 1 is satisfied when every Product in the portfolio is
+reachable from the operator's session and the agent read surface. A query
+returning work or knowledge spanning several Products
 remains excluded by C18 §12 anti-requirement 11 and CD-0014, and is not part of
 the floor.
 
@@ -77,7 +87,11 @@ need; no such need is demonstrated.
 
 - Condition 1 becomes claimable. `fc1-operator-work-capture` and
   `fc1-full-product-scope` move to satisfied in the readiness manifest, evidenced
-  by this decision and the launcher contract rather than by new code.
+  by this decision and the launcher contract rather than by new code. The
+  launcher contract and the launcher-delivered portfolio view retired under
+  CD-0219, so `fc1-full-product-scope` carries an out-of-scope state with that
+  retirement, and `fc1-session-handoff` is unmeasured pending the live
+  host-started managed-entry witness.
 - C18 is unchanged in substance. Anti-requirement 11 gains a sentence
   distinguishing reach from result sets; no anti-requirement is added or removed.
 - No new authorization path, no launcher write path, and no change to CD-0010.
@@ -89,6 +103,7 @@ need; no such need is demonstrated.
 - [`priorities.md`](../priorities.md) condition 1 and the C18 contract's §12
   agreed in wording after this change; the C18 contract retired with the
   launcher TUI under CD-0219.
-- [`floor-readiness.v1.json`](../floor-readiness.v1.json) records both items as
-  satisfied with this decision among their evidence, and
-  `scripts/check-floor-readiness.py` passes.
+- [`floor-readiness.v1.json`](../floor-readiness.v1.json) records
+  `fc1-operator-work-capture` satisfied and `fc1-full-product-scope` out of
+  scope with the launcher retirement, and `scripts/check-floor-readiness.py`
+  passes.

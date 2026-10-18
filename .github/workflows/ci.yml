@@ -131,14 +131,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -393,14 +387,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -459,14 +447,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -531,14 +513,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -603,14 +579,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -657,14 +627,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -705,14 +669,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
@@ -762,14 +720,8 @@ jobs:
           CONCORD_SELECTED_WORK_ID: poison-work
           CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROMPT: poison-prompt
-          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
           CONCORD_SELECTED_PROJECT_ID: poison-project
-          CONCORD_SELECTED_AGENT: poison-agent
-          CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
-          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
           CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord

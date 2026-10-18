@@ -22,9 +22,10 @@ work, break-fix, configuration, infrastructure, research, RCA, and static
 analysis through that one shape is wrong. Concord introduces a **full workflow
 coordination engine** with code-defined, versioned purpose-built types plus one
 generic type for true one-offs. Each type is shaped for its work kind.
-The primary operator interacts through the `concord zl` launcher and its agent
-sessions until the Herdr cutover; optional grid/table views are
-projections, not the primary interface.
+The primary operator interacts through host-started agent sessions: the
+operator starts each session, and agents enter managed work through
+`concord_work_start`. Optional grid/table views are projections, not the
+primary interface.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -34,16 +35,17 @@ follows them without restating the ranked list.
 ## 0. Audience and primary surface (resolved)
 
 - **Primary operator surface:** follows [`priorities.md`](./priorities.md).
-  The `concord zl` entry starts named work directly from the shell.
-- **Entry responsibility:** narrow start/resume/launch actions. Substantive
+  The host starts each session; the session enters named work through
+  `concord_work_start`.
+- **Entry responsibility:** narrow start/resume actions. Substantive
   workflow decisions happen after selection.
 - **Human questions:** provide purpose, relevant context, concrete examples, and
   consequences before asking one decision at a time.
 - **Web / admin panel:** optional; a grid/table projection for humans, not the
   daily operating surface.
-- **Session entry:** CD-0108 owns session bootstrap until the terminal-layer
-  cutover. CD-0219 retires the interactive launcher TUI without transferring
-  its operator acceptance gate to the entry route.
+- **Session entry:** the host owns operator session start and resume
+  (CD-0078). Concord owns managed worktree claims, verified landing, and
+  work-start context; no Concord command starts a session.
 - **Agent surface:** CD-0005's eight scenario-validated tools through the accepted
   `concord.ts` custom-tool adapter and short-lived Go CLI. No plugin/MCP v1 and no
   separate human-only GUI required for correctness.

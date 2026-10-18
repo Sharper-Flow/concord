@@ -6,15 +6,19 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
+      "value": "cmd/concord.TestRemovedLaunchEntriesRefuseWithoutExecuting"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestSessionCommandPassesPromptThroughEnvironment"
+      "value": "cmd/concord.TestRemovedLaunchArgvZeroDoesNotForward"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"
+      "value": "cmd/concord.TestRemovedLauncherVerbPrintsUsageWithoutOpeningAuthority"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a successful work start forks no terminal command"
     }
   ],
   "id": "CD-0078",

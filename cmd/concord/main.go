@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -36,12 +35,6 @@ func run(args []string, out, errOut io.Writer) int {
 }
 
 func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
-	if filepath.Base(os.Args[0]) == "zl" {
-		if code, handled := runCommandHelpRoute(append([]string{"zl"}, args...), out, errOut); handled {
-			return code
-		}
-		return runZLForwarding(args, in, out, errOut)
-	}
 	if len(args) == 1 && args[0] == "--version" {
 		_, _ = fmt.Fprintln(out, version.Value)
 		return 0
@@ -65,13 +58,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
 		writeUsage(errOut)
 		return 2
-	}
-	if len(args) > 0 && args[0] == "zl" {
-		return runZLForwarding(args[1:], in, out, errOut)
-	}
-	// Session boot derives continuity before OpenCode receives any prompt.
-	if len(args) > 0 && args[0] == "session" {
-		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
 	// Continuity block is a read-only transport for the adapter's per-turn
 	// hook. It must run before project and JSON routing so it does not
@@ -196,7 +182,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
-	{Canonical: "project-canonical-path", TwoWord: "project canonical-path", RequiredFields: requiredFields(field("project_id")), Optional: "none", Enums: "none"},
 	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout, with checkout_work_id naming the work that owns the checkout; read-only"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
@@ -209,7 +194,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
-	{Canonical: "outside-repair", RequiredFields: requiredFields(field("work_id"), field("agent")), Optional: "none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
@@ -254,8 +238,6 @@ var verbUsages = []struct {
 	Verb  string
 	Lines []string
 }{
-	{"zl", []string{"zl <work> -- <prompt>   # start or resume a session", "zl <work> --project <project>   # land in that member Project of the work", "zl --resume-last   # resume the last workspace"}},
-	{"session", []string{"session    # internal TTY bootstrap; session identity env required"}},
 	{"continuity-block", []string{"continuity-block <directory>   # read-only continuity packet for the session directory"}},
 	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
@@ -400,217 +382,6 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 	return 0, false
 }
 
-func terminalStreams(in io.Reader, out io.Writer) bool {
-	input, inOK := in.(*os.File)
-	output, outOK := out.(*os.File)
-	if !inOK || !outOK {
-		return false
-	}
-	inInfo, inErr := input.Stat()
-	outInfo, outErr := output.Stat()
-	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
-}
-
-// parseZLForwarding splits zl arguments into the explicit --project selector
-// and the forwarded work-and-prompt tail. Parsing follows the flag convention
-// the Go flag package and POSIX utility syntax share: the first `--` ends
-// option parsing, so prompt words after the delimiter stay prompt text and
-// can never select a Project (CD-0182). A non-empty diagnostic is a usage
-// refusal; the caller prefixes it with the command name.
-func parseZLForwarding(args []string) (project string, forwarded []string, diagnostic string) {
-	forwarded = make([]string, 0, len(args))
-	for rest := args; len(rest) > 0; {
-		arg := rest[0]
-		rest = rest[1:]
-		if arg == "--" {
-			forwarded = append(forwarded, arg)
-			forwarded = append(forwarded, rest...)
-			return project, forwarded, ""
-		}
-		switch {
-		case arg == "--project":
-			if len(rest) == 0 {
-				return project, nil, "--project requires a Project ID"
-			}
-			project = rest[0]
-			rest = rest[1:]
-		case strings.HasPrefix(arg, "--project="):
-			project = strings.TrimPrefix(arg, "--project=")
-		default:
-			forwarded = append(forwarded, arg)
-		}
-	}
-	return project, forwarded, ""
-}
-
-func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
-	if len(args) == 1 {
-		if args[0] == "--resume-last" { // #nosec G602 -- args has length 1, checked by this branch.
-			work := os.Getenv("CONCORD_LAST_WORK_ID")
-			product := os.Getenv(selectedProductEnv)
-			if work == "" || product == "" {
-				writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
-				return 1
-			}
-			return launchForwardedSession(product, work, "", "", in, out, errOut)
-		}
-	}
-	// An explicit --project selector lands the session in that member
-	// Project of the work (CD-0182): the session runs in that Project's
-	// active worktree when one is usable, else its canonical path, and the
-	// landing Project also owns the session's Product scope. The selector
-	// changes the landing only; the default primary landing stays as
-	// CD-0093 and CD-0176 decide it.
-	project, forwarded, diagnostic := parseZLForwarding(args)
-	if diagnostic != "" {
-		writeDiagnostic(errOut, "concord zl: "+diagnostic)
-		return 2
-	}
-	if project != "" && len(forwarded) > 0 && forwarded[0] == "--resume-last" {
-		writeDiagnostic(errOut, "concord zl: --project does not combine with --resume-last")
-		return 2
-	}
-	if project != "" && !sessionIdentity.MatchString(project) {
-		writeDiagnostic(errOut, "concord zl: Project selection is missing or invalid")
-		return 2
-	}
-	if len(forwarded) < 1 || forwarded[0] == "--" { // #nosec G602 -- forwarded non-empty, checked by this branch.
-		writeDiagnostic(errOut, "concord zl: work ID is required")
-		return 2
-	}
-	work := forwarded[0]
-	prompt := ""
-	if len(forwarded) > 1 {
-		if forwarded[1] != "--" {
-			writeDiagnostic(errOut, "concord zl: prompt must follow --")
-			return 2
-		}
-		prompt = strings.Join(forwarded[2:], " ")
-	}
-	inherited := inheritedForwardedProduct()
-	if issueKey, issueURL, ok := linearIssueReference(work); ok {
-		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL, project, inherited)
-		if err != nil {
-			writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
-			return 1
-		}
-		work, product := resolvedWork, resolvedProduct
-		return forwardSession(product, work, prompt, project, in, out, errOut)
-	}
-	product, err := resolveForwardedProduct(work, project, inherited)
-	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
-		return 1
-	}
-	return forwardSession(product, work, prompt, project, in, out, errOut)
-}
-
-// forwardSession starts the forwarded session. Tests replace it to observe
-// the handoff runZLForwarding derives without executing a host.
-var forwardSession = launchForwardedSession
-
-// inheritedForwardedProduct reads the inherited Product selection.
-// runZLForwarding passes it to the landing-Project resolver, which honors it
-// only when it names one of the landing Project's Products; it never decides
-// the scope on its own.
-func inheritedForwardedProduct() string {
-	if product := os.Getenv(selectedProductEnv); product != "" {
-		return product
-	}
-	return os.Getenv("CONCORD_PRODUCT_ID")
-}
-
-var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
-
-func linearIssueReference(reference string) (key, issueURL string, ok bool) {
-	reference = strings.TrimSpace(reference)
-	if linearIssueKeyPattern.MatchString(reference) {
-		return reference, "", true
-	}
-	parsed, err := url.Parse(reference)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "linear.app" || parsed.User != nil {
-		return "", "", false
-	}
-	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	for i := 0; i+1 < len(segments); i++ {
-		if strings.EqualFold(segments[i], "issue") && linearIssueKeyPattern.MatchString(segments[i+1]) {
-			return segments[i+1], reference, true
-		}
-	}
-	return "", "", false
-}
-
-func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct string) (string, string, error) {
-	path, err := databasePath()
-	if err != nil {
-		return "", "", err
-	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return "", "", errors.New("no authority database is available")
-		}
-		return "", "", fmt.Errorf("database path is unavailable: %w", statErr)
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		return "", "", err
-	}
-	defer func() { _ = s.Close() }()
-	// Concord makes no Linear call (CD-0213 D7): an issue no work item
-	// records resolves nothing, and the agent records the identity first.
-	work, err := s.ResolveLinearIssueWork(context.Background(), issueKey, issueURL)
-	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindUnknownScope {
-			return "", "", fmt.Errorf("no work item records Linear issue %s; capture the work and record the issue with concord_work_define.issue_link_record", issueKey)
-		}
-		return "", "", err
-	}
-	product, err := s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
-	if err != nil {
-		return "", "", err
-	}
-	return work, product, nil
-}
-
-// resolveForwardedProduct derives the forwarded session's Product from the
-// landing Project: the Project the operator named, else the work's primary
-// Project. preferredProduct is the inherited selection; the
-// landing Project owns the scope, so it applies only when it names one of
-// that Project's Products.
-func resolveForwardedProduct(work, project, preferredProduct string) (string, error) {
-	path, err := databasePath()
-	if err != nil {
-		return "", err
-	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return "", errors.New("no authority database is available")
-		}
-		return "", fmt.Errorf("database path is unavailable: %w", statErr)
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = s.Close() }()
-	return s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
-}
-
-func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := sessionCommand(sessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: defaultSessionAgent})
-	if err != nil {
-		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
-		return 1
-	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
-	if err := cmd.Run(); err != nil {
-		writeDiagnostic(errOut, "concord zl: "+diagnosticText(err))
-		return 1
-	}
-	return 0
-}
-
 const dbOverrideEnv = "CONCORD_DB_PATH"
 
 // inputRefusalExit is the CLI transport signal for validation that precedes
@@ -737,8 +508,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionPrepareRegistry, hostOrchestratorIdentity, DeriveSessionBoot)
-	case "outside-repair":
-		return runOutsideRepairCommand(raw, s, defaultOutsideRepairDeps(), out, errOut)
 	case "receipt":
 		return runReceipt(raw, s, out, errOut)
 	default:
@@ -1679,8 +1448,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runWorktreeLocate(raw, s, out, errOut)
 	case "project-resolve":
 		return runProjectResolve(raw, s, out, errOut)
-	case "project-canonical-path":
-		return runProjectCanonicalPath(raw, s, out, errOut)
 	case "cd-reservations":
 		return runCDReservations(raw, s, out, errOut)
 	case "restore":

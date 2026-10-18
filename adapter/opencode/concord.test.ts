@@ -59,10 +59,8 @@ configureCoreBinary("concord")
 
 const adapter = await import("./concord")
 
-// A work_start success renames the zellij pane frame when the host exports
-// ZELLIJ_PANE_ID (issue #917). The suite stays hermetic against the operator's
-// own zellij session: no test sees a pane id unless it sets one.
-const outerPaneID = process.env.ZELLIJ_PANE_ID
+// The suite never touches a terminal surface: work_start owns no terminal
+// command, so no test needs to simulate or clear terminal environment state.
 const outerSelectedProductID = process.env.CONCORD_SELECTED_PRODUCT_ID
 beforeEach(() => {
   hostControlPlane().bind({
@@ -74,13 +72,10 @@ beforeEach(() => {
   // notices never leak into the next test's assertions.
   adapter.takeWorkNotices("session-1")
   resetMoveNotices()
-  delete process.env.ZELLIJ_PANE_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
 })
 afterEach(async () => {
   resetClaimedWorktrees()
-  if (outerPaneID === undefined) delete process.env.ZELLIJ_PANE_ID
-  else process.env.ZELLIJ_PANE_ID = outerPaneID
   if (outerSelectedProductID === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
   else process.env.CONCORD_SELECTED_PRODUCT_ID = outerSelectedProductID
   await Promise.all(testDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
@@ -311,14 +306,16 @@ test("published tool arguments expose a host-safe request shape", async () => {
   expect(premise.description).toContain("Do not truncate an approved objective")
   // Every generated field reaches the host through the registration map,
   // which derives its field set from the generated capture/resume branches —
-  // no handwritten parity list. project_id is the CD-0182 resume selector:
-  // resume-only, never capture.
+  // no handwritten parity list. The resume branch carries exactly work_id:
+  // the resume claims in the calling session's Project, and no
+  // Project selector is published on either mode.
   const [generatedCapture, generatedResume] = hostToolSchemas.concord_work_start.oneOf
   const expectedWorkStartFields = Object.keys({ ...generatedCapture.properties, ...generatedResume.properties })
   expect(Object.keys((adapter.work_start as any).args).sort(), "work_start registration fields").toEqual(expectedWorkStartFields.sort())
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
-  expect((adapter.work_start as any).args.project_id).toBeObject()
+  expect((adapter.work_start as any).args.project_id).toBeUndefined()
+  expect(Object.keys(generatedResume.properties)).toEqual(["work_id"])
   // Conditional branches preserve both generated closed modes without a
   // root union that Anthropic's tool-schema validator would reject.
   const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
@@ -2280,7 +2277,6 @@ type RetargetCall = { argv: string[]; input: string; options?: any }
 const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
-    if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
     const command = argv[1]
     if (overrides[command]) return overrides[command]()
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
@@ -2544,84 +2540,6 @@ test("work start refuses a session-prepare read-back that names another agent", 
   expect(moved).toEqual([])
 })
 
-// Issue #917: a successful work_start names the zellij pane frame. The
-// session-prepare contract carries the title alone, so the start-time name is
-// the shared pane rendering with fewer fields. The fork sits after every
-// refusal point, so a success without ZELLIJ_PANE_ID stays fork-free and a
-// failed fork stays a warning.
-test("work start renames the zellij pane frame to the work title on success", async () => {
-  process.env.ZELLIJ_PANE_ID = "402"
-  bindRetargetRoute()
-  const calls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
-  expect(result.outcome).toBe("ok")
-  // One rename fork, after session-prepare supplied the title and before the
-  // gate brief's reads: exactly one per success.
-  const renames = calls.filter(({ argv }) => argv[0] === "zellij")
-  expect(renames).toHaveLength(1)
-  expect(renames[0].argv).toEqual(["zellij", "action", "rename-pane", "-p", "402", "Add atomic start"])
-
-  const resumeCalls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: resumeRunner(resumeCalls) })
-  const resumed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
-  expect(resumed.outcome).toBe("ok")
-  const resumeRenames = resumeCalls.filter(({ argv }) => argv[0] === "zellij")
-  expect(resumeRenames).toHaveLength(1)
-  expect(resumeRenames[0].argv).toEqual(["zellij", "action", "rename-pane", "-p", "402", "Add atomic start"])
-})
-
-test("the pane name strips control characters and is cut at 64 code points", async () => {
-  process.env.ZELLIJ_PANE_ID = "7"
-  bindRetargetRoute()
-  const calls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
-      "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("agent-1", "Implement the task.", `ab\u0001cd\u009Fef${"g".repeat(70)}`)), stderr: "" }),
-  }) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
-  expect(result.outcome).toBe("ok")
-  const renames = calls.filter(({ argv }) => argv[0] === "zellij")
-  expect(renames).toHaveLength(1)
-  const name = renames[0].argv[5]
-  expect(name).toBe(`abcdefg${"g".repeat(57)}`)
-  expect([...name]).toHaveLength(64)
-})
-
-test("work start without ZELLIJ_PANE_ID renames nothing", async () => {
-  bindRetargetRoute()
-  const calls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
-  expect(result.outcome).toBe("ok")
-  expect(calls.some(({ argv }) => argv[0] === "zellij")).toBe(false)
-})
-
-test("a failed pane rename is a warning in the tool output and never fails work_start", async () => {
-  process.env.ZELLIJ_PANE_ID = "9"
-  bindRetargetRoute()
-  const calls: RetargetCall[] = []
-  // The exitCode-1 fork and the throwing fork are both warnings: the envelope
-  // reports the completed start unchanged in either mode, and the warning
-  // rides the tool result output where the agent can respond to it.
-  const failing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
-    if (argv[0] === "zellij") return { exitCode: 1, stdout: "", stderr: "no such pane" }
-    return retargetRunner(calls).run(argv, input, signal, options)
-  } }
-  adapter.configureConcordAdapter({ runner: failing })
-  const refused: any = await adapter.work_start.execute(bootstrapArgs, landedContextFor())
-  expect(envelopeLine(refused.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
-  expect(refused.output).toContain("Concord could not rename the pane frame to the work title: exit 1.")
-
-  const throwing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
-    if (argv[0] === "zellij") throw new Error("zellij is absent")
-    return retargetRunner(calls).run(argv, input, signal, options)
-  } }
-  adapter.configureConcordAdapter({ runner: throwing })
-  const thrown: any = await adapter.work_start.execute(bootstrapArgs, landedContextFor())
-  expect(envelopeLine(thrown.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
-  expect(thrown.output).toContain("Concord could not rename the pane frame to the work title: the fork failed.")
-})
-
 // The session title names the goal for the session list and the compaction
 // hook. The write sits after the confirmed landing, so an absent route or a
 // failed call is a warning in the tool output that leaves the completed start
@@ -2667,7 +2585,6 @@ const resumeSuccess = () => ({
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
-    if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
     const command = argv[1]
     if (overrides[command]) return overrides[command]()
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
@@ -2797,7 +2714,6 @@ test("work start resume classifies the post-landing handoff re-read refusal exit
   adapter.configureConcordAdapter({ runner: {
     async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
       calls.push({ argv, input, options })
-      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") {
@@ -2827,7 +2743,6 @@ test("work start resume keeps a retryable post-landing re-read failure on the re
   let resumeReads = 0
   adapter.configureConcordAdapter({ runner: {
     async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
-      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") {
@@ -2898,11 +2813,11 @@ const renderedHandoff = () => ({
   handoff_id: "work-1:project-handoff:project-0:project-1:abcd1234abcd1234",
   source_project_id: "project-0",
   bounded_job: "verify the receiving repository's adapter surface",
-  changes: ["adapter/opencode: opener route"],
+  changes: ["adapter/opencode: resume route"],
   verification: ["bun test adapter/opencode/ pass"],
   artifact_refs: null,
   blockers: [],
-  next_action: "consume the handoff and verify the opener route",
+  next_action: "consume the handoff and verify the receiving route",
   recorded_at: "2026-09-30T00:00:00Z",
 })
 
@@ -2920,7 +2835,6 @@ test("work start resume consumes the rendered handoff by id and carries the boun
   adapter.configureConcordAdapter({ runner: {
     async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
       calls.push({ argv, input, options })
-      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_handoff: renderedHandoff() }), stderr: "" }
@@ -2961,7 +2875,6 @@ test("work start resume re-reads the handoff after the landing for a cold second
   adapter.configureConcordAdapter({ runner: {
     async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
       calls.push({ argv, input, options })
-      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") {
@@ -3186,219 +3099,6 @@ test("work start resume refuses a malformed branch freshness sample", async () =
   expect(missing.error.kind).toBe("malformed_response")
 })
 
-// CD-0182: a resume whose named member Project lives in another repository
-// never reaches the host move. The registered session opener probes that the
-// target canonical path resolves, then runs the core launch argv without a
-// shell and the answer reports its exit status and argv without claiming the
-// new session is running; with no opener, an invalid one, or a canonical
-// path that no longer resolves, the exact launch command and directory still
-// return. selectedPath names project-2's registered canonical path: tests
-// that reach the opener run pass a real directory, because the fail-closed
-// probe refuses a path the filesystem cannot resolve.
-const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: number; stdout: string; stderr: string } | null, selectedPath = "/other-repo") => ({
-  async run(argv: string[], input: string, _signal: AbortSignal, _options?: any) {
-    calls.push({ argv, input })
-    if (argv[0] === "tab-opener") {
-      const outcome = opener()
-      if (outcome === null) throw new Error("the opener must not run")
-      return outcome
-    }
-    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (argv[1] === "project-canonical-path") {
-      const parsed = JSON.parse(input) as { project_id: string }
-      return { exitCode: 0, stdout: JSON.stringify({ project_id: parsed.project_id, canonical_path: parsed.project_id === "project-2" ? selectedPath : "/repo-1" }), stderr: "" }
-    }
-    // The routing decision needs only canonical paths: worktree-locate, which
-    // resolves a default branch ref and a commit, must never run on this route.
-    if (argv[1] === "worktree-locate") throw new Error("worktree-locate must not serve the routing decision")
-    throw new Error(`unexpected command ${argv.join(" ")}`)
-  },
-})
-
-test("work start resume routes a second repository through the registered session opener", async () => {
-  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
-  try {
-    const calls: RetargetCall[] = []
-    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
-    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), selectedRepo) })
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-    expect(result.outcome).toBe("error")
-    expect(result.error.kind).toBe("second_session_opened")
-    expect(result.error.retry_safe).toBe(false)
-    expect(result.error.effect_state).toBe("none")
-    expect(result.work_id).toBe("work-1")
-    expect(result.project_id).toBe("project-2")
-    expect(result.launch.directory).toBe(selectedRepo)
-    expect(result.launch.argv).toEqual(["concord", "zl", "work-1", "--project", "project-2"])
-    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
-    expect(result.opener.exit_code).toBe(0)
-    expect(result.opener.argv).toEqual(["tab-opener", "--cwd", selectedRepo, "--title", "work-1", "--", "concord", "zl", "work-1", "--project", "project-2"])
-    expect(result.error.message).toContain("does not claim the new session is running")
-    expect(result.error.message).toContain("concord_work_start with work_id work-1 and project_id project-2")
-    // The branch runs before the probe, the resume read, and the move, so a
-    // second-repository resume captures and moves nothing.
-    expect(calls.some(({ argv }) => argv[1] === "work-resume" || argv[1] === "session-prepare" || argv[1] === "work-bootstrap")).toBe(false)
-  } finally {
-    adapter.configureSessionOpener(undefined)
-    await rm(selectedRepo, { recursive: true, force: true })
-  }
-})
-
-// A member Project can hold a valid canonical path while its repository has
-// no resolvable default ref, so worktree-locate — which resolves a default
-// branch ref and a commit — cannot answer for it. The routing decision needs
-// only each Project's canonical repository path and must still reach both
-// the opener run and the no-opener command through the canonical-path read.
-test("a second-repository route with no resolvable default ref opens through the canonical-path read", async () => {
-  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
-  try {
-    const calls: RetargetCall[] = []
-    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
-    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), selectedRepo) })
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-    expect(result.error.kind).toBe("second_session_opened")
-    expect(result.launch.directory).toBe(selectedRepo)
-    const selectedReads = calls.filter(({ argv, input }) => argv[1] === "project-canonical-path" && (JSON.parse(input) as { project_id: string }).project_id === "project-2")
-    expect(selectedReads).toHaveLength(1)
-    // The mock refuses worktree-locate outright, so reaching this point with
-    // a routed session proves the route never asked for a ref resolution.
-    expect(calls.some(({ argv }) => argv[1] === "worktree-locate")).toBe(false)
-  } finally {
-    adapter.configureSessionOpener(undefined)
-    await rm(selectedRepo, { recursive: true, force: true })
-  }
-})
-
-test("a resume into a second repository without an opener returns the exact launch command", async () => {
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(undefined)
-  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => null) })
-  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-  expect(result.error.kind).toBe("session_opener_unregistered")
-  expect(result.launch.directory).toBe("/other-repo")
-  expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
-  expect(result.error.message).toContain("No session opener is registered")
-  expect(result.opener).toBeUndefined()
-})
-
-test("an invalid registered opener refuses naming the invalid field and still returns the command", async () => {
-  for (const [template, fragment] of [
-    [["tab-opener", "{command} {command}"], "session_opener[1] embeds {command}"],
-    [["tab-opener", "--cwd", "{path}", "{command}"], "unknown placeholder {path}"],
-    [["tab-opener", "--flag"], "exactly once as a whole element"],
-    ["not-an-array", "session_opener is not an array"],
-  ] as Array<[unknown, string]>) {
-    const calls: RetargetCall[] = []
-    adapter.configureSessionOpener(template)
-    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => null) })
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-    expect(result.error.kind).toBe("invalid_session_opener")
-    expect(result.error.message).toContain(fragment)
-    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
-    expect(result.opener).toBeUndefined()
-    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
-  }
-  adapter.configureSessionOpener(undefined)
-})
-
-test("a failed opener run reports the exit status and the launch command", async () => {
-  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
-  try {
-    const calls: RetargetCall[] = []
-    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "{command}"])
-    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 1, stdout: "", stderr: "no display server" }), selectedRepo) })
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-    expect(result.error.kind).toBe("session_opener_failed")
-    expect(result.error.message).toContain("exited 1")
-    expect(result.error.message).toContain("no display server")
-    expect(result.opener.exit_code).toBe(1)
-    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
-  } finally {
-    adapter.configureSessionOpener(undefined)
-    await rm(selectedRepo, { recursive: true, force: true })
-  }
-})
-
-// CD-0093 D3's fail-closed rule rides into the opener route (CD-0182 D2): a
-// member Project whose registered canonical path no longer resolves must
-// never spawn the opener against a directory that is gone. The probe refuses
-// before the run and the answer falls back to the no-opener launch command.
-test("a canonical path removed after registration refuses the opener and returns the launch command", async () => {
-  const repoRoot = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
-  const removedRepo = join(repoRoot, "removed")
-  try {
-    await mkdir(removedRepo)
-    await rm(removedRepo, { recursive: true })
-    const calls: RetargetCall[] = []
-    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
-    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), removedRepo) })
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
-    expect(result.outcome).toBe("error")
-    expect(result.error.kind).toBe("canonical_path_unresolved")
-    expect(result.error.retry_safe).toBe(false)
-    expect(result.error.effect_state).toBe("none")
-    expect(result.error.message).toContain(removedRepo)
-    expect(result.error.message).toContain("concord zl work-1 --project project-2")
-    expect(result.launch.directory).toBe(removedRepo)
-    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
-    expect(result.opener).toBeUndefined()
-    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
-  } finally {
-    adapter.configureSessionOpener(undefined)
-    await rm(repoRoot, { recursive: true, force: true })
-  }
-})
-
-test("a resume whose selected Project shares the calling repository keeps the claim-and-move route", async () => {
-  bindRetargetRoute({ landedDirectory: "/data/worktrees/project-2/work-1" })
-  const landedThere = contextFor(() => {}, new AbortController(), "/data/worktrees/project-2/work-1")
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(["tab-opener", "{command}"])
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string, _signal: AbortSignal, _options?: any) {
-    calls.push({ argv, input })
-    if (argv[0] === "tab-opener") throw new Error("the opener must not run inside one repository")
-    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (argv[1] === "project-canonical-path") return { exitCode: 0, stdout: JSON.stringify({ project_id: (JSON.parse(input) as { project_id: string }).project_id, canonical_path: "/repo-1" }), stderr: "" }
-    if (argv[1] === "worktree-locate") {
-      const parsed = JSON.parse(input) as { project_id: string; work_id: string }
-      return { exitCode: 0, stdout: JSON.stringify({ branch: `work/${parsed.work_id}`, base_sha: "a".repeat(40), path: `/data/worktrees/${parsed.project_id}/${parsed.work_id}`, repo: "/repo-1", ref: "HEAD" }), stderr: "" }
-    }
-    if (argv[1] === "work-resume") return { exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_id: "project-2", worktree: { ...resumeSuccess().worktree, path: "/data/worktrees/project-2/work-1" } }), stderr: "" }
-    if (argv[1] === "session-prepare") return { exitCode: 0, stdout: JSON.stringify({ ...preparedContract(), directory: "/data/worktrees/project-2/work-1" }), stderr: "" }
-    if (argv[1] === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
-    throw new Error(`unexpected command ${argv.join(" ")}`)
-  } } })
-  try {
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, landedThere))
-    expect(result.outcome).toBe("ok")
-    expect(result.project_id).toBe("project-2")
-    expect(result.worktree_path).toBe("/data/worktrees/project-2/work-1")
-    const resume = calls.find(({ argv }) => argv[1] === "work-resume")
-    expect(JSON.parse(resume!.input).project_id).toBe("project-2")
-  } finally {
-    adapter.configureSessionOpener(undefined)
-  }
-})
-
-test("a failed project location lookup refuses before the opener runs", async () => {
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(["tab-opener", "{command}"])
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, _options?: any) {
-    calls.push({ argv, input: "" })
-    if (argv[0] === "tab-opener") throw new Error("the opener must not run")
-    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 1, stdout: "", stderr: "concord project-canonical-path: unknown_scope: Project has no canonical_path locator" }
-  } } })
-  try {
-    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-unknown" }, contextFor()))
-    expect(result.error.kind).toBe("invalid_input")
-    expect(result.error.message).toContain("canonical_path locator")
-    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
-  } finally {
-    adapter.configureSessionOpener(undefined)
-  }
-})
-
 test("work start resume rejects mixed and malformed argument shapes", async () => {
   // The passing route lets the lane guard admit the coordinator, so the
   // assertions pin the argument-shape refusals, not the lane boundary.
@@ -3421,6 +3121,51 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
   // Nothing ran: the shape refusal is in front of every effect, host probe
   // included, so a malformed call costs no child and no move.
   expect(calls).toEqual([])
+})
+
+// The resume contract is exactly { work_id }. A Project selector is
+// an undeclared argument on the published resume branch, so the shape refusal
+// sits in front of every effect: no canonical-path read, no second-session
+// route, and no move. Resuming work that lives in another repository is the
+// host-started session's job, through this same work_id-only shape.
+test("work start resume rejects a project_id selector before any effect", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string) {
+    calls.push({ argv, input })
+    throw new Error("the resume shape refusal must precede every child")
+  } } })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("invalid_input")
+  expect(result.error.message).toContain("host-tool contract")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.retry_safe).toBe(false)
+  expect(result.error.recovery_action.kind).toBe("correct_request")
+  expect(calls).toEqual([])
+})
+
+// A successful work start forks no terminal command, on capture or
+// on resume. The terminal surface belongs to the host; the start's children
+// are only the core reads and writes the boot flow owns.
+test("a successful work start forks no terminal command", async () => {
+  const terminalRoot = "zellij"
+  process.env.ZELLIJ_PANE_ID = "402"
+  try {
+    bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
+    expect(result.outcome).toBe("ok")
+    expect(calls.filter(({ argv }) => argv[0] === terminalRoot)).toEqual([])
+
+    const resumeCalls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: resumeRunner(resumeCalls) })
+    const resumed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+    expect(resumed.outcome).toBe("ok")
+    expect(resumeCalls.filter(({ argv }) => argv[0] === terminalRoot)).toEqual([])
+  } finally {
+    delete process.env.ZELLIJ_PANE_ID
+  }
 })
 
 // Missing capture fields must name the caller's correction without host effects.

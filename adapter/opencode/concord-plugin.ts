@@ -28,7 +28,6 @@ import {
   publishWorkStartDefinition,
   publishRequestDefinition,
   takeWorkNotices,
-  configureSessionOpener,
   readBoundWorkerSource,
   readBoundWorkerDiff,
   executeBoundWorkerControl,
@@ -75,22 +74,13 @@ async function pushSessionGoalTitle(input: unknown, output: { context: string[] 
   }
 }
 
-export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, options?: PluginOptions) {
+export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, _options?: PluginOptions) {
   hostControlPlane().bind(input)
   // The CI watcher delivers through the same client, so the plugin factory is
   // the one place the watcher transport is bound.
   bindCiWatchClient(input)
   // Bind before publication so a failed peer registration can log.
   const ciPeer = registerCiWatchPeer(input)
-  // CD-0182: the session opener is the operator's host placement. The host
-  // passes the options of the tuple entry to this factory, and the
-  // session_opener value is the one argv template a coordinator may run to
-  // open a second repository's session. Registering it is the operator's
-  // standing consent for coordinators to open sessions and spend model
-  // quota; an absent or invalid template still yields the exact launch
-  // command. Validation happens at use, so the refusal can name the invalid
-  // field.
-  configureSessionOpener(options?.["session_opener"])
   // CD-0111 D1/D2: claim the session's release lease before any tool can
   // run. The claim fails closed: a session that cannot claim a lease keeps
   // the release it runs visible to the installer, so the tools refuse rather

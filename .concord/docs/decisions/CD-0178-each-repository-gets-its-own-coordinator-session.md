@@ -17,7 +17,9 @@
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
   within-repository move of CD-0098
 - **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
-  session count, through CON-850
+  session count, through CON-850. Concord (CON) issue CON-910 settles this
+  record's Verification citation of the removed launch surface; the decision
+  sections are unchanged.
 
 ## Context
 
@@ -217,14 +219,21 @@ The linked open work takes these dispositions:
   proves the refusal kind, the absent worktree, and the named remedy.
 - One work item holds a worktree in each of two repositories, a
   cross-repository claim refuses before creating one, and a
-  second-repository resume routes through the registered session opener
-  while this session captures nothing.
+  second-repository resume runs as a host-started session that resumes
+  with the `work_id` alone while this session captures nothing.
   `internal/store.TestStoreTwoProjectClaimsConcurrent` proves the two
   worktrees on one item;
   `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
-  proves the refusal; `bun test adapter/opencode/concord.test.ts` proves
-  the opener route. The two-session dispatch route itself is D2 decision
-  text carried by this record's acceptance, not a claim of this section.
+  proves the refusal;
+  `bun test adapter/opencode/concord.test.ts -t "work start resume re-reads
+  the handoff after the landing for a cold second session"` proves the cold
+  second session: the resume re-reads the addressed handoff after its
+  verified landing, and the asserted child sequence contains no capture and
+  no opener run. `bun test adapter/opencode/concord.test.ts -t
+  "cross-repository placement passes the generated adapter boundary"` proves
+  the refusal carries the typed `session_placement` envelope. The
+  two-session dispatch route itself is D2 decision text carried by this
+  record's acceptance, not a claim of this section.
 - A second session that lands in an occupied worktree records its own row
   and receives no `worktree_ownership_conflict`.
   `internal/store.TestClaimLandingTransfersOccupancyInOneTransaction` and

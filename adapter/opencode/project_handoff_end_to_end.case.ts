@@ -7,12 +7,12 @@ import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fi
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, work_start, work_transition } from "./concord"
-import { configureCoreBinary, type DispatchRunner } from "./dispatch"
+import { concordBinaryPath, configureCoreBinary, type DispatchRunner } from "./dispatch"
 import { configureHostLease } from "./host-lease"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
-import { MOVE_SESSION_ROUTE, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
+import { hostControlPlane, MOVE_SESSION_ROUTE, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
 import { dispatchLaneWorker } from "./lane_dispatch"
 import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -30,10 +30,15 @@ import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 // the test skipped when neither CONCORD_BIN nor a Go toolchain can produce
 // one, so a suite run without the toolchain reports a skip, never a silent
 // pass.
-const routeDeclaration =
+const routeTest =
   process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
     : (name: string, fn: () => Promise<void>) => test.skip(name, fn, { timeout: 300000 })
+
+function routeDeclaration(name: string, fn: () => Promise<void>) {
+  const selected = process.env.TEST_CONCORD_HANDOFF_CASE
+  if (!selected || new RegExp(selected).test(name)) routeTest(name, fn)
+}
 
 configureCoreBinary("concord")
 
@@ -64,7 +69,6 @@ type JSONRecord = Record<string, any>
 
 interface HandoffHost {
   sessions: Record<string, { directory: string; metadata: JSONRecord; messages: JSONRecord[]; parentID?: string }>
-  launches: string[][]
   taskCalls: number
   lostConsumeAcknowledgement?: boolean
 }
@@ -101,18 +105,13 @@ function dbValue(dbPath: string, sql: string): any {
 // directories) and the session-prepare seams: a HOME holding the lane agent
 // definitions and a fake `opencode` probe on PATH. This is the boundary the
 // acceptance claims: no canned answer stands between the boot flow and the
-// core.
-function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }, host?: HandoffHost): DispatchRunner {
+// core, and no fixture session is launched by anyone — both coordinator
+// sessions are host-started before the route runs.
+function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }, host?: HandoffHost): DispatchRunner & {
+  run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }): ReturnType<DispatchRunner["run"]>
+} {
   return {
     async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) {
-      if (argv[0] === "fixture-session-opener" && host) {
-        host.launches.push([...argv])
-        host.sessions[RECEIVE_SESSION] = { directory: argv[1], metadata: {}, messages: [] }
-        return { exitCode: 0, stdout: "", stderr: "" }
-      }
-      if (argv[1] === "session" && host) {
-        return { exitCode: 0, stdout: JSON.stringify(Object.entries(host.sessions).map(([id, session]) => ({ id, ...session }))), stderr: "" }
-      }
       if (argv[1] === "invoke") captured.invoke = JSON.parse(input) as JSONRecord
       const result = await runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath, ...childEnv }, signal })
       if (host?.lostConsumeAcknowledgement && argv[1] === "invoke" && captured.invoke?.operation === "project_handoff_consume") {
@@ -132,7 +131,7 @@ function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string,
 // and the PATCH route persists the managed Task scope the boot enrolls. The
 // seed names where each session runs before its first move.
 async function fakeHostControlPlane(seed: Array<[string, string]>, runner: DispatchRunner, retained?: HandoffHost) {
-  const host = retained ?? { sessions: {}, launches: [], taskCalls: 0 }
+  const host = retained ?? { sessions: {}, taskCalls: 0 }
   for (const [id, directory] of seed) host.sessions[id] ??= { directory, metadata: {}, messages: [] }
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
@@ -174,7 +173,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
       },
     },
     serverUrl: new URL("https://example.invalid"),
-  } as never, { session_opener: ["fixture-session-opener", "{directory}", "{title}", "{command}"] })
+  } as never)
 }
 
 const contextFor = (sessionID: string, directory: string) =>
@@ -315,13 +314,13 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     agent_scope: [AGENT],
   })
   const captured: { invoke?: JSONRecord } = {}
-  const host: HandoffHost = { sessions: {}, launches: [], taskCalls: 0 }
+  const host: HandoffHost = { sessions: {}, taskCalls: 0 }
   const sourceWorktree = (bootstrap.worktree as JSONRecord).path as string
   // The host session route answers each session's current directory: the
-  // source session runs in its claimed worktree and the receiving session
-  // starts in the receiving repository. The real core runner serves every
-  // transport leg from here on.
-  const seed: Array<[string, string]> = restartWitness ? [[SOURCE_SESSION, sourceWorktree]] : [[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive], [RECEIVE_SESSION_B, repoReceive]]
+  // source session runs in its claimed worktree and the receiving sessions
+  // are host-started in the receiving repository before any route runs.
+  // The real core runner serves every transport leg from here on.
+  const seed: Array<[string, string]> = [[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive], ...(restartWitness ? [] : [[RECEIVE_SESSION_B, repoReceive] as [string, string]])]
   await fakeHostControlPlane(seed, realCoreRunner(binary, dbPath, childEnv, captured, host), host)
   const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
   const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
@@ -362,7 +361,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     target_project_id: RECEIVE_PROJECT,
     bounded_job: "verify the receiving repository's adapter surface",
     next_action: "consume the handoff and run the bounded job",
-    changes: ["adapter/opencode: opener route"],
+    changes: ["adapter/opencode: resume route"],
     idempotency_key: "handoff-e2e-record",
   }, sourceContext)
   expect(recorded.outcome, `record: ${JSON.stringify(recorded)}`).toBe("ok")
@@ -379,6 +378,101 @@ afterEach(async () => {
   await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
   delete process.env.CONCORD_DB_PATH
+})
+
+routeDeclaration("host-started session receives real core context without out-of-surface writes", async () => {
+  const fixturePath = process.env.TEST_CONCORD_SESSION_CONTEXT_FIXTURE
+  if (!fixturePath) {
+    const fixture = await bootHandoffFixture(await fixtureTempRoot("session-context"))
+    const path = join(fixture.root, "session-context.json")
+    await Bun.write(path, JSON.stringify(fixture))
+    // The production runner inherits the native process environment. Supply
+    // the fixture database before startup, not only in JavaScript process.env.
+    const result = await runFixtureProcess([process.execPath, "test", import.meta.path, "-t", "^host-started session receives real core context without out-of-surface writes$"], "", {
+      env: { ...process.env, CONCORD_DB_PATH: fixture.dbPath, TEST_CONCORD_SESSION_CONTEXT_FIXTURE: path },
+    })
+    process.stdout.write(result.stdout)
+    process.stderr.write(result.stderr)
+    expect(result.exitCode, `${result.stdout}\n${result.stderr}`).toBe(0)
+    return
+  }
+  const fixture = await Bun.file(fixturePath).json() as HandoffFixture
+  const { binary, dbPath, workID, sourceWorktree, childEnv, captured, host } = fixture
+  process.env.CONCORD_DB_PATH = dbPath
+  const snapshot = (): Record<string, string[]> => {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const tables = db.query("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all() as Array<{ name: string }>
+      return Object.fromEntries([
+        ["schema", db.query("SELECT * FROM sqlite_schema ORDER BY name").all().map((row) => JSON.stringify(row))],
+        ...tables.map(({ name }) => [name, db.query(`SELECT * FROM "${name.replaceAll('"', '""')}"`).all().map((row) => JSON.stringify(row)).sort()]),
+      ])
+    } finally {
+      db.close()
+    }
+  }
+  const core = realCoreRunner(binary, dbPath, childEnv, captured, host)
+  const calls: string[] = []
+  const runner: DispatchRunner = {
+    async run(argv, input, signal, options?: { cwd?: string }) {
+      const before = snapshot()
+      const result = await core.run(argv, input, signal, options)
+      expect(result.exitCode, `${argv[1]}: ${result.stderr}`).toBe(0)
+      calls.push(argv[1])
+      const after = snapshot()
+      if (argv[1] === "claim-landing") {
+        expect(JSON.parse(input)).toMatchObject({ work_id: workID, session_ref: SOURCE_SESSION, landed_directory: sourceWorktree })
+        expect(after).not.toEqual(before)
+      } else if (argv[1] === "session-prepare") {
+        // CD-0061 D4's identity evidence is an ordinary, non-durable commit
+        // (session_identity.go), not a Product/workflow projection mutation.
+        const added = after.domain_events.filter((row) => !before.domain_events.includes(row))
+        expect(added).toHaveLength(1)
+        const event = JSON.parse(added[0])
+        expect(event).toMatchObject({ kind: "session.orchestrator_identity_asserted", subject_type: "session", subject_id: workID, payload_version: 1 })
+        before.domain_events.push(added[0])
+        before.domain_events.sort()
+        before.sqlite_sequence = before.sqlite_sequence.map((row) => {
+          const sequence = JSON.parse(row)
+          return sequence.name === "domain_events" ? JSON.stringify({ ...sequence, seq: event.seq }) : row
+        }).sort()
+        expect(after).toEqual(before)
+      } else {
+        expect(after, `${argv[1]} must not write outside the typed landing`).toEqual(before)
+      }
+      return result
+    },
+  }
+  configureCoreBinary(binary)
+  const plugin = await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree]], runner, host)
+  expect(host.sessions[SOURCE_SESSION].metadata).toEqual({})
+  const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
+  expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
+  expect(boot).toMatchObject({ work_id: workID, worktree_path: sourceWorktree, session_id: SOURCE_SESSION })
+  expect(calls).toContain("work-resume")
+  expect(calls).toContain("session-prepare")
+  expect(calls).toContain("claim-landing")
+
+  const beforeDelivery = snapshot()
+  const expected = await runner.run([binary, "continuity-block", sourceWorktree], "", new AbortController().signal)
+  const packet = JSON.parse(expected.stdout)
+  expect(packet).toMatchObject({ schema_version: "1.0", session_type: "operator", product_id: PRODUCT_ID, work_id: workID, manifest_digest: manifestDigest })
+  expect(packet.continuity.pinned.work_pin.work_id).toBe(workID)
+  expect(concordBinaryPath()).toBe(binary)
+  expect(await hostControlPlane().hasManagedParent(SOURCE_SESSION)).toBe(false)
+  expect(await hostControlPlane().sessionDirectory(SOURCE_SESSION)).toBe(sourceWorktree)
+  const output = { system: ["host system prefix"] }
+  await plugin["experimental.chat.system.transform"]({ sessionID: SOURCE_SESSION }, output)
+  expect(output.system[0]).toContain(`<!-- concord:continuity:v1 -->\n${expected.stdout}\n<!-- /concord:continuity:v1 -->`)
+  expect(snapshot()).toEqual(beforeDelivery)
+
+  // A real but unclaimed directory must not inherit the previous work's packet.
+  host.sessions[SOURCE_SESSION].directory = fixture.repoReceive
+  const unclaimed = { system: ["unclaimed host system"] }
+  await plugin["experimental.chat.system.transform"]({ sessionID: SOURCE_SESSION }, unclaimed)
+  expect(unclaimed.system).toEqual(["unclaimed host system"])
+  expect(snapshot()).toEqual(beforeDelivery)
+  console.log("[pass] host-started session receives real core context without out-of-surface writes")
 })
 
 routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
@@ -580,7 +674,6 @@ function assertReceiverCounts(fixture: HandoffFixture): void {
   const { dbPath, workID, host } = fixture
   expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_claims WHERE work_id='${workID}' AND project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
   expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id='${workID}' AND e.project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
-  expect(host.launches).toHaveLength(1)
   expect(Object.keys(host.sessions).filter((id) => id.startsWith(RECEIVE_SESSION))).toEqual([RECEIVE_SESSION])
 }
 
@@ -594,18 +687,15 @@ routeDeclaration(RESTART_WITNESS, async () => {
     const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
     const sourceBoot = parseToolResult(await work_start.execute({ work_id: workID } as any, sourceContext))
     expect(sourceBoot.outcome, JSON.stringify(sourceBoot)).toBe("ok")
-    const launch = parseToolResult(await work_start.execute({ work_id: workID, project_id: RECEIVE_PROJECT } as any, sourceContext))
-    expect(launch.error.kind, JSON.stringify(launch)).toBe("second_session_opened")
-    expect(host.launches).toEqual([["fixture-session-opener", repoReceive, workID, "concord", "zl", workID, "--project", RECEIVE_PROJECT]])
+    // The receiving session is host-started in the receiving repository:
+    // the fixture host placed it at the receiving checkout before
+    // any route ran, and no Concord surface launches or names a session.
+    expect(host.sessions[RECEIVE_SESSION].directory).toBe(repoReceive)
     const vacated = parseToolResult(await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "restart-source-vacate" } } } as any, sourceContext))
     expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
     expect(host.sessions[SOURCE_SESSION].directory).toBe(vacated.result.destination_directory)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n).toBe(1)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_occupancy WHERE session_ref='${SOURCE_SESSION}'`).n).toBe(0)
-    if (process.env.HANDOFF_WITNESS_SENSITIVITY === "duplicate-launch") {
-      await work_start.execute({ work_id: workID, project_id: RECEIVE_PROJECT } as any, sourceContext)
-    }
-    expect(host.launches).toHaveLength(1)
     const path = join(fixture.root, "restart-fixture.json")
     await Bun.write(path, JSON.stringify(fixture))
     for (const phase of ["land", "continue", "recover"]) {

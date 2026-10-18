@@ -55,6 +55,7 @@ func TestReviewLaneCompletionRequiresTheTypedReviewBlock(t *testing.T) {
 	}
 	workID := "review-block-required"
 	attemptID := "review-block-required-attempt"
+	actorRef := authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +73,7 @@ func TestReviewLaneCompletionRequiresTheTypedReviewBlock(t *testing.T) {
 	// A fresh attempt carrying the valid block folds, and the block is
 	// durable in the stored payload exactly as reported.
 	second := "review-block-required-attempt-2"
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, second, "execution", actorRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, second, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +114,7 @@ func TestNonReviewLaneCompletionWithoutReviewBlockIsUnchanged(t *testing.T) {
 	}
 	workID := "no-review-block"
 	attemptID := "no-review-block-attempt"
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +189,7 @@ func TestWorkerCompletionReviewBlockShapeIsClosed(t *testing.T) {
 	s := openTemp(t)
 	workID := "review-block-bound"
 	attemptID := "review-block-bound-attempt"
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -206,6 +210,7 @@ func TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock(t *test
 	}
 	workID := "review-severity-one-source"
 	attemptID := "review-severity-one-source-attempt"
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +239,7 @@ func TestReviewLaneBlockOnlyCompletionFoldsAndReplays(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[3]
 	workID := "review-block-only"
 	attemptID := "review-block-only-attempt"
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -264,6 +270,7 @@ func TestLiveV2CompletionForTheReviewLaneStillRequiresTheBlock(t *testing.T) {
 	lane := BuiltinLaneDefinitions()[3]
 	workID := "review-block-version-gate"
 	attemptID := "review-block-version-gate-attempt"
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -344,6 +351,7 @@ func TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock(t *testing.T) {
 	}
 	workID := "review-block-legacy-digest"
 	attemptID := "review-block-legacy-digest-attempt"
+	actorRef := authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, current, map[string]any{"lane_digest": legacyDigest})}}); err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +360,7 @@ func TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock(t *testing.T) {
 		t.Fatalf("blockless completion under a legacy digest error = %v, want %s", err, KindInvalidPayload)
 	}
 	second := "review-block-legacy-digest-attempt-2"
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, second, "execution", actorRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, second, current, map[string]any{"lane_digest": legacyDigest})}}); err != nil {
 		t.Fatal(err)
 	}
@@ -377,6 +386,7 @@ func TestLiveLegacyUnavailableReviewCompletionStillRequiresTheBlock(t *testing.T
 		return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(payload)}
 	}
 	attemptID := "review-block-legacy-origin-attempt"
+	actorRef := authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -392,6 +402,7 @@ func TestLiveLegacyUnavailableReviewCompletionStillRequiresTheBlock(t *testing.T
 		t.Fatalf("refused completion changed the worker projection:\n%s\nwant\n%s", after, before)
 	}
 	second := "review-block-legacy-origin-attempt-2"
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, second, "execution", actorRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, second, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

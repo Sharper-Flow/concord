@@ -146,6 +146,7 @@ func TestWorkerCompletedRefusesRetiredReportVersionLive(t *testing.T) {
 	ctx := context.Background()
 	// The attempt row only needs one admitted dispatch; the current pair
 	// admits through the live boundary both before and after the cutover.
+	authorizeWorkerFixtureDispatch(t, s, "worker-completion-revision", "dispatch-completion-revision")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent("worker-completion-revision", "dispatch-completion-revision", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

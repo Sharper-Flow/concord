@@ -70,6 +70,29 @@ func workerCompletionAtClaim(t *testing.T, s *Store, event Event) Event {
 	return event
 }
 
+// The corpus cannot state the hash of a runtime claim path. An omitted identity
+// cannot express a legacy authorization; Go tests own that case.
+func workerDispatchAuthorizationAtClaim(t *testing.T, s *Store, event Event) Event {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["worker_worktree_identity"] = workerFixtureWorktreeIdentity(t, s, event.SubjectID)
+	event.Payload = mustJSONValue(payload)
+	t.Logf("materialized dispatch worktree identity for %s", event.EventID)
+	return event
+}
+
+func workerFixtureWorktreeIdentity(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workerWorktreeIdentity(canonical)
+}
+
 func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var directory string
@@ -393,6 +416,10 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 	}
 	stepID := "repair"
 	expected := int64(2)
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, fixture.workID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	startPayload := mustJSONValue(map[string]any{
 		"work_id": fixture.workID, "expected_version": expected, "resulting_version": expected + 1,
 		"step_id": stepID, "action_id": "dispatch_worker", "attempt_epoch": 1,
@@ -406,6 +433,7 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 		"worker_attempt_id":           attemptID,
 		"worker_packet_digest":        "sha256:" + strings.Repeat("c", 64),
 		"worker_packet_predicate_ids": []string{},
+		"worker_worktree_identity":    workerWorktreeIdentity(canonical),
 	})
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

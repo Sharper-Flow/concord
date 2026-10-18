@@ -200,7 +200,13 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 
 func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
 	t.Parallel()
-	s, _, _, attemptID := seedWorkerAtExecution(t, "workpin-attempt")
+	s := openTemp(t)
+	attemptID := "attempt:workpin-attempt"
+	authorizeWorkerFixtureDispatch(t, s, "workpin-attempt", attemptID)
+	seedWorkflowLaw(t, s)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("workpin-attempt", attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
+		t.Fatal(err)
+	}
 
 	pin, err := ReadWorkPin(context.Background(), s, "workpin-attempt")
 	if err != nil {

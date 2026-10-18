@@ -31,23 +31,16 @@ func reviewLaneVerdictCompleteEvent(workID, eventID, attemptID string, lane Lane
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: 3, Payload: mustJSONValue(payload)}
 }
 
-// reviewGateRunAttemptWithVerdict records the lane dispatch, its
-// dispatch_worker action completion, and a completed report whose typed review
-// block carries the named verdict.
-func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID string, epoch int64, lane LaneDefinition, ownerRef, verdict string, at int64) {
+// reviewGateRunAttemptWithVerdict records the attempt's dispatch_worker
+// authorization, worker.dispatched evidence, and a completed report whose
+// typed review block carries the named verdict; it returns the attempt's
+// recorded authorization epoch, which later accepts and rejects must name.
+func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, ownerRef, verdict string, at int64) int64 {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "review-verdict-dispatch-action-" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef,
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "refine", ownerRef)
+	// The authorization just opened the step's newest action start, so the
+	// latest start epoch is this attempt's recorded authorization epoch.
+	epoch := latestStepStartEpoch(t, s, workID, "refine")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "review-verdict-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
@@ -60,6 +53,7 @@ func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID s
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	return epoch
 }
 
 // TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances reproduces
@@ -87,7 +81,7 @@ func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 
 	// A fresh review of the repaired result completes with a no_ship verdict.
 	noShipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 	at += 2
 
 	// The delivery exits stay hidden while the refused result stands ready,
@@ -114,7 +108,7 @@ func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 	// The accepted disposition of the no_ship review is the non-delivery
 	// accept: it binds the findings, settles nothing, and keeps the
 	// refinement step current — the advance waits for a settling review.
-	if err := reviewGateAcceptResult(t, s, workID, noShipReview, refineEpoch, acceptor); err != nil {
+	if err := reviewGateAcceptResult(t, s, workID, noShipReview, noShipEpoch, acceptor); err != nil {
 		t.Fatalf("non-delivery accept of the no_ship review = %v, want the accepted findings-binding disposition", err)
 	}
 	reviewGateRequireStep(t, s, workID, "refine")
@@ -176,9 +170,9 @@ func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 	// the repaired result completes with a ship verdict, and its settling
 	// acceptance carries the advance the no_ship acceptance withheld.
 	shipReview := "attempt:" + workID + ":review-3"
-	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	shipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, reviewGateLane(t, "review"), ownerRef, "ship", at)
 	at += 2
-	if err := acceptRefineResult(t, s, workID, shipReview, refineEpoch, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, shipReview, shipEpoch, acceptor); err != nil {
 		t.Fatalf("settling accept behind the accepted no_ship review: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
@@ -201,12 +195,12 @@ func TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := int64(100)
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 
 	// A fresh review completes with a no_ship verdict: the debt stays
 	// outstanding and no settling review stands ready.
 	noShipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 
 	// The read-only preflight refuses the delivery exit with the typed
 	// fresh-review refusal, the same answer the execution fold applies. The
@@ -260,7 +254,7 @@ func TestReadyReviewAcceptCannotRideAnUnrelatedRefusal(t *testing.T) {
 	}
 
 	shipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, reviewGateLane(t, "review"), ownerRef, "ship", at)
 
 	// The settling review's combined accept — the shape the review gate
 	// admits when the fresh-review refusal is the only refusal — refuses on
@@ -295,15 +289,15 @@ func TestReleasedPinKeepsNoShipAcceptRefineCurrent(t *testing.T) {
 	acceptor := reviewGateAcceptor(workID)
 	at := int64(100)
 
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 
 	// A fresh review completes with a no_ship verdict, and the coordinator
 	// accepts it: the acceptance binds the findings and settles nothing
 	// (CD-0201 D3). The refinement step stays current on the released pin.
 	noShipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 	at += 2
-	if err := reviewGateAcceptResult(t, s, workID, noShipReview, refineEpoch, acceptor); err != nil {
+	if err := reviewGateAcceptResult(t, s, workID, noShipReview, noShipEpoch, acceptor); err != nil {
 		t.Fatalf("accept of the no_ship review at the released refine = %v, want the accepted-no_ship history", err)
 	}
 	reviewGateRequireStep(t, s, workID, "refine")
@@ -340,9 +334,9 @@ func TestReleasedPinKeepsNoShipAcceptRefineCurrent(t *testing.T) {
 	// The settling review resolves the wait the acceptance opened: its plain
 	// accepted advance carries the released pin onto the delivery step.
 	shipReview := "attempt:" + workID + ":review-3"
-	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	shipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, reviewGateLane(t, "review"), ownerRef, "ship", at)
 	at += 2
-	if err := acceptRefineResult(t, s, workID, shipReview, refineEpoch, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, shipReview, shipEpoch, acceptor); err != nil {
 		t.Fatalf("settling accept on the released pin: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
@@ -370,13 +364,13 @@ func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
 	}
 	at := int64(100)
 
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewGateDriveRejection(t, fixture, workID, &at)
 
 	// A fresh review completes with a no_ship verdict, and the pre-correction
 	// history records its acceptance as the advancing accept: appended here
 	// as the completion that code wrote, with no recorded hold field.
 	noShipReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	noShipEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 	at += 2
 	acceptorRef, acceptorRefErr := WorkflowActorRef(reviewGateAcceptor(workID))
 	if acceptorRefErr != nil {
@@ -388,7 +382,7 @@ func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
 		Actor: acceptorRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
 		Payload: mustJSONValue(map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": "refine", "action_id": "accept_worker_result", "attempt_epoch": refineEpoch, "worker_attempt_id": noShipReview,
+			"step_id": "refine", "action_id": "accept_worker_result", "attempt_epoch": noShipEpoch, "worker_attempt_id": noShipReview,
 			"actor_ref": acceptorRef,
 		}),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

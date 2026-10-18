@@ -103,11 +103,11 @@ func TestWorkerCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T
 	ctx := context.Background()
 	s, workerRef := seedDispatchedWorkerAtExecution(t, "authority-step-transition")
 	completed := workflowEventWithActor("authority-step-transition-completed", WorkflowActionCompleted, "authority-step-transition", workerRef, map[string]any{
-		"work_id": "authority-step-transition", "expected_version": 9, "resulting_version": 10,
+		"work_id": "authority-step-transition", "expected_version": 11, "resulting_version": 12,
 		"step_id": "execution", "action_id": "record_proposal", "attempt_epoch": 1,
 		"result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": workerRef,
 	})
-	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-step-transition"): 9}})
+	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-step-transition"): 11}})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
 		t.Fatalf("worker step transition failure = %v, want %s", err, KindIllegalLifecycleTransition)
@@ -115,7 +115,7 @@ func TestWorkerCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T
 	if got := currentStep(t, s, "authority-step-transition"); got != "execution" {
 		t.Fatalf("rejected worker completion advanced step to %q", got)
 	}
-	if got := readWorkVersion(t, s, "authority-step-transition"); got != 9 {
+	if got := readWorkVersion(t, s, "authority-step-transition"); got != 11 {
 		t.Fatalf("rejected worker completion advanced version to %d", got)
 	}
 }
@@ -149,6 +149,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
@@ -171,7 +172,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 10, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		WorkID: workID, ExpectedVersion: 12, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
@@ -235,6 +236,7 @@ func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, WorkflowActor
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{operatorEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
@@ -249,7 +251,7 @@ func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, WorkflowActor
 		t.Fatal(err)
 	}
 	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 12, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		WorkID: workID, ExpectedVersion: 14, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
@@ -505,17 +507,17 @@ func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 	ctx := context.Background()
 	s, workerRef := seedDispatchedWorkerAtExecution(t, "authority-self-verdict")
 	verdict := workflowEventWithActor("authority-self-verdict-recorded", WorkflowVerdictRecorded, "authority-self-verdict", workerRef, map[string]any{
-		"work_id": "authority-self-verdict", "expected_version": 9, "resulting_version": 10,
+		"work_id": "authority-self-verdict", "expected_version": 11, "resulting_version": 12,
 		"contract_version": 1, "predicate_id": "predicate:self", "verdict_kind": "ok",
 		"verdict_actor_ref": workerRef, "evaluation_evidence": []string{"evidence:self"},
 		"incomparable_with_approved": false,
 	})
-	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-self-verdict"): 9}})
+	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-self-verdict"): 11}})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
 		t.Fatalf("worker self-verdict failure = %v, want %s", err, KindUnauthorized)
 	}
-	if got := readWorkVersion(t, s, "authority-self-verdict"); got != 9 {
+	if got := readWorkVersion(t, s, "authority-self-verdict"); got != 11 {
 		t.Fatalf("rejected worker verdict advanced version to %d", got)
 	}
 }
@@ -523,20 +525,20 @@ func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 	t.Parallel()
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, "authority-start-guards")
-	currentVersion := int64(10)
+	currentVersion := int64(12)
 	wantCurrentStep := "execution"
 	beforeStarts := countWorkflowActionStarts(t, s, "authority-start-guards")
 
 	t.Run("forged actor", func(t *testing.T) {
-		start := workflowEventWithActor("forged-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "forged-start", "actor_ref": owner.ActorRef})
+		start := workflowEventWithActor("forged-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "forged-start", "actor_ref": owner.ActorRef})
 		assertRejectedActionStart(t, s, start, currentVersion, KindUnauthorized, wantCurrentStep, currentVersion, beforeStarts)
 	})
 	t.Run("future step", func(t *testing.T) {
-		start := workflowEventWithActor("future-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": "acceptance", "action_id": "record_verdict", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "future-start", "actor_ref": workerRef})
+		start := workflowEventWithActor("future-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": "acceptance", "action_id": "record_verdict", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "future-start", "actor_ref": workerRef})
 		assertRejectedActionStart(t, s, start, currentVersion, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion, beforeStarts)
 	})
 	t.Run("undeclared current-step action", func(t *testing.T) {
-		start := workflowEventWithActor("undeclared-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "record_proposal", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "undeclared-start", "actor_ref": workerRef})
+		start := workflowEventWithActor("undeclared-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "record_proposal", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "undeclared-start", "actor_ref": workerRef})
 		assertRejectedActionStart(t, s, start, currentVersion, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion, beforeStarts)
 	})
 	t.Run("duplicate epoch", func(t *testing.T) {
@@ -544,11 +546,11 @@ func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 		assertRejectedActionStart(t, s, start, currentVersion, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion, beforeStarts)
 	})
 	t.Run("jumped epoch", func(t *testing.T) {
-		start := workflowEventWithActor("jumped-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "jumped-start", "actor_ref": workerRef})
+		start := workflowEventWithActor("jumped-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 4, "accepted_inputs_digest": "sha256:" + strings.Repeat("f", 64), "idempotency_identity": "jumped-start", "actor_ref": workerRef})
 		assertRejectedActionStart(t, s, start, currentVersion, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion, beforeStarts)
 	})
 
-	exact := workflowEventWithActor("exact-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("g", 64), "idempotency_identity": "exact-retry-start", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+	exact := workflowEventWithActor("exact-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion, "resulting_version": currentVersion + 1, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("g", 64), "idempotency_identity": "exact-retry-start", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{exact}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-start-guards"): currentVersion}}); err != nil {
 		t.Fatalf("exact next retry epoch rejected: %v", err)
 	}
@@ -562,7 +564,7 @@ func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 		t.Fatalf("exact retry persisted %d action starts, want %d", got, beforeStarts+1)
 	}
 
-	stale := workflowEventWithActor("stale-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion + 1, "resulting_version": currentVersion + 2, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("h", 64), "idempotency_identity": "stale-retry-start", "actor_ref": workerRef})
+	stale := workflowEventWithActor("stale-retry-start", WorkflowActionStarted, "authority-start-guards", workerRef, map[string]any{"work_id": "authority-start-guards", "expected_version": currentVersion + 1, "resulting_version": currentVersion + 2, "step_id": wantCurrentStep, "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("h", 64), "idempotency_identity": "stale-retry-start", "actor_ref": workerRef})
 	assertRejectedActionStart(t, s, stale, currentVersion+1, KindIllegalLifecycleTransition, wantCurrentStep, currentVersion+1, beforeStarts+1)
 }
 
@@ -609,7 +611,7 @@ func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseVersion := int64(10)
+	baseVersion := int64(12)
 	baseCheckpoints := countWorkflowCheckpoints(t, s, workID)
 	checkpoint := func(id, eventActor, payloadActor, stepID, stepKind string, epoch int64) Event {
 		return workflowEventWithActor(id, WorkflowActionCheckpointed, workID, eventActor, map[string]any{
@@ -620,13 +622,13 @@ func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 			"checkpoint_id": "checkpoint:" + id, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": id,
 		})
 	}
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-forged-actor", workerRef, ownerRef, "execution", "external_effect", 1), baseVersion, KindUnauthorized, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-step", workerRef, workerRef, "acceptance", "external_effect", 1), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", workerRef, workerRef, "execution", "human_checkpoint", 1), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-epoch", workerRef, workerRef, "execution", "external_effect", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-non-executor", ownerRef, ownerRef, "execution", "external_effect", 1), baseVersion, KindUnauthorized, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-forged-actor", workerRef, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-step", workerRef, workerRef, "acceptance", "external_effect", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", workerRef, workerRef, "execution", "human_checkpoint", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-epoch", workerRef, workerRef, "execution", "external_effect", 3), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-non-executor", ownerRef, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
 
-	valid := checkpoint("checkpoint-valid", workerRef, workerRef, "execution", "external_effect", 1)
+	valid := checkpoint("checkpoint-valid", workerRef, workerRef, "execution", "external_effect", 2)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{valid}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baseVersion}}); err != nil {
 		t.Fatalf("valid executor checkpoint rejected: %v", err)
 	}
@@ -683,7 +685,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 	}
 	before := countWorkflowActionCompleted(t, s, workID)
 	completed := workflowEventWithActor("forged-completed-actor", WorkflowActionCompleted, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": 10, "resulting_version": 11,
+		"work_id": workID, "expected_version": 12, "resulting_version": 13,
 		"step_id": "execution", "action_id": "checkpoint_execution", "attempt_epoch": 1,
 		"result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": ownerRef,
 	})
@@ -691,7 +693,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}, newFoldScope(tx))
+	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}, newFoldScope(tx))
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
@@ -700,7 +702,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("forged completion changed current_step=%q", got)
 	}
-	if got := readWorkVersion(t, s, workID); got != 10 {
+	if got := readWorkVersion(t, s, workID); got != 12 {
 		t.Fatalf("forged completion changed version=%d", got)
 	}
 	if got := countWorkflowActionCompleted(t, s, workID); got != before {
@@ -716,15 +718,15 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedActionFailed(t, s, actionFailedFixture("failed-forged-actor", "authority-failed-forged-actor", workerRef, ownerRef, "execution", 1, true), KindUnauthorized)
+		assertRejectedActionFailed(t, s, actionFailedFixture("failed-forged-actor", "authority-failed-forged-actor", workerRef, ownerRef, "execution", 2, true), KindUnauthorized)
 	})
 	t.Run("wrong step", func(t *testing.T) {
 		s, workerRef, _, _ := seedWorkerAtExecution(t, "authority-failed-wrong-step")
-		assertRejectedActionFailed(t, s, actionFailedFixture("failed-wrong-step", "authority-failed-wrong-step", workerRef, workerRef, "acceptance", 1, true), KindIllegalLifecycleTransition)
+		assertRejectedActionFailed(t, s, actionFailedFixture("failed-wrong-step", "authority-failed-wrong-step", workerRef, workerRef, "acceptance", 2, true), KindIllegalLifecycleTransition)
 	})
 	t.Run("stale epoch", func(t *testing.T) {
 		s, workerRef, _, _ := seedWorkerAtExecution(t, "authority-failed-stale-epoch")
-		assertRejectedActionFailed(t, s, actionFailedFixture("failed-stale-epoch", "authority-failed-stale-epoch", workerRef, workerRef, "execution", 2, true), KindIllegalLifecycleTransition)
+		assertRejectedActionFailed(t, s, actionFailedFixture("failed-stale-epoch", "authority-failed-stale-epoch", workerRef, workerRef, "execution", 3, true), KindIllegalLifecycleTransition)
 	})
 	t.Run("non-executor actor", func(t *testing.T) {
 		s, _, owner, _ := seedWorkerAtExecution(t, "authority-failed-non-executor")
@@ -732,32 +734,32 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedActionFailed(t, s, actionFailedFixture("failed-non-executor", "authority-failed-non-executor", ownerRef, ownerRef, "execution", 1, true), KindUnauthorized)
+		assertRejectedActionFailed(t, s, actionFailedFixture("failed-non-executor", "authority-failed-non-executor", ownerRef, ownerRef, "execution", 2, true), KindUnauthorized)
 	})
 	t.Run("recoverable failure keeps workflow running", func(t *testing.T) {
 		s, workerRef, _, _ := seedWorkerAtExecution(t, "authority-failed-recoverable")
-		event := actionFailedFixture("failed-recoverable", "authority-failed-recoverable", workerRef, workerRef, "execution", 1, true)
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-failed-recoverable"): 10}}); err != nil {
+		event := actionFailedFixture("failed-recoverable", "authority-failed-recoverable", workerRef, workerRef, "execution", 2, true)
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-failed-recoverable"): 12}}); err != nil {
 			t.Fatalf("current executor recoverable failure rejected: %v", err)
 		}
 		if got := instanceState(t, s, "authority-failed-recoverable"); got != "running" {
 			t.Fatalf("recoverable failure state=%q, want running", got)
 		}
-		if got := readWorkVersion(t, s, "authority-failed-recoverable"); got != 11 {
-			t.Fatalf("recoverable failure version=%d, want 11", got)
+		if got := readWorkVersion(t, s, "authority-failed-recoverable"); got != 13 {
+			t.Fatalf("recoverable failure version=%d, want 13", got)
 		}
 	})
 	t.Run("nonrecoverable failure blocks workflow", func(t *testing.T) {
 		s, workerRef, _, _ := seedWorkerAtExecution(t, "authority-failed-blocked")
-		event := actionFailedFixture("failed-blocked", "authority-failed-blocked", workerRef, workerRef, "execution", 1, false)
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-failed-blocked"): 10}}); err != nil {
+		event := actionFailedFixture("failed-blocked", "authority-failed-blocked", workerRef, workerRef, "execution", 2, false)
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-failed-blocked"): 12}}); err != nil {
 			t.Fatalf("current executor nonrecoverable failure rejected: %v", err)
 		}
 		if got := instanceState(t, s, "authority-failed-blocked"); got != "blocked" {
 			t.Fatalf("nonrecoverable failure state=%q, want blocked", got)
 		}
-		if got := readWorkVersion(t, s, "authority-failed-blocked"); got != 11 {
-			t.Fatalf("nonrecoverable failure version=%d, want 11", got)
+		if got := readWorkVersion(t, s, "authority-failed-blocked"); got != 13 {
+			t.Fatalf("nonrecoverable failure version=%d, want 13", got)
 		}
 	})
 }
@@ -771,6 +773,13 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 // failed, and the owner's record_worker_failure disposing of it. The workflow
 // stays on execution with the lane still pinned as the executing actor.
 func seedDisposedFailedLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string) {
+	t.Helper()
+	s, owner, ownerRef, laneRef := seedFailedLaneAtExecution(t, workID)
+	applyRecordWorkerFailureForTest(t, s, workID, owner, "attempt:"+workID, 1, readWorkVersion(t, s, workID), "failure:"+workID)
+	return s, owner, ownerRef, laneRef
+}
+
+func seedFailedLaneAtExecution(t *testing.T, workID string) (*Store, WorkflowActor, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -817,7 +826,6 @@ func seedDisposedFailedLane(t *testing.T, workID string) (*Store, WorkflowActor,
 		t.Fatalf("dispatching the lane attempt: %v", err)
 	}
 	failWorkerAttempt(t, s, workID, attemptID)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 11, "failure:"+workID)
 	return s, owner, ownerRef, laneRef
 }
 
@@ -881,8 +889,8 @@ func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
 		t.Run(string(failureKind), func(t *testing.T) {
 			workID := "authority-failed-" + string(failureKind)
 			s, workerRef, _, _ := seedWorkerAtExecution(t, workID)
-			event := actionFailedFixtureWithKind("failed-"+string(failureKind), workID, workerRef, workerRef, "execution", 1, false, failureKind)
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+			event := actionFailedFixtureWithKind("failed-"+string(failureKind), workID, workerRef, workerRef, "execution", 2, false, failureKind)
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
 				t.Fatalf("current executor %s failure rejected: %v", failureKind, err)
 			}
 		})
@@ -895,7 +903,7 @@ func actionFailedFixture(eventID, workID, eventActor, payloadActor, stepID strin
 
 func actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID string, epoch int64, recoverable bool, failureKind FailureKind) Event {
 	return workflowEventWithActor(eventID, WorkflowActionFailed, workID, eventActor, map[string]any{
-		"work_id": workID, "expected_version": 10, "resulting_version": 11,
+		"work_id": workID, "expected_version": 12, "resulting_version": 13,
 		"step_id": stepID, "attempt_epoch": epoch, "failure_kind": string(failureKind), "recoverable": recoverable,
 		"actor_ref": payloadActor,
 	})
@@ -903,14 +911,14 @@ func actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, step
 
 func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind FailureKind) {
 	t.Helper()
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): 10}}); !hasFailureKind(err, wantKind) {
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): 12}}); !hasFailureKind(err, wantKind) {
 		t.Fatalf("action_failed error=%v, want %s", err, wantKind)
 	}
 	if got := instanceState(t, s, event.SubjectID); got != "running" {
 		t.Fatalf("rejected action_failed state=%q, want running", got)
 	}
-	if got := readWorkVersion(t, s, event.SubjectID); got != 10 {
-		t.Fatalf("rejected action_failed version=%d, want %d", got, 10)
+	if got := readWorkVersion(t, s, event.SubjectID); got != 12 {
+		t.Fatalf("rejected action_failed version=%d, want %d", got, 12)
 	}
 	var events int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, event.SubjectID, WorkflowActionFailed).Scan(&events); err != nil {
@@ -939,20 +947,20 @@ func TestWorkflowCompletedV2RejectsExecutorAfterIndependentVerdict(t *testing.T)
 		t.Fatal(err)
 	}
 	verdict := workflowEventWithActor("independent-verdict", WorkflowVerdictRecorded, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": 10, "resulting_version": 11, "contract_version": 1,
+		"work_id": workID, "expected_version": 12, "resulting_version": 13, "contract_version": 1,
 		"predicate_id": "predicate:authority", "verdict_kind": "ok", "verdict_actor_ref": ownerRef,
 		"evaluation_evidence": []string{"evidence:authority"}, "incomparable_with_approved": false,
 	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
 		t.Fatal(err)
 	}
 	completion := workflowEventWithActor("executor-completion", WorkflowCompleted, workID, workerRef, map[string]any{
-		"work_id": workID, "expected_version": 11, "resulting_version": 12, "terminal_state": "completed",
+		"work_id": workID, "expected_version": 13, "resulting_version": 14, "terminal_state": "completed",
 		"final_verdict_kind": "ok", "verdict_actor_ref": ownerRef, "premise_confirmed": true,
 		"evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("j", 64), "impact_verdict": "non-breaking",
 	})
 	completion.PayloadVersion = 2
-	err = applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}})
+	err = applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 13}})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
 		t.Fatalf("executor completion failure=%v, want %s", err, KindUnauthorized)
@@ -960,7 +968,7 @@ func TestWorkflowCompletedV2RejectsExecutorAfterIndependentVerdict(t *testing.T)
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("executor completion changed current_step=%q", got)
 	}
-	if got := readWorkVersion(t, s, workID); got != 11 {
+	if got := readWorkVersion(t, s, workID); got != 13 {
 		t.Fatalf("executor completion changed version=%d", got)
 	}
 	if got := instanceState(t, s, workID); got != "running" {
@@ -984,20 +992,20 @@ func TestWorkflowCompletedV2AllowsDistinctOwnerFold(t *testing.T) {
 		t.Fatal(err)
 	}
 	verdict := workflowEventWithActor("owner-verdict", WorkflowVerdictRecorded, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": 10, "resulting_version": 11, "contract_version": 1,
+		"work_id": workID, "expected_version": 12, "resulting_version": 13, "contract_version": 1,
 		"predicate_id": "predicate:authority", "verdict_kind": "ok", "verdict_actor_ref": ownerRef,
 		"evaluation_evidence": []string{"evidence:authority"}, "incomparable_with_approved": false,
 	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
 		t.Fatal(err)
 	}
 	completion := workflowEventWithActor("owner-completion", WorkflowCompleted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": 11, "resulting_version": 12, "terminal_state": "completed",
+		"work_id": workID, "expected_version": 13, "resulting_version": 14, "terminal_state": "completed",
 		"final_verdict_kind": "ok", "verdict_actor_ref": ownerRef, "premise_confirmed": true,
 		"evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("k", 64), "impact_verdict": "non-breaking",
 	})
 	completion.PayloadVersion = 2
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 13}}); err != nil {
 		t.Fatalf("distinct owner completion rejected: %v", err)
 	}
 	if got := instanceState(t, s, workID); got != "completed" {
@@ -1082,8 +1090,8 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	ctx := context.Background()
 	s, worker, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-accept")
 	request := WorkflowActionExecutionRequest{
-		WorkID: "authority-accept", ExpectedVersion: 10, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		WorkID: "authority-accept", ExpectedVersion: 12, ActionID: "accept_worker_result",
+		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-authority", OperationID: "accept-authority",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-authority", RequestID: "request:accept-authority", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
 	}
@@ -1099,14 +1107,14 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if result.ResultingVersion != 12 {
-		t.Fatalf("accept result version=%d, want 12", result.ResultingVersion)
+	if result.ResultingVersion != 14 {
+		t.Fatalf("accept result version=%d, want 14", result.ResultingVersion)
 	}
 	if got := currentStep(t, s, "authority-accept"); got != "acceptance" {
 		t.Fatalf("accepted worker result current_step=%q, want acceptance", got)
 	}
-	if got := readWorkVersion(t, s, "authority-accept"); got != 12 {
-		t.Fatalf("accepted worker result version=%d, want 12", got)
+	if got := readWorkVersion(t, s, "authority-accept"); got != 14 {
+		t.Fatalf("accepted worker result version=%d, want 14", got)
 	}
 	var executionActor string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, "authority-accept").Scan(&executionActor); err != nil {
@@ -1166,6 +1174,7 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 		t.Fatal("research lane is not registered")
 	}
 	attemptID := "attempt:" + workID
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "proposal", workerRef)
 	dispatch := Event{EventID: "internal-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	completed := Event{EventID: "internal-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
@@ -1176,7 +1185,7 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 		t.Fatal(err)
 	}
 	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: 6, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		WorkID: workID, ExpectedVersion: 8, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "internal-accept", OperationID: "internal-accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "internal-accept", RequestID: "request:internal-accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
@@ -1187,8 +1196,8 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if result.ResultingVersion != 8 {
-		t.Fatalf("accept result version=%d, want 8", result.ResultingVersion)
+	if result.ResultingVersion != 10 {
+		t.Fatalf("accept result version=%d, want 10", result.ResultingVersion)
 	}
 	// The acceptance advances proposal to its next step, the alignment step;
 	// the item still cannot reach discovery without record_alignment.
@@ -1202,8 +1211,8 @@ func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 	ctx := context.Background()
 	s, worker, _, attemptID := seedCompletedWorkerAtExecution(t, "authority-worker-accept")
 	request := WorkflowActionExecutionRequest{
-		WorkID: "authority-worker-accept", ExpectedVersion: 10, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: workflowActorForRef(t, s, worker),
+		WorkID: "authority-worker-accept", ExpectedVersion: 12, ActionID: "accept_worker_result",
+		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: workflowActorForRef(t, s, worker),
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "worker-accept-authority", OperationID: "worker-accept-authority",
 		PrincipalRef: "principal/operator", Tool: "concord_work_transition", IdempotencyKey: "worker-accept-authority", RequestID: "request:worker-accept-authority", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
 	}
@@ -1224,7 +1233,7 @@ func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 	if got := currentStep(t, s, "authority-worker-accept"); got != "execution" {
 		t.Fatalf("rejected worker acceptance advanced current_step=%q", got)
 	}
-	if got := readWorkVersion(t, s, "authority-worker-accept"); got != 10 {
+	if got := readWorkVersion(t, s, "authority-worker-accept"); got != 12 {
 		t.Fatalf("rejected worker acceptance advanced version=%d", got)
 	}
 }
@@ -1233,7 +1242,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	t.Parallel()
 	const (
 		wantStep    = "execution"
-		wantVersion = int64(10)
+		wantVersion = int64(12)
 	)
 	t.Run("missing attempt id", func(t *testing.T) {
 		s, _, owner, _ := seedWorkerAtExecution(t, "authority-missing-attempt")
@@ -1241,17 +1250,17 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	})
 	t.Run("dispatched but not completed", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-dispatched-only")
-		assertRejectedWorkerAcceptance(t, s, "authority-dispatched-only", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-dispatched-only", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
 	})
 	t.Run("failed attempt", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-failed-attempt")
 		failWorkerAttempt(t, s, "authority-failed-attempt", attemptID)
-		assertRejectedWorkerAcceptance(t, s, "authority-failed-attempt", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-failed-attempt", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
 	})
 	t.Run("foreign work attempt", func(t *testing.T) {
 		s, _, owner, _ := seedWorkerAtExecution(t, "authority-foreign-target")
-		seedWork(t, s, "authority-foreign-work")
 		attemptID := "attempt:authority-foreign-work"
+		authorizeWorkerFixtureDispatch(t, s, "authority-foreign-work", attemptID)
 		lane := BuiltinLaneDefinitions()[0]
 		dispatch := Event{EventID: "dispatch-authority-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
@@ -1261,19 +1270,19 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedWorkerAcceptance(t, s, "authority-foreign-target", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-foreign-target", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
 	})
 	t.Run("stale dispatch before newer retry start", func(t *testing.T) {
 		s, workerRef, owner, attemptID := seedWorkerAtExecution(t, "authority-stale-dispatch")
-		retryStart := workflowEventWithActor("retry-start-authority-stale-dispatch", WorkflowActionStarted, "authority-stale-dispatch", workerRef, map[string]any{"work_id": "authority-stale-dispatch", "expected_version": 10, "resulting_version": 11, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "retry:authority-stale-dispatch", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{retryStart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-stale-dispatch"): 10}}); err != nil {
+		retryStart := workflowEventWithActor("retry-start-authority-stale-dispatch", WorkflowActionStarted, "authority-stale-dispatch", workerRef, map[string]any{"work_id": "authority-stale-dispatch", "expected_version": 12, "resulting_version": 13, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "retry:authority-stale-dispatch", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{retryStart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-stale-dispatch"): 12}}); err != nil {
 			t.Fatal(err)
 		}
-		assertRejectedWorkerAcceptance(t, s, "authority-stale-dispatch", owner, 11, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, 11)
+		assertRejectedWorkerAcceptance(t, s, "authority-stale-dispatch", owner, 13, map[string]any{"attempt_id": attemptID, "attempt_epoch": 3}, KindIllegalLifecycleTransition, 13)
 	})
 	t.Run("wrong attempt epoch", func(t *testing.T) {
 		s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-wrong-epoch")
-		assertRejectedWorkerAcceptance(t, s, "authority-wrong-epoch", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantVersion)
+		assertRejectedWorkerAcceptance(t, s, "authority-wrong-epoch", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantVersion)
 	})
 	t.Run("divergent readback still completes the attempt", func(t *testing.T) {
 		// CD-0058: a completion whose readback differs from the dispatch
@@ -1463,6 +1472,7 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", workerRef)
 	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
@@ -1500,6 +1510,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, "dispatch-"+workID, "execution", workerRef)
 	dispatch := Event{
 		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
@@ -1608,8 +1619,8 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 	ctx := context.Background()
 	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-bind")
 	request := WorkflowActionExecutionRequest{
-		WorkID: "authority-bind", ExpectedVersion: 10, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		WorkID: "authority-bind", ExpectedVersion: 12, ActionID: "accept_worker_result",
+		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-bind", OperationID: "accept-bind",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-bind", RequestID: "request:accept-bind", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
 	}
@@ -1830,7 +1841,8 @@ func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	}
 
 	// Inverse: a current 2.0/2.0 attempt refuses a completion that claims 1.0.
-	s2, _ := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
+	s2, pairWorkerRef := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
+	recordWorkerFixtureDispatchAuthorization(t, s2, "mixed-pair-current", "dispatch-mixed-pair-current-2", "execution", pairWorkerRef)
 	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{currentDispatch}}); err != nil {
 		t.Fatalf("current-pair dispatch refused: %v", err)

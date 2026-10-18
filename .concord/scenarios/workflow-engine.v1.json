@@ -20028,6 +20028,132 @@
             }
           },
           {
+            "event_id": "wf48-lane-pipeline-authorize-research-start",
+            "kind": "workflow.action_started",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 10,
+              "resulting_version": 11,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 2,
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "idempotency_identity": "wf48-lane-pipeline-research",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
+            "event_id": "wf48-lane-pipeline-authorize-research-completed",
+            "kind": "workflow.action_completed",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 11,
+              "resulting_version": 12,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 2,
+              "worker_attempt_id": "attempt:wf48-lane-pipeline-research",
+              "worker_packet_predicate_ids": [],
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
+            "event_id": "wf48-lane-pipeline-authorize-review-start",
+            "kind": "workflow.action_started",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 12,
+              "resulting_version": 13,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 3,
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "idempotency_identity": "wf48-lane-pipeline-review",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
+            "event_id": "wf48-lane-pipeline-authorize-review-completed",
+            "kind": "workflow.action_completed",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 13,
+              "resulting_version": 14,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 3,
+              "worker_attempt_id": "attempt:wf48-lane-pipeline-review",
+              "worker_packet_predicate_ids": [],
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
+            "event_id": "wf48-lane-pipeline-authorize-implement-start",
+            "kind": "workflow.action_started",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 14,
+              "resulting_version": 15,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 4,
+              "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "idempotency_identity": "wf48-lane-pipeline-implement",
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
+            "event_id": "wf48-lane-pipeline-authorize-implement-completed",
+            "kind": "workflow.action_completed",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_id": "work-alpha",
+              "expected_version": 15,
+              "resulting_version": 16,
+              "step_id": "execution",
+              "action_id": "dispatch_worker",
+              "attempt_epoch": 4,
+              "worker_attempt_id": "attempt:wf48-lane-pipeline-implement",
+              "worker_packet_predicate_ids": [],
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-alpha"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"
+            }
+          },
+          {
             "event_id": "wf48-lane-pipeline-dispatch-research",
             "kind": "worker.dispatched",
             "work_id": "work-alpha",
@@ -20143,7 +20269,7 @@
           }
         ],
         "projection": {
-          "version": 10,
+          "version": 16,
           "state": "running",
           "current_step": "execution",
           "lifecycle": "planned"
@@ -20157,12 +20283,12 @@
           "version": 2,
           "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
         },
-        "expected_version": 10,
+        "expected_version": 16,
         "action_id": "accept_worker_result",
         "fields": {
           "payload": {
             "attempt_id": "attempt:wf48-lane-pipeline-implement",
-            "attempt_epoch": 1
+            "attempt_epoch": 4
           }
         },
         "idempotency": {
@@ -20185,7 +20311,7 @@
         },
         "operation": {
           "op_id": "wf48-lane-pipeline-operation",
-          "attempt_epoch": 1,
+          "attempt_epoch": 4,
           "step_id": "execution",
           "step_kind": "external_effect",
           "state": "pending"

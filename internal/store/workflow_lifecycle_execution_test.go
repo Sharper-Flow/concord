@@ -163,7 +163,10 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+	// seedDispatchedWorkerAtExecution records the execution start at epoch 1
+	// and its dispatch authorization start at epoch 2, so this restart start
+	// is the third start the step has recorded.
+	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
 	restart.OccurredAt = restart.OccurredAt.Add(-time.Hour)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{restart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)

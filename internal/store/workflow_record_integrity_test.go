@@ -71,6 +71,7 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
+	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
@@ -94,8 +95,8 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	// workflow actor before the read transaction opens, so the single
 	// connection is free for the store-level operation.
 	outside := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/outsider", "session/record-authorship-outsider")
-	recordOutsider := workflowEvent("rot-outsider-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "actor_ref": outside, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/outsider", "session_ref": "session/record-authorship-outsider", "actor_class": "agent"})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{recordOutsider}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
+	recordOutsider := workflowEvent("rot-outsider-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 12, "resulting_version": 13, "actor_ref": outside, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/outsider", "session_ref": "session/record-authorship-outsider", "actor_class": "agent"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{recordOutsider}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
 		t.Fatal(err)
 	}
 

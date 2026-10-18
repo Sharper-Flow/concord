@@ -342,7 +342,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     await fakeHost(() => {
       throw new Error("no host call may run before the core answers")
     }, () => ({ status: 200, body: { directory: "/worktree" } }), {
-      async run(argv: string[], input: string) {
+      async run(argv: string[], _input: string) {
         if (argv[1] === "project-resolve") {
           return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "sv-1", main_worktree: false, product_ids: ["product-1"] }) + "\n", stderr: "" }
         }

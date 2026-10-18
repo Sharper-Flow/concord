@@ -162,7 +162,7 @@ const context = { sessionID: SESSION, agent: "concord-operator", abort: new Abor
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
-async function startWatch(fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
+async function startWatch(_fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
   const started = await concord_ci_watch.execute(args, context)
   return result(started)
 }

@@ -283,7 +283,6 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
 // parameters so the subject commit stays the fixture's real HEAD. It returns
 // the dispatch-ready work version and the actual preparation reference.
 async function driveToReadyJob(
-  dbPath: string,
   workID: string,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
   context: any,
@@ -331,7 +330,6 @@ async function driveToReadyJob(
     expected_result: "pass",
     required_evidence_role: "reported",
   }
-  const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
   const transition = (expected: number, actionID: string, idempotencyKey: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: expected, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   // CD-0198 D2: one typed record_diagnosis carries the reproduction,
   // alignment-search, and root-cause sections the route case records.
@@ -463,7 +461,6 @@ async function dispatchNativeTask(
   callID: string,
   context: any,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
-  runner: DispatchRunner,
   setReadback: (packet: JSONRecord, agent: string) => void,
 ): Promise<NativeTaskDispatch> {
   const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: expectedVersion, action_id: "dispatch_worker", idempotency_key: idempotencyKey, fields: { lane_id: lane.id } } })
@@ -546,7 +543,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
     const transition = (actionID: string, idempotencyKey: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
-    const { dispatchVersion, preparationRef, control } = await driveToReadyJob(dbPath, workID, invoke, context, subjectCommit, bashPin)
+    const { dispatchVersion, preparationRef, control } = await driveToReadyJob(workID, invoke, context, subjectCommit, bashPin)
     // The core's work-context projection carries the real selected
     // preparation: the store joined the ready job's readiness reference to its
     // retained receipt before the adapter ever reads it.
@@ -571,7 +568,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     // readiness authorization, persisted dispatch, and the single-use window.
     // The worker child keeps the route's default "worker-session" identity,
     // the same identity the readback mock serves.
-    const task = await dispatchNativeTask(lane, workID, worktree, dispatchVersion, "native-e2e-dispatch", "native-e2e-task-call", context, invoke, runner, (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
+    const task = await dispatchNativeTask(lane, workID, worktree, dispatchVersion, "native-e2e-dispatch", "native-e2e-task-call", context, invoke, (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
     const packet = task.packet
     expect(packet.work_id).toBe(workID)
     expect(packet.step_id).toBe("repair")

@@ -1,7 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
-import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
@@ -671,7 +670,7 @@ test("single core response rejects invalid trailing content", async () => {
 const foreignDigest = (envelope: Record<string, unknown>) => ({ ...envelope, manifest_digest: "sha256:" + "0".repeat(63) + "1" })
 
 test("a read answered by a newer core contract is typed as version skew", async () => {
-  const result: any = await runProduct(runnerWithContext((argv: string[]) => foreignDigest(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } }))))
+  const result: any = await runProduct(runnerWithContext((_argv: string[]) => foreignDigest(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } }))))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("transport_failure")
   expect(result.error.adapter_reason).toBe("manifest_mismatch")
@@ -1918,7 +1917,7 @@ test("approval rejection and possible-effect conflict are valid adapter envelope
   expect(rejected.error.effect_state).toBe("none")
 
   let calls = 0
-  const conflicted: any = await runTransition({ async run(argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
+  const conflicted: any = await runTransition({ async run(_argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
   assertAdapterEnvelope(conflicted)
   expect(conflicted.error.kind).toBe("operation_conflict")
   expect(conflicted.error.adapter_reason).toBe("unknown_effect")
@@ -2742,7 +2741,7 @@ test("work start resume keeps an ordinary work-resume failure retryable", async 
 // typed refusal exit must classify the same way, not collapse into the retry
 // route a stale-environment read failure keeps.
 test("work start resume classifies the post-landing handoff re-read refusal exit", async () => {
-  const { moved } = bindRetargetRoute()
+  bindRetargetRoute()
   const calls: RetargetCall[] = []
   let resumeReads = 0
   adapter.configureConcordAdapter({ runner: {
@@ -2776,7 +2775,7 @@ test("work start resume keeps a retryable post-landing re-read failure on the re
   bindRetargetRoute()
   let resumeReads = 0
   adapter.configureConcordAdapter({ runner: {
-    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+    async run(argv: string[], _input: string, _signal: AbortSignal, _options?: any) {
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") {

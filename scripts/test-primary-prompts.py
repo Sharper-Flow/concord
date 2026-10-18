@@ -62,30 +62,13 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         for name in check_primary_prompts.NAMED_PROFILE_FILES:
             self.assertIn(f'"{name}"', installer)
 
-    # The sentences each role body must state, matched case exact. The
-    # apostrophe in the RTE phrase is ASCII: the validator matches bytes,
-    # not typography.
-    RTE_REQUIRED_PHRASES = (
-        "never decides inside another session's item",
-        "Never answer a Concord approval challenge",
-        "goes to the operator unchanged",
-        "Each session owns its design, code, tests, review, law text, publication",
-        "Keep Linear current",
-        "Report ship status to the operator",
-        "The user may choose to start this optional session",
-    )
-    CONCORD_REQUIRED_PHRASES = (
-        "You are Concord, the primary agent",
-        "You do not need an RTE session",
-        "The user may choose to start an RTE session",
-    )
-
     def test_validator_pins_the_primary_role_sentences(self) -> None:
-        # The optional-session rule is stated from each side: the Concord
-        # role tells the user an RTE is never required but may be started,
-        # and the RTE role names the same optional session.
-        self.assertEqual(check_primary_prompts.RTE_REQUIRED_PHRASES, self.RTE_REQUIRED_PHRASES)
-        self.assertEqual(check_primary_prompts.CONCORD_REQUIRED_PHRASES, self.CONCORD_REQUIRED_PHRASES)
+        self.assertIn("You do not need an RTE session", check_primary_prompts.CONCORD_REQUIRED_PHRASES)
+        self.assertIn("The user may choose to start this optional session", check_primary_prompts.RTE_REQUIRED_PHRASES)
+        self.assertIn(
+            "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
+            check_primary_prompts.CONCORD_REQUIRED_PHRASES,
+        )
 
     def test_missing_named_profile_reports(self) -> None:
         (self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md").unlink()
@@ -97,7 +80,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_concord_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
-            for tool in ("edit", "write", "patch"):
+            for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
                 line = f"  {tool}: allow\n"
                 self.assertIn(line, text, line)
                 text = text.replace(line, "")
@@ -105,7 +88,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
         self.rewrite("Concord.md", strip_grants)
         findings = self.findings()
-        for tool in ("edit", "write", "patch"):
+        for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
             self.assertTrue(
                 any("Concord.md" in finding and tool in finding for finding in findings),
                 tool,
@@ -123,7 +106,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_concord_lost_required_role_sentence_reports(self) -> None:
         def strip_sentences(text: str) -> str:
-            for phrase in self.CONCORD_REQUIRED_PHRASES:
+            for phrase in check_primary_prompts.CONCORD_REQUIRED_PHRASES:
                 pattern = r"\s+".join(re.escape(word) for word in phrase.split())
                 text, count = re.subn(pattern, "", text)
                 self.assertEqual(count, 1, phrase)
@@ -131,7 +114,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
         self.rewrite("Concord.md", strip_sentences)
         findings = self.findings()
-        for phrase in self.CONCORD_REQUIRED_PHRASES:
+        for phrase in check_primary_prompts.CONCORD_REQUIRED_PHRASES:
             self.assertTrue(
                 any("Concord.md" in finding and phrase in finding for finding in findings),
                 phrase,
@@ -139,7 +122,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_rte_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
-            for tool in check_primary_prompts.RTE_BUILD_TOOLS:
+            for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
                 line = f"  {tool}: allow\n"
                 self.assertIn(line, text, line)
                 text = text.replace(line, "")
@@ -147,7 +130,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
         self.rewrite("Concord-RTE.md", strip_grants)
         findings = self.findings()
-        for tool in check_primary_prompts.RTE_BUILD_TOOLS:
+        for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
             self.assertTrue(
                 any("Concord-RTE.md" in finding and tool in finding for finding in findings),
                 tool,

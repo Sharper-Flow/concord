@@ -1172,9 +1172,10 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         # The primary agent owns the item end to end. The duty list stays in
         # the role source, not in a lane packet or a host overlay.
         source = (ROOT / ".concord/roles/concord.md").read_text(encoding="utf-8")
-        for duty in ("design", "code", "tests", "review", "law text", "publication"):
-            self.assertIn(duty, source)
-        self.assertIn("primary agent", source)
+        self.assertIn(
+            "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item.",
+            " ".join(source.split()),
+        )
 
 
 if __name__ == "__main__":

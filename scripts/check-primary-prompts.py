@@ -44,7 +44,7 @@ NAMED_PROFILE_FILES = (
     "Concord-RTE.md",
     "Concord.md",
 )
-RTE_BUILD_TOOLS = ("edit", "write", "patch")
+PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
     "never decides inside another session's item",
     "Never answer a Concord approval challenge",
@@ -58,6 +58,7 @@ CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",
     "You do not need an RTE session",
     "The user may choose to start an RTE session",
+    "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
 )
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
@@ -220,7 +221,7 @@ def check_named_profiles(root: Path) -> list[str]:
         )
         findings.extend(
             f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
-            for tool in RTE_BUILD_TOOLS
+            for tool in PRIMARY_BUILD_TOOLS
             if f"\n  {tool}: allow" not in "\n" + frontmatter
         )
         for permission in ("bash", "task"):

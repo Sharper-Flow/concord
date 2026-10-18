@@ -23,8 +23,8 @@ REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
 PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
-# The closed named primary set (CD-0154): one release train engineer and one
-# repository-local operator. Primaries are never lanes or utilities.
+# The closed named primary set (CD-0154): Concord and an optional release train
+# engineer. Primaries are never lanes or utilities.
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 AGENT_DIR = ROOT / ".opencode/agents"

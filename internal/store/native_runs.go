@@ -113,10 +113,10 @@ type legacyNativeRunUniverse struct {
 	Total                string   `json:"total"`
 }
 
-// legacyNativeRunPayload reflects the released writer's payload. Strict
-// decoding refuses every member the current writer added, so a recorded
-// report cannot acquire a fabricated observation identity or a relabeled
-// policy reference by replaying.
+// legacyNativeRunPayload reflects the version-1 payload. Strict decoding
+// refuses every member version 2 added, so a recorded report cannot acquire a
+// fabricated observation identity or a relabeled policy reference by
+// replaying.
 type legacyNativeRunPayload struct {
 	WorkID                string                  `json:"work_id"`
 	RunID                 string                  `json:"run_id"`
@@ -140,8 +140,8 @@ type legacyNativeRunPayload struct {
 // validateLegacyNativeRunPayload strictly decodes and validates one recorded
 // native-run report against the released shape: unknown members, wrong types,
 // and trailing data refuse. The recorded-event preparation route calls it for
-// events it recognized as this shape; validateNativeRunPayload above stays
-// the only validator a live write can reach.
+// events it recognized as this shape; every other report is validated by
+// validateNativeRunPayload above.
 func validateLegacyNativeRunPayload(event Event) error {
 	var payload legacyNativeRunPayload
 	if err := decodeRegisteredPayload(event, &payload); err != nil {
@@ -242,9 +242,8 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	// A report the released writer recorded folds through its own shape. Only
-	// the recorded-event preparation route tags this shape, so every live
-	// write keeps the current fold below.
+	// A version-1 report folds through its own shape. Only the recorded-event
+	// preparation route tags this shape; every version-2 report folds below.
 	if event.recordedPayloadShape == recordedShapeLegacyNativeRun {
 		return foldLegacyNativeRunRecorded(ctx, tx, event)
 	}

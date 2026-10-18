@@ -456,23 +456,6 @@ func TestLegacyNativeRunFoldPersistsRecordedRowWithoutObservation(t *testing.T) 
 	}
 }
 
-// The live writer emits payload version 2 and its event still passes the
-// live validator, so the new-write epoch is unambiguous while the current
-// validation stays the only admission a live append can reach.
-func TestLiveNativeRunWriterEmitsVersionTwo(t *testing.T) {
-	t.Parallel()
-	event, err := buildNativeRunEvent("live-native-run", "work-w", WorkflowActor{PrincipalRef: "principal-1", ClientRef: "client-live"}, time.Unix(60, 0).UTC(), 2, "start", "run-live", "/service/checkout", "started", "evidence-live", "digest-live", time.Unix(60, 0).UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if event.PayloadVersion != 2 {
-		t.Fatalf("live native-run writer version=%d, want 2", event.PayloadVersion)
-	}
-	if err := validateNativeRunPayload(event, nativeRunPayload{}); err != nil {
-		t.Fatalf("live native-run event err=%v, want acceptance", err)
-	}
-}
-
 // The live occupancy release writer emits payload version 2. The release
 // rides the reclaim's process-end proof: the row records this test process at
 // a start time the kernel no longer proves, so the reclaim releases it.

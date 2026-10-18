@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
-import { clientRef, type CredentialStore } from "./credentials"
+import { createHash, sign as signBytes } from "node:crypto"
+import { b64, clientRef, privateKeyObject, randomNonce, SecretToolCredentialStore, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
@@ -21,6 +21,9 @@ import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-bound
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
+import type { WorkerReadingRequest } from "./worker_source"
+import type { WorkerDiffRequest } from "./worker_diff"
+import { canonicalWorkerControl, type WorkerCheckContext, type WorkerControlRequest } from "./worker_control"
 
 type ToolContext = {
   sessionID: string
@@ -609,6 +612,55 @@ function singleJSON(text: string): any {
   return parsed
 }
 
+export async function readBoundWorkerSource(request: WorkerReadingRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  return readBoundWorkerPage("worker-read", request, signal, directory)
+}
+
+export async function readBoundWorkerDiff(request: WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  return readBoundWorkerPage("worker-diff", request, signal, directory)
+}
+
+async function readBoundWorkerPage(verb: "worker-read" | "worker-diff", request: WorkerReadingRequest | WorkerDiffRequest, signal: AbortSignal, directory: string): Promise<unknown> {
+  const leaseFault = hostLeaseFault()
+  if (leaseFault) throw new Error(`${leaseFault}; no source read ran`)
+  const result = await runner.run([concordBinaryPath(), verb], JSON.stringify(request), signal, { cwd: directory })
+  if (result.exitCode !== 0) throw new Error(result.stderr.slice(-MAX_STDERR).trim() || "the core refused the pinned source read")
+  if (Buffer.byteLength(result.stdout) > 16_384) throw new Error("pinned source page exceeded its transport bound")
+  return singleJSON(result.stdout)
+}
+
+export async function executeBoundWorkerControl(request: WorkerControlRequest, context: WorkerCheckContext, packetDigest: string, directory: string): Promise<unknown> {
+  const leaseFault = hostLeaseFault()
+  if (leaseFault) throw new Error(`${leaseFault}; no control execution ran`)
+  context.abort.throwIfAborted()
+  const ambient = await resolveAmbientContext(context, directory)
+  const productID = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
+  if (!productID || ambient.projectID !== request.project_id) throw new Error("recorded control requires the authorized Project and an unambiguous selected Product")
+  const client = clientRef()
+  const key = privateKeyObject(await (credentialsOverride ?? new SecretToolCredentialStore()).getPrivateKey(client))
+  context.abort.throwIfAborted()
+  const leaseID = crypto.randomUUID()
+  const assertion = {
+    client_ref: client, agent_ref: context.agent, session_ref: context.sessionID,
+    directory: context.directory, worktree: directory, manifest_digest: activeManifestDigest(),
+    work_id: request.work_id, product_id: productID, project_id: request.project_id,
+    attempt_id: request.attempt_id, packet_digest: packetDigest, worktree_identity: request.worktree_identity,
+    control_id: request.control_id, lease_id: leaseID, request_id: `${context.sessionID}-${context.messageID}`,
+    issued_at: new Date().toISOString(), nonce: randomNonce(),
+  }
+  const signed = { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerControl(assertion)), key)) }
+  // This route never retries a possibly executed workload or relabels a native
+  // failure as no effect. The lease identifies the existing producer's record.
+  const result = await runner.run([concordBinaryPath(), "worker-control"], JSON.stringify({ ...request, assertion: signed }), context.abort, { cwd: directory })
+  if (result.exitCode !== 0) throw new Error(`${result.stderr.slice(-MAX_STDERR).trim() || "native control ingress refused"}; reconcile native lease ${leaseID}`)
+  if (Buffer.byteLength(result.stdout) > maxEnvelopeBytes) throw new Error(`native control response exceeded its transport bound; reconcile native lease ${leaseID}`)
+  const response = singleJSON(result.stdout)
+  if (response.work_id !== request.work_id || response.project_id !== request.project_id || response.lease_id !== leaseID || !record(response.oracle) || response.oracle.phase !== "execute" || response.oracle.attempt_id !== request.attempt_id || response.oracle.control_id !== request.control_id || response.oracle.worker_packet_digest !== packetDigest) {
+    throw new Error(`native control response differs from its bound request; reconcile native lease ${leaseID}`)
+  }
+  return response
+}
+
 function saneWorkID(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
 }
@@ -723,7 +775,7 @@ function selectedProductID() {
 
 type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: string; mainWorktree: boolean }
 
-async function resolveAmbientContext(context: ToolContext, sessionDirectory: string): Promise<AmbientContext> {
+async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessionDirectory: string): Promise<AmbientContext> {
   let result
   try {
     result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: sessionDirectory, worktree: sessionDirectory }), context.abort)

@@ -1723,20 +1723,21 @@ func aggregateRecordPathPrefix(data []byte) string {
 }
 
 func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
-	return verifyManifestRecordRunner(ctx, runGitRunner{}, repo, commit, record, role)
+	_, err := verifyManifestRecordRunner(ctx, runGitRunner{}, repo, commit, record, role)
+	return err
 }
 
 // verifyManifestRecordRunner verifies one projected manifest record through
 // the caller's runner: the committed manifest declares the record, the
 // projection agrees with the declaration, and the declared blob's bytes hash
-// to the recorded revision.
-func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
+// to the recorded revision. Only verified bytes leave this owner.
+func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) ([]byte, error) {
 	manifest, missing, err := readKnowledgeManifestRunner(ctx, runner, repo, commit, role)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if missing {
-		return newFailure(KindKnowledgeMissing, "verify_manifest_record", "recorded manifest is missing", false, "restore the manifest at the recorded commit")
+		return nil, newFailure(KindKnowledgeMissing, "verify_manifest_record", "recorded manifest is missing", false, "restore the manifest at the recorded commit")
 	}
 	var declared *KnowledgeRecord
 	for i := range manifest.Records {
@@ -1746,24 +1747,24 @@ func verifyManifestRecordRunner(ctx context.Context, runner GitRunner, repo, com
 		}
 	}
 	if declared == nil {
-		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection has no manifest declaration", false, "rebuild from the manifest commit and preserve its metadata")
+		return nil, newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection has no manifest declaration", false, "rebuild from the manifest commit and preserve its metadata")
 	}
 	if differences := knowledgeProjectionDifferences(*declared, record); len(differences) > 0 {
-		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection differs from manifest fields: "+strings.Join(differences, ", "), false, "rebuild from the manifest commit and preserve its metadata")
+		return nil, newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection differs from manifest fields: "+strings.Join(differences, ", "), false, "rebuild from the manifest commit and preserve its metadata")
 	}
 	entry, err := gitTreeEntryRunner(ctx, runner, repo, commit, record.Path)
 	if err != nil || entry.kind != "blob" || entry.mode != "100644" {
-		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "manifest record blob is missing or not regular", false, "restore the referenced regular markdown blob")
+		return nil, newFailure(KindInvalidNoteProof, "verify_manifest_record", "manifest record blob is missing or not regular", false, "restore the referenced regular markdown blob")
 	}
 	content, err := runner.Run(ctx, repo, "cat-file", "blob", commit+":"+record.Path)
 	if err != nil {
-		return wrapFailure(KindInvalidNoteProof, "verify_manifest_record", "cannot read the referenced manifest blob", true, "restore the git object and retry", err)
+		return nil, wrapFailure(KindInvalidNoteProof, "verify_manifest_record", "cannot read the referenced manifest blob", true, "restore the git object and retry", err)
 	}
 	sum := sha256.Sum256(content)
 	if got := "sha256:" + hex.EncodeToString(sum[:]); got != record.SHA256 {
-		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "manifest record hash does not match blob bytes", false, "recompute the authored sha256 proof")
+		return nil, newFailure(KindInvalidNoteProof, "verify_manifest_record", "manifest record hash does not match blob bytes", false, "recompute the authored sha256 proof")
 	}
-	return nil
+	return content, nil
 }
 
 // knowledgeProjectionDifferences compares the manifest fields that Q10 stores

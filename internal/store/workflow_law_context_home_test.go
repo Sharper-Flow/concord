@@ -3,7 +3,7 @@ package store
 // The workflow law context must resolve its file locators against the
 // Product's registered knowledge home, not against the repository a lane
 // happens to be dispatched into. A lane holds no Concord tool access
-// (CD-0196), so every locator it receives must open as a regular file in the
+// (CD-0223), so every locator it receives must open as a regular file in the
 // knowledge home's checkout, under a shard layout that checkout actually
 // carries (CD-0194 D5), and a required source that no longer resolves must
 // refuse typed instead of advertising an unreadable locator.

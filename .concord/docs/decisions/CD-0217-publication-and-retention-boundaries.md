@@ -3,8 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
-- **Supersedes:** [CD-0066](CD-0066-pm7-retention-amendment.md)
-- **Related:** [compaction-retention-policy](../compaction-retention-policy-successor.md),
+- **Related:** [compaction-retention-policy](../compaction-retention-policy.md),
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
@@ -89,8 +88,6 @@ Historical index rebuild remains derived, not a new work-authority writer.
 Explicit research retirement adds bounded destructive intent without changing deferred work pruning.
 Compaction note proof, exact history, frozen historical scope, and deduplicated query populations remain mandatory.
 
-CD-0036 requires deployment to enumerate active CD-0066 and PM7 consumers and recover their contracts to the accepted successors, or cancel or supersede them.
-This offline law edit does not establish any live consumer count or completed recovery.
 The parent must integrate migration and replacement witnesses before deployment; no live store or activation belongs to this edit.
 
 ## Verification

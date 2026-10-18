@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// CD-0068: a Domain is a second observation anchor. The rows are durable,
+// A Domain is a second observation anchor. The rows are durable,
 // bounded, non-authoritative, and dismissed only by the operator.
 
 func domainObservationFixture(t *testing.T) *Store {
@@ -102,7 +102,7 @@ func TestDomainObservationRefusesBadShapesAndUnknownDomain(t *testing.T) {
 	}
 }
 
-// CD-0068 D2: the window refuses when full and never evicts.
+// The window refuses when full and never evicts.
 func TestDomainObservationWindowRefusesWhenFullAndNeverEvicts(t *testing.T) {
 	t.Parallel()
 	s := domainObservationFixture(t)
@@ -148,7 +148,7 @@ func TestDomainObservationWindowRefusesWhenFullAndNeverEvicts(t *testing.T) {
 	}
 }
 
-// CD-0068 D3: dismissal flips state, never deletes, and frees the window.
+// Dismissal flips state, never deletes, and frees the window.
 func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 	t.Parallel()
 	s := domainObservationFixture(t)
@@ -190,7 +190,7 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 	}
 }
 
-// CD-0068 D6: the open observations reach the operator through the existing
+// The open observations reach the operator through the existing
 // Domain detail surface, and dismissed rows do not.
 func TestDomainDetailCarriesOpenObservations(t *testing.T) {
 	t.Parallel()

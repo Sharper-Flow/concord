@@ -67,7 +67,7 @@ type WorkflowActionExecutionRequest struct {
 	ApprovalConsequence     string
 	Now                     time.Time
 	// ResearchBindings declares the pack revisions this action's work item
-	// starts relying on (CD-0025). The engine binds each consumer and proves
+	// starts relying on (CD-0216). The engine binds each consumer and proves
 	// freshness fail-closed inside this action's transaction; there is no
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.

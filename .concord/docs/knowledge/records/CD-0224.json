@@ -9,10 +9,6 @@
   "kind": "decision",
   "law_relations": [
     {
-      "kind": "supersedes",
-      "target_id": "CD-0068"
-    },
-    {
       "kind": "refines",
       "target_id": "CD-0018"
     },
@@ -65,7 +61,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:35376d45ce7fcbf760c13440da16edc9ec1f973d7cea7c96f410c1cbd183fd75",
+  "sha256": "sha256:3fe759fc5371bdbf08ebd38ae4fd4042df45f5c4062b5e995f21cccf1ba4e261",
   "status": "accepted",
   "summary": "Ten planning and browsing operations retire from the agent surface: domain active_work, observation record and dismiss, relate link, unlink, supersede, and restore_superseded, product_view portfolio, work_compact lesson_publish, and knowledge unprocessed. Relation writing keeps three scoped writers: resolve_overlap with its five kinds and per-kind approval, capture raised_from inside the work.created fold, and the workflow link_successor forward_link. Lessons publish through a reviewed pull request, the unprocessed negative is resolve_note knowledge_missing, the Domain list, detail, attachments, and overlaps reads remain with observation rows readable, and planning history stays replayable. CD-0068 is superseded; the Product-row glance contract C14 retires by deletion with its read, and no C14 statement governs a live surface.",
   "tags": [

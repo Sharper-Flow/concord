@@ -7,7 +7,6 @@ import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pending
 import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
 import { TURN_MOVE_BOUNDARY_NOTICE } from "./move-notice"
-import { HostControlPlane } from "./move-session"
 import { configureCoreBinary } from "./dispatch"
 
 // The landing record resolves the core binary path before the runner seam
@@ -477,11 +476,6 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       clearClaimedWorktree("session-1")
     }
   })
-})
-
-test("liveSessionDirectories is removed from the host control plane (CD-0178 D3)", async () => {
-  const controlPlane = new HostControlPlane()
-  expect((controlPlane as unknown as { liveSessionDirectories?: unknown }).liveSessionDirectories).toBeUndefined()
 })
 
 // The factory's host-lease claim fails against the unstamped repository

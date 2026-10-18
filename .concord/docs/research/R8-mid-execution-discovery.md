@@ -87,6 +87,5 @@ the discovering agent once it decides the finding matters.
 
 ## Provenance note
 
-R1–R7 precedent (durable design evidence feeding accepted decisions; CD-0009 D8
-as amended by #143's decision record) applies: this document is spike evidence,
+R1–R7 precedent (durable design evidence feeding accepted decisions; CD-0215 D7) applies: this document is spike evidence,
 not active research-pack content.

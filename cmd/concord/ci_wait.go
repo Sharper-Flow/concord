@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -454,12 +455,15 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		RunURL:     head.URL,
 		MergeState: head.MergeStateStatus,
 	}
-	if head.MergedAt != "" {
+	// CD-0161 D2: merge mode waits for the pull request to end, so a merged
+	// or closed one ends the wait. Checks mode waits for the watched head's
+	// checks, and a merge or close proves nothing about them.
+	if state.Mode == "merge" && head.MergedAt != "" {
 		report.Status = "merged"
 		report.Reason = "the pull request is merged"
 		return report, true, nil
 	}
-	if strings.EqualFold(head.State, "CLOSED") {
+	if state.Mode == "merge" && strings.EqualFold(head.State, "CLOSED") {
 		report.Status = "closed"
 		report.Reason = "the pull request is closed without a merge"
 		return report, true, nil
@@ -714,11 +718,30 @@ type ghRunSummary struct {
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
 	URL        string `json:"url"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// ciWaitRunListFields is the field set every `gh run list` read requests.
+const ciWaitRunListFields = "databaseId,name,status,conclusion,url,createdAt"
+
+// ciWaitSortRuns puts a commit's runs in creation order, so the
+// representative run and the failure order come from the provider's
+// metadata, never from the order gh lists them in. A run that another run
+// triggers is created after it, so the earliest run stands for the commit.
+// gh reports createdAt in RFC 3339 UTC, which orders lexically; the run ID
+// breaks a tie.
+func ciWaitSortRuns(runs []ghRunSummary) {
+	sort.SliceStable(runs, func(i, j int) bool {
+		if runs[i].CreatedAt != runs[j].CreatedAt {
+			return runs[i].CreatedAt < runs[j].CreatedAt
+		}
+		return runs[i].DatabaseID < runs[j].DatabaseID
+	})
 }
 
 func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
 	body, err := ciWaitGH(ctx, "run", "list", "--repo", state.Repo,
-		"--commit", state.Selector.Value, "--json", "databaseId,name,status,conclusion,url")
+		"--commit", state.Selector.Value, "--json", ciWaitRunListFields)
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -726,6 +749,7 @@ func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 	if err := ciWaitDecode(body, &runs); err != nil {
 		return ciWaitReport{}, false, err
 	}
+	ciWaitSortRuns(runs)
 	state.LastSHA = strings.ToLower(state.Selector.Value)
 	// A commit with no runs yet is pending, never success: the empty set does
 	// not silently count as passing CI.

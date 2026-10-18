@@ -4,7 +4,7 @@
   },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md",
+    ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     "internal/store/schema.go"
   ],
   "id": "product-data-model",
@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fdcbc6a9b1aa9d1e427439953d28a9bf78663a5bf7f524faac471bf271ef4155",
+  "sha256": "sha256:695da93f111cdcded159e6b2f8e69524b34fb4630a6c7383583762a9e7f80e91",
   "status": "published",
-  "summary": "Canonical Product data model with Domains and managed execution under CD-0041; CD-0213 places planning and business grouping in Linear through the Linear MCP server.",
+  "summary": "Canonical Product data model with Domains and managed execution under CD-0222; CD-0213 places planning and business grouping in Linear through the Linear MCP server.",
   "tags": [
     "data-model",
     "domains"

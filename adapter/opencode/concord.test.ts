@@ -1059,7 +1059,7 @@ test("all context and transport failures produce valid adapter envelopes", async
   }
 })
 
-// CD-0017 D4, extended by CD-0196. A session with a managed parent is a
+// CD-0017 D4, extended by CD-0223. A session with a managed parent is a
 // dispatched worker lane: every concord_* tool refuses before the core is
 // invoked, and the refusal is a structured adapter envelope with effect_state
 // none. A session the host answers as unparented is a coordinator session and
@@ -3275,7 +3275,7 @@ test("capture and resume refuse before core effects when managed participation c
 })
 
 test("invalid work start input cannot enroll a host session", async () => {
-  // The lane guard's caller check (CD-0196) is the one permitted host read;
+  // The lane guard's caller check (CD-0223) is the one permitted host read;
   // invalid input reaches no host write and no core transport.
   let hostReads = 0
   let hostWrites = 0
@@ -3341,7 +3341,7 @@ for (const field of ["constructor", "toString", "__proto__"]) {
 }
 for (const { name, args, fragments } of workStartDiagnosticCases) {
   test(`work start diagnostic: ${name}`, async () => {
-    // The lane guard's caller check (CD-0196) is the one permitted host read;
+    // The lane guard's caller check (CD-0223) is the one permitted host read;
     // a diagnostic refusal reaches no host write and no core transport.
     let hostWrites = 0
     hostControlPlane().bind({

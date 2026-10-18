@@ -7,7 +7,7 @@
   "date": "2026-09-15T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md",
+    ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     ".concord/docs/decisions/CD-0144-record-reality-reconciliation.md"
   ],
   "home_domain_id": "product-root:concord",
@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ac1491e852e9d3cae4c400c19e36cac343a162bb87712943be7fce3f3aab20ac",
+  "sha256": "sha256:8484a34b2ddf98998c9fda3fe5c7a516e481a1a6bc9cf62edf20e0ac7f52610f",
   "status": "accepted",
-  "summary": "Amends CD-0041 D6 so a contract revision makes an overlap resolution stale only when it changes affected Domains, law additions or modifications, Domain modifications, or Domain-relation modifications. Preserves the 2,513-row resolution population, the execution-start claim boundary from PR 1084, D7, the closed resolution kinds, operator approval, and CD-0036.",
+  "summary": "Amends CD-0222 D6 so a contract revision makes an overlap resolution stale only when it changes affected Domains, law additions or modifications, Domain modifications, or Domain-relation modifications. Preserves the 2,513-row resolution population, the execution-start claim boundary from PR 1084, D7, the closed resolution kinds, operator approval, and CD-0036.",
   "tags": [
     "product-law",
     "architecture",

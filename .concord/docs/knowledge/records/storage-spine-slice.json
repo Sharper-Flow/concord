@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:93238908eab87d5d6b3985c72b826b2f6dbf7887f4b17bebec37e64867605dd6",
+  "sha256": "sha256:2e8369803459cd8fbce1b6f818a3fecfd8736179b1f74aeab83419df42c4b897",
   "status": "published",
   "summary": "Acceptance slice exercising the PM1 through PM10 storage contract end to end. Ready for acceptance rather than accepted.",
   "tags": [

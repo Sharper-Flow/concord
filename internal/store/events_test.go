@@ -294,7 +294,7 @@ func TestAppendEventNormalizesTimeZone(t *testing.T) {
 
 func TestSubjectTypeValidation(t *testing.T) {
 	t.Parallel()
-	for _, st := range knownSubjectTypes() {
+	for st := range subjectTypes {
 		if !st.valid() {
 			t.Errorf("registered subject type %q reports invalid", st)
 		}

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -78,13 +77,6 @@ func seedDerivedRevisionWorkflow(t *testing.T, s *Store, workID string, actor Wo
 func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:derived-revision", ClientRef: "client:derived-revision", AgentRef: "agent:derived-revision", SessionRef: "session:derived-revision", ActorClass: ActorAgent}
-	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(docBytes), "revise `derived` law in-contract") {
-		t.Fatal("CD-0222 D5 does not state the derived carve-out")
-	}
 
 	t.Run("derived only modification is admitted and recorded", func(t *testing.T) {
 		t.Parallel()

@@ -215,8 +215,8 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 - **Concord (Option A, preferred):** reframe as "investigations" that may
   resolve to "no change" — small change to framing/typing.
 - **Concord (Option B, fallback):** a new research trackable peer to
-  "implementation change" — considered and rejected by CD-0009.
-- **Accepted by CD-0009:** Option A. Independent research uses ordinary work items;
+  "implementation change" — considered and rejected by CD-0215.
+- **Accepted by CD-0215:** Option A. Independent research uses ordinary work items;
   embedded research stays with its owner; neither creates a new trackable.
 - **Bucket call:** Refactor.
 
@@ -272,7 +272,7 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.3 | External-signal ingestion | Pull azure/cron/health/MCP outputs into Product view as **opaque read-only signals** (not ADV-authored state). | [`product-data-model.md`](./product-data-model.md) §3.3 |
 | 3.4 | Cross-Product scoped read | Reads one global local authority through explicit Product/Project scope; no per-repo fan-out or identity reconciliation. | [`product-memory-authority-scope.md`](./product-memory-authority-scope.md), [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) |
 | 3.5 | Standalone ops runbook host | Container for ops runs not tied to a change. (Runbook *shape* is Refactor; the *host* is New.) | [`workflows.md`](./workflows.md) §4 |
-| 3.6 | Research trackable (Option B only) | **Rejected by CD-0009:** active packs are outputs/context owned by ordinary work, not a peer entity. | [`workflows.md`](./workflows.md) §4 |
+| 3.6 | Research trackable (Option B only) | **Rejected by CD-0215:** active packs are outputs/context owned by ordinary work, not a peer entity. | [`workflows.md`](./workflows.md) §4 |
 | 3.7 | Portfolio-review tooling + cadence | "What should I work on across everything" with a periodic portfolio-review cadence, Product-scoped (per-repo `/adv-triage` and `/adv-cleanup` Transfer). | — |
 | 3.8 | Product wishlist | Planning backlog lives in Linear through the Linear MCP server, not in a repository or a Concord planning projection. | [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) |
 | 3.9 | Infra status tracking | Tracked surface over §3.3 signal ingestion; presents azure/cron/health/ops status within a Product. | [`product-data-model.md`](./product-data-model.md) |
@@ -378,7 +378,7 @@ workflow-evolution, agent-buildable UI) live in
 | Business grouping in Linear (§2.3) | External planning | CD-0213 leaves grouping to Linear MCP; Concord retains managed execution, not a planning mirror. |
 | Product aggregation extension in §2.1 | Refactor (shades New) | Reuses the aggregator; the Product pivot is the New-flavored part. Kept in Refactor to avoid double-counting with §3.1. |
 | Ops runbook shape vs host (§2.4 / §3.5) | Split | Shape = Refactor (reuse primitives); host = New (no precedent). Deliberate split. |
-| Research trackable (§2.5 / §3.6) | Refactor | CD-0009 accepts Option A: ordinary work item plus active pack output; no peer entity. |
+| Research trackable (§2.5 / §3.6) | Refactor | CD-0215 keeps Option A: ordinary work item plus active pack output; no peer entity. |
 | Architecture spike (§3.13a) | New | Adjacent to research trackable but not the same call: research is advisory and may end in "no change"; a spike must decide, is accepted by the user, and binds downstream until superseded. Kept separate deliberately so the §2.5 Option A/B decision does not absorb it. |
 | Portfolio-review tooling (§3.7) | New | The per-repo `/adv-triage`/`adv-cleanup` skills Transfer; the Product-scoped, cadence-aware layer does not exist. |
 
@@ -390,7 +390,7 @@ workflow-evolution, agent-buildable UI) live in
    Concord offers no grouping authoring or membership surface.
 2. **Is the fast read-path inside ADV or a separate tool?** (§3.2, [`clarifications.md`](./clarifications.md) C1 and [`rollout-plan.md`](./rollout-plan.md)) Inside-ADV keeps one source of truth + agent-native mutations;
    separate keeps the orchestrator untouched. Phase 2 design.
-3. **Research trackable — resolved by CD-0009:** Option A.
+3. **Research trackable — resolved by CD-0215:** Option A.
 4. **Does signal ingestion (§3.3) need a durable signal cache, or is live-fetch
    at read time enough?** Depends on read-latency targets (§3.2 measurement).
 

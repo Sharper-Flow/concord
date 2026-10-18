@@ -4,7 +4,7 @@
 - **Date:** 2026-08-15
 - **Scope:** Work-item events; agent tool surface; continuity snapshot
 - **Related:** CD-0012 (D6), CD-0016 (continuity), CD-0018 (capture,
-  `raised_from`), CD-0025 (surface pattern), issue #99, R8
+  `raised_from`), CD-0216 (surface pattern), issue #99, R8
 - **Supersedes:** nothing
 
 ## Context

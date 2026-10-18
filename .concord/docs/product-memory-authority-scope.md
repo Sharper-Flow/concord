@@ -39,9 +39,8 @@ machine.
   by the domain model and authorization, not by separate database files.
 - **Repo-local durable knowledge remains separate:** completed-work notes,
   decisions, and lessons live in git; SQLite holds only a derived knowledge index.
-- **Active research remains local and temporary:** CD-0009 pack tables live in this
-  same SQLite database while their managed work owner is active, never become
-  Git knowledge, and are deleted after proof-backed archive.
+- **Research remains local:** CD-0215 pack tables live in this same SQLite
+  database, never become Git knowledge, and are deleted only by explicit retirement.
 - **Product portability uses logical export:** an export is a versioned,
   non-authoritative snapshot unless explicitly imported into another installation.
 - **No per-Product or per-Project live-authority shards.** They add fan-out,

@@ -5,9 +5,9 @@
 - **Scope:** Shelving and cancellation of nonterminal Concord execution items,
   liveness evidence, planning handoff, and replay-safe projection removal
 - **Approval:** The operator approved this bounded removal contract on 2026-09-14.
-- **Related:** PM4, PM6, PM7, CD-0066, CD-0213
-- **Amends:** PM4 lifecycle and reopen semantics; PM7 live-query and renewed-work
-  boundary; CD-0066 D1 only for explicitly directed nonterminal execution removal
+- **Related:** PM4, PM6, compaction-retention-policy, CD-0213, CD-0217
+- **Amends:** PM4 lifecycle and reopen semantics; compaction-retention-policy live-query and renewed-work
+  boundary; CD-0217 D1 only for explicitly directed nonterminal execution removal
 - **Preserves:** The five-state lifecycle, exact event history, Product and Project
   identity, accepted law, Linear issue identity, and the no-polling boundary
 

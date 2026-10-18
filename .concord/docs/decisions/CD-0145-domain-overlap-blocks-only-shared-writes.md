@@ -2,17 +2,17 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Scope:** CD-0041 D6; the workflow Domain-overlap predicate and its execution guard
+- **Scope:** CD-0222 D6; the workflow Domain-overlap predicate and its execution guard
 - **Approval:** The operator approved the narrower write-conflict predicate on
   2026-09-13.
-- **Related:** CD-0041 D5–D7, CD-0144
-- **Amends:** CD-0041 D6
+- **Related:** CD-0222 D5–D7, CD-0144
+- **Amends:** CD-0222 D6
 - **Preserves:** Domain-overlap detail, write classifications, version-pinned
   resolutions, and the transactional execution guard
 
 ## Context
 
-CD-0041 D6 justified the Domain-overlap gate by the failure it prevents: two
+CD-0222 D6 justified the Domain-overlap gate by the failure it prevents: two
 agents independently enacting contradictory Product truth. The implementation
 also blocked pairs that shared only an affected Domain. That tested shared topic,
 not a shared write, and caused architecture-only pairs to grow quadratically as

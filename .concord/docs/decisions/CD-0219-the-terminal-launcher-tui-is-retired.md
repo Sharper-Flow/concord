@@ -12,7 +12,7 @@
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
   approval record. Its authority tier is `derived` under CD-0159 D3.
-- **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0158,
+- **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
 - **Amends:** CD-0014 (the rendering stack retires with the TUI); CD-0108 D1
   through D3 (the interactive remake clauses retire; D4 stands); CD-0163
@@ -66,7 +66,7 @@ store reads (the store query contracts).
   obligation are vacated with the render surface; the C14 §9
   screen-reader/no-color render condition retires with them. CD-0014's
   validation-failure falsifier retires with CD-0014's rendering decision.
-- CD-0158: the Domain graph claims no launcher consumer; the registry
+- CD-0222: the Domain graph claims no launcher consumer; the registry
   authoring obligation and the adopted repository navigation stand.
 - The launcher-rendered floor items `fc1-portfolio-visibility`,
   `fc1-full-product-scope`, and `fc1-domain-navigation` are out of scope with

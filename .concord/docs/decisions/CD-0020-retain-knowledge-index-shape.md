@@ -19,7 +19,7 @@ TS3, CD-0015, and the accepted terminal-launcher contract.
 CD-0019 requires Concord to preserve a knowledge index while researching the
 best Concord-specific shape rather than copying Advance. Issue #92 compared
 public Advance evidence, external catalog/index approaches, and Concord's
-current law and implementation. CD-0009 forbids retaining the research pack;
+current law and implementation. CD-0215 D8 keeps the research pack out of Git;
 this decision publishes only the selected durable conclusions.
 
 The original hypothesis was that Concord had a strong Git manifest but lacked a
@@ -271,7 +271,7 @@ Reopen this decision only when at least one condition is proven:
 
 ## Supersession and amendment
 
-CD-0020 does not supersede CD-0008, CD-0009, CD-0015, CD-0019, PM1, TS3, or
+CD-0020 does not supersede CD-0008, CD-0015, CD-0019, PM1, TS3, or
 terminal-launcher law. It records that their existing composition is the retained
 knowledge-index shape. Reopen only under a condition above and the owning PM1/TS3
 or vertical-integration amendment path.

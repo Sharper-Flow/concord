@@ -9,9 +9,9 @@
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
   The full-successor framing is removed; D2 follows current Product law.
-- **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0041, PM4, C15, and issue #571
+- **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, C15, and issue #571
 - **Amends:** CD-0006 D1-D2 and CD-0053 D4's cutover framing
-- **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0041's
+- **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0222's
   Domain-overlap execution block and Domain `replaces` relation; PM4 work-item
   supersession; append-only events, fold-only projections, immutable schema
   migrations, and other data-integrity controls

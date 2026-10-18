@@ -6,7 +6,7 @@ Four items (work-ffd855dd, work-13e6717f, work-e103255e, work-aad52b54) shipped 
 
 3. confirm_premise requires the contract's evidence kinds and verification obligations to be bound (internal/store/workflow_completion.go, requireAcceptanceDeliverables). Read the open question immediately before the call and pass its exact decision_context_digest. The core refuses a digest that does not match the current decision context (internal/store/workflow_operator.go).
 
-4. A review lane refusing dispatch at an external-effect step is not a missing review route. docs/development-authority.md gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
+4. A review lane refusing dispatch at an external-effect step is not a missing review route. docs/managed-development-authority.md gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
 
 5. The workflow complete action moves the lifecycle itself (CD-0183 D3). The completion fold appends the terminal work.transitioned event in the same transaction (internal/store/workflow_completion.go).
 

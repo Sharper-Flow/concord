@@ -9,7 +9,7 @@ import (
 
 // CD-0216: research reliance is declared at the workflow boundary where a
 // consumer starts relying on a pack, and the engine proves it inside the same
-// transaction as the action. CD-0009 D6's consequential-boundary query is this
+// transaction as the action. CD-0215 D6's consequential-boundary query is this
 // check, not a PM4 blocker and never a heuristic.
 
 // ResearchBindingDeclaration is one declared reliance carried by a workflow
@@ -60,7 +60,7 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		if !revision.Valid {
 			return newFailure(KindProjectionNotFound, "research_reliance", "declared research revision does not exist", false, "pin an existing revision")
 		}
-		// CD-0009 D6: a required consumer cannot proceed on stale or unknown
+		// CD-0215 D6: a required consumer cannot proceed on stale or unknown
 		// research. Fail closed at the boundary where reliance is declared.
 		if !freshness.Valid || freshness.String == "" {
 			freshness.String = string(ResearchUnknown)

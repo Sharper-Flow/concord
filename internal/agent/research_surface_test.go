@@ -145,7 +145,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 
 	// 5. Stale the pack; a second required reliance on the stale revision is
-	// refused fail-closed at the boundary (CD-0009 D6 / CD-0216).
+	// refused fail-closed at the boundary (CD-0215 D6 / CD-0216).
 	if r := invoke("research_freshness_set", map[string]any{
 		"pack_id": packID, "expected_version": 4, "freshness": "stale", "idempotency_key": "rs-stale-1",
 	}); r.Outcome != OutcomeOK {

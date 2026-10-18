@@ -50,7 +50,7 @@ approves a **spec mandate** listing exactly which specs a change may modify, exe
 bounded by it, and "completion verifies delivered changes match the approved mandate: no
 silent scope expansion or reduction." CD-0006 D5 places conflict resolution and scope
 decisions at planning under human authority. CD-0006 R1 provides forward-linked successor
-work. CD-0009 D8 forbids automatic conversion of a research conclusion into a binding
+work. CD-0215 D7 forbids automatic conversion of a research conclusion into a binding
 decision. [`specs-as-laws.md`](../specs-as-laws.md) forbids silent scope *contraction*
 under spec-law pressure.
 
@@ -196,7 +196,7 @@ and it mirrors the three options in [`specs-as-laws.md`](../specs-as-laws.md) §
 | **(b) Revise the end-state** | The operator changes what must be delivered. The prior contract is superseded, not edited, and the item's history retains both. Revision re-enters planning under CD-0006 D5 — which already requires that "a new execution-time conflict stops and returns to planning" — and execution resumes only against the superseding contract. |
 | **(c) Consciously defer** | The operator keeps the approved end-state and records the discovery as separate work. |
 
-Never silent, and never the agent's decision. This extends CD-0009 D8 — "no automatic
+Never silent, and never the agent's decision. This extends CD-0215 D7 — "no automatic
 conversion of a research conclusion into a binding decision" — from research conclusions
 to in-flight discoveries generally.
 
@@ -273,7 +273,7 @@ count, and that is unchanged.
 | Workflow type | Required end-state asserts |
 |---|---|
 | Implementation change | The capability exists and the specified behavior holds. |
-| Architecture spike | An accepted binding decision record exists. The verb is fixed by [`architecture-spike.md`](../architecture-spike.md) §1.1 and §2.3, which make a reached decision the completion criterion and `insufficient evidence` a satisfying decision outcome. CD-0009 D2 reinforces it by distinguishing spikes, which "must publish an accepted binding decision," from research, which "may conclude `no change`"; CD-0009's conformance scenario 9 already requires that an architecture spike cannot complete from a research conclusion alone. |
+| Architecture spike | An accepted binding decision record exists. The verb is fixed by [`architecture-spike.md`](../architecture-spike.md) §1.1 and §2.3, which make a reached decision the completion criterion and `insufficient evidence` a satisfying decision outcome. CD-0215 D2 reinforces it by distinguishing spikes, which "must publish an accepted binding decision," from research, which "may conclude `no change`". |
 | Research / investigation | Findings are recorded. A `no change` conclusion **satisfies** this end-state; it is not a failure, and D3 does not convert it into one. |
 | Ops runbook | The operational postcondition holds, with the step evidence the type requires. |
 | Break-fix | The reproduced defect no longer reproduces. |

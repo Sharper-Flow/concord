@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
+  "sha256": "sha256:4e30d88f070bab83a93c6af0f474829daff949d2850cc63919e90620691e4e2e",
   "status": "accepted",
   "summary": "Defines SQLite authority and durable state boundaries.",
   "tags": [

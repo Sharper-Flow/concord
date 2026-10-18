@@ -24,8 +24,8 @@ repo/package is chosen and separately authorized; pre-go-live changes remain sub
 to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
-mechanics; CD-0009 fixes research work identity and active-pack
-retention as amended by CD-0222. CD-0222 makes Product law and architectural
+mechanics; CD-0215 fixes research work identity and pack
+retention. CD-0222 makes Product law and architectural
 concordance Priority 1, replaces opaque component authority with canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
@@ -231,9 +231,9 @@ re-litigate them silently.
   (new trackable type)? (`feature-inventory.md` §2.5/§3.6)
 - **Why:** decides whether the research surface is a small reframe or a new
   primitive.
-- **Decision:** CD-0009 selects Option A. Independent research is an ordinary
+- **Decision:** CD-0215 D2 keeps Option A. Independent research is an ordinary
   `work_items.kind = research`; embedded research remains inside its owning change;
-  active research packs are retention-bounded context/output, not another trackable.
+  research packs are retained context/output, not another trackable.
 
 ### C15. Managed-resource inventory shape ✅ Accepted 2026-08-06
 - **Question:** Does a managed resource (infrastructure, SaaS) remain a **member

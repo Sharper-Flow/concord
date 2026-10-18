@@ -61,7 +61,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c5dd99a06c18ec70ac37bebd82e9a064e5d0b583cf4ba62c705a4e403e426752",
+  "sha256": "sha256:fab3a4426fe5898cd115f48c4ee99aa9513ba1d0ca1b3d9fe453a48affa7eced",
   "status": "accepted",
   "summary": "Complete PM7 successor preserving deferred terminal work pruning, Git and event authority, canonical locator proof, historical front matter and frozen Domain scope, live/historical query composition, immutable pruned identities and PM10 separation. Replaces archive-driven research cleanup with reusable read-only terminal packs and explicit bounded idempotent retirement of terminal-owner packs with zero active required or optional pins, without calendar expiration. Live cutover and integrated conformance remain deployment obligations.",
   "tags": [

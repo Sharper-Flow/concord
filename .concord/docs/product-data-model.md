@@ -165,7 +165,7 @@ ManagedResource {
 resource identity and attachments follow accepted C15. Domain replacement and
 work-item supersession keep their bounded owners in CD-0222 and PM4.
 
-CD-0222 and CD-0213 amend CD-0009's predecessor shape. Business grouping lives in
+CD-0222 and CD-0213 replace the predecessor Epic shape. Business grouping lives in
 Linear. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
 [CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)

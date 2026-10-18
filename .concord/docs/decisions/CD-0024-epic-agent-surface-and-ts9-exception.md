@@ -4,7 +4,7 @@
 **Approval date:** 2026-08-14.
 **Approval:** Operator approved surface `3.0.0` for issue #128 and the narrow TS9
 exception after the supported-model evidence gate was surfaced as unavailable.
-**Type:** CD-0009 reachability implementation and TS8/TS9 amendment.
+**Type:** Epic reachability implementation and TS8/TS9 amendment.
 **Issue:** [#128](https://github.com/Sharper-Flow/concord/issues/128).
 **Amended by:** CD-0222 makes the 3.0.0 Epic surface legacy, requires the next
 normal major to expose Initiative, and forbids reuse of D3's one-time TS9
@@ -12,13 +12,13 @@ exception.
 **Further amended by:** CD-0042 closes the historical surface-version and TS9
 exception policy before go-live; this record remains historical evidence and does
 not define a current compatibility path.
-**Amends:** CD-0009 D1/D1a; TS8 and TS9.
+**Amends:** TS8 and TS9.
 **Preserves:** CD-0005's generated canonical manifest, TS5 authority envelopes,
-CD-0010, and CD-0009's Epic constraints.
+CD-0010, and the accepted Epic constraints.
 
 ## Context
 
-CD-0009 already accepts Epic as a Product-scoped canonical work-item kind with a
+The accepted research-context law already accepted Epic as a Product-scoped canonical work-item kind with a
 living narrative and ordered entries. The store has event folds, validators, event
 builders, bounded reads, and conformance tests. No agent operation could call them.
 The operational coverage record therefore marked initiative framing and promotion
@@ -35,18 +35,18 @@ model trials.
 
 **D1. Surface `3.0.0` adds `concord_work_epic`.** The generated manifest owns one
 create operation, ordered-entry add/remove/reorder/requiredness operations, narrative
-revision, and bounded entries read. The operations call CD-0009's existing event
+revision, and bounded entries read. The operations call the existing Epic event
 builders; they do not invent a second Epic lifecycle, direct parent-edge writer,
 nested Epic, or cross-Product path.
 
-**D2. Epic creation starts with an empty narrative.** CD-0009 D1a makes
+**D2. Epic creation starts with an empty narrative.** The accepted narrative rule makes
 `epic.narrative_revised` the only narrative write path. Create then revise is the
 intentional route; no create-time narrative bypass is added.
 
 **D3. TS9 has one narrow exception.** For this `2.3.0 → 3.0.0` change only, the
 paired supported-model trial requirement is waived. The substitute evidence is:
 
-- the named, accepted CD-0009 Epic outcome and #128's unreachable-surface proof;
+- the named, accepted Epic outcome and #128's unreachable-surface proof;
 - positive and rejection-path agent-boundary tests for every operation;
 - generated manifest/schema/fixture/Go/TypeScript drift checks;
 - explicit Product-scope preflight before Epic creation; and

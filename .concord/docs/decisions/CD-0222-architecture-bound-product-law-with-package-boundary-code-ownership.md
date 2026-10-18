@@ -15,7 +15,7 @@
   CD-0153 judged-content staleness, the CD-0145 shared-write narrowing, the
   2026-09-22 browse-path correction, and CD-0213 planning placement.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
-  CD-0009 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
+  CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
@@ -374,9 +374,9 @@ not own Domain identity, law placement, dependency truth, conflict resolution,
 or the primary browse path. Shared grouping never makes two work items
 architecturally compatible.
 
-CD-0009 D2–D8 remain unchanged: independent research is ordinary research work,
-embedded research stays with its owner, active packs remain retention-bounded
-SQLite context, and durable promotion keeps its accepted destinations. Every
+CD-0215 D2–D8 govern research: independent research is ordinary research work,
+embedded research stays with its owner, packs remain retained
+SQLite context until explicit retirement, and durable promotion keeps its accepted destinations. Every
 reference in those clauses to Epic ownership now means ownership by the owning
 work item.
 
@@ -573,8 +573,6 @@ graph. Product law approval does not authorize live-state cutover.
 
 - **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation now join
   law conflict, spec mandate, and cross-workflow impact checks.
-- **CD-0009 D1/D1a:** business grouping replaces Epic, lives in Linear, and is
-  explicitly secondary to Domain/law authority; D2–D8 remain binding.
 - **CD-0015:** law relations remain Git-authored and closed; every law gains one
   Domain home and architecture-bound workflow use.
 - **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through

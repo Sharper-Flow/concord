@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; durable knowledge manifest; offline validation
-- **Related:** CD-0009 (D7 archive destinations), CD-0019 (wisdom question),
+- **Related:** CD-0215 (D7 publication destinations), CD-0019 (wisdom question),
   CD-0020 (knowledge index), PM6/PM7 compaction
 - **Issue:** #108 (fc6, learning-capture group)
 
@@ -15,8 +15,8 @@ manifest records, read paths PM1.Q9/Q10, home/explicit scopes — but every
 lesson was human-authored JSON plus git: no agent operation could record one,
 nothing captured post-completion learning, and no capability audited whether
 recorded law still had live implementation. CD-0019 had left standalone wisdom
-capture open ("not rejected — may be absorbed"); CD-0009 D7 names the lesson
-as an archive-time destination without implementing it.
+capture open ("not rejected — may be absorbed"); CD-0215 D7 names the lesson
+as a publication destination without implementing it.
 
 ## Decision
 
@@ -78,8 +78,8 @@ Concord's authority. The evidence-path audit delivers the standing capability
 deterministically.
 
 **Operator-only lesson authoring** would leave per-change learning
-unrecordable by the sessions that produced it, contradicting CD-0009 D7's
-archive-time destination.
+unrecordable by the sessions that produced it, contradicting CD-0215 D7's
+publication destination.
 
 ## Consequences
 

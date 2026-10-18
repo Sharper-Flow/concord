@@ -203,7 +203,7 @@ implementation change.
 | Type | Work kind | Shape | Replaces / relates |
 |---|---|---|---|
 | **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
-| **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
+| **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0215 research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
 | **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
 | **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |

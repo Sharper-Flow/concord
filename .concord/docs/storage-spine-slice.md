@@ -12,8 +12,7 @@
 > [`compaction-retention-policy.md`](./compaction-retention-policy.md),
 > [`clarifications.md`](./clarifications.md),
 > [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md), and
-> [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md), and
-> [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md).
+> [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md).
 > **Language/boundary:** Go core, `database/sql` + `modernc.org/sqlite`, short-lived
 > CLI invocation, no daemon. TS6 decides any adapter.
 > **Binding mechanism input:** CD-0008 D1–D7 governs worktree authority, immutable-subject
@@ -71,7 +70,7 @@ Implement only enough to exercise the accepted contract:
   event-version history;
 - a storage-neutral adapter for the PM1 scenario corpus;
 - no agent tools, plugin, MCP server, compaction automation, or production deploy;
-- no active research-pack implementation; this slice must only preserve CD-0009's
+- no active research-pack implementation; this slice must only preserve the research
   boundary by keeping research content out of retained `domain_events`.
 
 Event subjects are the one deliberate application-validated referential seam: SQLite

@@ -63,7 +63,7 @@ summary flags to drift from truth. Accepted PM5 now supplies Q6 membership ident
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
 
-CD-0009 as amended by CD-0222 and CD-0213 fixes one ordinary work-item kind without adding
+CD-0215 D2 with CD-0222 and CD-0213 fixes one ordinary work-item kind without adding
 lifecycle states:
 
 - `research`: independently trackable investigation that may conclude `no change`.

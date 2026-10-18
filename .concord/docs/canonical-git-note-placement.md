@@ -143,7 +143,7 @@ During CD-0222 migration, a legacy `component_ids` field maps one-for-one to
 `domain_ids` with retained IDs. New compaction writes only `domain_ids`; the
 legacy field is never emitted after the manifest/Domain cutover.
 
-CD-0009 research packs are never canonical notes and do not gain a Git path. During
+CD-0215 research packs are never canonical notes and do not gain a Git path. During
 archive, the reviewed work note may preserve selected enduring reasoning/source links
 alongside the normal outcome, while complete pack revisions/findings/source lists stay
 out of Git and are deleted after publish/linkage proof. A decision, spec, or lesson

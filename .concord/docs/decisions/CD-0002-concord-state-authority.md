@@ -9,7 +9,7 @@
 > - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) names the generic log `domain_events` and replaces the generic materialized spine with explicit typed projections.
 > - [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md) (PM6, 2026-08-05) fixes git proof before eligibility.
 > - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (PM7, 2026-08-06) fixes bounded lazy projection pruning while retaining `domain_events`.
-> - [`CD-0009-active-research-context.md`](./CD-0009-active-research-context.md) (2026-08-07) creates the sole narrow direct-table exception for retention-bounded active research context.
+> - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
 > **Confirmed by operator:** 2026-08-05, as the *revised* set following stack re-validation (see §2a). The re-validation reversed an earlier single-writer-daemon recommendation to library-in-process.
@@ -68,8 +68,8 @@ removes it structurally — so the disease cannot recur by "forgetting" a policy
 | # | Invariant | Advance failure mode it removes |
 |---|---|---|
 | **I1** | **Single authority.** SQLite is the only component whose state is authoritative. No projection, cache, or second store is ever treated as a transition-decision input. | Split state authority (Temporal ↔ disk projection) — `fixAdvStateAuthority`, the central anti-pattern. |
-| **I2** | **Append-only log is Product/work truth.** Every Product/work identity, lifecycle, membership, relation, gate, and archive-linkage change is an immutable row in `domain_events`; current Product/work state is a materialized fold. CD-0009 active research context is the sole direct-table exception: it is explicitly disposable WIP, never retained history, and no other fact type inherits the exception. | Destructive/in-place mutation of retained Product/work state with no replayable history. |
-| **I3** | **Projections are disposable.** Every retained read model (materialized current-state, indexes, derived views) is rebuildable from the log by a deterministic fold. CD-0009 active research tables are authority for their temporary context—not projections—and are deleted after proof-backed archive. | Projection drift — the disk projection became a co-authority that lagged Temporal truth (read-timeout cluster, stale reads). |
+| **I2** | **Append-only log is Product/work truth.** Every Product/work identity, lifecycle, membership, relation, gate, and archive-linkage change is an immutable row in `domain_events`; current Product/work state is a materialized fold. CD-0215 research context is the sole direct-table exception: it is explicitly retirable work context, never retained history, and no other fact type inherits the exception. | Destructive/in-place mutation of retained Product/work state with no replayable history. |
+| **I3** | **Projections are disposable.** Every retained read model (materialized current-state, indexes, derived views) is rebuildable from the log by a deterministic fold. CD-0215 research tables are authority for their context—not projections—and are deleted only by explicit retirement. | Projection drift — the disk projection became a co-authority that lagged Temporal truth (read-timeout cluster, stale reads). |
 | **I4** | **Terminal transitions are single-statement atomic.** A move to a terminal state is ONE transaction: append the transition row AND update materialized state, committed **atomically together**. Durability follows the configured synchronous mode (under `NORMAL`, the un-checkpointed tail is covered by the recovery fold, I5). No two-phase "mark, then converge." | Terminal-durability gap — `fixArchiveTerminalDurability`; archive proof required signal application + attributable commit evidence, not bare liveness. |
 | **I5** | **Recovery is a deterministic fold.** On any inconsistency, recovery = re-fold the log into a fresh materialized state. No reconciliation between two authorities; no destructive repair. | Destructive-only recovery (postmortem C6); cross-authority reconciliation surfaces. |
 | **I6** | **Error/retry records are first-class, type-valid log rows.** Retry attempts, errors, and recovery actions are schema'd rows in the log — never free-form accumulator state that can become unreadable. | Doom-loop accumulator — `clampDoomLoopAccumulator`; the retry recorder wrote unreadable records and bricked changes. |
@@ -161,7 +161,7 @@ types; neither duplicates the other:
 | Tier | Store | Holds | Lifetime |
 |---|---|---|---|
 | **Live Product/work** | one global local SQLite DB | `domain_events` log + explicit typed projections | event authority retained; eligible projections prunable only through PM7's bounded lazy transition |
-| **Active research context** | direct versioned tables in the same SQLite DB | CD-0009 packs/revisions/findings/sources/consumer bindings only | while owner/required consumers are active; delete after proof-backed archive |
+| **Active research context** | direct versioned tables in the same SQLite DB | CD-0215 packs/revisions/findings/sources/consumer bindings only | until explicit retirement of a terminal-owner pack with no active pin |
 | **Durable knowledge** | **git, in the repo** (markdown) | compacted lessons, completed-work notes, decision records | permanent, versioned, diffable |
 | **Process exhaust** | *discarded* | sub-agent reports, briefing digests, traceability dumps, intermediate state | dropped at archive |
 
@@ -171,7 +171,7 @@ committed to the repo; verified terminal projections later become eligible for P
 bounded lazy pruning while `domain_events` remains retained authority. Target size is
 a page, not hundreds of kilobytes.
 
-CD-0009 active research is not serialized into that note or retained log. Archive may
+CD-0215 research is not serialized into that note or retained log. Archive may
 promote selected reasoning/decisions/specs/lessons through their normal durable forms,
 then deletes the complete active pack only after Git/linkage proof.
 

@@ -37,17 +37,17 @@ architectural question is answered. Such work today has two bad homes:
 **Concord's own planning historically demonstrated the gap.** Two spike-shaped
 questions were once named and marked to be determined (TBD) because the primitive to hold them did not
 exist. The storage/research framing is now historical: C2 was resolved by CD-0002 and
-PM1–PM5, and C7 by CD-0009:
+PM1–PM5, and C7 by CD-0215:
 
 - [`clarifications.md`](./clarifications.md) §C2 — the historical storage-authority
   question, resolved by CD-0002 and accepted PM1–PM5.
 - [`clarifications.md`](./clarifications.md) §C7 — research uses ordinary work plus
-  retention-bounded active packs; it does not become another trackable.
+  retained research packs; it does not become another trackable.
 
 C2 was the historical archetype: a blocking architectural question that needed a
 POC-capable investigation and blocked downstream capabilities until CD-0002 and
-PM1–PM5 settled the storage authority. CD-0009 now resolves C7 to ordinary research
-work plus retention-bounded active packs; architecture spikes remain separate because
+PM1–PM5 settled the storage authority. CD-0215 now resolves C7 to ordinary research
+work plus retained research packs; architecture spikes remain separate because
 their accepted decision output binds downstream work.
 
 ## 1.1 Why it is its own type, not a research mode

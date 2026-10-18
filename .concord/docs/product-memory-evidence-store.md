@@ -19,8 +19,8 @@ operator decided WIP needs no durable byte-level proof. The binding inputs
 are PM1, the accepted PM2 through PM7, CD-0002 invariants, and the
 one-operator one-machine envelope. This record rejects a content-addressed
 blob store for v1: process exhaust stays producer-owned, no generic rule may
-require a screenshot, and CD-0009 research-pack text stays
-retention-bounded SQLite only.
+require a screenshot, and CD-0215 research-pack text stays
+SQLite only.
 ## Contract
 
 The binding contract is sections 1 through 4: the no-store decision and its
@@ -50,9 +50,8 @@ not a v1 Concord feature. Small, structured Concord artifacts remain SQLite text
 the existing decision; durable markdown knowledge remains PM6/PM7 git content. Neither
 is a general binary-evidence store.
 
-CD-0009 narrows one structured-artifact case further: active research-pack text lives
-only in retention-bounded SQLite pack tables while its managed work owner is
-active. It never enters retained `domain_events` or Git as a research pack and is
+CD-0215 narrows one structured-artifact case further: research-pack text lives
+only in SQLite pack tables until explicit retirement. It never enters retained `domain_events` or Git as a research pack and is
 deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
 not pack retention.
@@ -153,9 +152,9 @@ of raw WIP bytes.
 5. **Explicit promotion only:** if future work needs a durable artifact, it must first
    name its reader, decision/recovery job, authority, retention duration, and restore
    guarantee in a new accepted decision.
-6. **Research expires:** CD-0009 active pack rows are not WIP-byte evidence or durable
-   knowledge; archive may retain selected reasoning in normal outputs, then deletes
-   the complete pack with no tombstone or hidden history.
+6. **Research retires:** CD-0215 pack rows are not WIP-byte evidence or durable
+   knowledge; publication may retain selected reasoning in normal outputs, and only
+   explicit retirement deletes the complete pack, with no tombstone or hidden history.
 
 ## 6. Required implementation-acceptance scenarios
 

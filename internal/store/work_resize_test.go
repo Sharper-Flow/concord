@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"reflect"
 	"testing"
@@ -73,31 +74,34 @@ func readResizeSnapshot(t *testing.T, s *Store, ids ...string) resizeSnapshot {
 			snapshot.Effective[id] = decision.Effective
 		}
 	}
-	rows, err := db.Query(`SELECT kind||':'||work_id_from||'->'||work_id_to FROM relations WHERE kind IN ('supersedes','forward_link') ORDER BY 1`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var relation string
-		_ = rows.Scan(&relation)
-		snapshot.Relations = append(snapshot.Relations, relation)
-	}
-	rows.Close()
-	rows, err = db.Query(`SELECT predecessor_work_id||'->'||successor_work_id||' root '||root_work_id FROM work_resize_lineage ORDER BY 1`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var lineage string
-		_ = rows.Scan(&lineage)
-		snapshot.Lineage = append(snapshot.Lineage, lineage)
-	}
-	rows.Close()
+	snapshot.Relations = resizeSnapshotStrings(t, db, `SELECT kind||':'||work_id_from||'->'||work_id_to FROM relations WHERE kind IN ('supersedes','forward_link') ORDER BY 1`)
+	snapshot.Lineage = resizeSnapshotStrings(t, db, `SELECT predecessor_work_id||'->'||successor_work_id||' root '||root_work_id FROM work_resize_lineage ORDER BY 1`)
 	_ = db.QueryRow(`SELECT work_id FROM linear_issue_links`).Scan(&snapshot.LinearOwner)
 	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts`).Scan(&snapshot.Contracts); err != nil {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func resizeSnapshotStrings(t *testing.T, db *sql.DB, query string) []string {
+	t.Helper()
+	rows, err := db.Query(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return values
 }
 
 // An override that changes the effective size supersedes the item without

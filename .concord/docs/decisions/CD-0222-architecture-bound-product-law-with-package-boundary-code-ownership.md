@@ -23,6 +23,14 @@
   D2 adds a declared, checked package-to-Domain map and the footprint read that
   consumes it. D12 and Cost no longer exclude that map.
 
+- **Amended:** 2026-10-18. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
+  D1 replaces the ranked priorities with the unranked goals of
+  [`goals.md`](../goals.md) and the Appendix A conflict rules; the law mandate
+  of Product-changing work follows
+  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+  D4.
+
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
@@ -66,38 +74,36 @@ package-boundary code ownership. D12 states the navigation retirement.
 D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` require exact operator approval because they abandon or replace work identity. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
 
 
-### D1. Product law and architectural concordance are Priority 1
+### D1. Product law and architectural concordance serve the goals
 
-The six ranked priorities become:
+[`goals.md`](../goals.md) is the single home of Concord's purpose, its goals
+and their measures (§2), its constraints (§4), and the conflict rules that
+decide between goals (Appendix A). The goals are unranked. Appendix A settles
+goal conflicts;
+[CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+governs applying and recording those rules.
 
-1. **Product law and architectural concordance**
-2. **Data governance, reliability, and safe evolution**
-3. **Quality governance**
-4. **Visibility and continuity**
-5. **Planning and coordination**
-6. **Workflow versatility**
+Durable Product knowledge is not weakened or discarded. Its governing
+content—specifications, decisions, and their accepted relations—is the
+Product-law subject itself. Browsability, runbooks, completion narratives, and
+context continuity remain required consequences of the Product-law subject and
+of visibility and continuity.
 
-The former Priority 6, durable Product knowledge, is not weakened or discarded.
-Its governing content—specifications, decisions, and their accepted relations—
-moves into Priority 1. Browsability, runbooks, completion narratives, and context
-continuity remain required consequences of Priorities 1 and 4. Workflow variety
-remains last because no workflow convenience may compromise Product law, data
-safety, quality, visibility, or Product-level coordination.
-
-Accepted records written before this decision keep their meaning by **priority
-name**, not by their old number. Historical research and decision text is not
-rewritten. Living constitutional and contract documents use the new names and
-numbers.
+An accepted record's numbered priority reference identifies its subject, not
+precedence. Historical research and decision text is not rewritten. Living
+constitutional and contract documents use the goal and constraint names of
+[`goals.md`](../goals.md).
 
 Product-changing work has two valid law outcomes:
 
 - it proves that the accepted law remains unchanged and the delivered behavior
   conforms to it; or
-- it carries an operator-approved mandate and publishes the accepted law delta
-  before completion.
+- it carries the mandate required under
+  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+  D4 and publishes the accepted law delta before completion.
 
-Shipping behavior with neither outcome is invalid even when tests and Git checks
-pass.
+Shipping behavior with neither outcome is invalid even when tests and Git
+checks pass.
 
 ### D2. Domain is the canonical Product-internal architectural identity
 

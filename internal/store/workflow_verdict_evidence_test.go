@@ -116,22 +116,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	// The dispatch's action completion at the execution step: the engine
-	// records dispatch_worker when it dispatches the attempt, and the work
-	// pin derives the attempt's epoch from this matching completion.
 	attemptEpoch := latestStepStartEpoch(t, s, workID, "execution")
-	dispatchVersion := verdictItemVersion(t, s, workID)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "dispatch-action-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: dispatch.OccurredAt, PayloadVersion: 2,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
-			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
-			"actor_ref": ownerRef,
-		}),
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
-		t.Fatal(err)
-	}
 	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)

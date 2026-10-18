@@ -29,6 +29,20 @@
               "priority": {"maximum": 100, "minimum": -100, "type": "integer"},
               "raised_from_work_id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
               "ref": {"maxLength": 128, "minLength": 1, "type": "string"},
+              "size_inputs": {
+                "additionalProperties": false,
+                "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
+                "properties": {
+                  "behavior": {"description": "A phrase for the behavior the change will alter, when the files are not known yet.", "maxLength": 256, "minLength": 1, "type": "string"},
+                  "blast_radius": {"description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).", "enum": ["contained", "package", "cross_package", "external"], "type": "string"},
+                  "estimated_production_lines": {"description": "Production lines you expect to add or change, tests excluded.", "maximum": 100000, "minimum": 1, "type": "integer"},
+                  "paths": {"description": "Repository-relative files or directories the change will edit.", "items": {"maxLength": 512, "minLength": 1, "type": "string"}, "maxItems": 64, "type": "array", "uniqueItems": true},
+                  "security": {"description": "True when the change touches authentication, authorization, secrets, or data safety.", "type": "boolean"},
+                  "user_visible": {"description": "True when the change removes or reverses behavior users see, or changes UI or UX.", "type": "boolean"}
+                },
+                "required": ["security", "user_visible", "blast_radius", "estimated_production_lines"],
+                "type": "object"
+              },
               "tags": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"}, "maxItems": 32, "type": "array", "uniqueItems": true},
               "task": {"maxLength": 8192, "minLength": 1, "type": "string", "x-maxBytes": 8192},
               "title": {"maxLength": 256, "minLength": 1, "type": "string", "x-maxBytes": 256},

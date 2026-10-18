@@ -61,7 +61,7 @@ func TestWorkSizeRecordKeepsSizeModelVersionAndInputs(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("sized-1", "sized", WorkSizeModelVersion, want, inputs), nil); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := s.WorkSize(ctx, "sized")
+	got, ok, err := readWorkSize(ctx, s.DatabaseForTesting(), "sized")
 	if err != nil || !ok {
 		t.Fatalf("read size: ok=%v err=%v", ok, err)
 	}
@@ -81,7 +81,7 @@ func TestWorkSizeRecordKeepsSizeModelVersionAndInputs(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
-	current, ok, err := s.WorkSize(ctx, "sized")
+	current, ok, err := readWorkSize(ctx, s.DatabaseForTesting(), "sized")
 	if err != nil || !ok || current.Size != WorkSizeLarger || current.Sequence != 2 {
 		t.Fatalf("after rebuild: %+v ok=%v err=%v", current, ok, err)
 	}
@@ -94,7 +94,7 @@ func TestWorkSizeRecordKeepsSizeModelVersionAndInputs(t *testing.T) {
 func TestWorkSizeReadReportsAnUnsizedItem(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "unsized")
-	if _, ok, err := s.WorkSize(context.Background(), "unsized"); err != nil || ok {
+	if _, ok, err := readWorkSize(context.Background(), s.DatabaseForTesting(), "unsized"); err != nil || ok {
 		t.Fatalf("ok=%v err=%v; want an unsized item", ok, err)
 	}
 }

@@ -103,9 +103,18 @@ func validateWorkSizeInputs(in WorkSizeInputs) error {
 		return invalid("size inputs count more packages or unmapped paths than named paths")
 	case in.RepositoryCount < 1:
 		return invalid("size inputs need at least one repository")
-	case !contains([]string{BlastRadiusContained, BlastRadiusPackage, BlastRadiusCrossPackage, BlastRadiusExternal}, in.Declared.BlastRadius):
+	}
+	return validateWorkSizeDeclared(in.Declared)
+}
+
+func validateWorkSizeDeclared(d WorkSizeDeclared) error {
+	invalid := func(message string) error {
+		return newFailure(KindInvalidInput, "work_size", message, false, "supply size inputs inside the model's bounds")
+	}
+	switch {
+	case !contains([]string{BlastRadiusContained, BlastRadiusPackage, BlastRadiusCrossPackage, BlastRadiusExternal}, d.BlastRadius):
 		return invalid("size inputs name an unknown blast radius")
-	case in.Declared.EstimatedProductionLines < 1 || in.Declared.EstimatedProductionLines > workSizeMaxProductionLines:
+	case d.EstimatedProductionLines < 1 || d.EstimatedProductionLines > workSizeMaxProductionLines:
 		return invalid("estimated production lines must be between 1 and 100000")
 	}
 	return nil

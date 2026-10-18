@@ -33,6 +33,8 @@ class WorkSizesFixture(unittest.TestCase):
             "internal/store/schema.go",
             "scripts/generate-work-sizes.py",
             "scripts/vocabulary_utils.py",
+            "contracts/agent-tool-surface-payloads.schema.json",
+            "contracts/host-tool-surface.v1.json",
         ):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -86,6 +88,37 @@ class WorkSizesFixture(unittest.TestCase):
         path = self.root / "internal/store/work_size_model.go"
         path.write_text(path.read_text(encoding="utf-8") + '\nconst workSizeHuge WorkSize = "huge"\n', encoding="utf-8")
         self.assertTrue(any(item.startswith("go-closure:") for item in self.findings()))
+
+    def edit_json(self, relative: str, change) -> None:
+        path = self.root / relative
+        document = json.loads(path.read_text(encoding="utf-8"))
+        change(document)
+        path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    def test_schema_size_enum_drift_is_reported(self) -> None:
+        def drop(document) -> None:
+            document["$defs"]["work_size_summary"]["properties"]["size"]["enum"].remove("crucial")
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drop)
+        self.assertTrue(any(item.startswith("schema-closure: work_size_summary.size") for item in self.findings()))
+
+    def test_payload_size_inputs_proposed_size_is_reported(self) -> None:
+        def propose(document) -> None:
+            document["$defs"]["work_size_inputs"]["properties"]["size"] = {"type": "string"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", propose)
+        self.assertTrue(any("declares a proposed size field" in item for item in self.findings()))
+
+    def test_host_size_inputs_proposed_size_is_reported(self) -> None:
+        def propose(document) -> None:
+            tool = next(tool for tool in document["tools"] if tool["name"] == "concord_work_start")
+            tool["args"]["oneOf"][0]["properties"]["size_inputs"]["properties"]["model_size"] = {"type": "string"}
+        self.edit_json("contracts/host-tool-surface.v1.json", propose)
+        self.assertTrue(any("host-tool-surface" in item and "proposed size field" in item for item in self.findings()))
+
+    def test_open_size_inputs_is_reported(self) -> None:
+        def open_object(document) -> None:
+            document["$defs"]["work_size_inputs"]["additionalProperties"] = True
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", open_object)
+        self.assertTrue(any("is not closed" in item for item in self.findings()))
 
 
 if __name__ == "__main__":

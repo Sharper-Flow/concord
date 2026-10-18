@@ -143,15 +143,8 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 	return nil
 }
 
-// WorkSize reads the current size record of a work item; ok is false when
-// the item has never been sized.
-func (s *Store) WorkSize(ctx context.Context, workID string) (WorkSizeRecord, bool, error) {
-	if s == nil || s.db == nil {
-		return WorkSizeRecord{}, false, newFailure(KindUnavailable, "work_size", "store is not open", false, "open the authority database")
-	}
-	return readWorkSize(ctx, s.db, workID)
-}
-
+// readWorkSize reads the current size record of a work item; ok is false
+// when the item has never been sized.
 func readWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeRecord, bool, error) {
 	record := WorkSizeRecord{WorkID: workID}
 	var size, inputs, footprint string

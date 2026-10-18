@@ -45,8 +45,11 @@ type captureMutationInput struct {
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
-	GoverningRequirements []string       `json:"governing_requirements"`
-	Approval              *approvalInput `json:"approval"`
+	GoverningRequirements []string `json:"governing_requirements"`
+	// SizeInputs is what the change will touch, for the work-size model
+	// (CD-0229 D4). It carries no size: the model decides it.
+	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
+	Approval   *approvalInput              `json:"approval"`
 }
 type reviseMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -1511,6 +1514,18 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
+	// The size reads one Product's knowledge home, so a sized capture names
+	// Projects of exactly one Product.
+	var sizePlan *store.WorkSizePlan
+	if in.SizeInputs != nil {
+		if len(productIDs) != 1 {
+			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
+		}
+		var sizeErr error
+		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
+			return failureEnvelope(base, sizeErr), nil, true
+		}
+	}
 	for _, products := range productsByProject {
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
@@ -1559,8 +1574,17 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now}); err != nil {
 			return nil, nil, nil, err
 		}
+		eventIDs := result.EventIDs
+		if sizePlan != nil {
+			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			eventIDs = append(eventIDs, sized...)
+		}
+		// work.sized does not change the work item's version.
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, nil), result.EventIDs, changed, nil
+		return mutationPayload(changed, nil), eventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }

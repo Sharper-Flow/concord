@@ -1,4 +1,5 @@
 """Synthetic inputs and expected observations, never generated agent answers."""
+import copy
 
 WORK = "synthetic-work"
 TRACE = "concord_work_trace"
@@ -63,6 +64,18 @@ def start_error(kind, message, recovery, retry_safe, identity=None, extra=None):
         "error": {"kind": kind, "retry_safe": retry_safe, "recovery_action": {"kind": recovery},
                   "effect_state": "none", "message": message},
     }
+
+
+def unlanded_message(recovery):
+    return (
+        f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
+        "session's tool context still resolves in \"/synthetic/repo\", so the move has not "
+        "landed: Concord reports no success, arms no claimed worktree, and this refusal "
+        f"arms no turn-move boundary. {recovery} A continuation or new message is not "
+        "placement proof: confirm from the new turn's actual tool context, for example "
+        "the shell working directory, that it actually resolves in "
+        f"\"{WORKTREE}\"; only then replay this same work_start request."
+    )
 
 
 def claim_ok(worktree, project_id):
@@ -317,15 +330,7 @@ the item, follow what the tool results permit, and report the disposition.""",
         "start": {"admit": {"work_id": WORK},
                   "result": start_error(
                       "session_directory_mismatch",
-                      f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
-                      "session's tool context still resolves in \"/synthetic/repo\", so the move has not "
-                      "landed: Concord reports no success, arms no claimed worktree, and this refusal "
-                      "arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the "
-                      "operator to send the next message, because the next turn's tool context can "
-                      "resolve in the claimed worktree. That message alone is not placement proof: "
-                      "before replaying, confirm from the new turn's tool context, for example the "
-                      "shell working directory, that it actually resolves in "
-                      f"\"{WORKTREE}\"; only then replay this same work_start request.",
+                       unlanded_message("The automatic continuation for this move is unavailable or already spent; no automatic retry cycle will run."),
                       "retry_same_request", True,
                       identity={"product_id": PRODUCT, "project_id": PROJECT, "work_id": WORK,
                                 "worktree_path": WORKTREE})},
@@ -362,3 +367,10 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
                            why="operator_owns_worktree_state"),
     },
 }
+
+SCENARIOS["stale-context-continuation-scheduled"] = copy.deepcopy(SCENARIOS["stale-context-turn-boundary"])
+SCENARIOS["stale-context-continuation-scheduled"]["start"]["result"]["error"]["message"] = unlanded_message(
+    "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message.")
+SCENARIOS["stale-context-continuation-scheduled"]["expected"] = report(
+    "awaiting_continuation", work_id=WORK, boundary="session_directory_mismatch",
+    cause="session_directory_mismatch", effect="none", owner="agent", action="none", why="context_lands_next_turn")

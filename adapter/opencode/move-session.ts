@@ -23,6 +23,7 @@
 // the session title.
 
 import { execFileSync } from "node:child_process"
+import { promptAndConfirm } from "./host-prompt"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
@@ -117,6 +118,11 @@ export class HostControlPlane {
 
   available(): boolean {
     return this.#client !== null
+  }
+
+  async promptSession(sessionID: string, text: string, metadata: Record<string, unknown>, beforePost: () => Promise<boolean>): Promise<"delivered" | "unconfirmed"> {
+    return promptAndConfirm(this.#require("the native session prompt route is unavailable"), sessionID, text,
+      { confirmWindowMs: 30_000, confirmPollMs: 100 }, metadata, beforePost)
   }
 
   // sessionReader exposes the host session API the worker readback reads

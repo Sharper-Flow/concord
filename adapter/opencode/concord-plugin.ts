@@ -43,6 +43,7 @@ import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { continueWorkStartOnEvent, observeWorkStartMessage } from "./work-start-continuation"
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { workerReadTool, publishWorkerReadDefinition } from "./worker_source"
 import { workerCheckTool, publishWorkerCheckDefinition } from "./worker_control"
@@ -125,6 +126,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // treat the notice as an operator turn. Skip those when every part
       // carries the notice marker.
       if (isCiWatchNoticeMessage(output?.parts)) return
+      observeWorkStartMessage(input.sessionID, output?.parts)
       await workerCapabilities.observe(input.sessionID, input.agent)
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
@@ -151,6 +153,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     },
     event: async ({ event }: { event: unknown }) => {
       redeliverQueuedCiReports(event)
+      continueWorkStartOnEvent(event, message => {
+        if (input?.client?.app?.log) void input.client.app.log({ body: { service: "concord", level: "warn", message } }).catch(() => { console.warn(message) })
+        else console.warn(message)
+      })
       const result = await failDispatchedWorker(event)
       if (result?.error) {
         await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })

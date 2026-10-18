@@ -9,6 +9,9 @@
 - **Amends:** CD-0098 D3 at its turn-end clause
 - **Preserves:** Every other CD-0098 clause, including the clean-checkout
   precondition, the no-carry rule, and the read-back assertion
+- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 966](https://linear.app/sharper-flow/issue/CON-966).
+  One native continuation may follow an accepted but unlanded move.
 
 ## Context
 
@@ -48,6 +51,8 @@ directories rather than as a refusal.
 The adapter does not wait for a turn boundary before the move, and does not
 poll for one. The route exposes no boundary to wait on, so any wait Concord
 added would be a mechanism it invented and then described as the host's.
+
+After an accepted move, a refusal whose executing tool context has not landed may schedule one host-owned continuation of the original work-start request in the same session after its current run ends. The continuation uses the native host prompt route and needs no operator message. It neither reports work-start success nor proves placement. The ordinary placement check must verify the new tool context before success or worker dispatch. It adds no relaunch, polling for placement, alternative executor, or automatic retry cycle.
 
 ## Consequences
 

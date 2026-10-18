@@ -62,7 +62,10 @@ func (s *Service) verifyWorkerControlAssertionTx(ctx context.Context, tx *store.
 		return Authority{}, authorityRefusal("worker control assertion timestamp invalid")
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, a.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" || key.KeyID == "" || !ed25519.Verify(ed25519.PublicKey(key.PublicKey), CanonicalWorkerControlAssertion(a), a.Signature) {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("worker control assertion signature or client invalid"))
+	}
+	if client.Status != "active" || key.Status != "active" || key.KeyID == "" || !ed25519.Verify(ed25519.PublicKey(key.PublicKey), CanonicalWorkerControlAssertion(a), a.Signature) {
 		return Authority{}, authorityRefusal("worker control assertion signature or client invalid")
 	}
 	// Reuse the execution policy owner and the actual presented agent. The

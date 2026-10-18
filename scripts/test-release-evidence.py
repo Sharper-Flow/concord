@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,9 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 
+# The internal/store shard count that the shard margin rule in ci.yml sets.
+STORE_SHARDS = 5
+
 CI_JOB_IDS = (
     "verify-history",
     "verify",
@@ -60,6 +64,8 @@ CI_JOB_IDS = (
     "verify-tests-store-1",
     "verify-tests-store-2",
     "verify-tests-store-3",
+    "verify-tests-store-4",
+    "verify-tests-store-5",
     "verify-tests-cli-1",
     "verify-tests-cli-2",
     "verify-race",
@@ -140,6 +146,37 @@ class CIWorkflowDriftTests(unittest.TestCase):
         verify = block["verify"]
         self.assertEqual(verify.get("needs"), ["verify-history", "verify-contracts", "verify-adapter", "verify-tooling"])
         self.assertEqual(str(verify.get("if")).strip(), "always()")
+
+    def test_ci_test_shards_cover_each_package_and_gate_verify_tests(self) -> None:
+        # Each shard job of a package deals its own index of one shared count
+        # through go-test-shard.py, so together the jobs run every test once.
+        # verify-tests is the required check, so it must need every shard job
+        # and fail unless each one succeeded.
+        block = jobs(load_workflow(CI_WORKFLOW))
+        shard_run = re.compile(r'go-test-shard\.py (\S+) (\d+) (\d+)\)" (\S+)$')
+        shards: dict[str, list[tuple[str, int, int]]] = {}
+        for job_id, job in block.items():
+            for step in job.get("steps", []):
+                match = shard_run.search(str(step.get("run", "")))
+                if match:
+                    package, index, count, tested = match.groups()
+                    self.assertEqual(package, tested, f"{job_id} must test the package it shards")
+                    shards.setdefault(package, []).append((job_id, int(index), int(count)))
+        self.assertEqual(sorted(shards), ["./cmd/concord", "./internal/store"])
+        self.assertEqual({count for _, _, count in shards["./internal/store"]}, {STORE_SHARDS})
+        for package, entries in shards.items():
+            counts = {count for _, _, count in entries}
+            self.assertEqual(len(counts), 1, f"{package} shards disagree on the count: {sorted(counts)}")
+            self.assertEqual(sorted(index for _, index, _ in entries), list(range(1, counts.pop() + 1)), package)
+        gate = block["verify-tests"]
+        shard_jobs = sorted(job_id for entries in shards.values() for job_id, _, _ in entries)
+        self.assertEqual(sorted(needs_list(gate)), sorted(["verify-tests-rest", *shard_jobs]))
+        gate_run = "\n".join(str(step.get("run", "")) for step in gate.get("steps", []))
+        gate_env = {key: value for step in gate.get("steps", []) for key, value in (step.get("env") or {}).items()}
+        for job_id in needs_list(gate):
+            variables = [key for key, value in gate_env.items() if value == f"${{{{ needs.{job_id}.result }}}}"]
+            self.assertEqual(len(variables), 1, f"verify-tests must read {job_id}'s result once")
+            self.assertIn(f'test "${variables[0]}" = success', gate_run)
 
     def test_ci_keeps_a_per_run_concurrency_group(self) -> None:
         document = load_workflow(CI_WORKFLOW)

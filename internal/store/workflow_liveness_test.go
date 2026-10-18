@@ -11,7 +11,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -984,16 +983,6 @@ func livenessCompletion(ctx context.Context, s *Store, workID string) (string, i
 	var completions int64
 	err := s.db.QueryRowContext(ctx, `SELECT instance_state,(SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?) FROM workflow_instances WHERE work_id=?`, string(SubjectWorkItem), workID, WorkflowCompleted, workID).Scan(&state, &completions)
 	return state, completions, err
-}
-
-// livenessFailureKind names the typed class of a refusal so a payload defect in
-// this harness is never reported as a liveness finding.
-func livenessFailureKind(err error) string {
-	var failure *Failure
-	if errors.As(err, &failure) {
-		return string(failure.Kind)
-	}
-	return "untyped"
 }
 
 // livenessReplay commits the ordered path into an independently seeded store.

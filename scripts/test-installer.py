@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import gc
 import hashlib
 import io
 import json
@@ -19,6 +20,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
@@ -35,6 +37,65 @@ import install as installer
 
 
 SCRIPT = Path(__file__).with_name("install.py")
+
+# The roots an installer child resolves without --root, under the environment
+# this suite started in. Every installer command locks and recovers the root it
+# resolves, so a child that resolves one of these acts on the operator's live
+# installation.
+with contextlib.redirect_stderr(io.StringIO()):
+    _OPERATOR_PATHS = installer.paths_for(None)
+OPERATOR_ROOTS = (_OPERATOR_PATHS.data_home, _OPERATOR_PATHS.config_home, _OPERATOR_PATHS.bin_dir)
+
+# Every child inherits this process's environment or a copy of it, so the
+# private home and XDG roots cover children that pass no --root. The directory
+# is removed when the interpreter exits.
+_PRIVATE_HOME = tempfile.TemporaryDirectory(prefix="concord-installer-test-home-")
+for _name, _directory in (
+    ("HOME", "home"),
+    ("XDG_DATA_HOME", "data"),
+    ("XDG_CONFIG_HOME", "config"),
+    ("XDG_STATE_HOME", "state"),
+    ("XDG_CACHE_HOME", "cache"),
+):
+    _path = Path(_PRIVATE_HOME.name) / _directory
+    _path.mkdir()
+    os.environ[_name] = str(_path)
+
+# Under an "error" filter, a ResourceWarning raised in a finalizer is
+# unraisable: Python prints it and the run still passes. unittest's runner
+# installs its own "default" filter, so setUpModule arms the guard after it.
+_LEAKS: list[str] = []
+_DEFAULT_UNRAISABLEHOOK = sys.unraisablehook
+
+
+def _record_leak(unraisable: sys.UnraisableHookArgs) -> None:
+    if isinstance(unraisable.exc_value, ResourceWarning):
+        _LEAKS.append(str(unraisable.exc_value))
+    _DEFAULT_UNRAISABLEHOOK(unraisable)
+
+
+def setUpModule() -> None:
+    warnings.simplefilter("error", ResourceWarning)
+    sys.unraisablehook = _record_leak
+
+
+def tearDownModule() -> None:
+    gc.collect()
+    sys.unraisablehook = _DEFAULT_UNRAISABLEHOOK
+    if _LEAKS:
+        raise AssertionError("the suite leaked resources:\n" + "\n".join(_LEAKS))
+
+
+def default_root_overlap() -> list[str]:
+    """Name each default root a child of this process would share with the operator."""
+    with contextlib.redirect_stderr(io.StringIO()):
+        paths = installer.paths_for(None)
+    return [
+        f"{name}={resolved} overlaps {protected}"
+        for name, resolved in (("data_home", paths.data_home), ("config_home", paths.config_home), ("bin_dir", paths.bin_dir))
+        for protected in OPERATOR_ROOTS
+        if resolved.is_relative_to(protected) or protected.is_relative_to(resolved)
+    ]
 
 
 def _repository_snapshot(root: Path) -> dict[str, bytes]:
@@ -1226,7 +1287,7 @@ esac''',
         """Runtime tool discovery cannot strand a committed fixture migration."""
         self.prepare_a_blocked_release()
         database = self.data_root / "migration-fixture.sqlite"
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store, store:
             store.execute("CREATE TABLE payload (value TEXT)")
             store.execute("INSERT INTO payload VALUES ('preserved')")
             store.execute("PRAGMA user_version = 111")
@@ -1236,7 +1297,7 @@ esac''',
                 "operation": installer.CORE_UPGRADE_OPERATION,
                 "release_root": str(self.data_root / "v1.1.0"),
             }), encoding="utf-8")
-            with sqlite3.connect(database) as store:
+            with contextlib.closing(sqlite3.connect(database)) as store, store:
                 store.execute("ALTER TABLE payload ADD COLUMN migrated INTEGER NOT NULL DEFAULT 1")
                 store.execute("PRAGMA user_version = 112")
         environment = self.plan_env(blocked=False)
@@ -1246,7 +1307,7 @@ esac''',
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
         (self.commands / "opencode").unlink()
         self.assertIsNone(shutil.which("opencode", path=environment["PATH"]))
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.fence_path.exists())
@@ -1259,7 +1320,7 @@ esac''',
         self.assertEqual(manifest["version"], "v1.1.0")
         self.assertFalse(self.prepared_path.exists())
         self.assertFalse(self.fence_path.exists())
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
             self.assertEqual(store.execute("SELECT * FROM payload").fetchall(), [("preserved", 1)])
 
@@ -4269,6 +4330,11 @@ class StandaloneInstallerTest(unittest.TestCase):
     """
 
     def run_standalone(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # The child runs without --root, as the operator does, so it must
+        # inherit an environment whose default roots are private to the suite.
+        overlap = default_root_overlap()
+        if overlap:
+            self.fail("refusing to start a standalone installer on the operator's default roots: " + "; ".join(overlap))
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "concord-installer.py"
             script.write_bytes(SCRIPT.read_bytes())
@@ -4289,6 +4355,8 @@ class StandaloneInstallerTest(unittest.TestCase):
         # status may report nothing installed; it must not fail to start.
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("NameError", result.stderr)
+        # status locks the data root it resolved and leaves it in place.
+        self.assertTrue((Path(os.environ["XDG_DATA_HOME"]) / "concord").is_dir(), result.stderr)
 
     def test_a_failure_to_derive_reports_its_cause(self) -> None:
         """The raise path must name the module, not NameError.

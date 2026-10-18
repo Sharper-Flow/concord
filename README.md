@@ -149,12 +149,21 @@ bin/oc-test targeted -- python3 scripts/check-doc-links.py
 bin/oc-test targeted -- python3 scripts/check-public-content.py
 ```
 
-The local smoke tier runs all Go packages, adapter tests, and JSON/law validation.
-The conformance tier runs the ten-process SQLite harness:
+The local smoke tier runs adapter tests, JSON/law validation, and the Go
+packages CI tests without shards. It leaves out `internal/store` and
+`cmd/concord`, which CI splits into shard jobs. The conformance tier runs the
+ten-process SQLite harness:
 
 ```sh
 bin/oc-test smoke
 bin/oc-test conformance
+```
+
+To test one shard of a package that smoke leaves out, run CI's selection for
+it, here shard 1 of the 5 `internal/store` shards:
+
+```sh
+bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
 ```
 
 See [`bin/oc-test`](bin/oc-test) for workload and host admission details, and the

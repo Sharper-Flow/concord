@@ -296,7 +296,7 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, assertion.ClientRef)
 	if err != nil {
-		return "", errors.New("trusted client unavailable")
+		return "", trustedClientRefusalFor(err, errors.New("trusted client unavailable"))
 	}
 	if client.Status != "active" || key.Status != "active" || key.KeyID == "" {
 		return "", errors.New("trusted client is not active")
@@ -309,7 +309,11 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	now := s.now()
 	if err := store.PruneAndRecordNonceTx(ctx, tx, assertion.ClientRef, assertion.Nonce, now.Format(time.RFC3339Nano), now.Add(s.skew()).Format(time.RFC3339Nano), now.Add(-s.skew()).Format(time.RFC3339Nano)); err != nil {
-		return "", errors.New("worker evidence assertion nonce replayed")
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionConflict {
+			return "", errors.New("worker evidence assertion nonce replayed")
+		}
+		return "", err
 	}
 	return client.PrincipalRef, nil
 }

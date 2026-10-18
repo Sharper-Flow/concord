@@ -350,28 +350,3 @@ func mustOpsRunbookDefinition(t *testing.T) store.RegisteredDefinition {
 	}
 	return registered
 }
-
-// placeOpsRunbookAtStep fixture-places the runbook instance at one step via
-// the fold guard, the same seeding seam seedOverlapProjection uses.
-func placeOpsRunbookAtStep(t *testing.T, s *store.Store, stepID string) {
-	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, stepID); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}

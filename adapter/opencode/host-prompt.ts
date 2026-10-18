@@ -1,4 +1,4 @@
-import type { RouteResult } from "./move-session"
+import { SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 
 export type HostPromptClient = {
   get(options: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown>; signal?: AbortSignal }): Promise<RouteResult>
@@ -11,7 +11,7 @@ export type SessionMessage = {
 }
 
 export async function readSessionIdentity(client: HostPromptClient, sessionID: string): Promise<SessionIdentity> {
-  const result = await client.get({ url: "/session/{id}", path: { id: sessionID }, signal: AbortSignal.timeout(10_000) })
+  const result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host session record answered ${result.response.status}`)
   const record = (result.data ?? {}) as { agent?: unknown; model?: unknown }
   const identity: SessionIdentity = {}
@@ -27,7 +27,7 @@ export async function readSessionIdentity(client: HostPromptClient, sessionID: s
 }
 
 async function sessionMessages(client: HostPromptClient, sessionID: string): Promise<SessionMessage[]> {
-  const result = await client.get({ url: "/session/{id}/message", path: { id: sessionID }, query: { limit: "20" }, signal: AbortSignal.timeout(10_000) })
+  const result = await client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query: { limit: "20" }, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host session messages route answered ${result.response.status}`)
   return Array.isArray(result.data) ? result.data as SessionMessage[] : []
 }

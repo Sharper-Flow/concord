@@ -29,9 +29,9 @@ import path from "node:path"
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { concordBinaryPath } from "./dispatch"
 import { hostControlPlane, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type PluginClientHost, type RouteResult } from "./move-session"
+import { promptAndConfirm as deliverHostPrompt, readSessionIdentity as hostSessionIdentity, type SessionIdentity } from "./host-prompt"
 
 const SESSION_STATUS_ROUTE = "/session/status"
-const PROMPT_ASYNC_ROUTE = "/session/{id}/prompt_async"
 const LOG_ROUTE = "/log"
 
 // The part metadata key that marks a user message as this module's operator
@@ -52,10 +52,6 @@ export type CiWatchArgs = {
 }
 
 type CiWaitReport = { status: string; reason?: string; state_file?: string; [key: string]: unknown }
-
-// The session's persisted choice, shaped as the host prompt payload fields
-// that carry it, so every prompt spreads it unchanged.
-import { promptAndConfirm as deliverHostPrompt, readSessionIdentity as hostSessionIdentity, type SessionIdentity } from "./host-prompt"
 
 type ActiveWatch = {
   id: string

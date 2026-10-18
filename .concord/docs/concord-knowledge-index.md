@@ -4,7 +4,7 @@ The shard tree under [`.concord/docs/knowledge/`](./knowledge/) is the registry 
 durable `decision`, `spec`, and `lesson` records in a repository home. The
 head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
 registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
-and one record shard per record under [`.concord/docs/knowledge/records/`](./knowledge/records/) compose the
+and one record shard per record under [`knowledge/records/`](./knowledge/records/) compose the
 manifest document (CD-0114); no committed file lists every record. The current
 schema is `1.3` and carries explicit authority tiers. The companion
 [`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
@@ -28,9 +28,7 @@ A record has an authored stable ID, closed kind, clean regular
 Markdown path below `.concord/docs/`, status, RFC3339 date, bounded title and summary,
 unique tags, closed scopes, and a required `sha256:` hash. It has no body or
 content field. `decision` and `spec` records are `accepted`; `lesson` records
-are `published`. The reader supports `superseded` records with a successor for
-historical revisions; CD-0047 D6 requires removing fully superseded documents
-and their shards from the current corpus.
+are `published`; `superseded` records require a successor.
 
 The path bound is 512 Unicode scalar values, matching JSON Schema `maxLength`;
 runtime Go counts UTF-8 runes and the checker counts Python Unicode scalars.

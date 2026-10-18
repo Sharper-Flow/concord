@@ -106,11 +106,11 @@ experiments, error tracking, logs, surveys, CDP, warehouse, AI observability).
 Polyglot monorepo (~918k lines) — Django web/API + Rust event-capture services +
 Kafka bus + Celery/Temporal/Dagster workers + ClickHouse/Postgres/Redis/blob.
 PostHog-foss is the proprietary-purged mirror;
-[PostHog's `ee/` directory](https://github.com/PostHog/posthog) has a separate license.
+[PostHog's `ee/` directory](https://github.com/PostHog/posthog/tree/master/ee) has a separate license.
 Self-host is deliberately bounded (hobby-only, unsupported, scale-limited); cloud
 gets paid features. SDK/API + CDP + MCP server + agent-plugin path. Vertical
 product slices — `products/<product>` owns UI + backend + services + MCP + agent
-skills; [PostHog's top-level `services/`](https://github.com/PostHog/posthog) for cross-product.
+skills; [PostHog's top-level `services/`](https://github.com/PostHog/posthog/tree/master/services) for cross-product.
 
 **Concord relevance** (what to borrow vs avoid):
 - **Borrow** the distribution shape (public source, reproducible local install,

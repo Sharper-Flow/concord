@@ -2887,12 +2887,11 @@ def test_current_citation_selects_all_accepted_law_kinds_without_outline_exempti
         assert "law-reference-path:" in output, output
 
 
-def test_current_citation_skips_published_and_superseded_records() -> None:
-    for status in ("published", "superseded"):
-        root, manifest = citation_fixture("The owner is `retired/owner.go`.")
-        manifest["records"][0]["status"] = status
-        code, output, error = run_checker(root, manifest)
-        assert code == 0, (status, code, output, error)
+def test_current_citation_skips_superseded_records() -> None:
+    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+    manifest["records"][0]["status"] = "superseded"
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
 
 
 def test_published_knowledge_citations_resolve_current_targets() -> None:

@@ -1296,10 +1296,9 @@ def check_record(
     references: LawReferences | None = None,
 ) -> None:
     kind = record.get("kind")
-    current_record = (
-        record.get("status") == "accepted" and kind in ("constitution", "decision", "spec")
-        or record.get("status") == "published" and kind in ("lesson", "reference", "research")
-    )
+    # The knowledge-index checker pairs law kinds with accepted and knowledge
+    # kinds with published, so status alone selects the current corpus.
+    current_record = record.get("status") in ("accepted", "published")
     if kind not in DOC_CONTRACT_KINDS or (kind not in contract and not current_record):
         return
     path_value = record.get("path")
@@ -1562,16 +1561,8 @@ def main(argv: list[str]) -> int:
             continue
         check_record(record, contract, abbreviations, banned, findings, references)
 
-    try:
-        instructions = sorted(
-            path for path in references.candidate_files()
-            if path.startswith(".concord/instructions/") and path.endswith(".md")
-        )
-    except (OSError, subprocess.SubprocessError, git_environment.GitEnvironmentError) as exc:
-        findings.append(f"law-reference-tool: instruction inventory failed: {exc}")
-        instructions = []
-    for path in instructions:
-        source = ROOT / path
+    # The installer ships the top-level instruction files.
+    for source in sorted((ROOT / ".concord/instructions").glob("*.md")):
         lines = read_file(source, findings)
         if lines is not None:
             references.check(source, lines, findings)

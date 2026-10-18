@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import contextlib
 import copy
 import importlib.util
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -808,6 +811,29 @@ class CommittedContentRuleTests(unittest.TestCase):
                 generator.CONDUCT_CHANGE = path
                 with self.assertRaises(ValueError):
                     generator.committed_content_rule()
+
+
+class AgentDirectoryInventoryTests(unittest.TestCase):
+    def run_check(self, extra=None):
+        with tempfile.TemporaryDirectory() as directory:
+            agents = Path(directory)
+            for path in generator.AGENT_DIR.iterdir():
+                (agents / path.name).write_bytes(path.read_bytes())
+            if extra:
+                (agents / extra).write_text("---\nmode: subagent\n---\n", encoding="utf-8")
+            stderr = io.StringIO()
+            with mock.patch.object(generator, "AGENT_DIR", agents), \
+                    mock.patch.object(sys, "argv", ["generate-agent-lanes.py", "--check"]), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+                return generator.main(), stderr.getvalue()
+
+    def test_check_passes_when_every_definition_is_projected(self):
+        self.assertEqual(self.run_check(), (0, ""))
+
+    def test_check_refuses_a_definition_no_manifest_entry_projects(self):
+        code, stderr = self.run_check("concord-retired.md")
+        self.assertEqual(code, 1)
+        self.assertIn("unprojected agent definition: concord-retired.md", stderr)
 
 
 class EvalPacketProjectionTests(unittest.TestCase):

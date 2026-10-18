@@ -7,11 +7,12 @@
   removal of dead code, instructions, and outdated documentation
 - **Approval:** Operator accepted the drafted decision on 2026-08-20; the public
   record is [issue #219](https://github.com/Sharper-Flow/concord/issues/219).
-  The operator directed D6 on 2026-10-18; the pull request that adds D6 carries
-  that direction
+  The operator directed D6 for
+  [Concord (CON) issue 1164](https://linear.app/sharper-flow/issue/CON-1164)
 - **Related:** CD-0026 (learning capture and the drift audit), CD-0021 (floor
   condition scope), CD-0010 (pre-readiness development authority), CD-0013 D11
-  (reserved workflow action surface),
+  (reserved workflow action surface), CD-0036 (law supersession), CD-0055
+  (structural enforcement), CD-0222 D3 (law-graph pruning),
   [`floor-readiness.md`](../floor-readiness.md),
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** the floor-readiness state vocabulary and its state-conditional
@@ -107,8 +108,8 @@ the manifest to disagree with the code.
 An exception may cover several symbols under one reason where a single accepted
 decision governs them, because that is how the reasons actually cluster.
 
-`deadcode` runs as a pinned `go run`, adding no module dependency —
-the precedent `.github/workflows/ci.yml:56` already sets for `govulncheck`.
+`deadcode` runs as a pinned `go run`, adding no module dependency, as the
+pinned `govulncheck` run in `.github/workflows/nightly.yml` does.
 
 ### D5. Declaring is not binding, and this decision only requires declaring
 
@@ -148,8 +149,10 @@ Required checks refuse mechanically established gaps: undeclared unreachable Go
 functions and packages, unprocessed knowledge documents, missing cited files or
 Go tests, and drift from generated registries.
 The citation resolver covers accepted law, published knowledge, and shipped
-instructions. The installer tests bind the instruction inventory; the lane
-generator binds the generated agent inventory. These are structural or real-tool
+instructions. The installer tests bind the shipped instruction list to
+`.concord/instructions/`; the lane generator refuses drift in each agent
+definition it projects and any `.opencode/agents/` file it does not project.
+These are structural or real-tool
 checks under CD-0055, not judgments based on words such as legacy or obsolete.
 
 A declared reachability exception is valid only for a current obligation outside

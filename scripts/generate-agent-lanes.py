@@ -27,6 +27,7 @@ PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 # repository-local operator. Primaries are never lanes or utilities.
 PRIMARY_PROFILE_IDS = ("concord-coordinator", "concord-operator")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
+AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
 # name it by this lead sentence, so the rule has one statement.
 CONDUCT_CHANGE = ROOT / ".concord/instructions/change.md"
@@ -1291,17 +1292,22 @@ def main() -> int:
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",
             ROOT / ".concord/docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
-        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema) for lane in manifest["lanes"]})
-        expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
+        expected.update({AGENT_DIR / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema) for lane in manifest["lanes"]})
+        expected.update({AGENT_DIR / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
         primary_profiles = load_primary_profiles(manifest)
         expected.update({
-            ROOT / ".opencode/agents" / f"{profile['id']}.md": primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
+            AGENT_DIR / f"{profile['id']}.md": primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
             for profile in primary_profiles["profiles"]
         })
         expected[ROOT / "adapter/opencode/generated-primary-profiles.ts"] = primary_ts_projection(primary_profiles, manifest)
         lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
         if EVAL_PACKETS.is_dir():
             expected.update({path: eval_packet_projection(path, lane_digests) for path in sorted(EVAL_PACKETS.glob("*.json"))})
+        # The generator owns the agent directory: a definition no manifest
+        # entry projects is a removed lane, utility, or profile left behind.
+        for path in sorted(AGENT_DIR.iterdir()) if AGENT_DIR.is_dir() else ():
+            if path not in expected:
+                raise ValueError(f"unprojected agent definition: {path.name}; delete it or declare it in the manifest")
         if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:

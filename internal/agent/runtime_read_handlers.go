@@ -324,7 +324,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), EventKinds: in.EventKinds, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
+	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), EventKinds: in.EventKinds, ContractVersion: in.ContractVersion, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -859,4 +859,25 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		// Domain read's payload.
 		return base, errors.New("unsupported Domain read operation")
 	}
+}
+
+// readDomainFootprint answers concord_domain.footprint. It freshens the
+// Product's knowledge like every Domain read, then fits the law page to the
+// envelope through pagedQuery, so an oversize page shrinks and says so.
+func (r runtime) readDomainFootprint(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+	var in domainFootprintInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	if err := r.freshenProductKnowledge(ctx, in.ProductID); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *domainFootprintInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.DomainFootprintRequest {
+			return store.DomainFootprintRequest{Product: in.ProductID, Paths: in.Paths, Behavior: in.Behavior, Limit: limit, Cursor: inner}
+		},
+		r.Store.QueryDomainFootprint,
+		func(base Envelope, result store.DomainFootprintResult) (Envelope, error) {
+			return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainFootprintPayload(result))
+		})
 }

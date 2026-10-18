@@ -1633,7 +1633,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 61
+    expected_operations = 62
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1912,8 +1912,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     def sample(schema):
         schema=resolve(schema)
         if "const" in schema: return schema["const"]
-        if "oneOf" in schema:
-            branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
+        if "oneOf" in schema or "anyOf" in schema:
+            branch=(schema.get("oneOf") or schema["anyOf"])[0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result

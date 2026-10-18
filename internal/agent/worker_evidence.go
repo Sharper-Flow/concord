@@ -296,7 +296,7 @@ func (s *Service) ValidateWorkerEvidenceAssertionTx(ctx context.Context, tx *sto
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, assertion.ClientRef)
 	if err != nil {
-		return "", errors.New("trusted client unavailable")
+		return "", trustedClientRefusalFor(err, errors.New("trusted client unavailable"))
 	}
 	if client.Status != "active" || key.Status != "active" || key.KeyID == "" {
 		return "", errors.New("trusted client is not active")

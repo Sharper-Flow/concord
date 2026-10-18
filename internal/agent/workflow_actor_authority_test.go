@@ -492,8 +492,8 @@ func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service,
 	if actionID == "record_verdict" {
 		// The canonical head declares the verdicts batch alone: the batch
 		// entry keeps the entry semantics the single form bound (one
-		// predicate, defaulted ok kind, minted evidence).
-		fields = `,"fields":{"verdicts":[{"predicate_id":"predicate:primary"}]}`
+		// predicate, explicit ok kind, minted evidence).
+		fields = `,"fields":{"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok"}]}`
 	}
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `"` + fields + `,"idempotency_key":"` + key + `"}`)
 	response := invokeWorkflowIssue31(t, s, service, env, input)

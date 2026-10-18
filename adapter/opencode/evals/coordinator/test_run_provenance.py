@@ -192,6 +192,13 @@ class FormatBoundaryInstructionTests(unittest.TestCase):
     observation names, so an instruction that sends the model elsewhere is a
     defect in the instruction, not in the model."""
 
+    def test_scheduled_continuation_status_is_advertised_without_capture_changes(self):
+        self.assertIn("status: completed, awaiting_continuation, needs_operator, refused, or unresolved;", run.FORMAT)
+        self.assertIn("Awaiting_continuation means a tool result reports a scheduled automatic continuation, so the task resumes in a later turn without operator action.", run.FORMAT)
+        self.assertIn("recovery_owner: operator, maintainer, agent, or none;", run.FORMAT)
+        self.assertNotIn("continuing", run.FORMAT)
+        self.assertNotIn("awaiting_continuation", run.CAPTURE_FORMAT)
+
     def test_boundary_clause_states_the_evaluator_precedence(self):
         clause = format_boundary_clause()
         positions = {marker: clause.find(marker) for marker in BOUNDARY_SOURCE_MARKERS}

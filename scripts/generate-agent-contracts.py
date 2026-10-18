@@ -1320,10 +1320,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # neither form, and refuses an entry-level field beside the batch.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id"],
+        "required": ["predicate_id", "verdict_kind"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
             "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
             "incomparable_with_approved": {"type": "boolean"},
         },
@@ -1633,7 +1633,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 61
+    expected_operations = 62
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1912,8 +1912,8 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
     def sample(schema):
         schema=resolve(schema)
         if "const" in schema: return schema["const"]
-        if "oneOf" in schema:
-            branch=schema["oneOf"][0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
+        if "oneOf" in schema or "anyOf" in schema:
+            branch=(schema.get("oneOf") or schema["anyOf"])[0]; result=sample(branch); base={key:sample(schema.get("properties",{}).get(key,{})) for key in schema.get("required",[])}
             if isinstance(result,dict): base.update(result); return base
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result

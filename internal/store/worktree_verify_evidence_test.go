@@ -199,7 +199,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 		journey := &candidateJourney{s: s, workID: workID}
 		return journey.terminalActionContext(t, WithWorkerDispatchPreparation(ctx, prepared), action, payload, actor, operator)
 	}
-	if err := terminal("record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), reviewer, nil); err != nil {
+	if err := terminal("record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), reviewer, nil); err != nil {
 		t.Fatalf("record_verdict after the verify bind refused: %v", err)
 	}
 	if err := terminal("confirm_premise", nil, owner, recoveryOperator(workID)); err != nil {

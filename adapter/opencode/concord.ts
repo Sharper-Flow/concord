@@ -18,8 +18,9 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, samePath, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
+import { queueWorkStartContinuation, clearWorkStartContinuation, resetWorkStartContinuations } from "./work-start-continuation"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
 import type { WorkerReadingRequest } from "./worker_source"
 import type { WorkerDiffRequest } from "./worker_diff"
@@ -178,7 +179,7 @@ let runner: ChildRunner = defaultRunner
 let credentialsOverride: CredentialStore | null = null
 
 export function configureConcordAdapter(overrides: { runner?: ChildRunner; credentials?: CredentialStore; reset?: boolean } = {}) {
-  if (overrides.reset) { runner = defaultRunner; credentialsOverride = null }
+  if (overrides.reset) { runner = defaultRunner; credentialsOverride = null; resetWorkStartContinuations() }
   if (overrides.runner) runner = overrides.runner
   if (overrides.credentials) credentialsOverride = overrides.credentials
 }
@@ -1481,14 +1482,6 @@ function boundedUTF8(value: string, maxBytes: number): string {
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
 }
 
-// samePath compares an absolute path the host reported with one Concord
-// claimed. Both are absolute and already resolved, so only a trailing
-// separator distinguishes two spellings of one directory.
-function samePath(left: string, right: string): boolean {
-  const trim = (value: string) => (value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value)
-  return trim(left) === trim(right)
-}
-
 function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}): WorkStartEnvelope {
   return {
     schema_version: "1.0",
@@ -1761,21 +1754,13 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new WorkStartFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
-    // Issue #1322: a host that accepted the retarget can keep running this
-    // session's tools in the pre-move directory, so the confirmed read-back
-    // alone is a metadata-only move. Success waits until the host tool context
-    // this call runs in resolves inside the claimed worktree. The refusal
-    // separates that unconfirmed landing from an armed turn-move boundary —
-    // this refusal arms neither and reports no success — and names the recovery
-    // the move route actually offers: the next operator message opens a turn
-    // whose tool context can resolve in the claimed worktree (CD-0098 D3),
-    // and the declared replay stays behind an actual target-context
-    // confirmation, because a new message alone is not placement proof. The
-    // unlanded record keeps the dispatch gate closed for this session while
-    // that move has not landed.
+    // Metadata readback does not change this call's executing context. A native
+    // continuation can open a fresh turn, but cannot stand in for its proof.
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new WorkStartFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the operator to send the next message, because the next turn's tool context can resolve in the claimed worktree. That message alone is not placement proof: before replaying, confirm from the new turn's tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
+      const scheduled = queueWorkStartContinuation(args, context, target.worktree.path, target.work_id)
+      const recovery = scheduled ? "Concord scheduled one automatic continuation after this run ends; end this turn without requesting another operator message." : "The automatic continuation for this move is unavailable or already spent; no automatic retry cycle will run."
+      throw new WorkStartFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. ${recovery} A continuation or new message is not placement proof: confirm from the new turn's actual tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
     }
     // A resumed session claims no worktree: the read that derives its active
     // worktree records nothing (CD-0104 D1), so the store holds no occupancy
@@ -1845,6 +1830,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // behind every refusal the landing and the handoff bind can raise, so a
     // boot that fails closed arms no dispatch.
     armClaimedWorktree(context.sessionID, target.worktree.path)
+    clearWorkStartContinuation(context.sessionID)
     // The session title names the goal the session-prepare contract derived.
     // Like the closure receipt it sits after every refusal point and never
     // changes the outcome the envelope reports.
@@ -2288,6 +2274,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   // The landing is confirmed, so this session's active claimed worktree is
   // armed for the dispatch check.
   armClaimedWorktree(context.sessionID, path)
+  clearWorkStartContinuation(context.sessionID)
   if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
   // The confirmed move is a fact the agent must act on, so the result this
   // call encodes carries the notice: the new path, the paths-under-it rule,
@@ -2426,6 +2413,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // The verified landing released the occupancy rows, so no claimed worktree
   // is armed for this session any more.
   clearClaimedWorktree(context.sessionID)
+  clearWorkStartContinuation(context.sessionID)
   // A move the host readback decided completed in this turn even when a
   // stale tool context already names the destination, so the move fact, not
   // the tool context, arms the boundary. A caller's pre-move counts as the

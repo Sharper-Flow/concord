@@ -1,4 +1,4 @@
-# CD-0223: Worker lanes hold no Concord tool access, and the dispatch packet carries only declared context
+# CD-0223: Worker lanes use declared context and bounded host capabilities
 
 - **Status:** Accepted
 - **Date:** 2026-10-10
@@ -11,8 +11,13 @@
 - **Preserves:** CD-0017 D1 to D9 at every other sentence, CD-0005 D6, and the
   coordinator routes every lane's parent already uses
 - **Related:** CD-0017, CD-0020, CD-0043, CD-0102, CD-0193, and [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
+- **Terms:** End-of-file (EOF) marks the end of a source. Git's current commit reference (HEAD) identifies the checkout commit.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
+- **Amendment approval:** The operator approved the bounded-capability
+  amendment in-session on 2026-10-17 for [CON-1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
+- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
+  the review-fix amendment in-session.
 - **Supersedes:** [CD-0196](CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md).
 
 ## Context
@@ -35,25 +40,31 @@ a refused or mis-scoped call.
 
 ## Decision
 
-A dispatched worker lane holds no Concord read or write tool access. The
-dispatch packet is the lane's complete Concord context. Three mechanisms
-carry the boundary, and each one holds without the other two.
+A dispatched worker lane holds no general Concord state-query or mutation
+access. The dispatch packet is its complete Concord context. The host may
+expose bounded capability tools for declared pinned readings, scoped review
+diffs, and recorded executable checks. Those tools add no context inventory
+or workflow authority.
 
-1. Every generated lane and utility definition denies every `concord_*` tool
-   in its frontmatter. The generator derives the identifier list from the
-   agent and host tool-surface contracts, so a new Concord tool is denied for
-   every lane when the contracts regenerate.
+1. Generated lane definitions deny every Concord tool unless the closed
+   capability mapping explicitly binds it to a capability the lane holds.
+   Utility definitions retain their complete Concord-tool denial. Tool names
+   and schemas come from the existing agent and host tool-surface contracts.
+   A new tool without a capability binding remains denied by default.
 
-2. Every `concord_*` tool entry in the adapter checks the caller before the
-   core is invoked. A session with a managed parent is a dispatched lane, and
-   a scope the host cannot resolve fails closed. Both receive a structured
-   refusal with no effect that names CD-0017 D4. A root coordinator session
-   passes unchanged.
+2. Every general Concord state or workflow entry retains its managed-parent
+   check and structured no-effect refusal. A root coordinator passes unchanged.
+   A bounded worker capability instead requires the exact active attempt and
+   authorized packet, authenticated host child, lane capability, and dispatched
+   worktree. It cannot call a general Concord operation on the worker's behalf.
 
-3. Every lane definition states the boundary: the packet is complete, Concord
-   tools are unavailable, and law is read from the repository paths the
-   packet names. A lane reports missing context in its evidence, and returns
-   a failed status when missing context blocks the assigned result.
+3. Every lane definition states that its packet is complete. A pinned-reading
+   capability returns only bytes of an original declared reading. A diff
+   capability returns only the pinned review delta within the approved job's
+   path scope. A check capability selects only recorded executable controls.
+   A lane reports missing context or executable backing and fails when the gap
+   blocks its assigned result. None of these capabilities authorizes a worker
+   transition, verdict, acceptance, approval, or completion.
 
 The packet carries the one fact lanes still fetched. The workflow law context
 gains `registry_path`, the Domain registry's repository path, when the
@@ -62,8 +73,32 @@ of a tool call.
 
 The packet carries prior work state as typed members, not as a tool read.
 When `inputs.work_context` is present, the lane reads it first. The lane reads
-each repository source at its pinned commit through Git, not from the changed
-checkout. When `inputs.checkpoint` is present, its diagnosis and strategy are
+each declared source through the host's packet-bound pinned
+reader, not from the changed checkout. The worker supplies only its reading
+ordinal, nonnegative byte offset, and a page length from 1 to 4096 bytes.
+The host supplies the held packet and attempt identity. It uses the existing
+committed-source proof, reads immutable Git bytes outside SQL, and revalidates
+the active attempt and sampled source registrations before returning a page.
+A page carries its source identity, whole-content hash, byte offsets, and EOF.
+No caller-supplied path, ref, packet replacement, or mutable-checkout fallback
+is admitted. A source read creates no workflow or evidence record.
+
+An `inspect_diff` capability reads only the committed delta from the recorded
+dispatch subject of the first editing attempt under the review's contract
+version to the review attempt's pinned subject, on the same claimed worktree. The host verifies exact review HEAD
+and a clean tree before access. The diff is restricted to the recorded
+approved job's path scope. Missing base identity or scope refuses; the host
+never guesses another base or widens to the whole repository.
+
+The worker supplies only a nonnegative byte offset and a page length from
+1 to 4096 bytes. The host supplies both raw commit identities, the held packet,
+the attempt, and literal contained paths. It reads immutable Git objects
+outside SQL and revalidates the active dispatch before returning a page.
+A page carries both commit identities, whole-diff hash, byte offsets, and EOF.
+No worker-supplied path, ref, packet replacement, or mutable-checkout fallback
+is admitted. A diff read creates no workflow or evidence record.
+
+When `inputs.checkpoint` is present, its diagnosis and strategy are
 coordinator directions for the attempt.
 
 Continuity and dispatch use the same explicitly declared immutable reading set.
@@ -75,7 +110,7 @@ frontier checks remain unchanged.
 Required sources never fall back to changed checkout bytes. Domain IDs still
 resolve against the Product registry and the approved contract's affected
 scope. Recorded packets and reading sets stay readable under their recorded
-formats as history. Worker tool access remains unchanged.
+formats as history. Access to general Concord state and workflow tools remains denied.
 
 Amended 2026-10-13 for core-owned declared-context checks
 ([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
@@ -104,8 +139,10 @@ or native receipt authority from its language or ordinary command output.
 Missing native readiness never selects an inspection-only acceptance route.
 Independent review can report a legitimate omitted
 path as `uncovered_case`. Earlier receipts remain regression baselines, not
-current-subject acceptance. Missing context still uses the report boundary,
-never worker Concord access.
+current-subject acceptance. The authenticated host remains the sole qualified native-oracle producer.
+A bounded check capability does not replace that producer or grant its receipt
+authority to the worker. Missing context, readiness, or executable backing
+still uses the report boundary, never a general worker Concord call.
 
 ## Alternatives considered
 
@@ -125,7 +162,8 @@ never worker Concord access.
 - A lane starts from its packet, so no turn is spent on a refused call.
 - The parent boundary does not trust the selected agent or its prompt, so the
   refusal holds even when a lane definition drifts.
-- A new Concord tool is denied for every lane at generation, not at recall.
+- A new tool without an explicit lane-capability binding is denied at
+  generation, not at recall.
 
 ### Cost
 
@@ -136,9 +174,9 @@ never worker Concord access.
 
 ## Verification
 
-- `python3 scripts/generate-agent-lanes.py --check` refuses a lane definition
-  that lacks a deny entry for any surface tool, and the regenerated
-  definitions deny all eleven `concord_*` tools.
+- `python3 scripts/generate-agent-lanes.py --check` refuses drift in generated
+  tool rules. Generator tests preserve blanket utility denials and default
+  lane denials for tools without capability bindings.
 - `bun test adapter/opencode/concord.test.ts` refuses a managed-parent call
   on read, transition, and work-start entries, asserts the structured
   envelope with no effect, proves the core never ran, and keeps a root
@@ -147,9 +185,10 @@ never worker Concord access.
   a Domain-bound law context, and `TestContinuityLawOnlyContextCarriesNoRegistryPath`
   pins its absence when the contract binds no Domain.
 - The live probe `opencode debug agent concord-implement` resolves the lane's
-  tool rules and shows every `concord_*` tool denied, and
-  `bun test adapter/opencode/packet.test.ts` pins the registry line the
-  packet renders.
+  rules and must show general Concord tools denied. Only explicitly bound
+  capability tools remain eligible under the operator's host policy.
+  `bun test adapter/opencode/packet.test.ts` pins the registry line rendered
+  in the packet.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` and
   `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` prove
   source-qualified declared readings, findings, Domain scope, and bounds
@@ -157,3 +196,8 @@ never worker Concord access.
 - `bun test adapter/opencode/packet.test.ts` preserves the declared shared
   context and rejects fields outside the current closed packet schema.
 - `TestOwnerOracleImmutableProjection` and `TestOwnerOracleRepairFamily` cover the shared oracle and retained blockers and receipts.
+- `TestReadWorkerReadingReturnsOnlyThePinnedDeclaredPage`,
+  `TestReadWorkerReadingRefusesUnboundSelectorsBeforeGit`,
+  `TestReadWorkerReadingRevalidatesRegistrationAfterGit`, and
+  `TestReadWorkerReadingRevalidatesAttemptLivenessAfterGit` cover immutable
+  source pages, bounds, authorization, and concurrent invalidation.

@@ -15,13 +15,16 @@ import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
+import { publishWorkerReadDefinition } from "./worker_source"
+import { publishWorkerCheckDefinition } from "./worker_control"
+import { publishWorkerDiffDefinition } from "./worker_diff"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 
 const adapter = await import("./concord")
 
-// The complete registered catalog: the request tools plus the two
+// The complete registered catalog: the request tools plus the
 // separately hooked host tools.
 const CATALOG = [...new Set(contractOperations.map((operation: any) => operation.tool)), ...Object.keys(hostToolSchemas)].sort()
 const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
@@ -31,7 +34,7 @@ const READS = ["concord_product_view", "concord_work_browse", "concord_work_trac
 // Every registered parameter root, measured through the production
 // definition hooks exactly as the host renders them for the provider.
 const registeredBytes = new Map<string, number>()
-for (const tool of CATALOG.filter((tool) => tool !== "concord_work_start" && tool !== "concord_ci_watch")) {
+for (const tool of [...new Set(contractOperations.map((operation: any) => operation.tool))]) {
   const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await adapter.publishRequestDefinition({ toolID: tool }, output)
   expect(output.jsonSchema, tool).toBeObject()
@@ -54,6 +57,19 @@ const watcherRegistration = {
 await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, watcherRegistration)
 expect(watcherRegistration.jsonSchema).toBeObject()
 registeredBytes.set("concord_ci_watch", Buffer.byteLength(JSON.stringify(watcherRegistration.jsonSchema), "utf8"))
+const readerOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+await publishWorkerReadDefinition({ toolID: "concord_worker_read" }, readerOutput)
+expect(readerOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_read)
+registeredBytes.set("concord_worker_read", Buffer.byteLength(JSON.stringify(readerOutput.jsonSchema), "utf8"))
+const checkOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+await publishWorkerCheckDefinition({ toolID: "concord_worker_check" }, checkOutput)
+expect(checkOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_check)
+registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(checkOutput.jsonSchema), "utf8"))
+const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
+expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
+const diffBytes = Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8")
+registeredBytes.set("concord_worker_diff", diffBytes)
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -97,9 +113,8 @@ test("the authored registries carry exactly the generated role population and gr
   for (const profile of profiles.profiles) {
     expect([...roleDeniedConcordTools[profile.id].tools].sort(), profile.id).toEqual([...profile.denied_concord_tools].sort())
   }
-  // No authored registry grants a lane or utility a registered Concord tool:
-  // utilities enumerate their complete builtin tool sets, and lanes carry no
-  // tool-grant field at all.
+  // Utilities enumerate builtins. Lanes declare capabilities instead of
+  // utility-style tool lists.
   for (const utility of manifest.utilities) {
     const granted = utility.allowed_tools.filter((tool) => CATALOG.includes(tool))
     expect(granted, `${utility.id} grants registered Concord tools`).toEqual([])
@@ -113,21 +128,29 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   // Pinned measured budgets at this head. A catalog or schema change moves
   // these numbers, which is a visible test change, never silent drift.
   // Coverage and positivity are asserted before any total is formed: a
-  // lane's zero budget is its empty allowed list, never a missing root.
+  // role's zero budget is its empty allowed list, never a missing root.
   expect([...registeredBytes.keys()].sort(), "registered byte accounting must cover the catalog exactly").toEqual(CATALOG)
   for (const [tool, size] of registeredBytes) {
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
-  const LANE_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch"].sort(), bytes: 18_455 }
-  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 120_440 }
+  const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 481 }
+  const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 826 }
+  const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
+  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch", "concord_worker_check", "concord_worker_diff", "concord_worker_read"].sort(), bytes: 19_281 + diffBytes }
+  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 120_440 + 826 + diffBytes }
   expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
   expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
-  for (const role of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
-    expect(projectedBytes(role), role).toEqual(LANE_BUDGET)
+  for (const lane of agentLanes) {
+    const role = `concord-${lane.id}`
+    const executes = lane.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
+    const expected = executes ? CHECKER_BUDGET : lane.capabilities.includes("read_repository") ? READER_BUDGET : EMPTY_BUDGET
+    expect(projectedBytes(role), role).toEqual(lane.capabilities.some(capability => capability === "inspect_diff") ? { allowed: [...expected.allowed, "concord_worker_diff"].sort(), bytes: expected.bytes + diffBytes } : expected)
+  }
+  for (const role of UTILITY_AGENTS) {
+    expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(120_440)
+  expect(registeredTotal).toBe(120_440 + 826 + diffBytes)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
@@ -149,10 +172,9 @@ test("grants select whole tools and never trim a published schema", async () => 
 test("publication is role-blind, so a denied role's budget is not an immutable ceiling", async () => {
   // Registration publishes the complete root for every tool regardless of
   // any role's denial: the definition hook receives only the tool ID. The
-  // zero-byte lane projection is therefore host visibility, not removal — a
-  // later session or agent allow can re-expose a denied tool and grow the
-  // model-visible parameter schemas from 0 B up to the full 120,440 B
-  // catalog. The real-host demonstration of that growth is the opt-in
+  // role projection is therefore host visibility, not schema removal. A
+  // later session or agent allow can re-expose a denied tool. The
+  // real-host demonstration of that growth is the opt-in
   // --host-merge probe; this test pins the structural precondition.
   for (const tool of CATALOG) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
@@ -160,6 +182,12 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
       await adapter.publishWorkStartDefinition({ toolID: tool }, output)
     } else if (tool === "concord_ci_watch") {
       await publishCiWatchDefinition({ toolID: tool }, output)
+    } else if (tool === "concord_worker_read") {
+      await publishWorkerReadDefinition({ toolID: tool }, output)
+    } else if (tool === "concord_worker_check") {
+      await publishWorkerCheckDefinition({ toolID: tool }, output)
+    } else if (tool === "concord_worker_diff") {
+      await publishWorkerDiffDefinition({ toolID: tool }, output)
     } else {
       await adapter.publishRequestDefinition({ toolID: tool }, output)
     }

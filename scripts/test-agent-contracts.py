@@ -123,6 +123,49 @@ class ToolDescriptionTests(unittest.TestCase):
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
 
 
+class WorkerReadingHostContractTests(unittest.TestCase):
+    TOOL = "concord_worker_read"
+    FIELDS = ["ordinal", "offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_read_host_tool)
+
+    def setUp(self):
+        self.host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
+        self.schema = json.loads((ROOT / "contracts/host-tool-surface.schema.json").read_text())
+        self.tool = next(tool for tool in self.host["tools"] if tool["name"] == self.TOOL)
+
+    def test_the_shipped_reader_is_a_named_closed_host_tool(self):
+        generator.validate_host_manifest(self.host, self.schema)
+        self.assertEqual(list(self.tool["args"]["properties"]), self.FIELDS)
+
+    def test_no_source_execution_or_binding_selector_can_enter_the_host_contract(self):
+        for name in ("path", "ref", "command", "runner", "packet", "work_id", "attempt_id", "worktree_identity"):
+            with self.subTest(name=name):
+                tool = copy.deepcopy(self.tool)
+                tool["args"]["properties"][name] = {"type": "string"}
+                with self.assertRaises(ValueError):
+                    self.VALIDATOR(tool)
+
+    def test_ranges_requiredness_and_closure_cannot_drift(self):
+        for name in self.FIELDS:
+            for bound in ("minimum", "maximum"):
+                with self.subTest(name=name, bound=bound):
+                    tool = copy.deepcopy(self.tool)
+                    tool["args"]["properties"][name][bound] += 1
+                    with self.assertRaises(ValueError):
+                        self.VALIDATOR(tool)
+        for change in ({"additionalProperties": True}, {"required": self.FIELDS[:-1]}):
+            tool = copy.deepcopy(self.tool)
+            tool["args"].update(change)
+            with self.assertRaises(ValueError):
+                self.VALIDATOR(tool)
+
+
+class WorkerDiffHostContractTests(WorkerReadingHostContractTests):
+    TOOL = "concord_worker_diff"
+    FIELDS = ["offset", "length"]
+    VALIDATOR = staticmethod(generator.validate_worker_diff_host_tool)
+
+
 class ResultRequirednessTests(unittest.TestCase):
     def validate_result(self, result):
         payload = copy.deepcopy(payload_schema)
@@ -1162,12 +1205,13 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
         spec.loader.exec_module(lanes)
         text = lanes.acceptance_oracle_instructions(packet_schema, {"id": "implement"})
         for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
-                      "Managed workers", "gain no Concord tools", "Ordinary test output",
+                      "Workers gain no general Concord tools", "Ordinary test output",
                       "Never author `subject_commit`", "never", "invent a locator",
                       "target_runner_v1", "materializer", "runner", "collection"):
             self.assertIn(claim, text)
         self.assertNotIn("candidate_subject", text)
         self.assertNotIn("Run the declared controls within your lane permissions", text)
+        self.assertNotIn("Managed workers gain no Concord tools", text)
 
 
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):

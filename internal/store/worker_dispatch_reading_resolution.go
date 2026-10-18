@@ -53,7 +53,8 @@ const workerDispatchReadingResolutionOp = "worker_dispatch_reading_resolution"
 
 // dispatchReadingWitness is one declared reading's sealed resolution
 // witness: the SQL-sampled source identities plus the Git proof outcome. The
-// only producer is the dispatch preparation; no caller value constructs one.
+// producers sample registered source rows for dispatch or a bound worker read;
+// no caller value constructs one.
 type dispatchReadingWitness struct {
 	ordinal  int
 	identity string
@@ -312,7 +313,7 @@ func resolveDispatchReadingWitnesses(ctx context.Context, runner GitRunner, witn
 		case WorkContextSourceRepositoryFile:
 			err = resolveRepositoryReading(phase, runner, witness)
 		case WorkContextSourceKnowledge:
-			err = resolveKnowledgeReading(phase, runner, witness)
+			_, err = resolveKnowledgeReading(phase, runner, witness)
 		default:
 			err = newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union")
 		}
@@ -365,11 +366,31 @@ func resolveRepositoryReading(ctx context.Context, runner GitRunner, witness *di
 // pinned revision. The proof reads only locally committed content; it never
 // consults the current checkout, never rescans history, and never repins the
 // declared hash.
-func resolveKnowledgeReading(ctx context.Context, runner GitRunner, witness *dispatchReadingWitness) error {
+func resolveKnowledgeReading(ctx context.Context, runner GitRunner, witness *dispatchReadingWitness) ([]byte, error) {
 	if witness.projectedRecord == nil {
-		return newFailure(KindInvariantViolation, workerDispatchReadingResolutionOp, "the sampled knowledge witness carries no projected record", false, "prepare the dispatch through the sealed resolution owner")
+		return nil, newFailure(KindInvariantViolation, workerDispatchReadingResolutionOp, "the sampled knowledge witness carries no projected record", false, "prepare the dispatch through the sealed resolution owner")
 	}
 	return verifyManifestRecordRunner(ctx, runner, witness.sourceRepo, witness.recordCommit, *witness.projectedRecord, witness.manifestRole)
+}
+
+func readDispatchReadingContent(ctx context.Context, runner GitRunner, witness dispatchReadingWitness) ([]byte, error) {
+	var content []byte
+	var err error
+	switch witness.arm {
+	case WorkContextSourceRepositoryFile:
+		err = resolveRepositoryReading(ctx, runner, &witness)
+		if err == nil {
+			content, err = runner.Run(ctx, witness.repoPath, "cat-file", "blob", witness.commitOID+":"+witness.path)
+		}
+	case WorkContextSourceKnowledge:
+		content, err = resolveKnowledgeReading(ctx, runner, &witness)
+	default:
+		err = newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union")
+	}
+	if err != nil {
+		return nil, readingResolutionFailure(witness.ordinal, witness.identity, err)
+	}
+	return content, nil
 }
 
 // admitWorkerDispatchReadingResolutionTx is the transactional half of the

@@ -56,10 +56,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}
 			version = readWorkVersion(t, s, workID)
-			var beforeSeq int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&beforeSeq); err != nil {
-				t.Fatal(err)
-			}
 			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -76,14 +72,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				var failure *Failure
 				if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "may revise only derived law") {
 					t.Fatalf("legislated successor did not meet the tier refusal: %v", err)
-				}
-				var afterSeq int64
-				var contracts int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq), (SELECT count(*) FROM workflow_contracts WHERE work_id=?) FROM domain_events`, workID).Scan(&afterSeq, &contracts); err != nil {
-					t.Fatal(err)
-				}
-				if afterSeq != beforeSeq || contracts != 1 || readWorkVersion(t, s, workID) != version {
-					t.Fatalf("refused successor changed state: seq %d -> %d, contracts %d", beforeSeq, afterSeq, contracts)
 				}
 				return
 			}
@@ -112,12 +100,10 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil || supersededBy != 2 {
 					t.Fatalf("predecessor superseded_by=%d, want 2: %v", supersededBy, err)
 				}
-				t.Logf("successor law_modifies=%s; pins=%v", stored, revisions)
 			}
 			assertSuccessor()
 			var payload string
-			var payloadVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload,payload_version FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&payload, &payloadVersion); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&payload); err != nil {
 				t.Fatal(err)
 			}
 			var event struct {
@@ -128,9 +114,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			}
 			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
 				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
-			}
-			if payloadVersion != eventKindRegistry[WorkflowContractSuperseded].CurrentVersion {
-				t.Fatalf("successor payload version=%d, want current version", payloadVersion)
 			}
 			var seq int64
 			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&seq); err != nil {

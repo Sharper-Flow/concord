@@ -6,8 +6,8 @@
 - **Amends:** [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md) D3
   (second paragraph); [CD-0013](CD-0013-workflow-engine-mechanism.md) D4
   (strength comparison paragraph)
-- **Preserves:** CD-0012 D3's strengthen-only rule, D4's omission and vacuity
-  refusals, D7's authorship fencing and evaluator distinctness, and D9's
+- **Preserves:** CD-0012 D3's strengthen-only rule, D4's omission refusal,
+  D7's authorship fencing and evaluator distinctness, and D9's
   premise confirmation; CD-0013 D4's closed predicate union and outcome-token
   evidence rule, D5's actor tuple, and D10's completion clauses;
   [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)

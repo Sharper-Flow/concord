@@ -10,15 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestSessionRefusesWhenOrchestratorIdentityIsAbsent"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestSessionRecordsExactlyOneOrchestratorIdentityEvent"
-    },
-    {
-      "kind": "go_test",
-      "value": "cmd/concord.TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact"
+      "value": "cmd/concord.TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot"
     },
     {
       "kind": "go_test",

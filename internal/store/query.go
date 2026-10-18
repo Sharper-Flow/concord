@@ -192,7 +192,7 @@ type WorkItem struct {
 	// classification: the immutable intake fields plus the core's sibling
 	// snapshot. It rides the same authoritative intent reads as the task
 	// and value statement (the scope read and the full-detail list); bounded
-	// summary reads and the launcher keep their column-only shape.
+	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
 }
 
@@ -1523,11 +1523,11 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	out.Events = raw
 	out.Result = &Q7ResultPayload{Events: out.Events}
-	if workflow, workflowErr := readWorkflowSummaryTx(ctx, tx, req.Work); workflowErr != nil {
+	if workflow, workflowErr := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work}); workflowErr != nil {
 		return out, workflowErr
-	} else if workflow != nil {
-		out.Workflow = workflow
-		out.Result.Workflow = workflow
+	} else if workflow.WorkID != "" {
+		out.Workflow = &workflow
+		out.Result.Workflow = &workflow
 	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
 	return out, err

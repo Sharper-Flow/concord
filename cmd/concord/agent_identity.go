@@ -211,12 +211,11 @@ func verifyOrchestratorIdentity(home, dir, agent string) (store.OrchestratorIden
 
 // firstAgentDefinition returns the first searched directory that contains a
 // regular file named fileName. When no directory supplies the file, the
-// returned error is the typed agentIdentityAbsentError the session command
+// returned error is the typed agentIdentityAbsentError session preparation
 // surfaces unchanged.
 //
-// fileName derives from the caller-validated agent name: both entry points
-// (session-prepare's request field and the launcher's CONCORD_SELECTED_AGENT)
-// match it against ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ before this runs, so
+// fileName derives from the caller-validated agent name: session-prepare
+// matches it against ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ before this runs, so
 // it cannot carry a path separator or traversal.
 func firstAgentDefinition(dirs []string, fileName string) (string, error) {
 	resolved := ""

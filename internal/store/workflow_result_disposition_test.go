@@ -143,7 +143,7 @@ func (f crossAttemptFixture) dispatch(t *testing.T, attemptID string, lane LaneD
 func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane LaneDefinition, at int64) {
 	t.Helper()
 	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-		jobBoundCompletionEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, lane, time.Unix(at, 0).UTC(), nil),
+		jobBoundCompletionEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, lane, time.Unix(at, 0).UTC(), nil, workerFixtureDirectory(t, f.s, f.workID)),
 	}}); err != nil {
 		t.Fatalf("record the completed report of %s: %v", attemptID, err)
 	}
@@ -156,7 +156,7 @@ func (f crossAttemptFixture) completeReport(t *testing.T, attemptID string, lane
 func (f crossAttemptFixture) completeReviewNoShip(t *testing.T, attemptID string, at int64) {
 	t.Helper()
 	if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-		reviewLaneVerdictCompleteEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, f.reviewLane, "no_ship", time.Unix(at, 0).UTC()),
+		reviewLaneVerdictCompleteEvent(f.workID, "cross-attempt-completed-"+attemptID, attemptID, f.reviewLane, "no_ship", time.Unix(at, 0).UTC(), workerFixtureDirectory(t, f.s, f.workID)),
 	}}); err != nil {
 		t.Fatalf("record the no_ship review report of %s: %v", attemptID, err)
 	}
@@ -695,7 +695,7 @@ func TestCrossAttemptRejectionOnceOnly(t *testing.T) {
 		Payload: f.rejectRequest(t, versionBefore, f.attemptR, epochR, "", 50).Payload, Actor: f.fixture.owner,
 	}
 	replayRan := false
-	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, func(transaction *Transaction) (bool, error) {
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, f.s, BuiltinWorkflowRegistry(), preflight, func(transaction *Transaction) (bool, error) {
 		tx, err := transactionSQL(transaction, "cross-attempt-replay-witness")
 		if err != nil {
 			return false, err

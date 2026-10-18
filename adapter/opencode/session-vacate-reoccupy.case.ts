@@ -137,10 +137,6 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
   let binary = process.env.CONCORD_BIN ?? ""
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
-  // A wrapping zellij pane would append a rename warning to every work_start
-  // result; the cycle owns its own host seams and no pane.
-  const previousZellijPane = process.env.ZELLIJ_PANE_ID
-  delete process.env.ZELLIJ_PANE_ID
   try {
     if (!binary) {
       await mkdir(binRoot, { recursive: true })
@@ -397,8 +393,6 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     resetTurnMoveBoundaries()
     if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
-    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
-    else process.env.ZELLIJ_PANE_ID = previousZellijPane
   }
 }, 300_000)
 
@@ -420,8 +414,6 @@ connected("a readback outside every Project recovers through the remembered dest
   let binary = process.env.CONCORD_BIN ?? ""
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
-  const previousZellijPane = process.env.ZELLIJ_PANE_ID
-  delete process.env.ZELLIJ_PANE_ID
   try {
     if (!binary) {
       await mkdir(binRoot, { recursive: true })
@@ -578,8 +570,6 @@ connected("a readback outside every Project recovers through the remembered dest
     resetTurnMoveBoundaries()
     if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
-    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
-    else process.env.ZELLIJ_PANE_ID = previousZellijPane
   }
 }, 300_000)
 
@@ -599,8 +589,6 @@ connected("an unreadable ok answer recovers through the same-key replay from the
   let binary = process.env.CONCORD_BIN ?? ""
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
-  const previousZellijPane = process.env.ZELLIJ_PANE_ID
-  delete process.env.ZELLIJ_PANE_ID
   try {
     if (!binary) {
       await mkdir(binRoot, { recursive: true })
@@ -757,8 +745,6 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     resetTurnMoveBoundaries()
     if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
-    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
-    else process.env.ZELLIJ_PANE_ID = previousZellijPane
   }
 }, 300_000)
 
@@ -777,8 +763,6 @@ connected("a same-key replay after a later claim refuses without moving the host
   let binary = process.env.CONCORD_BIN ?? ""
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
-  const previousZellijPane = process.env.ZELLIJ_PANE_ID
-  delete process.env.ZELLIJ_PANE_ID
   try {
     if (!binary) {
       await mkdir(binRoot, { recursive: true })
@@ -964,7 +948,5 @@ connected("a same-key replay after a later claim refuses without moving the host
     resetTurnMoveBoundaries()
     if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
-    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
-    else process.env.ZELLIJ_PANE_ID = previousZellijPane
   }
 }, 300_000)

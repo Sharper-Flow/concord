@@ -127,13 +127,13 @@ tool does not move the boundary for the other.
 
 | Doc | Link |
 |---|---|
-| [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
+| [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the interface decision (R1). |
 | [`clarifications.md`](./clarifications.md) R7 | episode is removed under CD-0106; the knowledge ladder is observation, lesson, decision. |
-| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The session entry route owns session bootstrap until the terminal-layer cutover. CD-0219 retires the interactive TUI without transferring its operator acceptance gate. |
+| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | CD-0219 retires the interactive TUI, and the session entry route is removed with it (CD-0108). The host owns operator session start and resume. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 
 ---
 
 *The lgrep and vision direction remains a lean that evidence can challenge. The
-launcher/interface question is separate.*
+interface question is separate.*

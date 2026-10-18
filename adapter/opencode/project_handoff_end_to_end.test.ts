@@ -19,7 +19,24 @@ const routeDeclaration =
     ? test
     : test.skip
 
+async function runHandoffCases(pattern: string) {
+  const previous = process.env.TEST_CONCORD_HANDOFF_CASE
+  process.env.TEST_CONCORD_HANDOFF_CASE = pattern
+  try {
+    return await runOwnedSuite(join(import.meta.dir, "project_handoff_end_to_end.case.ts"))
+  } finally {
+    if (previous === undefined) delete process.env.TEST_CONCORD_HANDOFF_CASE
+    else process.env.TEST_CONCORD_HANDOFF_CASE = previous
+  }
+}
+
 routeDeclaration("boots, consumes, retires, and resumes after host restart through the real core routes", async () => {
-  const result = await runOwnedSuite(join(import.meta.dir, "project_handoff_end_to_end.case.ts"))
+  const result = await runHandoffCases("^(boots, consumes|restarts the handoff)")
   expect(result.exitCode, `owned handoff suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
 }, 450_000)
+
+test("host-started session receives real core context without out-of-surface writes", async () => {
+  const result = await runHandoffCases("^host-started session receives real core context without out-of-surface writes$")
+  expect(result.exitCode, `owned session context witness failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
+  expect(result.stdout).toContain("[pass] host-started session receives real core context without out-of-surface writes")
+}, 120_000)

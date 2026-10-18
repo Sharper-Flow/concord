@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 )
 
 // seedStaleLawCompaction builds a terminal work item that already carries a
@@ -116,115 +115,5 @@ func TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision(t *testing.T
 	}
 	if countRows(t, s, "archived_work") != 1 {
 		t.Fatal("recovery-exempt compaction link did not fold the archived_work row")
-	}
-}
-
-// seedPRMergeConditionOverlap gives one active work item an unresolved Domain
-// overlap and an open pr_merge condition, which is the only surface that
-// accepts a merge result.
-func seedPRMergeConditionOverlap(t *testing.T, workID, otherID string) (*Store, int64) {
-	t.Helper()
-	s, _, version := seedD7BoundaryOverlap(t, workID, otherID, "execution")
-	seedWorkflowAuthority(t, s, "merge-authority-"+workID, workID, "principal/merge", "request/merge", []string{"evidence:merge"})
-	added := workflowEvent("merge-condition-added-"+workID, WorkflowConditionAdded, workID, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"condition_id": "condition:merge", "await_type": "pr_merge", "await_ref": "pr:merge",
-		"resolution_authority": "durable_operation:merge-authority-" + workID,
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{added}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	return s, version + 1
-}
-
-type mergeConditionResolver struct{ calls int }
-
-func (r *mergeConditionResolver) Resolve(_ context.Context, _ ExternalCondition, _ time.Time) (Resolution, error) {
-	r.calls++
-	return Resolution{ResolutionEvidence: []string{"evidence:merge"}, ResolvedByEvent: "merge-resolution-event", ActorRef: "principal/merge"}, nil
-}
-
-// TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap covers the
-// CD-0222 D7 merge/ship boundary. Accepting a merge result is a consequential
-// mutation, so it revalidates architecture and law inside its own transaction.
-func TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const workID = "d7-merge-condition"
-	const otherID = "d7-merge-condition-other"
-	s, version := seedPRMergeConditionOverlap(t, workID, otherID)
-	beforeEvents := countRows(t, s, "domain_events")
-
-	resolver := &mergeConditionResolver{}
-	err := ResolveWorkflowCondition(ctx, s, workID, "condition:merge", resolver, time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC))
-	assertD7TypedRefusal(t, err, workID, otherID)
-
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id='condition:merge'`, workID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "open" {
-		t.Fatalf("refused merge boundary left condition state=%q, want open", state)
-	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("refused merge boundary changed work version=%d, want %d", got, version)
-	}
-	if countRows(t, s, "domain_events") != beforeEvents {
-		t.Fatalf("refused merge boundary appended events: %d, want %d", countRows(t, s, "domain_events"), beforeEvents)
-	}
-}
-
-// TestResolveWorkflowConditionAcceptsMergeWithoutOverlap is the control: the
-// same call succeeds once no unresolved overlap exists, so the refusal above is
-// attributable to the boundary rather than to the fixture.
-func TestResolveWorkflowConditionAcceptsMergeWithoutOverlap(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const workID = "d7-merge-clean"
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowAuthority(t, s, "merge-authority-clean", workID, "principal/merge", "request/merge", []string{"evidence:merge"})
-	added := workflowEvent("merge-condition-clean", WorkflowConditionAdded, workID, map[string]any{
-		"work_id": workID, "expected_version": 2, "resulting_version": 3,
-		"condition_id": "condition:merge", "await_type": "pr_merge", "await_ref": "pr:merge",
-		"resolution_authority": "durable_operation:merge-authority-clean",
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{added}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	resolver := &mergeConditionResolver{}
-	if err := ResolveWorkflowCondition(ctx, s, workID, "condition:merge", resolver, time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("merge boundary refused without an overlap: %v", err)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id='condition:merge'`, workID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "resolved" {
-		t.Fatalf("merge condition state=%q, want resolved", state)
-	}
-}
-
-// TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap
-// covers the batch form of the same boundary.
-func TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	const workID = "d7-merge-batch"
-	const otherID = "d7-merge-batch-other"
-	s, _ := seedPRMergeConditionOverlap(t, workID, otherID)
-	beforeEvents := countRows(t, s, "domain_events")
-
-	resolver := &mergeConditionResolver{}
-	resolved, err := ResolveWorkflowConditionsAtBoundary(ctx, s, workID, resolver, time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC))
-	assertD7TypedRefusal(t, err, workID, otherID)
-	if resolved != 0 {
-		t.Fatalf("refused batch merge boundary resolved %d conditions, want 0", resolved)
-	}
-	if countRows(t, s, "domain_events") != beforeEvents {
-		t.Fatalf("refused batch merge boundary appended events: %d, want %d", countRows(t, s, "domain_events"), beforeEvents)
-	}
-	if resolver.calls != 0 {
-		t.Fatalf("refused batch merge boundary consulted the resolver %d times, want 0", resolver.calls)
 	}
 }

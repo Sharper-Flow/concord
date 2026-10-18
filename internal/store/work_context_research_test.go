@@ -1097,7 +1097,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
 			Payload: mustJSONValue(WorkerCompletedPayload{
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-				EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence,
+				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
+				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
 				Review: &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{{Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker"}}},
 			}),
 		}}}); err != nil {

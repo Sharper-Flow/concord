@@ -4,12 +4,15 @@
 - **Date:** 2026-08-16
 - **Scope:** Outcome-binding law; completion clause 5; operator direction
 - **Related:** CD-0005 (D6, TS4), CD-0012, issue #71
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the operator
+  console to the host-started session under the Snowball coordinator's
+  operator-delegated approval.
 - **Supersedes:** nothing
 
 ## Context
 
-The operator console is the launcher plus the OpenCode TUI sessions it
-launches. Observation and intervention live in the session: the operator can
+The operator console is the host-started OpenCode session. Observation and
+intervention live in the session: the operator can
 redirect, correct, or narrow an agent mid-run by typing to it. That division
 is intended (CD-0005 D6, TS4): Concord owns authority and durable truth, not
 session observation.

@@ -26,18 +26,6 @@
       "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
-      "id": "workflow-read-projection-law-only",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.DeriveWorkflowReady",
-        "internal/store.DeriveWorkflowReadyWithReader",
-        "internal/store.ReadWorkflowProjection",
-        "internal/store.parkedDeliveryRead",
-        "internal/store.workflowRecordedStalenessWarnings"
-      ],
-      "reason": "CD-0166 D4 requires parked_delivery in the workflow read, and the published workflow_read schema requires impact_notices and completion_warnings. ReadWorkflowProjection is the only reader that fills them: PM1.Q7 reads through readWorkflowSummaryTx, which omits parked_delivery and stale_law_revision and always emits those arrays empty. The readiness derivation and its reader seam serve only this projection, so deleting them would delete the only implementation of current law. A tracked follow-up folds this projection into the transaction-scoped Q7 reader."
-    },
-    {
       "id": "workflow-outcome-strength-evaluator-unwired",
       "state": "out_of_scope",
       "functions": [
@@ -62,16 +50,6 @@
         "internal/store.ResumeWorkflow"
       ],
       "reason": "CD-0013 acceptance criteria 9 (an execution-time outcome replacement is refused), 22 (a committed checkpoint is the resume boundary), and 25 (operator takeover requires an approval reference) are exercised only through these functions, in the WF09, WF22, and WF25 corpus scenarios. No shipped route reaches them, and the shipped checkpoint producer writes an empty resume cursor that ResumeWorkflow refuses. A tracked follow-up gives each criterion a shipped route or amends it."
-    },
-    {
-      "id": "workflow-condition-resolver-unwired",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.CancelWorkflowCondition",
-        "internal/store.ResolveWorkflowCondition",
-        "internal/store.ResolveWorkflowConditionsAtBoundary"
-      ],
-      "reason": "CD-0013 acceptance criterion 26 requires condition evaluation through a resolver, CD-0008 D5 requires it on explicit request and at consequential boundaries, and the CD-0013 completion gate requires every declared condition to be resolved or canceled. The shipped workflow action boundary passes a nil resolver, and the cancel_condition and resolve_condition actions exist only on the archived workflow.ops_runbook family, which refuses every public action. These pooled resolution and cancellation entry points are therefore the only live routes, exercised by WF26, WF28, and the CD-0222 D7 boundary tests. A tracked follow-up wires a resolver and a cancellation route or amends that law."
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",

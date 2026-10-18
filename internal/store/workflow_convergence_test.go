@@ -69,7 +69,7 @@ func TestConvergenceRejectionFindingSets(t *testing.T) {
 					}
 				}
 				lane := BuiltinLaneDefinitions()[0]
-				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventForLane(workID, "complete-"+attemptID, attemptID, lane, time.Unix(21, 0).UTC())}}); err != nil {
+				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventForLane(workID, "complete-"+attemptID, attemptID, lane, time.Unix(21, 0).UTC(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 					t.Fatal(err)
 				}
 				fields := map[string]any{"attempt_id": attemptID, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair"), "diagnosis": "a reproduced defect remains", "strategy": "fix the remaining finding", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:convergence"}}

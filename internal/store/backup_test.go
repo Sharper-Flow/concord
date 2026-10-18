@@ -392,26 +392,6 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	execResearchFixture("evidence-f2", `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,2,'f2','conclusion','newer revision conclusion','high','current','active','home')`, pack.PackID)
 	execResearchFixture("evidence-f2-link", `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,2,'f2','s2')`, pack.PackID)
 
-	// One completed retained worker report: the dispatch and its completion
-	// report are retained events, folded into the worker attempt row.
-	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "attempt:evidence-retained-report"
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "evidence-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	completion := jobBoundCompletionEvent(workID, "evidence-completed", attemptID, lane, time.Unix(31, 0).UTC(), nil)
-	var report WorkerCompletedPayload
-	if err := json.Unmarshal(completion.Payload, &report); err != nil || len(report.Evidence) == 0 {
-		t.Fatalf("retained completion must contain reported evidence: %+v %v", report, err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatal(err)
-	}
-
 	// One claim with a live session landing in a disposable worktree root.
 	repoRoot := t.TempDir()
 	var projectVersion int64
@@ -440,6 +420,25 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	}
 	if landing.AlreadyRecorded || landing.ProjectID != "project" {
 		t.Fatalf("landing=%+v, want the evidence session freshly recorded in project", landing)
+	}
+	// One completed retained worker report: the dispatch and its completion
+	// report are retained events, folded into the worker attempt row.
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "attempt:evidence-retained-report"
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "evidence-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	completion := jobBoundCompletionEvent(workID, "evidence-completed", attemptID, lane, time.Unix(31, 0).UTC(), nil, landedDirectory)
+	var report WorkerCompletedPayload
+	if err := json.Unmarshal(completion.Payload, &report); err != nil || len(report.Evidence) == 0 {
+		t.Fatalf("retained completion must contain reported evidence: %+v %v", report, err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// The work-context selection: the context consumer runs the current

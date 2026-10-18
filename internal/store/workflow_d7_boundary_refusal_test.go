@@ -200,7 +200,7 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 		IdempotencyKey: "d7-" + actionID + "-" + workID, RequestID: "request:d7-" + actionID + "-" + workID,
 		ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 	}
-	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), execution)
 		return err
 	})

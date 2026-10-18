@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
-- **Scope:** Product-wide migration, correction, replacement-readiness, and
-  replacement-relation policy; issue #571
+- **Scope:** Product-wide migration and correction, bounded Domain and work-item
+  relations, and data-integrity controls; issue #571
 - **Approval:** Operator approved the Product-law cleanup for issue #571 on
   2026-08-29.
 - **Amended:** 2026-10-17. Coordinator approval under the operator's delegation

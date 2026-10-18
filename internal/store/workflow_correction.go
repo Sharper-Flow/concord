@@ -294,9 +294,7 @@ func validateRejectCorrectionPinValues(payload json.RawMessage, evidenceRefs []s
 }
 
 func workflowCorrectionRequestActionDefinition() WorkflowActionDefinition {
-	action := currentActionDefinition("request_correction", true)
-	action.RequiredCapability = "work_transition"
-	return action
+	return workTransitionAction(currentActionDefinition("request_correction", true))
 }
 
 // workflowCorrectionRouteStrategy renders the strategy line the correction

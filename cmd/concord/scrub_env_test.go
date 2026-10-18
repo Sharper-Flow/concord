@@ -10,12 +10,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// sessionCommand re-executes this test binary with the fixed `session`
-	// argument (session_handoff.go). That child is the real session command
-	// against the environment the parent staged, so it must exit before the
-	// suite runs or the environment scrubs.
-	if len(os.Args) > 1 && os.Args[1] == sessionChildArg {
-		os.Exit(runSessionSubprocess())
+	// launch_refusal_test.go re-executes this binary to prove the removed
+	// argv[0] forwarding rule is gone. That child reports the route result
+	// for the parent's arguments and must exit before the suite runs or the
+	// environment scrubs.
+	if len(os.Args) > 1 && os.Args[1] == launchRefusalChildArg {
+		os.Exit(runLaunchRefusalChild())
 	}
 	dir := testenv.ScrubEnv()
 	gittest.DisableBackgroundMaintenance()

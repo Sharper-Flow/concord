@@ -2026,11 +2026,10 @@ esac''',
         self.assertIn('"keep": true', config)
 
     def test_install_recognizes_a_tuple_entry_and_keeps_its_options(self) -> None:
-        """CD-0182: an operator tuple entry with a session opener survives an upgrade."""
-        opener = ["my-tabs", "new-tab", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"]
+        """CD-0182: an operator tuple entry with its options survives an upgrade."""
         entry = self.plugin_entry_path()
         self.config.write_text(
-            json.dumps({"keep": True, "plugin": [[entry, {"session_opener": opener}], "/operator/other"]}, indent=2),
+            json.dumps({"keep": True, "plugin": [[entry, {"operator_label": "ops"}], "/operator/other"]}, indent=2),
             encoding="utf-8",
         )
         self.make_release("v1.0.0")
@@ -2042,7 +2041,7 @@ esac''',
         tuples = [item for item in plugin if isinstance(item, list)]
         self.assertEqual(len(tuples), 1)
         self.assertEqual(tuples[0][0], entry)
-        self.assertEqual(tuples[0][1]["session_opener"], opener)
+        self.assertEqual(tuples[0][1]["operator_label"], "ops")
         self.assertIn("/operator/other", plugin)
 
     def test_uninstall_removes_a_tuple_entry_whole(self) -> None:
@@ -2051,7 +2050,7 @@ esac''',
         tuple_text = (
             "    [\n"
             + f"      {json.dumps(entry)},\n"
-            + '      {"session_opener": ["my-tabs", "new", "--x[]y", "{command}"]}\n'
+            + '      {"operator_label": ["ops", "a]b"]}\n'
             + "    ]"
         )
         self.config.write_text(
@@ -2067,7 +2066,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -2077,7 +2076,7 @@ esac''',
         self.config.write_text(
             '{\n  "keep": true,\n  "plugin": [\n'
             '    /* [ comment bracket */ "/operator/other",\n'
-            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}]\n'
+            '    ["' + entry + '", {"operator_label": "ops"}]\n'
             '  ]\n}\n',
             encoding="utf-8",
         )
@@ -2088,7 +2087,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         # The comment stays, the neighbour stays, and the result still parses.
         self.assertIn("comment bracket", config)
         plugin = installer.jsonc_data(config)["plugin"]
@@ -2099,7 +2098,7 @@ esac''',
         entry = self.plugin_entry_path()
         self.config.write_text(
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}] /* after */,\n'
+            '    ["' + entry + '", {"operator_label": "ops"}] /* after */,\n'
             '    "/operator/other"\n  ]\n}\n',
             encoding="utf-8",
         )
@@ -2110,7 +2109,7 @@ esac''',
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
         self.assertNotIn(entry, config)
-        self.assertNotIn("session_opener", config)
+        self.assertNotIn("operator_label", config)
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -3974,7 +3973,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     ENTRY = "/tools/concord-plugin.ts"
 
     def test_plan_keeps_a_tuple_entry_untouched(self) -> None:
-        text = '{\n  "plugin": [\n    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        text = '{\n  "plugin": [\n    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         self.assertEqual(installer.plan_plugin_entry(text, self.ENTRY), text)
 
     def test_plan_still_adds_a_bare_entry_when_absent(self) -> None:
@@ -3985,11 +3984,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_remove_drops_the_whole_tuple_and_keeps_neighbours(self) -> None:
         text = (
             '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}],\n'
-            '    ["%s", {"session_opener": ["x", "a]b", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x", "a]b"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         self.assertIn("/operator/plugin", result)
         self.assertIn("/operator/other", result)
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4000,11 +3999,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    /* [ comment bracket */ "/operator/other",\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         self.assertIn("comment bracket", result)
         self.assertIn("/operator/other", result)
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4014,7 +4013,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "plugin": [\n'
             '    // [ comment bracket\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
@@ -4026,11 +4025,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    ["/operator/other"],\n'
-            '    ["%s", /* ] comment */ {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", /* ] comment */ {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The neighbour survives whole and the remainder still parses: a span
         # that ended at the comment's ']' would strand the comment body.
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4040,12 +4039,12 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         """A comment between the tuple and its separating comma hides nothing."""
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}] /* after */, "/operator/other"\n  ]\n}\n'
+            '    ["%s", {"labels": ["x"]}] /* after */, "/operator/other"\n  ]\n}\n'
             % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The neighbour survives and the remainder still parses: a span that
         # stopped at the comment would strand a leading comma before it.
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4054,12 +4053,12 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_remove_skips_a_line_comment_between_the_tuple_and_its_comma(self) -> None:
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}] // tuple note\n'
+            '    ["%s", {"labels": ["x"]}] // tuple note\n'
             '    ,\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
@@ -4067,11 +4066,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         text = (
             '{\n  "keep": true,\n  "plugin": [\n'
             '    "/operator/other", /* tuple note */\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         # The comma before the comment goes with the tuple; a span that kept
         # it would leave a trailing comma after "/operator/other".
         plugin = installer.jsonc_data(result)["plugin"]
@@ -4082,11 +4081,11 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
             '{\n  "keep": true,\n  "plugin": [\n'
             '    "/operator/other",\n'
             '    // tuple note\n'
-            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+            '    ["%s", {"labels": ["x"]}]\n  ]\n}\n' % self.ENTRY
         )
         result = installer.remove_plugin_entry(text, self.ENTRY)
         self.assertNotIn(self.ENTRY, result)
-        self.assertNotIn("session_opener", result)
+        self.assertNotIn("labels", result)
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 

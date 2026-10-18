@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import nodeFs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
-import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
+import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, type RouteClient } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { AdapterContractDefect } from "./adapter-contract-defect"
 const testDirectories: string[] = []
@@ -14,13 +14,20 @@ function mkdtempSync(prefix: string): string {
 }
 const fs = { ...nodeFs, mkdtempSync }
 
+async function acknowledgeNativeTask(request: Parameters<RouteClient["post"]>[0]) {
+  expect(request.url).toBe(SESSION_MESSAGES_ROUTE)
+  const body = request.body as { agent: string; noReply: boolean; parts: unknown[] }
+  expect(body.noReply).toBe(true)
+  return { data: { info: { id: "queued-message", sessionID: request.path?.id, agent: body.agent }, parts: body.parts }, response: new Response(null, { status: 200 }) }
+}
+
 beforeEach(() => {
   // Another file's landing tests can arm a claim that leaks into this run;
   // dispatch checks here must not depend on file order.
   resetClaimedWorktrees()
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
-    post: async () => { throw new Error("dispatch does not move the host session") },
+    post: acknowledgeNativeTask,
   })
 })
 afterEach(() => {
@@ -230,6 +237,97 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   // evidence. Both belong to completion (CD-0102 D5).
   expect(evidenceCalls).toBe(0)
   expect(windows.has("session-1")).toBe(true)
+})
+
+test("authorized dispatch queues exactly one native Task with no model or provider assignment", async () => {
+  const windows = new DispatchWindows()
+  const requests: Parameters<RouteClient["post"]>[0][] = []
+  const permissions: unknown[] = []
+  const context = contextFor()
+  let authorized = false
+  let authorizedPacket: AgentLanePacket | undefined
+  context.ask = async (request: unknown) => { expect(authorized).toBe(true); permissions.push(request) }
+  hostControlPlane().bind({
+    get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    async post(request) {
+      expect(authorized).toBe(true)
+      expect(permissions).toHaveLength(1)
+      expect(windows.has("session-1")).toBe(true)
+      requests.push(request)
+      return acknowledgeNativeTask(request)
+    },
+  })
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") {
+      authorizedPacket = (args.input!.fields as { worker_packet: AgentLanePacket }).worker_packet
+      authorized = true
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${key}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "native-task", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(permissions).toEqual([{ permission: "task", patterns: [`concord-${lane.id}`], always: ["*"], metadata: { description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, subagent_type: `concord-${lane.id}` } }])
+  expect(requests).toHaveLength(1)
+  expect(requests[0].body).toEqual({
+    agent: "agent-1",
+    noReply: true,
+    parts: [{ type: "subtask", agent: `concord-${lane.id}`, description: `${lane.id} lane, attempt ${authorizedPacket!.attempt_id}`, prompt: JSON.stringify(authorizedPacket) }],
+  })
+})
+
+test("a host Task permission denial cannot queue a native worker", async () => {
+  const windows = new DispatchWindows()
+  const context = contextFor()
+  let queues = 0
+  context.ask = async () => { throw new Error("synthetic host Task denial") }
+  hostControlPlane().bind({
+    get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    async post(request) { queues++; return acknowledgeNativeTask(request) },
+  })
+  const invoke = async (toolName: string, args: { operation: string }) => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") return coreOkEnvelope()
+    throw new Error(`unscripted ${key}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "host-denied-task", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("unauthorized_dispatch")
+  expect(result.error?.details).toEqual({ boundary: "host_task_permission", effect_state: "possible", dispatch_authorized: true, worker_launch: "not_started" })
+  expect(result.error?.message).toContain("synthetic host Task denial")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(queues).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("an unconfirmed native launch preserves the authorized effect and never retries the queue", async () => {
+  const windows = new DispatchWindows()
+  let queues = 0
+  let authorizations = 0
+  hostControlPlane().bind({
+    get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    async post() { queues++; throw new Error("synthetic lost acknowledgment") },
+  })
+  const invoke = async (toolName: string, args: { operation: string }) => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { authorizations++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "unconfirmed-native-task", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("synthetic lost acknowledgment")
+  expect(result.error?.details).toEqual({ effect_state: "possible", dispatch_authorized: true, worker_launch: "unconfirmed" })
+  expect(result.error?.retry_safe).toBe(false)
+  expect(authorizations).toBe(1)
+  expect(queues).toBe(1)
+  expect(windows.has("session-1")).toBe(false)
 })
 
 test("pre-contract research dispatch carries the recorded question as the task", async () => {

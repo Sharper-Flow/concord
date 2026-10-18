@@ -82,22 +82,30 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 	if len(recordedSubject) > 0 {
 		f.dispatchSubject = recordedSubject[0]
 	}
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim','oracle-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(work), f.head, f.repo, f.repo); err != nil {
+	f.qualify(t, "oracle-branch", "pkg", "pkg/oracle.json", "TestValue")
+	return f
+}
+
+// qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
+// single control without launching it, and authorizes two attempts to execute it.
+func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, testName string) {
+	t.Helper()
+	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
 		t.Fatal(err)
 	}
-	fields := acceptanceOracleFieldsForTest(t, f.s, work)
+	fields := acceptanceOracleFieldsForTest(t, f.s, f.work)
 	raw, _ := json.Marshal(fields)
 	var oracle AcceptanceOracle
 	if err := json.Unmarshal(raw, &oracle); err != nil {
 		t.Fatal(err)
 	}
 	f.bundle = NativeOracleControlBundle{Owner: oracle.Owners[0], Cases: oracle.Cases, Control: oracle.Controls[0]}
-	f.bundle.Control.Cwd = "pkg"
-	f.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "pkg/oracle.json", CommitOID: f.head}
-	f.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."}
+	f.bundle.Control.Cwd = cwd
+	f.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: recipePath, CommitOID: f.head}
+	f.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(" + testName + ")$", "."}
 	f.bundle.Control.ReadinessEvidenceRefs = nil
 	f.s.nativeOracleProgramLaunched = func() {
 		f.launches++
@@ -107,14 +115,14 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 		}
 	}
 	prepare := &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	var err error
 	f.prepare, err = f.s.VerifyWorktree(context.Background(), f.request("prepare", prepare))
 	if err != nil || f.prepare.Oracle == nil || f.prepare.Oracle.Qualification != "ready" {
 		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
 	}
 	f.assertNoLaunch(t)
-	f.a = f.authorize(t, "a", seed.owner)
-	f.b = f.authorize(t, "b", seed.owner)
-	return f
+	f.a = f.authorize(t, "a", f.actor)
+	f.b = f.authorize(t, "b", f.actor)
 }
 
 func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {

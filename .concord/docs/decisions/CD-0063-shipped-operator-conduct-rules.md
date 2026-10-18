@@ -142,7 +142,8 @@ Project `.opencode/opencode.json[c]` agent settings provide a project-only layer
 after the global definitions and before the machine overrides. `instructions[]`
 composes user instruction files alongside the shipped prompt rather than
 replacing it. Concord adds no separate overlay store or merge algorithm, and
-never writes or removes anything under `~/.opencode/`.
+never writes or removes anything under `~/.opencode/` unless the operator links
+the home directory itself as a project.
 
 The installer never adopts, rewrites, or prunes an unmanaged agent file. If a
 release introduces a name already used by a host-owned file, installation

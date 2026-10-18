@@ -166,8 +166,10 @@ as shown below. Move existing machine-specific `agent.<name>` keys from the
 global JSON to this file when they must override shipped settings.
 
 Keep only `agent` settings in that file. Do not put agent markdown in
-`~/.opencode/agents/`: it loads after the shipped definition and replaces it.
-Concord never writes or removes anything under `~/.opencode/`.
+`~/.opencode/agents/`: it loads last and overrides every field it defines,
+including your JSON settings in the same directory. Concord never writes or
+removes anything under `~/.opencode/` unless you link your home directory itself
+as a project.
 
 OpenCode loads the listed instructions for every agent, alongside its agent
 prompt. Use an instruction such as “For concord-explore, …” when a rule applies

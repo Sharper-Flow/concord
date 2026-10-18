@@ -31,7 +31,7 @@ import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 // one, so a suite run without the toolchain reports a skip, never a silent
 // pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
     : (name: string, fn: () => Promise<void>) => test.skip(name, fn, { timeout: 300000 })
 

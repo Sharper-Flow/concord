@@ -126,13 +126,9 @@ func dispatchApprovedCallWithFault(t *testing.T, s *store.Store, service *Servic
 	}
 	request.Input = approved
 	before := agentDurableStateSnapshot(t, s)
-	if _, err := s.DatabaseForTesting().Exec(fault); err != nil {
-		t.Fatal(err)
-	}
+	execFixtureSQL(t, s, fault)
 	response, err := Dispatch(ctx, s, service, request, env)
-	if _, restoreErr := s.DatabaseForTesting().Exec(restore); restoreErr != nil {
-		t.Fatal(restoreErr)
-	}
+	execFixtureSQL(t, s, restore)
 	if err != nil {
 		t.Fatalf("approved dispatch err=%v", err)
 	}

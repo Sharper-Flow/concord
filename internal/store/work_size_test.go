@@ -18,7 +18,8 @@ func workSizeInputsFixture() WorkSizeInputs {
 func workSizeFootprintFixture() WorkSizeFootprint {
 	return WorkSizeFootprint{
 		KnowledgeCommit: "0123456789abcdef0123456789abcdef01234567", RegistryContentHash: "sha256:registry",
-		Paths:          []WorkSizeFootprintPath{{Path: "internal/store/work_size.go", Package: "internal/store", DomainIDs: []string{"storage"}}},
+		Paths:          []FootprintPath{{Path: "internal/store/work_size.go", Package: "internal/store", DomainIDs: []string{"storage"}}},
+		DomainIDs:      []string{"storage"},
 		BehaviorLawIDs: []string{},
 	}
 }
@@ -131,6 +132,29 @@ func TestWorkSizeEventRefusesCountsTheFootprintDoesNotShow(t *testing.T) {
 	assertFailureKind(t, err, KindInvariantViolation)
 }
 
+// A law found through a named path reaches its home Domain even when the
+// path's package maps elsewhere; the footprint's Domain list, not the paths'
+// own Domain IDs, is the span the model reads.
+func TestWorkSizeEventCountsTheDomainsTheFootprintReaches(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "reach")
+	footprint := workSizeFootprintFixture()
+	footprint.DomainIDs = []string{"storage", "workflow"}
+	inputs := workSizeInputsFixture()
+	err := applyWorkEvent(t, s, workSizedEventWith("reach-1", "reach", WorkSizeModelVersion, WorkSizeSmall, inputs, footprint), nil)
+	assertFailureKind(t, err, KindInvariantViolation)
+	inputs.DomainCount = 2
+	if err := applyWorkEvent(t, s, workSizedEventWith("reach-2", "reach", WorkSizeModelVersion, WorkSizeLarger, inputs, footprint), nil); err != nil {
+		t.Fatal(err)
+	}
+	stray := workSizeFootprintFixture()
+	stray.DomainIDs = []string{}
+	inputs = workSizeInputsFixture()
+	inputs.DomainCount = 0
+	err = applyWorkEvent(t, s, workSizedEventWith("reach-3", "reach", WorkSizeModelVersion, WorkSizeSmall, inputs, stray), nil)
+	assertFailureKind(t, err, KindInvariantViolation)
+}
+
 func TestWorkSizeEventRefusesAKindTheWorkDoesNotCarry(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "kind")
@@ -146,7 +170,7 @@ func TestWorkSizeEventSizesABehaviorOnlyFootprintAtLeastLarger(t *testing.T) {
 	inputs := workSizeInputsFixture()
 	inputs.PathCount, inputs.DomainCount, inputs.PackageCount = 0, 0, 0
 	footprint := workSizeFootprintFixture()
-	footprint.Paths, footprint.Behavior, footprint.BehaviorLawIDs = []WorkSizeFootprintPath{}, "work-item sizing", []string{"CD-0229"}
+	footprint.Paths, footprint.DomainIDs, footprint.Behavior, footprint.BehaviorLawIDs = []FootprintPath{}, []string{}, "work-item sizing", []string{"CD-0229"}
 	err := applyWorkEvent(t, s, workSizedEventWith("behavior-1", "behavior", WorkSizeModelVersion, WorkSizeSmall, inputs, footprint), nil)
 	assertFailureKind(t, err, KindInvariantViolation)
 	if err := applyWorkEvent(t, s, workSizedEventWith("behavior-2", "behavior", WorkSizeModelVersion, WorkSizeLarger, inputs, footprint), nil); err != nil {

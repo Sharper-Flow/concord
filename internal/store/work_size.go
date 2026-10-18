@@ -14,24 +14,18 @@ import (
 // neither a forged event nor an agent-proposed size can fold.
 const WorkSized = "work.sized"
 
-// WorkSizeFootprintPath is one named path as the footprint read resolved it.
-type WorkSizeFootprintPath struct {
-	Path      string   `json:"path"`
-	Package   string   `json:"package,omitempty"`
-	DomainIDs []string `json:"domain_ids"`
-	Unmapped  bool     `json:"unmapped"`
-}
-
-// WorkSizeFootprint is the footprint snapshot the model read: the knowledge
-// commit and hashes it was read at, the named paths, and the behavior phrase
-// with the laws it matched.
+// WorkSizeFootprint is the footprint snapshot the model read
+// (DomainFootprintResult): the knowledge commit and hashes it was read at,
+// each named path as the read resolved it, every Domain the read reached, and
+// the behavior phrase with the laws it matched.
 type WorkSizeFootprint struct {
-	KnowledgeCommit       string                  `json:"knowledge_commit"`
-	RegistryContentHash   string                  `json:"registry_content_hash"`
-	PackageMapContentHash *string                 `json:"package_map_content_hash"`
-	Paths                 []WorkSizeFootprintPath `json:"paths"`
-	Behavior              string                  `json:"behavior,omitempty"`
-	BehaviorLawIDs        []string                `json:"behavior_law_ids"`
+	KnowledgeCommit       string          `json:"knowledge_commit"`
+	RegistryContentHash   string          `json:"registry_content_hash"`
+	PackageMapContentHash *string         `json:"package_map_content_hash"`
+	Paths                 []FootprintPath `json:"paths"`
+	DomainIDs             []string        `json:"domain_ids"`
+	Behavior              string          `json:"behavior,omitempty"`
+	BehaviorLawIDs        []string        `json:"behavior_law_ids"`
 }
 
 type workSizedPayload struct {
@@ -115,10 +109,19 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 	if len(f.Paths) == 0 && f.Behavior == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "the footprint snapshot names no path and no behavior", false, "name at least one path or a behavior phrase")
 	}
-	domains, packages, unmapped := map[string]struct{}{}, map[string]struct{}{}, 0
+	reached := map[string]struct{}{}
+	for _, domainID := range f.DomainIDs {
+		reached[domainID] = struct{}{}
+	}
+	if len(reached) != len(f.DomainIDs) {
+		return mismatch("the footprint snapshot lists a Domain twice")
+	}
+	packages, unmapped := map[string]struct{}{}, 0
 	for _, path := range f.Paths {
 		for _, domainID := range path.DomainIDs {
-			domains[domainID] = struct{}{}
+			if _, ok := reached[domainID]; !ok {
+				return mismatch("a footprint path names a Domain the footprint does not reach")
+			}
 		}
 		if path.Package != "" {
 			packages[path.Package] = struct{}{}
@@ -130,7 +133,7 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 	switch {
 	case in.PathCount != len(f.Paths):
 		return mismatch("size inputs count a different number of paths than the footprint names")
-	case in.DomainCount != len(domains):
+	case in.DomainCount != len(f.DomainIDs):
 		return mismatch("size inputs count a different number of Domains than the footprint reaches")
 	case in.PackageCount != len(packages):
 		return mismatch("size inputs count a different number of packages than the footprint resolves")

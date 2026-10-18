@@ -339,7 +339,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	}
 	if productChanging {
 		successor["architecture_binding"] = binding
-	} else {
+	} else if len(lawModifies) == 0 {
 		delete(successor, "law_modifies")
 	}
 	if selfRepairPresent && selfRepair != nil {

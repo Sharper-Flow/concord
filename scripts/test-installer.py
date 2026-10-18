@@ -2820,7 +2820,6 @@ esac''',
         instructions = self.config.parent / "user-instructions.md"
         instructions.write_text("User instruction sentinel.\n", encoding="utf-8")
         config = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
-        config.pop("keep")  # Only host-schema keys reach the optional real-host probe.
         user_agent = {"model": "openai/test-model"}
         config.update({"agent": {"concord-explore": user_agent}, "instructions": [str(instructions)]})
         self.config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
@@ -2850,8 +2849,7 @@ esac''',
             probe_config = self.root / "probe-config" / "opencode"
             probe_config.mkdir(parents=True, exist_ok=True)
             (probe_config / "agents").mkdir(exist_ok=True)
-            for agent in (target, host_agent):
-                shutil.copyfile(agent, probe_config / "agents" / agent.name)
+            shutil.copyfile(target, probe_config / "agents" / target.name)
             (probe_config / "opencode.jsonc").write_text(json.dumps({
                 "$schema": "https://opencode.ai/config.json",
                 "agent": config["agent"], "instructions": config["instructions"],

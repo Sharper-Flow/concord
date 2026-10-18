@@ -10,9 +10,9 @@ import (
 )
 
 // CD-0173 D2: the comparison-work count and the investigation-ref reads
-// answer one question and must run in one read transaction. The owner of
-// the operator question read is ReadWorkPin: it opens the one read-only
-// snapshot and every read below flows through it; no read may bypass the
+// answer one question and must run in one read transaction. ReadWorkPin
+// opens the one read-only snapshot for the pin read, and every read below
+// it flows through that snapshot; no read may bypass the
 // transaction through the store handle. This structural check fails when a
 // read is reattached to s.db, because a behavioral test cannot interleave a
 // writer between two reads of one serialized call. It also fails when the
@@ -81,7 +81,7 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 				} else {
 					foreignReads++
 				}
-			case "ReadWorkPin", "ReadWorkflowOperatorQuestion", "beginReadTx":
+			case "ReadWorkPin", "beginReadTx":
 				foreignReads++
 			}
 		}

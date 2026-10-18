@@ -656,14 +656,13 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
 			t.Fatalf("the independent evaluator's verdict refused: %v", err)
 		}
-		// Dispatch a worker attempt for the reviewer's identity, so the
-		// authority derivation classifies it as a worker (the event-owned
-		// dispatch shape the worker authority reads).
+		// Keep the dispatched worker distinct from the evaluator so verdict
+		// independence does not mask the worker-authority check.
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: "approval-worker-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: actors.reviewerRef, OccurredAt: time.Unix(12, 45).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: actors.reviewerRef}),
+			Actor: actors.coordinatorRef, OccurredAt: time.Unix(12, 45).UTC(), PayloadVersion: 2,
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: actors.coordinatorRef}),
 		}}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
@@ -671,7 +670,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		// The worker-authority identity cannot record the engineering
 		// confirmation through the public action route.
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", actors.reviewer, nil, "confirm", "", `{"selected_choice":"confirm"}`)
+		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", actors.coordinator, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var workerFailure *Failure
 		if err == nil || !failureAs(err, &workerFailure) || workerFailure.Kind != KindUnauthorized || !strings.Contains(workerFailure.Detail, "worker actors cannot record an engineering premise confirmation") {
 			t.Fatalf("the worker-authority confirmation returned %v, want the worker authority refusal", err)

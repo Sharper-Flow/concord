@@ -1586,7 +1586,7 @@ func admissionKeyCount(value int64) uint8 {
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
 	var flags uint16
 	for i, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
-		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.done} {
+		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.done, state.engineering} {
 		if set {
 			flags |= 1 << i
 		}
@@ -1613,11 +1613,20 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 27
+const admissionModelKeyFields = 28
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
 		t.Fatalf("admissionModelState has %d fields but admissionModelKeyOf encodes %d; encode the new field so distinct states keep distinct keys", got, admissionModelKeyFields)
+	}
+}
+
+func TestAdmissionModelKeyKeepsEngineeringClassification(t *testing.T) {
+	steps := []string{""}
+	plain := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone})
+	engineering := admissionModelKeyOf(steps, admissionModelState{debt: ReviewDebtNone, engineering: true})
+	if plain == engineering {
+		t.Fatalf("admissionModelKeyOf encodes %d fields but states differing only in engineering share key %#v; encode the engineering field so distinct states keep distinct keys", admissionModelKeyFields, plain)
 	}
 }
 

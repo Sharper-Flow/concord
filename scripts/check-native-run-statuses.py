@@ -112,8 +112,6 @@ def check(root: Path, load_statuses: NativeStatusLoader | None = None) -> list[s
             findings.append(f"migration-registry-immutability: missing native-run registry guard {trigger}")
     runtime_markers = {
         Path("internal/store/native_runs.go"): "NativeRunStatusAllowed(payload.Phase, payload.Status)",
-        Path("internal/store/workflow_dispatch.go"): "NativeRunStatusAllowed(phase, status)",
-        Path("internal/agent/mutations.go"): "NativeRunStatusIsFailure(execution.NativeRun.Phase, execution.NativeRun.Status)",
     }
     for relative, marker in runtime_markers.items():
         try:

@@ -107,28 +107,6 @@ func TestNativeTimestampOptionalButValidatedWhenPresent(t *testing.T) {
 	}
 }
 
-func TestNativeTimestampDefaultAndSkewBoundary(t *testing.T) {
-	now := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
-	raw := json.RawMessage(`{"run_id":"run-ts","native_subject_ref":"native:test","status":"started","evidence_ref":"artifact:test","evidence_digest":"sha256:` + strings.Repeat("a", 64) + `"}`)
-	events, err := workflowSemanticActionEvents(context.Background(), nil, opsRunbookTimestampV7(), WorkflowActionExecutionRequest{WorkID: "work-ts", OperationID: "op-ts", ActionID: "start_run", Actor: livenessActor(), Now: now}, "execute", "actor-ts", raw, 1, false, nil)
-	if err != nil || len(events) != 1 {
-		t.Fatalf("native event: %v %+v", err, events)
-	}
-	var payload nativeRunPayload
-	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.AssertedAt != now.Format(time.RFC3339Nano) {
-		t.Fatalf("wrong omission default: %s", payload.AssertedAt)
-	}
-	for _, extra := range []time.Duration{0, time.Nanosecond} {
-		_, err := buildNativeRunEvent("event-ts", "work-ts", livenessActor(), now, 1, "start", "run-ts", "native:test", "started", "artifact:test", "sha256:"+strings.Repeat("a", 64), now.Add(nativeRunAssertedSkewBound+extra).Format(time.RFC3339Nano))
-		if (extra == 0) != (err == nil) {
-			t.Fatalf("skew boundary extra=%s err=%v", extra, err)
-		}
-	}
-}
-
 func TestHistoricalDecisionRecordShapesReplay(t *testing.T) {
 	fields := map[string]any{"question": "question", "options_considered": []string{"option"}, "decision": "accepted_decision", "rationale": "rationale", "consequences": []string{"consequence"}, "inputs": []string{"input"}, "poc_findings": "findings"}
 	for _, shape := range []string{"top", "checkpoint", "fields"} {

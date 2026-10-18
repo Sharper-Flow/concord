@@ -1305,25 +1305,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		base.ResolvedScope = scopeFromMap(scope)
-		// CD-0039 D7/D8: a native report that the approved logical operation
-		// did not complete successfully classifies the action partial. The
-		// native steps are durable attributed facts; ok is reserved for
-		// successful native predicates.
-		if execution.NativeRun != nil && store.NativeRunStatusIsFailure(execution.NativeRun.Phase, execution.NativeRun.Status) {
-			report := execution.NativeRun
-			ref := OperationRef{ID: operationID, Kind: "workflow_action", Version: "1", State: OperationPartial, CurrentStep: report.Phase, UpdatedAt: r.Authority.now()}
-			partialErr := TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial, Message: "native authority reported the operation did not complete successfully"}
-			partialErr.Details = map[string]any{
-				"health_failure":   report.Phase + ":" + report.Status + " by " + report.ReportingAuthorityRef + " at " + report.AssertedAt,
-				"rollback_result":  report.EvidenceRef,
-				"native_run_id":    report.RunID,
-				"native_phase":     report.Phase,
-				"native_status":    report.Status,
-				"reporting_client": report.ReportingAuthorityRef,
-			}
-			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
-			return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
-		}
 		resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
 		if enrichErr != nil {
 			return enrichErr

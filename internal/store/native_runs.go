@@ -113,10 +113,10 @@ type legacyNativeRunUniverse struct {
 	Total                string   `json:"total"`
 }
 
-// legacyNativeRunPayload reflects the version-1 payload. Strict decoding
-// refuses every member version 2 added, so a recorded report cannot acquire a
-// fabricated observation identity or a relabeled policy reference by
-// replaying.
+// legacyNativeRunPayload reflects the released writer's payload, recorded at
+// version 1 before the shared observation component. Strict decoding refuses
+// every member the current shape added, so a recorded report cannot acquire a
+// fabricated observation identity or a relabeled policy reference by replaying.
 type legacyNativeRunPayload struct {
 	WorkID                string                  `json:"work_id"`
 	RunID                 string                  `json:"run_id"`
@@ -242,8 +242,9 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	// A version-1 report folds through its own shape. Only the recorded-event
-	// preparation route tags this shape; every version-2 report folds below.
+	// A report in the released writer's shape folds through its own shape. Only
+	// the recorded-event preparation route tags it; every other report, including
+	// a current-shaped version-1 record, folds below.
 	if event.recordedPayloadShape == recordedShapeLegacyNativeRun {
 		return foldLegacyNativeRunRecorded(ctx, tx, event)
 	}

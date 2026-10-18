@@ -10,23 +10,31 @@ import (
 	"time"
 )
 
+// storeOracleClone checks this repository's HEAD out on branch store-oracle in
+// a private shared clone, so a test can pin committed store recipes.
+func storeOracleClone(t *testing.T) (repo, head string) {
+	t.Helper()
+	source, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawHead, err := (ExecGitRunner{}).Run(context.Background(), source, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head = strings.TrimSpace(string(rawHead))
+	repo = filepath.Join(t.TempDir(), "source")
+	gitRunStore(t, source, "clone", "--shared", "--no-checkout", source, repo)
+	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
+	return repo, head
+}
+
 func TestStoreOracleRecipeRecordsReady(t *testing.T) {
 	started := time.Now()
 	ctx := context.Background()
 	const work = "store-oracle-recipe"
 	const recipePath = ".concord/oracles/store/immediate-transactions.v1.json"
-	source, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rawHead, err := (ExecGitRunner{}).Run(ctx, source, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(rawHead))
-	repo := filepath.Join(t.TempDir(), "source")
-	gitRunStore(t, source, "clone", "--shared", "--no-checkout", source, repo)
-	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
+	repo, head := storeOracleClone(t)
 	manifest, _, err := nativeGitFile(ctx, ExecGitRunner{}, repo, head, recipePath)
 	if err != nil {
 		t.Fatal(err)
@@ -150,18 +158,7 @@ func TestStoreTemplateOracleRecipeExecutes(t *testing.T) {
 	const work = "store-template-oracle"
 	const recipePath = ".concord/oracles/store/template-fixture.v1.json"
 	const selected = "TestOpenTempCopiesIsolatedLatestSchema"
-	source, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rawHead, err := (ExecGitRunner{}).Run(ctx, source, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(rawHead))
-	repo := filepath.Join(t.TempDir(), "source")
-	gitRunStore(t, source, "clone", "--shared", "--no-checkout", source, repo)
-	gitRunStore(t, repo, "checkout", "-b", "store-oracle", head)
+	repo, head := storeOracleClone(t)
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeOracleFixture{s: seed.store, work: work, repo: repo, head: head, dispatchSubject: head, actor: seed.owner}
 	f.qualify(t, "store-oracle", "internal/store", recipePath, "case:store-template-fixture", selected)

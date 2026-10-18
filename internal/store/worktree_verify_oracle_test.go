@@ -144,7 +144,7 @@ func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowA
 	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
 	version := readWorkVersion(t, f.s, f.work)
 	next := version + 1
-	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned value control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{"pkg"}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
+	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned value control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{b.Control.Cwd}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
 	job.Digest = DeriveWorkerJobDigest(job)
 	raw, _ := json.Marshal(job)
 	actorRef, _ := WorkflowActorRef(actor)

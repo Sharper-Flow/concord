@@ -147,7 +147,7 @@ under [`.concord/docs/knowledge/records/`](./knowledge/records/).
 |---|---|---|
 | `constitution` | file basename without the `.md` suffix | the `constitution` records in the live manifest |
 | `decision` | `CD-` followed by four digits | every decision record in the live manifest |
-| `spec` | a predecessor catalogue code such as PM1, PM3, PM6, PM7, TS3, or TS7; otherwise the file basename | both forms appear in the live manifest |
+| `spec` | a predecessor catalogue code such as PM1, PM3, PM6, TS3, or TS7; otherwise the file basename | both forms appear in the live manifest |
 | `lesson` | file basename without the `.md` suffix | the single `lesson` record in the live manifest |
 | `reference` | file basename without the `.md` suffix | the `reference` record in the live manifest |
 | `research` | file basename without the `.md` suffix | the `research` record in the live manifest |

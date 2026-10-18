@@ -4,7 +4,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM10; Product-memory recovery amendment.
 > **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
-> PM6 git notes, PM7 projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
+> PM6 git notes, compaction-retention-policy projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, C15, TS1–TS9, or a new blob store.
 
@@ -12,7 +12,7 @@
 
 One global SQLite authority and canonical git notes need one backup and
 restore law. The binding inputs are PM1 through PM9, CD-0002 invariants,
-PM6 git notes, PM7 retention, and the PM8 and PM9 exclusion boundaries.
+PM6 git notes, compaction-retention-policy retention, and the PM8 and PM9 exclusion boundaries.
 This record fixes recovery: exactly two backup authorities, the Online
 Backup API with triple verification, the forward-only restore protocol, and
 reclamation that never deletes retained authority.

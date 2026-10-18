@@ -4,7 +4,7 @@
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; durable knowledge manifest; offline validation
 - **Related:** CD-0215 (D7 publication destinations), CD-0019 (wisdom question),
-  CD-0020 (knowledge index), PM6/PM7 compaction
+  CD-0020 (knowledge index), PM6 and compaction-retention-policy compaction
 - **Issue:** #108 (fc6, learning-capture group)
 
 ## Context

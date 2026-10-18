@@ -8,7 +8,7 @@
   "date": "2026-10-09T00:00:00Z",
   "doc_contract_profile": "current",
   "evidence": [
-    ".concord/docs/compaction-retention-policy-successor.md",
+    ".concord/docs/compaction-retention-policy.md",
     ".concord/docs/knowledge/coverage/CD-0217.json"
   ],
   "home_domain_id": "product-memory",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9ef93f4619c20350ac6cd7bb951b24768f3d4f9718a1203967d8f300a6b7df6f",
+  "sha256": "sha256:a9c5d11a8196a37252d692a7933171f5584eca489a3bae60bc074a61a664d74b",
   "status": "accepted",
   "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
   "tags": [

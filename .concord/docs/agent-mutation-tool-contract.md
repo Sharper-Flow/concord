@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
-> **Binding inputs:** accepted PM3–PM7 domain operations, TS1 jobs/scenarios,
+> **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
 > TS2 budget/granularity, TS3 read surface, capability-placement native-authority
 > rule, and the Advance postmortem.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
@@ -17,7 +17,7 @@
 ## Context
 
 TS1's mutation jobs need a bounded mutation surface. The binding inputs are
-the accepted PM3 through PM7 domain operations, TS1 jobs and scenarios, TS2
+the accepted PM3 through PM6 and compaction-retention-policy domain operations, TS1 jobs and scenarios, TS2
 budget and granularity, the TS3 read surface, the capability-placement
 native-authority rule, and the Advance postmortem. This record fixes the four
 always-visible mutation tools, their operation tables, the batch boundary,
@@ -163,7 +163,7 @@ terminal version before recording that link.
   operator recovering from an interrupted publication is told how far the
   cross-authority effect really got.
 
-PM7 pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
+compaction-retention-policy pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
 scenario requires an agent batch tool. Native bounded maintenance may exist behind
 operator/internal CLI control and can be promoted only through TS8/TS9 evidence.
 

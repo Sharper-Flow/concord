@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
-- **Related:** [compaction-retention-policy](../compaction-retention-policy-successor.md),
+- **Related:** [compaction-retention-policy](../compaction-retention-policy.md),
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10

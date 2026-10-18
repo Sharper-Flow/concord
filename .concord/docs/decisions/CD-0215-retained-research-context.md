@@ -9,7 +9,7 @@
   PM3 event authority, PM10 recovery, and separate durable promotion.
 - **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
-  [compaction-retention-policy](../compaction-retention-policy-successor.md)
+  [compaction-retention-policy](../compaction-retention-policy.md)
 
 ## Context
 

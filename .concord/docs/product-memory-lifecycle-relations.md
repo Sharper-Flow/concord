@@ -272,7 +272,7 @@ PM4 does not decide:
 - work→git-spec fulfillment links; `implements` is work→work only here, while git
   knowledge remains an `external_ref` until another accepted model provides a typed
   target;
-- PM7's accepted post-prune immutability boundary: before pruning, PM4 reopen rules
+- compaction-retention-policy's accepted post-prune immutability boundary: before pruning, PM4 reopen rules
   apply; after `work_projection_pruned`, renewed need creates a new work ID through
   an `archived_work_linked` event and `archived_work_links` read model. This is not a
   PM4 live `relations` row and cannot use an archived ID as an FK endpoint;

@@ -135,7 +135,7 @@ tag_ids: [tag-...]
 The stable work ID prevents same-day slug collisions. The bounded front matter maps
 deterministically to `archived_work` identity/type/title/completion/outcome/tags;
 path and commit come from the scanned git tree. Generated metadata does not turn the
-note into a state dump. Accepted PM7 requires these bounded historical-scope fields
+note into a state dump. Accepted compaction-retention-policy requires these bounded historical-scope fields
 before a note's live work can become projection-prune-eligible; older notes need the
 specified backfill and proof verification first.
 
@@ -182,10 +182,10 @@ monotonic publish protocol rather than pretending cross-store atomicity:
    hashes to `content_hash`;
 5. only then, in one SQLite transaction, append the compaction-link event and write
    the derived `archived_work` locator/index state;
-6. Accepted PM7 may later prune only verified eligible projections through a bounded
+6. Accepted compaction-retention-policy may later prune only verified eligible projections through a bounded
    lazy operation; it retains `domain_events` and the git-rebuildable historical index.
 
-PM6 proves durable linkage; accepted PM7 owns the bounded lazy pruning transition.
+PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pruning transition.
 
 Failure before step 3 leaves only a draft. Failure after git commit but before step 5
 leaves an orphan canonical-looking note; a retry finds and verifies the same note by

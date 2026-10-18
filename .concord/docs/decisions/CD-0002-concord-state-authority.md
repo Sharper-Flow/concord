@@ -8,7 +8,7 @@
 > - [`../product-memory-authority-scope.md`](../product-memory-authority-scope.md) (PM2, 2026-08-05) replaces only the physical per-Project file scope with one global local SQLite authority.
 > - [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md) (PM3, 2026-08-05) names the generic log `domain_events` and replaces the generic materialized spine with explicit typed projections.
 > - [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md) (PM6, 2026-08-05) fixes git proof before eligibility.
-> - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (PM7, 2026-08-06) fixes bounded lazy projection pruning while retaining `domain_events`.
+> - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (2026-10-09) fixes bounded lazy projection pruning while retaining `domain_events`.
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
@@ -160,14 +160,14 @@ types; neither duplicates the other:
 
 | Tier | Store | Holds | Lifetime |
 |---|---|---|---|
-| **Live Product/work** | one global local SQLite DB | `domain_events` log + explicit typed projections | event authority retained; eligible projections prunable only through PM7's bounded lazy transition |
+| **Live Product/work** | one global local SQLite DB | `domain_events` log + explicit typed projections | event authority retained; eligible projections prunable only through compaction-retention-policy's bounded lazy transition |
 | **Active research context** | direct versioned tables in the same SQLite DB | CD-0215 packs/revisions/findings/sources/consumer bindings only | until explicit retirement of a terminal-owner pack with no active pin |
 | **Durable knowledge** | **git, in the repo** (markdown) | compacted lessons, completed-work notes, decision records | permanent, versioned, diffable |
 | **Process exhaust** | *discarded* | sub-agent reports, briefing digests, traceability dumps, intermediate state | dropped at archive |
 
 **Archival is a compaction, not a serialization dump.** On reaching terminal state,
 an entity's transition history is distilled into **one human-readable markdown note**
-committed to the repo; verified terminal projections later become eligible for PM7's
+committed to the repo; verified terminal projections later become eligible for compaction-retention-policy's
 bounded lazy pruning while `domain_events` remains retained authority. Target size is
 a page, not hundreds of kilobytes.
 
@@ -354,7 +354,7 @@ typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md)
 and [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md).
 
-**Now closed by PM6, PM7, and PM9 (2026-08-05/06):** compaction trigger (at
+**Now closed by PM6, compaction-retention-policy, and PM9 (2026-08-05/06):** compaction trigger (at
 terminal transition), note template, generation pattern (agent-drafts +
 operator-approves), salvage rule, and the git-authority/SQLite-derived-index
 pattern. See [`../canonical-git-note-placement.md`](../canonical-git-note-placement.md),

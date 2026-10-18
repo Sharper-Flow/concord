@@ -63,7 +63,7 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q6 | Inspect cross-Project work | PM5; product-data-model §4 |
 | Q7 | Explain why work changed state | workflows §2.2; postmortem C2 |
 | Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
-| Q9 | Search prior work, decisions, lessons, and specs | PM7 historical index; PM6 durable notes |
+| Q9 | Search prior work, decisions, lessons, and specs | compaction-retention-policy historical index; PM6 durable notes |
 | Q10 | Resolve a canonical durable note | PM6 |
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a
@@ -189,7 +189,7 @@ The JSON corpus is executable through a candidate adapter implementing
   items are unique, and cross-Project work is not double-counted.
 - **PM4/PM5 semantics:** lifecycle/derived views follow PM4; canonical membership,
   deduplication, and cross-Product scope follow accepted PM5.
-- **PM7 semantics:** snapshots union live and applicable historical terminal
+- **Retention semantics:** snapshots union live and applicable historical terminal
   projections, deduplicate by work ID before counts or pagination, and return
   `degraded`/`unreachable` when required historical-index coverage is incomplete.
 
@@ -206,7 +206,7 @@ The JSON corpus is executable through a candidate adapter implementing
   authoritative empty, not missing data.
 - **PM4 semantics:** lifecycle names and terminal classification are accepted PM4
   persistence semantics; other filters retain their owning decisions.
-- **PM7 semantics:** terminal listings union live and git-derived historical rows;
+- **Retention semantics:** terminal listings union live and git-derived historical rows;
   frozen historical scope is explicit and never silently rewritten by later moves.
 
 ### Q4. Explain blocked work
@@ -260,7 +260,7 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Oracle:** no observer can see a partially terminal event; current lifecycle is
   the fold of authoritative events.
 - **PM4 semantics:** lifecycle/relation events follow the accepted PM4 contract.
-- **PM7 semantics:** retained `domain_events` remain the authoritative complete
+- **Retention semantics:** retained `domain_events` remain the authoritative complete
   history after projection pruning; the prune marker only changes live projection
   membership.
 
@@ -275,7 +275,7 @@ The JSON corpus is executable through a candidate adapter implementing
   successor without duplicate authority.
 - **PM4 semantics:** relation kinds, inverse reads, acyclicity, and supersession
   uniqueness follow the accepted PM4 contract.
-- **PM7 semantics:** live relation rows remain foreign key (FK) clean. A follow-up to pruned work
+- **Retention semantics:** live relation rows remain foreign key (FK) clean. A follow-up to pruned work
   is a separate typed `archived_work_linked` result, not a PM4 live relation.
 
 ### Q9. Search durable Product knowledge

@@ -1,5 +1,0 @@
-{
-  "id": "PM7",
-  "reason": "Historical specification superseded by compaction-retention-policy. Proof-backed archive cleanup is no longer a current research guarantee; complete successor coverage does not inherit those cleanup anchors.",
-  "state": "out_of_scope"
-}

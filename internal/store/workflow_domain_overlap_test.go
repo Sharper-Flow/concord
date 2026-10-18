@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -214,7 +215,7 @@ func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testin
 		t.Fatalf("follower should receive typed overlap refusal: %v", err)
 	}
 	detail := failure.DomainOverlap.Overlaps[0]
-	if detail.ResolutionState != "sequenced" || detail.ResolutionKind != ResolutionDependsOn || !containsString(detail.RecoveryActions, "wait") || !containsString(detail.RecoveryActions, "resolve_overlap") || !containsString(detail.RecoveryActions, "terminal_work") {
+	if detail.ResolutionState != "sequenced" || detail.ResolutionKind != ResolutionDependsOn || !slices.Contains(detail.RecoveryActions, "wait") || !slices.Contains(detail.RecoveryActions, "resolve_overlap") || !slices.Contains(detail.RecoveryActions, "terminal_work") {
 		t.Fatalf("sequenced refusal lost closed recovery detail: %#v", detail)
 	}
 	if err := resolve("sequence-blocks", ResolutionBlocks, 3, 3); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, step := range definition.Definition.StepGraph.Steps {
-		if !containsString(step.Actions, "resolve_condition") || !containsString(step.Actions, "cancel_condition") {
+		if !slices.Contains(step.Actions, "resolve_condition") || !slices.Contains(step.Actions, "cancel_condition") {
 			t.Fatalf("step %q lacks universal condition actions: %v", step.ID, step.Actions)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -682,7 +683,7 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor is not valid base64url", false, "restart the bounded listing")
 	}
 	var c q3Cursor
-	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !equalStrings(c.States, states) || c.ID == "" || c.Timestamp == "" {
+	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !slices.Equal(c.States, states) || c.ID == "" || c.Timestamp == "" {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor does not match the requested listing", false, "use a cursor returned for the same query and filters")
 	}
 	if c.Urgency != "" && c.Urgency != "standard" && c.Urgency != "expedite" {
@@ -692,17 +693,6 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid ordering timestamp", false, "restart the bounded listing")
 	}
 	return c, nil
-}
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {

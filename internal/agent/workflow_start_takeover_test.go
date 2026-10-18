@@ -57,8 +57,8 @@ func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key st
 	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry()), input
 }
 
-// approve signs the exact bindings the challenge minted for the caller.
-func (f takeoverFixture) approve(t *testing.T, env CallEnvelope, grant Authority, challenge Envelope, input map[string]any) (CallEnvelope, map[string]any) {
+// approveTakeover signs the exact bindings the challenge minted for the caller.
+func approveTakeover(t *testing.T, privateKey ed25519.PrivateKey, env CallEnvelope, grant Authority, challenge Envelope, input map[string]any) (CallEnvelope, map[string]any) {
 	t.Helper()
 	ref, _ := challenge.Error.Details["approval_ref"].(string)
 	if ref == "" {
@@ -66,7 +66,7 @@ func (f takeoverFixture) approve(t *testing.T, env CallEnvelope, grant Authority
 	}
 	approved := cloneWithApproval(t, input, ref)
 	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	env.HostApproval = signedHostApproval(f.privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
+	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
 	return env, approved
 }
 
@@ -105,7 +105,7 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 		t.Fatalf("challenge moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 
-	approvedEnv, approved := f.approve(t, f.other, f.otherGrant, challenge, input)
+	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
 	response := invokeWorkflowBoundary(t, f.s, f.service, approvedEnv, approved, store.BuiltinWorkflowRegistry())
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approved takeover: %+v", response.Error)
@@ -166,7 +166,7 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved takeover = %+v, want approval_required", challenge.Error)
 	}
-	approvedEnv, approved := f.approve(t, f.other, f.otherGrant, challenge, input)
+	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
 	originalProbe := f.service.ProjectHostProber
 	probes := 0
 	f.service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {

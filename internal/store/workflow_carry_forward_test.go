@@ -7,27 +7,6 @@ import (
 	"time"
 )
 
-// carryForwardFixture pins a work item to a named built-in definition version
-// and, when step is not empty, walks it to that step of the pin.
-func carryForwardFixture(t *testing.T, s *Store, workID, ref string, version int64, step string) {
-	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("%s version %d is not registered", ref, version)
-	}
-	seedStepWork(t, s, workID)
-	initializeStepWorkflow(t, s, workID, entry.Definition)
-	if step != "" {
-		actorRef, err := WorkflowActorRef(stepFixtureActor())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := advanceWorkflowTestInstanceToStep(context.Background(), s, workID, step, actorRef); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 // An instance stranded behind a promotion carries forward onto the current
 // definition while it keeps its position: the pin moves to the current
 // version and digest, and the step it holds is preserved rather than reset.
@@ -36,7 +15,7 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "carry-forward-step"
-	carryForwardFixture(t, s, workID, "workflow.break_fix", 12, "repair")
+	pinWorkflowAtStep(t, s, workID, "workflow.break_fix", 12, "repair")
 	current, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +50,7 @@ func TestCarryForwardRefusesWhenTheStepIsAbsent(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "carry-forward-absent"
-	carryForwardFixture(t, s, workID, "workflow.break_fix", 12, "")
+	pinWorkflowAtStep(t, s, workID, "workflow.break_fix", 12, "")
 	// A step no break_fix definition declares reaches storage only through a
 	// second writer; the carry-forward admission is the guard that refuses to
 	// promote a pin underneath it. The write runs inside a fold, which is the
@@ -120,7 +99,7 @@ func TestSameFamilyDowngradeStillRefusesAfterAnActionStarts(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "carry-forward-downgrade"
-	carryForwardFixture(t, s, workID, "workflow.break_fix", 13, "diagnose")
+	pinWorkflowAtStep(t, s, workID, "workflow.break_fix", 13, "diagnose")
 	startStepFixtureAction(t, s, workID, "record_root_cause")
 	older, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 12)
 	if !ok {
@@ -153,7 +132,7 @@ func TestCarryForwardKeepsAnApprovedContractAuthoritative(t *testing.T) {
 	// research is the stranded shape without Product-changing authority: its
 	// contract carries no law boundary or architecture binding, which keeps
 	// this test on the carry-forward semantics alone.
-	carryForwardFixture(t, s, workID, "workflow.research", 8, "")
+	pinWorkflowAtStep(t, s, workID, "workflow.research", 8, "")
 	var version int64
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)

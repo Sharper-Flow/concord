@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -129,7 +130,7 @@ func ValidateWorkflowPredicate(predicate OutcomePredicate) error {
 				return workflowOutcomeFailure("absent predicate distinction rules are invalid")
 			}
 			for _, value := range predicate.DistinguishFrom {
-				if !containsString([]string{"archived", "relocated", "renamed", "disabled"}, value) {
+				if !slices.Contains([]string{"archived", "relocated", "renamed", "disabled"}, value) {
 					return workflowOutcomeFailure("absent predicate distinction rule is unknown")
 				}
 			}
@@ -160,7 +161,7 @@ func ValidateWorkflowPredicate(predicate OutcomePredicate) error {
 		if predicate.Surface != "" || predicate.Subjects != nil || predicate.DistinguishFrom != nil || predicate.Allowed != nil || predicate.DecisionRecord != nil {
 			return workflowOutcomeFailure("predicate contains fields from another union member")
 		}
-		if !workflowCheckPattern.MatchString(predicate.CheckRef) || !workflowSubjectPattern.MatchString(predicate.ImmutableSubjectRef) || !containsString([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, predicate.ExpectedResult) {
+		if !workflowCheckPattern.MatchString(predicate.CheckRef) || !workflowSubjectPattern.MatchString(predicate.ImmutableSubjectRef) || !slices.Contains([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, predicate.ExpectedResult) {
 			return workflowOutcomeFailure("check predicate fields are invalid")
 		}
 	}
@@ -171,16 +172,16 @@ func ValidateWorkflowPredicateForDefinition(definition WorkflowDefinition, predi
 	if err := ValidateWorkflowPredicate(predicate); err != nil {
 		return err
 	}
-	if !containsPredicateKind(definition.OutcomeSchema.AllowedKinds, predicate.Kind) {
+	if !slices.Contains(definition.OutcomeSchema.AllowedKinds, predicate.Kind) {
 		return definitionFailure(KindInvalidDefinition, "predicate kind not allowed by the pinned workflow definition")
 	}
 	if predicate.Kind == PredicateOutcome {
 		for _, token := range predicate.Allowed {
-			if !containsString(definition.OutcomeSchema.AllowedOutcomeTokens, token) {
+			if !slices.Contains(definition.OutcomeSchema.AllowedOutcomeTokens, token) {
 				return definitionFailure(KindInvalidDefinition, "outcome token not allowed by the pinned workflow definition")
 			}
 		}
-		if predicate.DecisionRecord != nil && !containsString(predicate.Allowed, predicate.DecisionRecord.Decision) {
+		if predicate.DecisionRecord != nil && !slices.Contains(predicate.Allowed, predicate.DecisionRecord.Decision) {
 			return definitionFailure(KindInvalidDefinition, "decision record token is not allowed by the pinned workflow definition")
 		}
 	}

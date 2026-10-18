@@ -73,22 +73,22 @@ func initBootstrapStoreRepo(t *testing.T) string {
 	t.Helper()
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
-	runBootstrapGit(t, parent, "init", "-q", "--bare", "-b", "main", "origin.git")
-	runBootstrapGit(t, parent, "init", "-q", "-b", "main", "repo")
+	runTestGit(t, parent, "init", "-q", "--bare", "-b", "main", "origin.git")
+	runTestGit(t, parent, "init", "-q", "-b", "main", "repo")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("bootstrap\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runBootstrapGit(t, repo, "add", "README.md")
-	runBootstrapGit(t, repo, "commit", "-q", "-m", "base")
-	runBootstrapGit(t, repo, "remote", "add", "origin", "https://bootstrap.invalid/repository.git")
-	runBootstrapGit(t, repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", "https://bootstrap.invalid/repository.git")
-	runBootstrapGit(t, repo, "push", "-q", "origin", "main")
-	runBootstrapGit(t, repo, "fetch", "-q", "origin")
-	runBootstrapGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	runTestGit(t, repo, "add", "README.md")
+	runTestGit(t, repo, "commit", "-q", "-m", "base")
+	runTestGit(t, repo, "remote", "add", "origin", "https://bootstrap.invalid/repository.git")
+	runTestGit(t, repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", "https://bootstrap.invalid/repository.git")
+	runTestGit(t, repo, "push", "-q", "origin", "main")
+	runTestGit(t, repo, "fetch", "-q", "origin")
+	runTestGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
 
-func runBootstrapGit(t *testing.T, repo string, args ...string) string {
+func runTestGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", repo}, args...)...)
 	command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
@@ -210,7 +210,7 @@ func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
 	seedBootstrapStoreAuthority(t, s, repo)
 	req := bootstrapStoreRequest()
 	req.Ref = "moving"
-	runBootstrapGit(t, repo, "branch", "moving", "HEAD")
+	runTestGit(t, repo, "branch", "moving", "HEAD")
 	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +226,9 @@ func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("bootstrap moved\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runBootstrapGit(t, repo, "add", "README.md")
-	runBootstrapGit(t, repo, "commit", "-q", "-m", "move ref")
-	runBootstrapGit(t, repo, "branch", "-f", "moving", "HEAD")
+	runTestGit(t, repo, "add", "README.md")
+	runTestGit(t, repo, "commit", "-q", "-m", "move ref")
+	runTestGit(t, repo, "branch", "-f", "moving", "HEAD")
 	secondLocation, err := s.LocateWorktree(context.Background(), req.ProjectID, workID, req.Ref)
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestBootstrapBranchProbeFailureCreatesNoReplayAuthority(t *testing.T) {
 	if err := s.db.QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&journals); err != nil || journals != 0 {
 		t.Fatalf("branch probe failure journal count=%d err=%v", journals, err)
 	}
-	runBootstrapGit(t, repo, "branch", location.Branch, location.BaseSHA)
+	runTestGit(t, repo, "branch", location.Branch, location.BaseSHA)
 	if _, err := s.BootstrapWorktree(context.Background(), req, nil); err == nil {
 		t.Fatal("later request adopted the branch hidden by the failed probe")
 	}
@@ -414,9 +414,9 @@ func TestRollbackBootstrapDoesNotDeleteConcurrentlyMovedBranch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("concurrent branch target\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runBootstrapGit(t, repo, "add", "README.md")
-	runBootstrapGit(t, repo, "commit", "-q", "-m", "concurrent target")
-	newSHA := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+	runTestGit(t, repo, "add", "README.md")
+	runTestGit(t, repo, "commit", "-q", "-m", "concurrent target")
+	newSHA := runTestGit(t, repo, "rev-parse", "HEAD")
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
 	err = s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, branchMoveBeforeDeleteRunner{branch: result.Entry.Branch, sha: newSHA}, errors.New("session preparation failed"))
 	if err == nil {
@@ -447,8 +447,8 @@ func TestRollbackBootstrapLocksWorktreeHeadBeforeRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseTree := runBootstrapGit(t, repo, "rev-parse", result.Entry.BaseSHA+"^{tree}")
-	newSHA := runBootstrapGit(t, repo, "commit-tree", baseTree, "-p", result.Entry.BaseSHA, "-m", "concurrent target")
+	baseTree := runTestGit(t, repo, "rev-parse", result.Entry.BaseSHA+"^{tree}")
+	newSHA := runTestGit(t, repo, "commit-tree", baseTree, "-p", result.Entry.BaseSHA, "-m", "concurrent target")
 	runner := &branchMoveBeforeWorktreeRemovalRunner{branch: result.Entry.Branch, sha: newSHA}
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
 	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, runner, errors.New("session preparation failed")); err != nil {
@@ -491,7 +491,7 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 	if err := owner.Wait(); err == nil {
 		t.Fatal("killed Git lock owner exited successfully")
 	}
-	refPath := runBootstrapGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
+	refPath := runTestGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
 	if !filepath.IsAbs(refPath) {
 		refPath = filepath.Join(repo, refPath)
 	}
@@ -530,9 +530,9 @@ func TestBootstrapReplayFinishesInterruptedNativeRollback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	runBootstrapGit(t, repo, "worktree", "remove", result.Entry.Path)
+	runTestGit(t, repo, "worktree", "remove", result.Entry.Path)
 	ownerPID, ownerStart := deadBootstrapOwner(t)
-	refPath := runBootstrapGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
+	refPath := runTestGit(t, repo, "rev-parse", "--git-path", "refs/heads/"+result.Entry.Branch)
 	if !filepath.IsAbs(refPath) {
 		refPath = filepath.Join(repo, refPath)
 	}
@@ -1286,7 +1286,7 @@ func TestTargetDefaultBranchPreconditionRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	replaceBootstrapMemberships(t, s, first.WorkID, first.WorkVersion, "project-bootstrap-b")
-	runBootstrapGit(t, repoB, "checkout", "-q", "-b", "feature")
+	runTestGit(t, repoB, "checkout", "-q", "-b", "feature")
 
 	_, err = s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
 		ProductID: "product-bootstrap", ProjectID: "project-bootstrap-b", WorkID: first.WorkID,
@@ -1476,7 +1476,7 @@ func TestBootstrapCaptureIdentityIsCallerIntent(t *testing.T) {
 	if first.WorkID != linkedWork {
 		t.Fatalf("capture work=%s want %s", first.WorkID, linkedWork)
 	}
-	defaultSHA := runBootstrapGit(t, repo, "rev-parse", "origin/main")
+	defaultSHA := runTestGit(t, repo, "rev-parse", "origin/main")
 	if first.Entry.BaseSHA != defaultSHA {
 		t.Fatalf("pinned base=%s want the resolved default branch %s", first.Entry.BaseSHA, defaultSHA)
 	}

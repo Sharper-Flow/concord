@@ -1,5 +1,7 @@
 package store
 
+import "slices"
+
 // One declared recovery-route table per workflow definition is the only owner
 // of cross-step correction (CD-0201 D1). The table names, for the step that
 // records a bad evaluation or completes under a disproved contract, the
@@ -52,7 +54,7 @@ type WorkflowRecoveryRoute struct {
 var workflowRecoveryRouteActions = []string{"request_correction", "supersede_contract"}
 
 func workflowRecoveryRouteActionDeclared(actionID string) bool {
-	return containsString(workflowRecoveryRouteActions, actionID)
+	return slices.Contains(workflowRecoveryRouteActions, actionID)
 }
 
 func validWorkflowRecoveryTrigger(trigger WorkflowRecoveryTrigger) bool {
@@ -274,7 +276,7 @@ func workflowStalenessSpanTargets(definition WorkflowDefinition, stepID string) 
 		if !workflowStepReachesByForwardEdges(definition.StepGraph, stepID, route.Step) {
 			continue
 		}
-		if !containsString(targets, route.Target) {
+		if !slices.Contains(targets, route.Target) {
 			targets = append(targets, route.Target)
 		}
 	}
@@ -407,12 +409,12 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		declared[key] = true
 		routeStep := steps[route.Step]
 		if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
-			if !containsString(routeStep.Actions, "record_verdict") && !containsString(routeStep.Actions, "confirm_premise") && !terminals[route.Step] {
+			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] {
 				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step that records neither verdict nor premise and hosts no late-verdict context: "+route.Step)
 			}
 			unhealthyRoutes[route.Step] = true
 		}
-		if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !containsString(routeStep.Actions, "complete") {
+		if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
 			return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
 		}
 		if route.Target == route.Step {
@@ -424,10 +426,10 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		if !workflowStepReachesByForwardEdges(graph, route.Target, route.Step) {
 			return definitionFailure(KindInvalidDefinition, "recovery route target does not reach the route step through forward edges: "+route.Target)
 		}
-		if containsString(target.Actions, "approve_contract") {
+		if slices.Contains(target.Actions, "approve_contract") {
 			return definitionFailure(KindInvalidDefinition, "recovery route target declares approve_contract: "+route.Target)
 		}
-		producer := containsString(target.Actions, "dispatch_worker") || len(workflowStepArtifactActions(definition, route.Target)) > 0
+		producer := slices.Contains(target.Actions, "dispatch_worker") || len(workflowStepArtifactActions(definition, route.Target)) > 0
 		for _, actionID := range target.Actions {
 			mode, ok := workflowActionExecutionMode(definition, actionID)
 			producer = producer || (ok && mode == ActionFenced)
@@ -437,7 +439,7 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		}
 	}
 	for _, candidate := range graph.Steps {
-		if !containsString(candidate.Actions, "record_verdict") && !containsString(candidate.Actions, "confirm_premise") && !workflowLateVerdictServesVerdictStep(definition, candidate.ID) {
+		if !slices.Contains(candidate.Actions, "record_verdict") && !slices.Contains(candidate.Actions, "confirm_premise") && !workflowLateVerdictServesVerdictStep(definition, candidate.ID) {
 			continue
 		}
 		if !unhealthyRoutes[candidate.ID] {
@@ -456,13 +458,13 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 func workflowLateVerdictServesVerdictStep(definition WorkflowDefinition, stepID string) bool {
 	// Registration coverage requires the late verdict hosts in CD-0204 to
 	// declare their own return. Runtime admission reads only those routes.
-	terminal := containsString(definition.StepGraph.TerminalSteps, stepID)
+	terminal := slices.Contains(definition.StepGraph.TerminalSteps, stepID)
 	action, question := workflowOperatorQuestionAction(definition, stepID)
 	if !terminal && !(question && action == "confirm_premise" && !stepDeclaresAction(definition, stepID, "record_verdict")) {
 		return false
 	}
 	for _, candidate := range definition.StepGraph.Steps {
-		if containsString(candidate.Actions, "record_verdict") && workflowStepFollows(definition, candidate.ID, stepID) {
+		if slices.Contains(candidate.Actions, "record_verdict") && workflowStepFollows(definition, candidate.ID, stepID) {
 			return true
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -984,7 +985,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if p.ContractVersion <= 0 || !workflowString(p.Premise, WorkflowPremiseMaxLength) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
 	}
-	if containsString(p.RouteConventions, workflowCompleteStepCorrectionRoute) && !inWorkflowContractSupersessionContext(ctx) {
+	if slices.Contains(p.RouteConventions, workflowCompleteStepCorrectionRoute) && !inWorkflowContractSupersessionContext(ctx) {
 		return newFailure(KindInvalidPayload, "fold_event", "route convention complete_step_correction is reserved for the complete-step correction successor", false, "drop the reserved route convention")
 	}
 	if p.OutcomePredicates == nil {
@@ -1338,7 +1339,7 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event
 		return err
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, foldStep)
-	declaresRoute := containsString(successor.RouteConventions, workflowCompleteStepCorrectionRoute)
+	declaresRoute := slices.Contains(successor.RouteConventions, workflowCompleteStepCorrectionRoute)
 	if declaresRoute && !atCompleteStep {
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
@@ -1455,7 +1456,7 @@ func foldWorkflowCandidateSetRevised(ctx context.Context, tx *sql.Tx, event Even
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if p.ContractVersion <= 0 || !contains([]string{"work_item", "product", "project"}, p.CandidateKind) || !workflowString(p.CandidateRef, 128) || !workflowList(p.Added, 100, 0) || !workflowList(p.Removed, 100, 0) || len(p.Added) == 0 && len(p.Removed) == 0 || overlap(p.Added, p.Removed) {
+	if p.ContractVersion <= 0 || !slices.Contains([]string{"work_item", "product", "project"}, p.CandidateKind) || !workflowString(p.CandidateRef, 128) || !workflowList(p.Added, 100, 0) || !workflowList(p.Removed, 100, 0) || len(p.Added) == 0 && len(p.Removed) == 0 || overlap(p.Added, p.Removed) {
 		return newFailure(KindInvalidPayload, "fold_event", "candidate_set_revised has invalid candidate bounds", false, "supply disjoint bounded additions or removals")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -1504,7 +1505,7 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowString(p.Searched, 4096) || !contains([]string{"related_found", "none_found"}, p.Outcome) {
+	if !workflowString(p.Searched, 4096) || !slices.Contains([]string{"related_found", "none_found"}, p.Outcome) {
 		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
 	}
 	// Presence is a non-empty id list, the event's own recorded shape: the
@@ -1567,7 +1568,7 @@ func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if !workflowString(p.Reproduction, 4096) || !workflowString(p.RootCause, 4096) {
 		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid reproduction or root-cause sections", false, "record every required diagnosis section")
 	}
-	if !workflowString(p.Searched, 4096) || !contains([]string{"related_found", "none_found"}, p.Outcome) {
+	if !workflowString(p.Searched, 4096) || !slices.Contains([]string{"related_found", "none_found"}, p.Outcome) {
 		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
 	}
 	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
@@ -2333,7 +2334,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		if recovery.Refusal != nil {
 			return recovery.Refusal
 		}
-		if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
+		if slices.Contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
 			for _, requirement := range recovery.Requirements {
 				if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
 					return nil
@@ -3246,7 +3247,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 
 func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, beforeSeq int64) (string, error) {
 	step := workflowStep(definition, current)
-	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
+	if actionID != "confirm_premise" || step == nil || !slices.Contains(step.Actions, "record_verdict") {
 		return workflowNextStep(definition, current), nil
 	}
 	hasFailureEdge := false
@@ -3380,7 +3381,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowEvidenceRef(p.ImmutableSubjectRef) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
+	if !slices.Contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowEvidenceRef(p.ImmutableSubjectRef) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "evidence_bound has invalid evidence identity", false, "supply a complete immutable evidence binding")
 	}
 	var authoritative int
@@ -3573,7 +3574,7 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if !containsWorkKind(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {
+	if !slices.Contains(source.Definition.CompositionRules.AllowedSuccessorWorkKinds, successorFamily) {
 		return newFailure(KindInvalidRelation, "fold_event", "successor family is not allowed by the source workflow composition", false, "use an allowed forward-linked successor family")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -3593,15 +3594,6 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 		return workflowProjectionError(err, "cannot record successor link")
 	}
 	return insertWorkflowForwardRelation(ctx, tx, event, p.SuccessorWorkID)
-}
-
-func containsWorkKind(values []WorkKind, want WorkKind) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func foldWorkflowImpactDeclared(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -3911,7 +3903,7 @@ func foldWorkflowConditionAdded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowString(p.ConditionID, 128) || !workflowString(p.AwaitRef, 128) || !workflowString(p.ResolutionAuthority, 128) || !contains([]string{"pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"}, p.AwaitType) {
+	if !workflowString(p.ConditionID, 128) || !workflowString(p.AwaitRef, 128) || !workflowString(p.ResolutionAuthority, 128) || !slices.Contains([]string{"pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"}, p.AwaitType) {
 		return newFailure(KindInvalidPayload, "fold_event", "condition_added contains an invalid closed await type", false, "use a typed external condition")
 	}
 	if p.ExpectedWithinSeconds < 0 || p.ExpectedWithinSeconds > 31536000 {
@@ -3999,7 +3991,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !slices.Contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
@@ -4062,14 +4054,6 @@ func upcastWorkflowCompletedV1(event Event) (Event, error) {
 	return event, nil
 }
 
-func contains(values []string, value string) bool {
-	for _, x := range values {
-		if x == value {
-			return true
-		}
-	}
-	return false
-}
 func workflowJSON(value any) string { encoded, _ := json.Marshal(value); return string(encoded) }
 
 func validateWorkflowOutcome(raw json.RawMessage, kind string) bool {
@@ -4118,7 +4102,7 @@ func validateWorkflowOutcome(raw json.RawMessage, kind string) bool {
 		if !decodeStrict(raw, &v) || !workflowString(v.CheckRef, 134) || !workflowString(v.ImmutableSubjectRef, 256) {
 			return false
 		}
-		return contains([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, v.ExpectedResult)
+		return slices.Contains([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, v.ExpectedResult)
 	}
 	return false
 }
@@ -4130,7 +4114,7 @@ func decodeStrict(raw []byte, target any) bool {
 func allClosed(values, allowed []string) bool {
 	seen := map[string]bool{}
 	for _, v := range values {
-		if !contains(allowed, v) || seen[v] {
+		if !slices.Contains(allowed, v) || seen[v] {
 			return false
 		}
 		seen[v] = true

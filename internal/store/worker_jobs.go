@@ -425,6 +425,13 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 			return nil, err
 		}
 	}
+	// The size members author through the pinned definition's declared
+	// members like the oracle: a pre-size version refuses every member, and
+	// a size-capable version parses, joins, and inherits them here, at
+	// author time, inside the caller's transaction.
+	if err := authorWorkerJobSizeTx(ctx, tx, request.WorkID, contractVersion, registered.Definition, fields, &payload); err != nil {
+		return nil, err
+	}
 	payload.Digest = DeriveWorkerJobDigest(payload)
 	values := map[string]any{}
 	raw, err := json.Marshal(payload)

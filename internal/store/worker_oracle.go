@@ -666,26 +666,13 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 		}
 	}
 	for projectID := range projects {
-		var member int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, workID, projectID).Scan(&member)
-		if err == sql.ErrNoRows {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle names Project "+projectID+" that is not a member Project of the work", "name a Project the work holds")
-		}
-		if err != nil {
-			return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the acceptance-oracle Project scope", true, "retry once the membership projection is readable", err)
+		if err := validateOracleProjectMemberTx(ctx, tx, workID, "acceptance oracle", projectID); err != nil {
+			return err
 		}
 	}
 	for binding := range laws {
-		var pinnedHash string
-		err := tx.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, binding.Source.LawID).Scan(&pinnedHash)
-		if err == sql.ErrNoRows {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle binds law "+binding.Source.LawID+" that the active parent contract did not pin", "bind a law revision the active contract pinned")
-		}
-		if err != nil {
-			return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the acceptance-oracle law pin", true, "retry once the contract projection is readable", err)
-		}
-		if pinnedHash != binding.Source.ContentHash {
-			return oracleFailure(KindInvalidPayload, "acceptance oracle binds law "+binding.Source.LawID+" at a content hash the active parent contract did not pin", "bind the pinned law revision content hash")
+		if err := validateOracleLawPinTx(ctx, tx, workID, contractVersion, "acceptance oracle", binding); err != nil {
+			return err
 		}
 	}
 	for _, control := range oracle.Controls {
@@ -706,6 +693,38 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" readiness evidence "+ref+" is not its exact qualified native preparation", "prepare the exact owner/case/control bundle before recording the ready job")
 			}
 		}
+	}
+	return nil
+}
+
+// validateOracleProjectMemberTx joins one named Project against the work's
+// membership. Surface names the carrying member in every refusal.
+func validateOracleProjectMemberTx(ctx context.Context, tx *sql.Tx, workID, surface, projectID string) error {
+	var member int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, workID, projectID).Scan(&member)
+	if err == sql.ErrNoRows {
+		return oracleFailure(KindInvalidPayload, surface+" names Project "+projectID+" that is not a member Project of the work", "name a Project the work holds")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the "+surface+" Project scope", true, "retry once the membership projection is readable", err)
+	}
+	return nil
+}
+
+// validateOracleLawPinTx joins one law binding against the active contract's
+// pinned law revisions: the law must be pinned at the binding's content
+// hash. Surface names the carrying member in every refusal.
+func validateOracleLawPinTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, surface string, binding OracleLawBinding) error {
+	var pinnedHash string
+	err := tx.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, binding.Source.LawID).Scan(&pinnedHash)
+	if err == sql.ErrNoRows {
+		return oracleFailure(KindInvalidPayload, surface+" binds law "+binding.Source.LawID+" that the active parent contract did not pin", "bind a law revision the active contract pinned")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the "+surface+" law pin", true, "retry once the contract projection is readable", err)
+	}
+	if pinnedHash != binding.Source.ContentHash {
+		return oracleFailure(KindInvalidPayload, surface+" binds law "+binding.Source.LawID+" at a content hash the active parent contract did not pin", "bind the pinned law revision content hash")
 	}
 	return nil
 }

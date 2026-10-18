@@ -12,6 +12,78 @@ func testJobSizeBaseCommit() string {
 	return strings.Repeat("a", 40)
 }
 
+// workerJobSizeStore unwraps the fixture's store.
+func workerJobSizeStore(fixture workflowReturnRouteFixture) *Store { return fixture.store }
+
+// workerJobSizeFixture seeds one work item on the family's current head — the
+// size-capable pin this slice registers — with the oracle subject the shared
+// oracle fixture needs.
+func workerJobSizeFixture(t *testing.T, workID string) workflowReturnRouteFixture {
+	t.Helper()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	bootstrapOracleFixtureSubject(t, workerJobSizeStore(fixture), workID)
+	return fixture
+}
+
+// workerJobSizeEditingFields authors one editing job: the oracle the
+// oracle-capable pin requires beside all three size members.
+func workerJobSizeEditingFields(t *testing.T, workID string, fixture workflowReturnRouteFixture) map[string]any {
+	t.Helper()
+	return map[string]any{
+		"job_id": "job:size", "objective": "measure the bounded delta",
+		"stopping_condition":   "the counted delta stays within the cap",
+		"path_scope":           []string{"internal/store"},
+		"checks":               []string{"go test ./internal/store/"},
+		"reserved_integration": "reserved",
+		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
+		"acceptance_oracle":   acceptanceOracleFieldsForTest(t, workerJobSizeStore(fixture), workID),
+		"production_size_max": 400,
+		"measurement_basis": map[string]any{
+			"base_commit": testJobSizeBaseCommit(),
+			"paths":       []map[string]any{{"path": "internal/store/worker_jobs.go", "class": "production"}},
+		},
+		"direct_caller_allowance": map[string]any{
+			"project_id":   "project",
+			"mechanisms":   []map[string]any{{"project_id": "project", "path": "internal/store/worker_jobs.go", "entry_point": "foldWorkerJobRecorded"}},
+			"domain_ids":   []string{"root"},
+			"law_bindings": []map[string]any{},
+		},
+	}
+}
+
+// workerJobSizeReadOnlyFields authors one read-only job: no size members.
+func workerJobSizeReadOnlyFields(t *testing.T, workID string, fixture workflowReturnRouteFixture) map[string]any {
+	t.Helper()
+	fields := workerJobSizeEditingFields(t, workID, fixture)
+	for _, member := range []string{"production_size_max", "measurement_basis", "direct_caller_allowance"} {
+		delete(fields, member)
+	}
+	fields["objective"] = "read the recorded state"
+	return fields
+}
+
+// seedAllowanceAuthorityFixture pins one law revision the allowance can bind
+// and seeds one more current Domain outside the contract's affected scope, so
+// the join refusals name real mismatches.
+func seedAllowanceAuthorityFixture(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
+	t.Helper()
+	lawHash := "sha256:" + strings.Repeat("a", 64)
+	if _, err := workerJobSizeStore(fixture).DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:allowance',?);
+		DELETE FROM fold_guard`, workID, lawHash); err != nil {
+		t.Fatalf("seed pinned law revision: %v", err)
+	}
+	var registryHash string
+	if err := workerJobSizeStore(fixture).DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&registryHash); err != nil {
+		t.Fatalf("read registry hash: %v", err)
+	}
+	if _, err := workerJobSizeStore(fixture).DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','edge','Edge','outside the affected scope','current',?,'test');
+		DELETE FROM fold_guard`, registryHash); err != nil {
+		t.Fatalf("seed outside-scope Domain: %v", err)
+	}
+}
+
 // The gate reads the declared record_worker_job member: the size-capable
 // heads declare production_size_max, the released predecessors do not.
 func TestWorkflowJobSizeGateFollowsTheDeclaredMember(t *testing.T) {
@@ -63,6 +135,225 @@ func TestWorkerJobSizeMembersPreserveHistoricalDigest(t *testing.T) {
 	payload.DirectCallerAllowance = &WorkerJobCallerAllowance{ProjectID: "project", Mechanisms: []OracleMechanism{{ProjectID: "project", Path: "internal/store/worker_jobs.go", EntryPoint: "foldWorkerJobRecorded"}}, DomainIDs: []string{"root"}}
 	if got := DeriveWorkerJobDigest(payload); got == want {
 		t.Fatal("a size-carrying payload kept the member-less digest")
+	}
+}
+
+// A size-capable pin records an editing job with all three members and a
+// read-only job with none.
+func TestWorkerJobSizeAuthoringAdmitsEditingAndReadOnlyJobs(t *testing.T) {
+	const workID = "worker-job-size-authoring"
+	fixture := workerJobSizeFixture(t, workID)
+	editing := workerJobSizeEditingFields(t, workID, fixture)
+	editing["job_id"] = "job:editing"
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, editing); err != nil {
+		t.Fatalf("editing job refused: %v", err)
+	}
+	readOnly := workerJobSizeReadOnlyFields(t, workID, fixture)
+	readOnly["job_id"] = "job:read-only"
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, readOnly); err != nil {
+		t.Fatalf("read-only job refused: %v", err)
+	}
+	views, err := readWorkerJobRevisions(context.Background(), workerJobSizeStore(fixture).db, workID)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("recorded views = %#v, error = %v", views, err)
+	}
+}
+
+// A pin without the declared members refuses every size member. The refusal
+// is the pinned-definition preflight refusal, the observed style of the
+// oracle member on a legacy pin: an undeclared member is not one the pinned
+// definition admits, and the authoring guard beneath it carries the same
+// rule for every route that reaches it.
+func TestWorkerJobSizeGateInactivePinRefusesMembers(t *testing.T) {
+	const workID = "worker-job-size-inactive-pin"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 30, "repair")
+	bootstrapOracleFixtureSubject(t, workerJobSizeStore(fixture), workID)
+	fields := workerJobSizeEditingFields(t, workID, fixture)
+	err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+	if err == nil || !strings.Contains(err.Error(), `"production_size_max" is not declared for action "record_worker_job"`) {
+		t.Fatalf("inactive-pin size members error = %v, want the pinned-definition refusal", err)
+	}
+}
+
+// Partial presence refuses: an editing job carries all three members, a
+// read-only job none.
+func TestWorkerJobSizePartialPresenceRefuses(t *testing.T) {
+	const workID = "worker-job-size-partial"
+	fixture := workerJobSizeFixture(t, workID)
+	for _, partial := range []struct {
+		name   string
+		mutate func(fields map[string]any)
+	}{
+		{"cap-only", func(fields map[string]any) {
+			delete(fields, "measurement_basis")
+			delete(fields, "direct_caller_allowance")
+		}},
+		{"basis-only", func(fields map[string]any) {
+			delete(fields, "production_size_max")
+			delete(fields, "direct_caller_allowance")
+		}},
+		{"cap-and-basis", func(fields map[string]any) { delete(fields, "direct_caller_allowance") }},
+		{"cap-and-allowance", func(fields map[string]any) { delete(fields, "measurement_basis") }},
+	} {
+		t.Run(partial.name, func(t *testing.T) {
+			fields := workerJobSizeEditingFields(t, workID, fixture)
+			fields["job_id"] = "job:partial-" + partial.name
+			partial.mutate(fields)
+			err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+			if err == nil || !strings.Contains(err.Error(), "present together or absent together") {
+				t.Fatalf("partial presence %q error = %v, want the closed-trio refusal", partial.name, err)
+			}
+		})
+	}
+}
+
+// Every inventory path is contained by path_scope: equal to an entry or under
+// an entry with a trailing slash.
+func TestWorkerJobSizeUncontainedInventoryPathRefuses(t *testing.T) {
+	const workID = "worker-job-size-containment"
+	fixture := workerJobSizeFixture(t, workID)
+	fields := workerJobSizeEditingFields(t, workID, fixture)
+	fields["job_id"] = "job:uncontained"
+	fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+		{"path": "adapter/opencode/packet.ts", "class": "production"},
+	}
+	err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+	if err == nil || !strings.Contains(err.Error(), "outside the job's declared path_scope") {
+		t.Fatalf("uncontained inventory path error = %v, want the containment refusal", err)
+	}
+}
+
+// The generated classification requires its owning generator reference, and
+// only the generated classification carries one.
+func TestWorkerJobSizeGeneratedClassRequiresGeneratorRef(t *testing.T) {
+	const workID = "worker-job-size-generated"
+	fixture := workerJobSizeFixture(t, workID)
+	t.Run("generated without generator_ref refuses", func(t *testing.T) {
+		fields := workerJobSizeEditingFields(t, workID, fixture)
+		fields["job_id"] = "job:generated-naked"
+		fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+			{"path": "internal/store/worker_jobs.go", "class": "generated"},
+		}
+		err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+		if err == nil || !strings.Contains(err.Error(), "classifies generated without its owning generator_ref") {
+			t.Fatalf("naked generated path error = %v, want the generator refusal", err)
+		}
+	})
+	t.Run("generated with generator_ref admits", func(t *testing.T) {
+		fields := workerJobSizeEditingFields(t, workID, fixture)
+		fields["job_id"] = "job:generated-owned"
+		fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+			{"path": "internal/store/worker_jobs.go", "class": "generated", "generator_ref": "scripts/generate-agent-contracts.py"},
+		}
+		if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields); err != nil {
+			t.Fatalf("owned generated path refused: %v", err)
+		}
+	})
+	t.Run("non-generated class with generator_ref refuses", func(t *testing.T) {
+		fields := workerJobSizeEditingFields(t, workID, fixture)
+		fields["job_id"] = "job:generated-misattributed"
+		fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+			{"path": "internal/store/worker_jobs.go", "class": "production", "generator_ref": "scripts/generate-agent-contracts.py"},
+		}
+		err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+		if err == nil || !strings.Contains(err.Error(), "generator_ref outside the generated classification") {
+			t.Fatalf("misattributed generator_ref error = %v, want the classification refusal", err)
+		}
+	})
+}
+
+// The allowance joins the job's Project scope and the active contract's
+// Domain and law boundaries exactly as the oracle joins them.
+func TestWorkerJobSizeAllowanceJoins(t *testing.T) {
+	const workID = "worker-job-size-allowance-joins"
+	fixture := workerJobSizeFixture(t, workID)
+	seedAllowanceAuthorityFixture(t, fixture, workID)
+	base := func() map[string]any {
+		fields := workerJobSizeEditingFields(t, workID, fixture)
+		fields["job_id"] = "job:allowance-join"
+		fields["direct_caller_allowance"].(map[string]any)["law_bindings"] = []map[string]any{
+			{"source": map[string]any{"kind": "knowledge", "source_id": "source:allowance", "law_id": "spec:allowance", "content_hash": "sha256:" + strings.Repeat("a", 64)}, "clause": "the caller repair preserves approved behavior"},
+		}
+		return fields
+	}
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, base()); err != nil {
+		t.Fatalf("fully joined allowance refused: %v", err)
+	}
+	for _, refusal := range []struct {
+		name     string
+		mutation func(fields map[string]any)
+		wantText string
+	}{
+		{"project mismatch", func(fields map[string]any) {
+			fields["direct_caller_allowance"].(map[string]any)["project_id"] = "project-other"
+		}, "does not equal the recorded project_scope"},
+		{"domain outside the contract", func(fields map[string]any) {
+			fields["direct_caller_allowance"].(map[string]any)["domain_ids"] = []string{"edge"}
+		}, "outside the approved affected Domain scope"},
+		{"unpinned law", func(fields map[string]any) {
+			fields["direct_caller_allowance"].(map[string]any)["law_bindings"].([]map[string]any)[0]["source"].(map[string]any)["law_id"] = "spec:never-pinned"
+		}, "did not pin"},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			fields := base()
+			fields["job_id"] = "job:allowance-" + strings.ReplaceAll(refusal.name, " ", "-")
+			refusal.mutation(fields)
+			err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+			if err == nil || !strings.Contains(err.Error(), refusal.wantText) {
+				t.Fatalf("allowance refusal %q error = %v, want text %q", refusal.name, err, refusal.wantText)
+			}
+		})
+	}
+}
+
+// A later revision of a capped job cannot raise the cap, cannot reclassify a
+// production path away, cannot go uncapped, and admits an equal or lower cap.
+func TestWorkerJobSizeCapInheritance(t *testing.T) {
+	const workID = "worker-job-size-cap-inheritance"
+	const jobID = "job:inheritance"
+	fixture := workerJobSizeFixture(t, workID)
+	twoPaths := []map[string]any{
+		{"path": "internal/store/worker_jobs.go", "class": "production"},
+		{"path": "internal/store/worker_oracle.go", "class": "test"},
+	}
+	first := workerJobSizeEditingFields(t, workID, fixture)
+	first["job_id"] = jobID
+	first["production_size_max"] = 400
+	first["measurement_basis"].(map[string]any)["paths"] = twoPaths
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, first); err != nil {
+		t.Fatalf("first capped revision refused: %v", err)
+	}
+	next := func(sizeCap int64, mutate func(fields map[string]any)) error {
+		fields := workerJobSizeEditingFields(t, workID, fixture)
+		fields["job_id"] = jobID
+		fields["production_size_max"] = sizeCap
+		fields["measurement_basis"].(map[string]any)["paths"] = twoPaths
+		if mutate != nil {
+			mutate(fields)
+		}
+		return recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, fields)
+	}
+	if err := next(500, nil); err == nil || !strings.Contains(err.Error(), "raises the job's earliest recorded cap 400") {
+		t.Fatalf("cap raise error = %v, want the raise refusal", err)
+	}
+	if err := next(400, func(fields map[string]any) {
+		fields["measurement_basis"].(map[string]any)["paths"] = []map[string]any{
+			{"path": "internal/store/worker_jobs.go", "class": "test"},
+			{"path": "internal/store/worker_oracle.go", "class": "test"},
+		}
+	}); err == nil || !strings.Contains(err.Error(), "reclassifies measured path internal/store/worker_jobs.go away from an earlier revision's production classification") {
+		t.Fatalf("production reclassification error = %v, want the reclassification refusal", err)
+	}
+	uncapped := workerJobSizeReadOnlyFields(t, workID, fixture)
+	uncapped["job_id"] = jobID
+	if err := recordWorkerJobActionForTest(t, workerJobSizeStore(fixture), workID, fixture.owner, uncapped); err == nil || !strings.Contains(err.Error(), "capped job must stay capped") {
+		t.Fatalf("uncapped successor error = %v, want the must-stay-capped refusal", err)
+	}
+	if err := next(300, nil); err != nil {
+		t.Fatalf("lower cap refused: %v", err)
+	}
+	if err := next(400, nil); err != nil {
+		t.Fatalf("equal cap refused: %v", err)
 	}
 }
 

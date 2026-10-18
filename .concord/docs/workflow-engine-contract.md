@@ -407,16 +407,16 @@ uses the same fold over the prefix through `seq` and is read-only.
 
 ## 6. Outcome evaluation and strength
 
-The approved predicate is immutable. The evaluator receives the approved
-predicate, delivered predicate/verdict, ground-truth resolver, immutable evidence
-bindings, and the executing actor. It returns `satisfied`, `verdict_kind`, and
-`incomparable_with_approved`.
+The approved predicate is immutable. The verdict actor, distinct from the
+executing actor, is the evaluator (CD-0235 D1). For each approved predicate it
+applies the rules below to the delivery and its bound evidence, and records
+`verdict_kind` and `incomparable_with_approved`.
 
-Before evaluation, the submitted predicate is validated against the pinned
-definition's `outcome_schema`, not only against the generic outcome union. The
-validator rejects a predicate kind outside `allowed_kinds` and an outcome token
-not in `allowed_outcome_tokens`. An inline decision record is validated whenever
-one is supplied. This check runs for all seven families; the generic union is only
+At contract approval and again at completion, each approved predicate is
+validated against the pinned definition's `outcome_schema`, not only against the
+generic outcome union. The validator rejects a predicate kind outside
+`allowed_kinds` and an outcome token not in `allowed_outcome_tokens`. An inline
+decision record is validated whenever one is supplied. This check runs for all seven families; the generic union is only
 the syntax check, while the selected definition is the authority for meaning.
 
 1. **`exists`:** resolve every approved subject on the named ground-truth surface.
@@ -434,16 +434,15 @@ the syntax check, while the selected definition is the authority for meaning.
    `accepted_decision` or `insufficient_evidence` token additionally requires the
    bound decision record in §6.1, and the record's decision token must sit in the
    approved `allowed` set. A token outside the set is weaker/mismatched.
-4. **`check`:** resolve the registered evaluator against the exact immutable
-   subject and compare its closed result with `expected_result`. The evaluator
-   owns behavioral strength. It must return `stronger_or_equal`, `weaker`, or
-   `incomparable`; `incomparable` is surfaced as `outcome_mismatch`, with no retry
-   authority. A changed immutable subject is stale evidence, not a new result.
+4. **`check`:** evaluate the named check against the exact immutable subject
+   and compare its closed result with `expected_result`. The verdict actor owns
+   behavioral strength and records stronger-or-equal as `ok`; weaker and
+   incomparable are surfaced as `outcome_mismatch`, with no retry authority. A
+   changed immutable subject is stale evidence, not a new result.
 
-For all four kinds, unreadable data produces an undetermined result and cannot be
-treated as a pass. `outcome_mismatch` is the required typed semantic refusal for a
-weaker or incomparable delivery; the TS7 envelope amendment required by CD-0013
-D10 ships with the later surface-version change, not this documentation pass.
+For all four kinds, unreadable data produces an undetermined result, which the
+verdict actor never records as `ok`. `outcome_mismatch` is the typed refusal
+for a verdict that records a weaker or incomparable delivery.
 
 Job-oracle controls use exit-status results and retained execution references
 (CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
@@ -458,10 +457,12 @@ containing framed questions, options with source-backed evidence, decision,
 rationale, consequences, inputs, proof of concept (POC) findings (or an explicit no-POC value),
 supersession position, reviewer actor, operator acceptance, and for
 `insufficient_evidence`, recorded unknowns plus what would be required to decide.
-Evaluation and completion read the latest accepted row in
+The verdict actor reads the latest accepted row in
 `workflow_decision_records` — the row `record_decision` writes and
-`accept_decision` accepts — and require its decision token inside the approved
-`allowed` set. Contract approval validates the predicate kind and its allowed
+`accept_decision` accepts — and records `ok` only when its decision token sits
+inside the approved `allowed` set. A lifecycle completion outside the workflow
+gate reads the same row and refuses with `decision_record_required` when the
+row is missing or its token is outside the pinned definition's allowed tokens. Contract approval validates the predicate kind and its allowed
 tokens, and validates an inline record only when one is supplied. An unaccepted
 record does not satisfy the predicate or unblock a dependent managed work unit.
 
@@ -479,7 +480,7 @@ are stable:
 | 3 | Every `modifies` edge is within the declared scope and the spec mandate is satisfied | `invariant_violation` | `reread_entities` |
 | 4 | Verdict is present, its actor tuple is complete, and it is distinct from the executing actor | `unauthorized` for same/partial actor; `missing_evidence` for absent verdict | `contact_operator` / `provide_evidence` |
 | 5 | Premise is confirmed by an operator-typed actor | `approval_required` | `request_approval` |
-| 6 | The predicate is strengthening/satisfied and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
+| 6 | Every approved predicate's latest verdict is `ok` and comparable, and no declared blocking staleness rule drifted | `outcome_mismatch` or `stale_requires_review` | `contact_operator` / `refresh_context` |
 | 7 | Contract, verdict, evidence bindings, impact notices, terminal metadata, and `workflow.completed` append commit atomically | `operation_conflict` | `reconcile_operation` |
 
 The same transaction performs the reverse-edge impact scan and notice deduplication
@@ -901,8 +902,10 @@ interpret the v1 carriers:
    effective-rigor evaluation routine are implementation work.
 
 The contract does not invent the deferred check catalog, surface registry, audience
-storage, or a new family. Implementers must refuse unknown values until those
-registries are separately supplied.
+storage, or a new family. Until a decision supplies the check catalog or the
+surface registry, no registry resolves `check_ref` and `surface`
+values; approval checks their grammar and the verdict actor interprets them
+(CD-0235 D3). Implementers must refuse every other unknown value.
 
 ## Acceptance criteria
 
@@ -911,8 +914,8 @@ registries are separately supplied.
   Then the engine refuses with invariant_violation and the instance remains
   planned.
 
-- Given an approved outcome over two capabilities and a delivered outcome over
-  one of them
+- Given an approved outcome over two capabilities and an independent verdict
+  that records a delivery over one of them as weaker
   When complete is dispatched
   Then the engine refuses with outcome_mismatch and appends no
   workflow.completed event.
@@ -943,8 +946,8 @@ executed against production dispatch by
   scenario, which dispatches approve_contract without an end-state and asserts
   an invariant_violation refusal with the instance still planned.
 - Criterion 2 is proved by the bound `WF04-weaker-delivery` scenario, whose
-  delivery covers one capability of an approved two-capability outcome and
-  asserts an outcome_mismatch refusal with no completion event.
+  independent verdict records the delivery as `outcome_mismatch` and which
+  asserts an outcome_mismatch refusal with no completion event (CD-0235 D2).
 - Criterion 3 is proved by the bound `WF13-verdict-actor-distinctness`
   scenario, whose verdict actor equals the executing actor and asserts the
   refusal.

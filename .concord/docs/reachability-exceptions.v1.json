@@ -26,22 +26,6 @@
       "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
-      "id": "workflow-outcome-strength-evaluator-unwired",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.CompareWorkflowPredicates",
-        "internal/store.EvaluateWorkflowOutcome",
-        "internal/store.EvaluateWorkflowOutcomePredicateSet",
-        "internal/store.compareSubjectSets",
-        "internal/store.compareTokenSets",
-        "internal/store.evaluateWorkflowOutcomePredicateCore",
-        "internal/store.predicateStringSet",
-        "internal/store.setContains",
-        "internal/store.workflowOutcomeDefinition"
-      ],
-      "reason": "CD-0012 D3 and CD-0013 D4 require a mechanical comparison of delivered and approved outcome strength, and these functions are that evaluator. Shipped completion, clause 6 of CompleteWorkflowTxWithRegistry, admits the verdict_kind the verdict actor recorded and never calls the evaluator, so the shipped command entrypoints do not reach it. A tracked follow-up either wires the evaluator into the verdict or completion route or amends that law."
-    },
-    {
       "id": "point-in-time-reconstruction-no-operator-verb",
       "state": "out_of_scope",
       "functions": [

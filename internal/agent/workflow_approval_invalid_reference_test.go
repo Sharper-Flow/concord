@@ -56,19 +56,21 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 	}
 }
 
-// agentDurableStateSnapshot reads every table an approval consumption or a
-// workflow action admission can change, including the idempotency record.
+// agentDurableStateSnapshot reads every table an approval consumption or an
+// approval-gated mutation can change, including the idempotency record and
+// the trusted-client policy.
 func agentDurableStateSnapshot(t *testing.T, s *store.Store) string {
 	t.Helper()
 	var out []string
 	for _, query := range []string{
 		`SELECT count(*) || ':' || coalesce(max(seq), 0) FROM domain_events`,
 		`SELECT count(*) FROM durable_operations`,
-		`SELECT version FROM work_items WHERE id='work-1'`,
-		`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`,
+		`SELECT count(*) || ':' || coalesce(sum(version), 0) FROM work_items`,
+		`SELECT coalesce(group_concat(work_id || '=' || current_step, ','), '') FROM (SELECT work_id, current_step FROM workflow_instances ORDER BY work_id)`,
 		`SELECT count(*) || ':' || coalesce(sum(replayed_count), 0) FROM idempotency_records`,
 		`SELECT count(*) || ':' || coalesce(sum(used_count), 0) FROM agent_approvals`,
-		`SELECT count(*) || ':' || coalesce(sum(used_count), 0) FROM agent_approval_challenges`,
+		`SELECT count(*) || ':' || coalesce(sum(used_count), 0) || ':' || coalesce(group_concat(status, ','), '') FROM (SELECT used_count, status FROM agent_approval_challenges ORDER BY challenge_ref)`,
+		`SELECT coalesce(group_concat(client_ref || '|' || capabilities_json || '|' || product_scope_json || '|' || project_scope_json, ','), '') FROM (SELECT * FROM agent_clients ORDER BY client_ref)`,
 	} {
 		var value string
 		if err := s.DatabaseForTesting().QueryRow(query).Scan(&value); err != nil {

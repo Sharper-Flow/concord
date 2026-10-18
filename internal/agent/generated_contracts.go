@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:469a7df1428aa56f2c0a079237ccf231f16310aa598be67ae1380393d115b344"
+const ManifestDigest = "sha256:05a5bce036a38b93d91de4962b6ad81a46f715150ea871beb196566a15dc948a"
 
 type OperationKind string
 
@@ -373,7 +373,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_proposal_record":                              {Required: []string{"problem", "user_outcomes", "constraints"}, Properties: []string{"problem", "user_outcomes", "constraints"}},
 	"workflow_read":                                         {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "parked_delivery", "stale_law_revision", "delivery_assertion"}},
 	"workflow_self_repair":                                  {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
-	"workflow_verdict_batch_entry":                          {Required: []string{"predicate_id"}, Properties: []string{"predicate_id", "verdict_kind", "evaluation_evidence", "incomparable_with_approved"}},
+	"workflow_verdict_batch_entry":                          {Required: []string{"predicate_id", "verdict_kind"}, Properties: []string{"predicate_id", "verdict_kind", "evaluation_evidence", "incomparable_with_approved"}},
 	"worktree_audit_page":                                   {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
 	"worktree_audit_reclaim_result":                         {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents", "work_pins"}},
 	"worktree_claim_result":                                 {Required: []string{"changed_refs", "next_valid_intents", "path"}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "path"}},

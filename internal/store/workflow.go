@@ -2943,6 +2943,10 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 	return laneActors == 0, nil
 }
 
+// workerAttemptDisposalActions lists, as SQL literals, the workflow actions
+// that record a lane attempt's result decision and so end its hold.
+const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure'`
+
 // workflowFencedWriter names the actor that holds a fenced attempt's writing
 // authority before beforeSeq, and the sequence at which it took it: the lane
 // of a live lane attempt from its dispatch, the actor that disposed of the
@@ -2960,7 +2964,7 @@ func workflowFencedWriter(ctx context.Context, q queryer, workID, executionActor
 	}
 	var disposalSeq int64
 	var disposer string
-	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&disposalSeq, &disposer)
+	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN (`+workerAttemptDisposalActions+`) AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&disposalSeq, &disposer)
 	if err == sql.ErrNoRows {
 		// The dispatch pins the lane as the executing actor.
 		return executionActor, true, dispatchSeq, nil

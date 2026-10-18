@@ -379,7 +379,7 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	defer s.Close()
 	reviewer := verdictReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
 		t.Fatalf("recording the prior worker verdict refused: %v", err)
 	}
 	setRequiredEvidenceKinds(t, s, workID, "verification", wf04OutstandingKind)

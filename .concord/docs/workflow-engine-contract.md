@@ -522,6 +522,14 @@ verdict is distinct from an agent executor but must still carry a complete tuple
 Any empty or partial tuple is refused. Actor rows and tuple fields cannot be
 updated or deleted; a changed tuple receives a new actor reference.
 
+Every new `record_verdict` call supplies an explicit `verdict_kind` for each
+judged predicate: `ok`, `outcome_mismatch`, or `insufficient_evidence`. An omitted,
+null, empty, or undeclared kind refuses the entire action before any event,
+durable operation, work-version update, or workflow-projection change. No verdict
+kind is inferred. This authoring rule applies to new calls on earlier definition
+pins too. Stored events, released definition data and digests, historical decoder
+schemas, replay, and rebuild retain their recorded meaning.
+
 For `confirm_premise`, the invoking agent tuple is never converted to an
 operator by changing `actor_class`, and `confirming_actor_ref` is not accepted
 from the workflow payload. The exact signed approval assertion must carry the

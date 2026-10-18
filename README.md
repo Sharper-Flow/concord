@@ -160,10 +160,10 @@ bin/oc-test conformance
 ```
 
 To test one shard of a package that smoke leaves out, run CI's selection for
-it, here shard 1 of the 3 `internal/store` shards:
+it, here shard 1 of the 5 `internal/store` shards:
 
 ```sh
-bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 3)" ./internal/store
+bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
 ```
 
 See [`bin/oc-test`](bin/oc-test) for workload and host admission details, and the

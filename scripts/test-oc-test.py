@@ -197,6 +197,28 @@ class TierRoutingTest(unittest.TestCase):
         wrapper = (REPOSITORY / "bin/oc-test").read_text()
         self.assertEqual(smoke_go_command(wrapper), workflow_step_run(workflow, CI_UNSHARDED_STEP))
 
+    def test_smoke_docs_name_the_ci_shards(self):
+        # The header and README name the packages smoke leaves out and give a
+        # one-shard command. Both copy CI's shard jobs, so they must change
+        # when a package is sharded or its shard count moves.
+        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
+        counts = {}
+        for package, _, count in re.findall(r"go-test-shard\.py \./(\S+) (\d+) (\d+)\)", workflow):
+            counts.setdefault(package, set()).add(count)
+        self.assertIn("internal/store", counts)
+        store_count = counts["internal/store"].pop()
+        example = f'go-test-shard.py ./internal/store 1 {store_count})" ./internal/store'
+        prose = {"bin/oc-test": f"shard 1 of {store_count}:", "README.md": f"shard 1 of the {store_count} `internal/store` shards"}
+        for path, phrase in prose.items():
+            with self.subTest(path=path):
+                text = (REPOSITORY / path).read_text()
+                for package in counts:
+                    name = f"`{package}`" if path == "README.md" else package
+                    self.assertTrue(name in text, f"{path} does not name the sharded package {name}")
+                self.assertTrue(example in text, f"{path} lacks the one-shard example {example}")
+                self.assertEqual(set(re.findall(r"go-test-shard\.py \./internal/store \d+ (\d+)", text)), {store_count})
+                self.assertTrue(phrase in text, f"{path} does not say {phrase}")
+
     def test_smoke_isolates_product_selection_for_adapter_and_json(self):
         result = self.run_wrapper("smoke")
         self.assertEqual(result.returncode, 0, result.stderr)

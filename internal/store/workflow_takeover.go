@@ -20,20 +20,14 @@ type WorkflowStartTakeover struct {
 // WorkflowActionOpensHeldAttempt reports whether an action opens a fresh
 // fenced attempt on its step that another actor may hold: its execution mode
 // is fenced, so its fold records the started event that opens the next
-// attempt epoch. A worker-lane dispatch (the worker_dispatch capability) is
-// fenced too, but CD-0148 binds its approval to the failed lane attempt, not
-// to a held attempt, so this rule does not govern it.
+// attempt epoch.
 func WorkflowActionOpensHeldAttempt(action WorkflowActionDefinition) bool {
-	return action.ExecutionMode == ActionFenced && action.RequiredCapability != WorkerDispatchCapability
-}
-
-func workflowActionOpensHeldAttempt(definition WorkflowDefinition, actionID string) bool {
-	return WorkflowActionOpensHeldAttempt(workflowActionDefinitionByID(definition, actionID))
+	return action.ExecutionMode == ActionFenced
 }
 
 // WorkflowStartTakeoverRead opens its own read transaction around the single
 // implementation (the store connection invariant).
-func WorkflowStartTakeoverRead(ctx context.Context, s *Store, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
+func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_action", "store is not open", false, "open the authority database")
 	}
@@ -42,7 +36,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, workID, callerActo
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot open the takeover read transaction", true, "retry once the store is readable", err)
 	}
 	defer func() { _ = readTx.Rollback() }()
-	return workflowStartTakeover(ctx, readTx, workID, callerActorRef)
+	return workflowStartTakeover(ctx, readTx, action, workID, callerActorRef)
 }
 
 // workflowStartTakeover returns nil when the caller may start freely: no
@@ -53,7 +47,12 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, workID, callerActo
 // through a recorded result decision, which that rule already reads; a session
 // relinquishes through session_vacate after it took the authority. Leaving the
 // step ends the attempt, so a start on a re-entered step takes nothing over.
-func workflowStartTakeover(ctx context.Context, q queryer, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
+//
+// A worker-lane dispatch takes over only an unfinished lane attempt another
+// session dispatched: its worker is running or its result awaits a decision.
+// A failed attempt is finished, and the next dispatch is a CD-0148 retry
+// whose approval binds the failed attempt.
+func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string
 	if err := q.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &executionActor); err != nil {
 		if err == sql.ErrNoRows {
@@ -80,6 +79,12 @@ func workflowStartTakeover(ctx context.Context, q queryer, workID, callerActorRe
 	if left > 0 {
 		return nil, nil
 	}
+	if action.RequiredCapability == WorkerDispatchCapability {
+		held, err := workflowLaneAttemptHeldFrom(ctx, q, workID, step, startSeq, start, callerActorRef)
+		if err != nil || !held {
+			return nil, err
+		}
+	}
 	holder, _, since, err := workflowFencedWriter(ctx, q, workID, executionActor, math.MaxInt64)
 	if err != nil {
 		return nil, err
@@ -102,12 +107,36 @@ func workflowStartTakeover(ctx context.Context, q queryer, workID, callerActorRe
 	return &WorkflowStartTakeover{HeldEpoch: start.AttemptEpoch, HolderActorRef: holder}, nil
 }
 
+// workflowLaneAttemptHeldFrom reports whether the step's latest start is a
+// lane dispatch whose attempt another session dispatched and that has not
+// ended through a recorded result decision or a terminal failure.
+func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step string, startSeq int64, start workflowActionStartedPayload, callerActorRef string) (bool, error) {
+	if start.ActorRef == callerActorRef {
+		return false, nil
+	}
+	var attemptID string
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.attempt_epoch')=? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq, step, start.AttemptEpoch).Scan(&attemptID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot inspect the held lane attempt for the takeover")
+	}
+	var ended int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND (
+		(kind=? AND json_extract(payload,'$.action_id') IN (`+workerAttemptDisposalActions+`) AND json_extract(payload,'$.worker_attempt_id')=?)
+		OR (kind=? AND json_extract(payload,'$.attempt_id')=?))`, string(SubjectWorkItem), workID, startSeq, WorkflowActionCompleted, attemptID, WorkerFailed, attemptID).Scan(&ended); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect whether the held lane attempt ended")
+	}
+	return ended == 0, nil
+}
+
 // guardStartTakeover rereads the held attempt inside the action transaction.
 // A takeover needs the exact approval minted for that held attempt; an
 // approval minted for a held attempt that has since changed authorizes
 // nothing.
-func guardStartTakeover(ctx context.Context, q queryer, workID, actorRef string, approved *WorkflowStartTakeover) error {
-	takeover, err := workflowStartTakeover(ctx, q, workID, actorRef)
+func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, approved *WorkflowStartTakeover) error {
+	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef)
 	if err != nil {
 		return err
 	}

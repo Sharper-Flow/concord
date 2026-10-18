@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:651cb2b8b0415cdf91f2d0480faf6ca16ebb76ea420b19f25fd3da66010e34cd",
+  "sha256": "sha256:a089d0f012d4d9de9356e483901f9c4ac2ab5db6769da25ef886d3c343810c4c",
   "status": "published",
-  "summary": "Describes the plurality of purpose-built workflow types and their taxonomy, aligned v5.",
+  "summary": "Describes the three retained execution families, shared-part workflow composition, model-selected size, and exact historical definition pins under CD-0218 and CD-0229.",
   "tags": [
     "workflows",
     "taxonomy"

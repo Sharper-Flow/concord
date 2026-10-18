@@ -90,7 +90,7 @@ evidence showed host CPU contention inflating writer-admission wait while commit
 latency stayed low; the max-rate spin profile (about 330-500 writes/second,
 3000-5000x the measured production envelope) then fired on the shared required-check
 runner with all correctness invariants clean. Operator approval on 2026-08-11
-calibrated the accepted profile to the R4 production envelope as above. The storage
+calibrated the accepted profile to the measured production envelope above. The storage
 decision itself was not reopened: no escaped busy, lost or duplicate effect, or
 invariant violation occurred on any population.
 

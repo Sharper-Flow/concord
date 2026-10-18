@@ -178,7 +178,6 @@ details; this table does not duplicate them.
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |

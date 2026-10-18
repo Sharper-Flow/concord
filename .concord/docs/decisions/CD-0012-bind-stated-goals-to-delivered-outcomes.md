@@ -15,7 +15,7 @@ invariant in [`workflows.md`](../workflows.md) §2.1 by giving it a binding coun
 amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
 [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
 conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
-**Research:** [`R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md)
+**Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 
 ## Context
@@ -412,7 +412,7 @@ Every document this decision touches or introduces, classified by the force of t
 
 | Document | Change | Class |
 |---|---|---|
-| [`research/R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
+| [`research/R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
 | [`workflows.md`](../workflows.md) §2.1 | The one-sentence value statement remains and gains a stated limit: it answers why the work matters, not what must be true when it is done. | Binding amendment |
 | [`workflows.md`](../workflows.md) §2.1a | New section defining the outcome contract, plus an `Outcome contract` row in the §2 workflow-type aspect table. | Binding amendment |
 | [`design-constraints.md`](../design-constraints.md) §10 | Completion criteria declared by a workflow type must include an outcome contract. | Binding amendment |

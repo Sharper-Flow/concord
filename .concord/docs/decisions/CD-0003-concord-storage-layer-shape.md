@@ -137,6 +137,3 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
   - evidence-resolution completeness (RB #6).
 
   These shape Concord-the-product or the durable tier, not the storage-spine build.
-- The **storage-spine slice** (`storage-spine-slice.md`) is an implementation
-  acceptance plan. PM1 defines canonical jobs; PM2/PM3 choose scope/schema through
-  research; PM1–PM5 are complete and the slice validates the accepted result.

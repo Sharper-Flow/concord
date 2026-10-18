@@ -110,6 +110,60 @@ test("the worker reader transport uses only the held request and dispatched dire
   }
 })
 
+for (const [label, read] of [["source", adapter.readBoundWorkerSource], ["diff", adapter.readBoundWorkerDiff]] as const) {
+  for (const [scenario, failure, message] of [
+    ["empty-stderr refusal", { exitCode: 1, stdout: "", stderr: "" }, `the core refused the pinned ${label} read`],
+    ["oversized page", { exitCode: 0, stdout: "x".repeat(16_385), stderr: "" }, `pinned ${label} page exceeded its transport bound`],
+  ] as const) {
+    test(`the ${label} reader transport names its operation on ${scenario}`, async () => {
+      configureHostLease({ reset: true })
+      let result = { exitCode: 0, stdout: "{}\n", stderr: "" }
+      adapter.configureConcordAdapter({ runner: { run: async () => result } })
+      try {
+        // The transport forwards the held request; these cases never enter the store.
+        expect(await read({} as never, new AbortController().signal, "/dispatched-worktree")).toEqual({})
+        result = failure
+        await expect(read({} as never, new AbortController().signal, "/dispatched-worktree")).rejects.toThrow(message)
+      } finally {
+        adapter.configureConcordAdapter({ reset: true })
+        configureHostLease({ reset: true })
+      }
+    })
+  }
+
+  test(`the ${label} reader transport names its operation when the host lease refuses`, async () => {
+    configureHostLease({ reset: true })
+    let calls = 0
+    adapter.configureConcordAdapter({ runner: { run: async () => { calls++; return { exitCode: 0, stdout: "{}\n", stderr: "" } } } })
+    try {
+      expect(await read({} as never, new AbortController().signal, "/dispatched-worktree")).toEqual({})
+      configureHostLease({ release: { coreBinary: "concord", releaseRoot: "/release" }, runner: { run: async () => ({ exitCode: 1, stdout: "", stderr: "fixture lease refusal" }) } })
+      await claimHostLease(process.pid)
+      expect(hostLeaseFault()).toBe("host lease claim failed with exit 1: fixture lease refusal")
+      await expect(read({} as never, new AbortController().signal, "/dispatched-worktree")).rejects.toThrow(`${hostLeaseFault()}; no ${label} read ran`)
+      expect(calls).toBe(1)
+    } finally {
+      adapter.configureConcordAdapter({ reset: true })
+      configureHostLease({ reset: true })
+    }
+  })
+}
+
+test("the diff reader transport preserves the core's typed refusal and recovery verbatim", async () => {
+  configureHostLease({ reset: true })
+  const diagnostic = "concord worker-diff: store: worker_diff: unauthorized_dispatch: worker diff read requires an active workflow contract\nrecovery: use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history"
+  adapter.configureConcordAdapter({ runner: { run: async () => ({ exitCode: 1, stdout: "", stderr: diagnostic + "\n" }) } })
+  let caught: unknown
+  try {
+    try { await adapter.readBoundWorkerDiff({} as never, new AbortController().signal, "/dispatched-worktree") } catch (error) { caught = error }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toBe(diagnostic)
+  } finally {
+    adapter.configureConcordAdapter({ reset: true })
+    configureHostLease({ reset: true })
+  }
+})
+
 test("the worker reader transport refuses failed, oversized, or non-single-object output", async () => {
   configureHostLease({ reset: true })
   for (const result of [

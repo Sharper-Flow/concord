@@ -1140,7 +1140,7 @@ describe("spawn failure without a part event", () => {
     const windows = new DispatchWindows()
     await withInFlightAttempt(windows, "call-spawn")
     const verbs: string[] = []
-    const result = await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
+    await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
     expect(verbs).toEqual(["worker-abandon"])
     expect(windows.inFlightAttempt(SESSION)).toBeNull()
     expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(false)

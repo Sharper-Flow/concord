@@ -109,7 +109,7 @@ describe("terminal transitions vacate the worktree after success", () => {
     await fakeHost("/main")
     armClaimedWorktree("session-1", "/worktree")
     try {
-      const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), okEnvelope())
+      const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), context(), okEnvelope())
       expect(envelope.outcome).toBe("ok")
       expect(vacateCalls).toEqual(["session_vacate"])
       // The verified landing runs only after the host readback names the
@@ -126,7 +126,7 @@ describe("terminal transitions vacate the worktree after success", () => {
   test("a supersede operation is no longer a vacate trigger", async () => {
     await fakeHost("/main")
     const args = { operation: "resolve_overlap", input: { from_work_id: "work-1", to_work_id: "work-2", from_expected_version: 1, to_expected_version: 1, from_contract_version: 1, to_contract_version: 1, resolution_kind: "supersedes", reason: "replaced", idempotency_key: "k-3" } }
-    const envelope = await vacateTerminalWorktree("concord_work_relate", args as never, context(), okEnvelope())
+    const envelope = await vacateTerminalWorktree(args as never, context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(vacateCalls).toEqual([])
     expect(landingCalls).toEqual([])
@@ -134,7 +134,7 @@ describe("terminal transitions vacate the worktree after success", () => {
 
   test("a lifecycle without a vacate target does nothing", async () => {
     await fakeHost("/main")
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), okEnvelope(false))
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), context(), okEnvelope(false))
     expect(envelope.outcome).toBe("ok")
     expect(vacateCalls).toEqual([])
     expect(landingCalls).toEqual([])
@@ -142,7 +142,7 @@ describe("terminal transitions vacate the worktree after success", () => {
 
   test("a non-terminal lifecycle target does nothing", async () => {
     await fakeHost("/main")
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("in_progress"), context(), okEnvelope())
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("in_progress"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(vacateCalls).toEqual([])
     expect(landingCalls).toEqual([])
@@ -151,7 +151,7 @@ describe("terminal transitions vacate the worktree after success", () => {
   test("an error envelope does nothing", async () => {
     await fakeHost("/main")
     const failure = { schema_version: "1.0", outcome: "error", error: { kind: "invalid_transition", message: "no" } }
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), failure as never)
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), context(), failure as never)
     expect(vacateCalls).toEqual([])
     expect(landingCalls).toEqual([])
     expect(envelope).toBe(failure)
@@ -162,7 +162,7 @@ describe("terminal transitions vacate the worktree after success", () => {
   // move records no landing, so the occupancy rows stand.
   test("a failed move keeps the transition result, records no landing, and queues a notice", async () => {
     await fakeHost("/nowhere-else")
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), okEnvelope())
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(vacateCalls).toEqual(["session_vacate"])
     expect(landingCalls).toEqual([])
@@ -178,7 +178,7 @@ describe("terminal transitions vacate the worktree after success", () => {
   // effect and names the verified-destination replay instead (CD-0190 D3).
   test("a landing record failure after the move landed reports the possible effect and the verified-destination replay", async () => {
     await fakeHost("/main", { landingFails: true })
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), okEnvelope())
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(vacateCalls).toEqual(["session_vacate"])
     const notices = takeWorkNotices("session-1")

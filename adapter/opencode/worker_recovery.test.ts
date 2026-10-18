@@ -265,7 +265,7 @@ test.each([["9.9", "9.9"], ["1.1", "2.0"], ["2.0", "1.1"]])("recovery refuses th
 // A retained packet relabeled to a different identity than its recorded
 // dispatch refuses: recovery never rewrites recorded schema identity.
 test("recovery refuses a retained packet whose schema identity differs from the recorded dispatch", async () => {
-  const { reader } = host()
+  host()
   const relabeled: AgentLanePacket = { ...packet, schema_version: "2.0" }
   const parent = host()
   parent.parent.messages[0].parts[0].state.input.prompt = serializeLanePacket(relabeled)

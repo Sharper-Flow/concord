@@ -81,6 +81,8 @@
         "lib",
         "types",
         "strict",
+        "noUnusedLocals",
+        "noUnusedParameters",
         "noEmit",
         "skipLibCheck",
         "resolveJsonModule",
@@ -126,6 +128,16 @@
         },
         "strict": {
           "description": "Never false. A non-strict typecheck does not prove the adapter compiles against the declared host surface.",
+          "type": "boolean",
+          "const": true
+        },
+        "noUnusedLocals": {
+          "description": "Never false. An unread local or import is dead code the typecheck reports.",
+          "type": "boolean",
+          "const": true
+        },
+        "noUnusedParameters": {
+          "description": "Never false. A parameter no body reads is dead surface; a callback that must keep its position names it with a leading underscore.",
           "type": "boolean",
           "const": true
         },

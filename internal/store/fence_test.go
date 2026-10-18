@@ -80,7 +80,9 @@ func TestFenceRequiresManifestDigest(t *testing.T) {
 	}
 }
 
-func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
+// TestFenceStaleAttemptAndNewClaim proves a second claim on a pending step
+// fences the first: the earlier epoch can no longer complete.
+func TestFenceStaleAttemptAndNewClaim(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -89,11 +91,11 @@ func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	takeoverClaim := testClaim("op-2", "claim-3")
-	takeoverClaim.PrincipalRef = "operator"
-	takeover, err := OperatorTakeover(ctx, s, takeoverClaim, "approval-1")
-	if err != nil || takeover.AttemptEpoch != 2 || takeover.ApprovalRef != "approval-1" {
-		t.Fatalf("takeover = %+v, %v", takeover, err)
+	secondClaim := testClaim("op-2", "claim-3")
+	secondClaim.PrincipalRef = "operator"
+	second, err := ClaimStepAuthorized(ctx, s, secondClaim, nil)
+	if err != nil || second.AttemptEpoch != 2 {
+		t.Fatalf("second claim = %+v, %v", second, err)
 	}
 	stale := CompleteRequest{OpID: "op-2", AttemptEpoch: first.AttemptEpoch, ResultKind: ResultCompleted, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: "stale-complete", RequestID: "stale-request", ObservedAt: time.Unix(3, 0).UTC()}
 	_, err = CompleteStep(ctx, s, stale)

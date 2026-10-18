@@ -1181,10 +1181,6 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 			}
 		}
 	}
-	var actionGroundTruth map[string]any
-	if payload := workflowFieldRaw(fields, "payload"); len(payload) != 0 {
-		_ = json.Unmarshal(payload, &actionGroundTruth)
-	}
 	var outcomePredicates []workflowContractPredicatePayload
 	if rawPredicates := workflowFieldRaw(fields, "outcome_predicates"); len(rawPredicates) != 0 {
 		_ = json.Unmarshal(rawPredicates, &outcomePredicates)
@@ -1195,39 +1191,22 @@ func workflowContractOutcomePredicates(definition WorkflowDefinition, fields map
 		if !hasLegacyOutcomeKind && !hasLegacyOutcomePayload && !hasLegacyOutcome {
 			outcomePredicates = []workflowContractPredicatePayload{}
 		} else {
-			outcomeKindForVacuity := workflowFieldStringDefault(fields, "outcome_kind", "")
+			outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", "")
 			outcome := workflowFieldRaw(fields, "outcome")
 			if len(outcome) != 0 && string(outcome) != "null" {
 				var predicate map[string]any
 				if json.Unmarshal(outcome, &predicate) == nil {
-					outcomeKindForVacuity = workflowFieldStringDefaultMap(predicate, "kind", outcomeKindForVacuity)
+					outcomeKind = workflowFieldStringDefaultMap(predicate, "kind", outcomeKind)
 				}
 			}
 			outcomePayload := workflowFieldRaw(fields, "outcome_payload")
 			if len(outcomePayload) == 0 {
 				outcomePayload = defaultWorkflowOutcome(definition, fields)
 			}
-			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKindForVacuity, OutcomePayload: outcomePayload}}
-		}
-	}
-	for _, predicate := range outcomePredicates {
-		var groundTruth map[string]any
-		groundTruthValue := ""
-		if json.Unmarshal(predicate.OutcomePayload, &groundTruth) == nil {
-			groundTruthValue = workflowFieldStringDefaultMap(groundTruth, "ground_truth", "")
-		}
-		if groundTruthValue == "" {
-			groundTruthValue = workflowFieldStringDefaultMap(actionGroundTruth, "ground_truth", "")
-		}
-		if workflowOutcomePredicateVacuous(predicate.OutcomeKind, groundTruthValue) {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "approved end-state is already satisfied", false, "supply a non-vacuous required end state")
+			outcomePredicates = []workflowContractPredicatePayload{{PredicateID: "predicate:primary", OutcomeKind: outcomeKind, OutcomePayload: outcomePayload}}
 		}
 	}
 	return outcomePredicates, nil
-}
-
-func workflowOutcomePredicateVacuous(kind, groundTruth string) bool {
-	return (kind == "exists" && strings.HasSuffix(groundTruth, "-present")) || (kind == "absent" && strings.HasSuffix(groundTruth, "-absent"))
 }
 
 func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {

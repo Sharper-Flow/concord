@@ -4636,7 +4636,7 @@
               },
               "evidence": {
                 "type": "array",
-                "maxItems": 32,
+                "maxItems": 64,
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }

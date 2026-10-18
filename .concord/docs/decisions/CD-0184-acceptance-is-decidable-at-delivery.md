@@ -60,8 +60,8 @@ rule removes that failure.
 A check against a live system stays allowed when verification can decide its
 result at delivery. For example, native service tooling runs a one-shot health
 check just after delivery. A `workflow.implementation` item binds its result as
-verification evidence for a `check` predicate with `bind_evidence`, then records
-the evaluator's verdict with `record_verdict` at acceptance. The result exists
+verification evidence for a `check` predicate with `bind_evidence`. At acceptance,
+an independent evaluator records its verdict with `record_verdict`. The result exists
 when verification runs. The line is the time of evaluation, not whether the
 subject is a production system.
 

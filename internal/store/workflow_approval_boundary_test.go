@@ -15,7 +15,7 @@ import (
 // against a genuinely claimed session worktree instead of a projection write.
 func claimRetryWorktree(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	payload := marshalWorktreeCreated(version, WorktreeSetID(workID), "project-1", "claim:"+workID,
 		WorktreeLocation{Branch: "change/claim", BaseSHA: strings.Repeat("a", 40), Path: t.TempDir()},
 		worktreeFacts{branch: "change/claim", headSHA: strings.Repeat("a", 40), repositoryID: "repo-1"}, "", 0, 0)
@@ -257,7 +257,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		workVersion := verdictItemVersion(t, s, workID)
+		workVersion := readWorkVersion(t, s, workID)
 		if state.WorkVersion != workVersion || state.ContractVersion != active.Version || !reflect.DeepEqual(state.ActiveContractVersions, activeVersions) {
 			t.Fatalf("boundary versions = work %d contract %d active %v, want work %d contract %d active %v", state.WorkVersion, state.ContractVersion, state.ActiveContractVersions, workVersion, active.Version, activeVersions)
 		}
@@ -386,7 +386,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("legacy failed-retry consent = %q, want required", retry.Policy.Consent)
 		}
 
-		if approvalEventCount(t, s, workID) != eventsBefore || verdictItemVersion(t, s, workID) != workVersion {
+		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != workVersion {
 			t.Fatal("the boundary reads moved the unchanged item")
 		}
 		if _, err := ReadWorkflowApprovalBoundary(ctx, s, registry, confirmed); err != nil {
@@ -440,7 +440,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, probe)
 		seedWorkflowLaw(t, s)
-		probeVersion := verdictItemVersion(t, s, probe)
+		probeVersion := readWorkVersion(t, s, probe)
 		probeEvents := approvalEventCount(t, s, probe)
 		expectPinRefusal := func(name string, err error) {
 			t.Helper()
@@ -448,7 +448,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
 				t.Fatalf("%s initialization = %v, want the typed pin refusal", name, err)
 			}
-			if verdictItemVersion(t, s, probe) != probeVersion || approvalEventCount(t, s, probe) != probeEvents {
+			if readWorkVersion(t, s, probe) != probeVersion || approvalEventCount(t, s, probe) != probeEvents {
 				t.Fatalf("%s refusal moved the probe item", name)
 			}
 			if rows := foldGuardRows(t, s); rows != 0 {
@@ -508,7 +508,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 				t.Fatalf("missing-registry repin = %v, want the typed pin refusal", err)
 			}
 		}
-		if verdictItemVersion(t, s, probe) != repinVersionBefore || approvalEventCount(t, s, probe) != repinEvents || foldGuardRows(t, s) != 0 {
+		if readWorkVersion(t, s, probe) != repinVersionBefore || approvalEventCount(t, s, probe) != repinEvents || foldGuardRows(t, s) != 0 {
 			t.Fatal("the refused repin moved the probe item")
 		}
 
@@ -524,7 +524,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		advanceResolutionToExecution(t, s, registry, route, ownerFor(route), []string{})
 		advanceResolutionDelivery(t, s, registry, route, ownerFor(route))
 		seedResolutionInvestigation(t, s, route)
-		routeVersion := verdictItemVersion(t, s, route)
+		routeVersion := readWorkVersion(t, s, route)
 		routeEvents := approvalEventCount(t, s, route)
 		selection := WorkflowActionPreflightRequest{WorkID: route, ActionID: "confirm_premise", SelectedChoice: "confirm", ExpectedVersion: routeVersion}
 		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, selection); err != nil {
@@ -538,7 +538,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err := ValidateWorkflowOperatorSelection(ctx, s, route, routeVersion, selection.ActionID, selection.SelectedChoice, selection.DecisionContextDigest); err == nil || !failureAs(err, &wrapperRefusal) || wrapperRefusal.Kind != KindInvariantViolation {
 			t.Fatalf("the builtin-convenience selection wrapper = %v, want the typed pin refusal", err)
 		}
-		if verdictItemVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {
+		if readWorkVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {
 			t.Fatal("the selection reads moved the route item")
 		}
 
@@ -627,7 +627,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		legacyApproval, marshalErr := json.Marshal(map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 			"contract_version": 2, "premise": "recorded duplicate approval", "outcome_kind": "check",
@@ -657,7 +657,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !reflect.DeepEqual(activeVersions, []int64{1, 2}) {
 			t.Fatalf("active contract versions = %v, want [1 2] with highest 2", activeVersions)
 		}
-		replayedVersion := verdictItemVersion(t, s, workID)
+		replayedVersion := readWorkVersion(t, s, workID)
 		eventsBefore := approvalEventCount(t, s, workID)
 
 		request := WorkflowActionPreflightRequest{WorkID: workID, ActionID: "supersede_contract", Actor: owner}
@@ -733,7 +733,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !reflect.DeepEqual(pin, parity) {
 			t.Fatalf("second mutation pin = %+v, want %+v", parity, pin)
 		}
-		if approvalEventCount(t, s, workID) != eventsBefore || verdictItemVersion(t, s, workID) != replayedVersion {
+		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != replayedVersion {
 			t.Fatal("the duplicate-active reads moved the unchanged item")
 		}
 	})

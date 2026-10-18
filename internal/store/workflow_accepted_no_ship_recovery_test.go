@@ -15,7 +15,7 @@ func historicalReviewAcceptor(t *testing.T, s *Store, workID string) WorkflowAct
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("historical-acceptor", WorkflowActorRecorded, workID, acceptorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"actor_ref": acceptorRef, "principal_ref": acceptor.PrincipalRef, "client_ref": acceptor.ClientRef,

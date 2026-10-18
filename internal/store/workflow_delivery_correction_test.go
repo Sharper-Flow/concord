@@ -50,7 +50,7 @@ func completedDeliveryFixture(t *testing.T, workID string) (*Store, string, int6
 	t.Helper()
 	s := completedDeliveryFixtureWithAssertions(t, workID, 1)
 	targetEventID, seq, payloadVersion := deliveryAssertionEvent(t, s, workID, 0)
-	return s, targetEventID, deliveryWorkVersion(t, s, workID), payloadVersion, seq
+	return s, targetEventID, readWorkVersion(t, s, workID), payloadVersion, seq
 }
 
 // completedDeliveryFixtureWithAssertions seeds the completed item with a
@@ -143,15 +143,6 @@ func insertConsumedApprovalState(t *testing.T, s *Store, ref, workID string, ver
 		ref, deliveryCorrectionDigest, deliveryCorrectionScopeJSON(workID), deliveryCorrectionVersionsJSON(version), deliveryCorrectionConsequence, "principal/operator", "client/concord-1", "session/"+workID+"-approval-"+ref[:4], "2026-09-10T00:00:00Z", "2026-09-11T00:00:00Z", 1, usedCount, "approval-evidence", "sha256:"+strings.Repeat("b", 64)); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func deliveryWorkVersion(t *testing.T, s *Store, workID string) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 // deliveryAssertionEvent reads the delivery assertion at a chosen offset from
@@ -347,7 +338,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if lifecycle != "completed" {
 		t.Fatalf("correction reopened the work item lifecycle to %q", lifecycle)
 	}
-	if got := deliveryWorkVersion(t, s, workID); got != version+1 {
+	if got := readWorkVersion(t, s, workID); got != version+1 {
 		t.Fatalf("correction version=%d, want the single correction advance (%d)", got, version+1)
 	}
 	// The routine correction mints and consumes no approval row: the unsigned
@@ -372,7 +363,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 
 	// A second correction of the same assertion is refused: one correction
 	// overlays one assertion, and no approval is minted to attempt another.
-	second := unsignedDeliveryCorrectionRequest(t, s, workID, deliveryWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
+	second := unsignedDeliveryCorrectionRequest(t, s, workID, readWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
 	second.EventID = "correction-" + workID + "-second"
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
 }
@@ -456,7 +447,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	if after := countWorkflowSubjectEvents(t, s, workID); after != eventsBefore {
 		t.Fatalf("the refused corrections appended events: before=%d after=%d", eventsBefore, after)
 	}
-	if after := deliveryWorkVersion(t, s, workID); after != version {
+	if after := readWorkVersion(t, s, workID); after != version {
 		t.Fatalf("the refused corrections moved the version to %d, want %d", after, version)
 	}
 	if rows := routineApprovalActorRows(t, s); rows != 0 {
@@ -536,7 +527,7 @@ func TestTerminalDeliveryCorrectionTargetsCurrentAssertionOnly(t *testing.T) {
 	const workID = "delivery-correction-stale-target"
 	s := completedDeliveryFixtureWithAssertions(t, workID, 2)
 	staleEventID, staleSeq, stalePayloadVersion := deliveryAssertionEvent(t, s, workID, 1)
-	request := unsignedDeliveryCorrectionRequest(t, s, workID, deliveryWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
+	request := unsignedDeliveryCorrectionRequest(t, s, workID, readWorkVersion(t, s, workID), staleEventID, staleSeq, stalePayloadVersion)
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, request), KindInvalidOperation, "not the current delivery assertion")
 }
 

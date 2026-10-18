@@ -53,7 +53,7 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	// attached, as the operator-signed verdict and completion route do.
 	withOperator := func(action, attempt string, payload json.RawMessage) error {
 		t.Helper()
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -73,7 +73,7 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 		t.Fatalf("operator verdict: %v", err)
 	}
 	operatorRef, _ := WorkflowActorRef(operator)
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRecorded := workflowEvent("derived-lands-operator", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("derived-lands-premise", WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	premiseCompleted := workflowActionCompletedFixture("derived-lands-premise-done", workID, operatorRef, premiseVersion+2, "conclude", "confirm_premise")

@@ -147,7 +147,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	if got := events(); got != before {
 		t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
 	}
-	if got := verdictItemVersion(t, s, workID); got != 4 {
+	if got := readWorkVersion(t, s, workID); got != 4 {
 		t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
 	}
 }
@@ -435,7 +435,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	}
 	// approve_contract's approval is the contract machinery itself, not an
 	// operator actor: the action runs without one, like every live approver.
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	operationID := "canonical-approval-" + workID
 	tx2, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -911,7 +911,7 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 	if record["step"] != "investigate" || record["epoch"] != int64(1) {
 		t.Fatalf("derived record = %+v, want the investigate step at the window's epoch 1", record)
 	}
-	if record["actor"] != s2ActorRef(t, dispatcher) {
+	if record["actor"] != mustActorRef(t, dispatcher) {
 		t.Fatalf("derived record actor = %v, want the dispatch authorization's actor", record["actor"])
 	}
 	if !strings.HasSuffix(record["event_id"].(string), ":workflow-failure") {
@@ -1204,7 +1204,7 @@ func cutoverTableSnapshot(t *testing.T, s *Store, table string) string {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return string(mustJSONBytes(snapshot))
+	return string(mustJSONValue(snapshot))
 }
 
 func cutoverReadWork(ctx context.Context, s *Store, id string) (workProjection, error) {

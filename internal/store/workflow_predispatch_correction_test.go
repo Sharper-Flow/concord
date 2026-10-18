@@ -44,13 +44,13 @@ func TestPredispatchContractCorrectionSurvivesRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", raw, owner, operatorVerdictActor(t, workID))
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
 		t.Fatalf("designless workflow acquired a design: %v", err)
 	}
-	if verdictItemVersion(t, s, workID) != version {
+	if readWorkVersion(t, s, workID) != version {
 		t.Fatal("refused design addition changed work")
 	}
 	active, err := s.ActiveWorkflowContract(ctx, workID)

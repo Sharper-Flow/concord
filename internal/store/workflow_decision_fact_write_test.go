@@ -81,7 +81,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 		// The real carry event folds the instance onto the registered higher
 		// consequence_v1 version at the owner's current version.
-		carryVersion := verdictItemVersion(t, s, workID)
+		carryVersion := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events: []Event{
 				resolutionEvent("decision-fact-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
@@ -164,7 +164,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		// The actual supersede constructor runs inside one transaction against
 		// the carried definition; the transaction closes before the returned
 		// events fold, because the store pools one connection.
-		expected := verdictItemVersion(t, s, workID)
+		expected := readWorkVersion(t, s, workID)
 		ctx := context.Background()
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
@@ -243,7 +243,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if state := foldedApprovalAdmission(t, s, higher, workID); !state.ArtifactStale {
 			t.Fatal("the artifact folded fresh after the correction, want stale until fresh production at execution")
 		}
-		redeliveryVersion := verdictItemVersion(t, s, workID)
+		redeliveryVersion := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events: []Event{
 				workflowActionCompletedFixture("resolution-redelivery-"+workID, workID, ownerRef, redeliveryVersion, "execution", "record_delivery"),
@@ -361,7 +361,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			definition := approvalRouteDefinition(t)
 			registry, registered := newResolutionRegistry(t, definition)
 			s, owner := seedResolutionSelection(t, workID, registry, registered)
-			baselineVersion := verdictItemVersion(t, s, workID)
+			baselineVersion := readWorkVersion(t, s, workID)
 			baselineEvents := approvalEventCount(t, s, workID)
 			event := factWriteInitialContractEvent(t, s, workID, ownerRefForTest(t, owner), testCase.fact, testCase.present)
 			operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
@@ -394,7 +394,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			s, owner := seedResolutionSelection(t, workID, registry, registered)
 			advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
 			ownerRef := ownerRefForTest(t, owner)
-			baselineVersion := verdictItemVersion(t, s, workID)
+			baselineVersion := readWorkVersion(t, s, workID)
 			predecessorPayload := factWriteEventPayloadByID(t, s, "resolution-contract-"+workID)
 			appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 				Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRef, set, true)},
@@ -418,7 +418,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				t.Fatalf("the successor fold for %s rewrote the predecessor contract event bytes", expected)
 			}
 			assertFactWriteProjectedDomains(t, s, registry, workID, 2, set)
-			if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+			if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 				t.Fatalf("the successor fold for %s left the work at version %d, want the one derived advance from %d", expected, version, baselineVersion)
 			}
 			s.Close()
@@ -461,7 +461,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		s, owner := seedResolutionSelection(t, workID, registry, registered)
 		advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
 		ownerRef := ownerRefForTest(t, owner)
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := approvalEventCount(t, s, workID)
 		event := factWriteSuccessorEvent(t, s, workID, ownerRef, []string{"product"}, true)
 		operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
@@ -497,7 +497,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if superseded != nil {
 			t.Fatalf("the refused successor writes named superseded_by %v, want the predecessor left active", superseded)
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused successor writes advanced the work version to %d", version)
 		}
 		if events := approvalEventCount(t, s, workID); events != baselineEvents {
@@ -532,7 +532,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		confirmActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed)
 		contractEvent := factWriteEventPayloadByID(t, s, "resolution-contract-"+workID)
 		predecessorDigest := approvalDecisionDigest(t, s, workID)
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRef, []string{"product"}, true)},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
@@ -565,7 +565,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the decision successor inherited a confirmation row without a fresh confirmation")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 			t.Fatalf("the revision left the work at version %d, want the one derived advance from %d", version, baselineVersion)
 		}
 		// A confirmation naming the superseded predecessor version refuses
@@ -595,7 +595,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the read-only stale-authority checks recorded a successor confirmation")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 			t.Fatalf("the stale-authority checks advanced the work version to %d", version)
 		}
 		assertNoFoldGuardRows(t, s)
@@ -618,7 +618,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		confirmEvent := factWriteEventPayloadByID(t, s, "resolution-confirm-"+workID)
 		confirmActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed)
 		contractEvent := factWriteEventPayloadByID(t, s, "resolution-contract-"+workID)
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRefForTest(t, owner), []string{}, true)},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
@@ -651,7 +651,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the engineering successor inherited the operator's confirmation row")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 			t.Fatalf("the revision left the work at version %d, want the one derived advance from %d", version, baselineVersion)
 		}
 		// A confirmation naming the superseded predecessor version refuses
@@ -676,7 +676,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the read-only stale-authority checks recorded a successor confirmation")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 			t.Fatalf("the stale-authority checks advanced the work version to %d", version)
 		}
 		assertNoFoldGuardRows(t, s)
@@ -724,7 +724,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			{itemID: "decision-fact-legacy-null", owner: nullOwner, present: true},
 		} {
 			ownerRef := ownerRefForTest(t, legacyCase.owner)
-			version := verdictItemVersion(t, s, legacyCase.itemID)
+			version := readWorkVersion(t, s, legacyCase.itemID)
 			event := factWriteInitialContractEvent(t, s, legacyCase.itemID, ownerRef, nil, legacyCase.present)
 			appendWorkflowEventsWithRegistry(t, s, registry, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, legacyCase.itemID): version}})
 			if stored := storedDecisionDomains(t, s, legacyCase.itemID, 1); stored != "" {
@@ -757,10 +757,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		// The legacy clone-only route keeps carrying the recorded fact with
 		// its operator attribution and the authored supersession time.
 		cloneRef := ownerRefForTest(t, cloneOwner)
-		cloneVersion := verdictItemVersion(t, s, "decision-fact-legacy-clone")
+		cloneVersion := readWorkVersion(t, s, "decision-fact-legacy-clone")
 		cloneContract := factWriteInitialContractEvent(t, s, "decision-fact-legacy-clone", cloneRef, []string{"product"}, true)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{Events: []Event{cloneContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-fact-legacy-clone"): cloneVersion}})
-		supersedeVersion := verdictItemVersion(t, s, "decision-fact-legacy-clone")
+		supersedeVersion := readWorkVersion(t, s, "decision-fact-legacy-clone")
 		cloneEvent := resolutionEvent("decision-fact-legacy-clone-supersede", WorkflowContractSuperseded, "decision-fact-legacy-clone", cloneRef, supersedeVersion, map[string]any{
 			"previous_contract_version": 1, "predecessor_contract_versions": []int64{1}, "new_contract_version": 2,
 			"supersede_reason": "the legacy twin keeps its clone-only route", "audit_evidence": []string{"audit:decision-fact-legacy-clone"},
@@ -1060,7 +1060,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			registry, registered := newResolutionRegistry(t, definition)
 			s, owner := seedResolutionSelection(t, workID, registry, registered)
 			ownerRef := ownerRefForTest(t, owner)
-			baseline := verdictItemVersion(t, s, workID)
+			baseline := readWorkVersion(t, s, workID)
 			events, constructErr := factWriteConstructInitialContract(t, s, definition, workID, ownerRef, factWriteApproveFields(t, workID, set, true), baseline)
 			if constructErr != nil {
 				s.Close()
@@ -1095,7 +1095,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			registry, registered := newResolutionRegistry(t, definition)
 			s, owner := seedResolutionSelection(t, workID, registry, registered)
 			ownerRef := ownerRefForTest(t, owner)
-			baselineVersion := verdictItemVersion(t, s, workID)
+			baselineVersion := readWorkVersion(t, s, workID)
 			baselineEvents := approvalEventCount(t, s, workID)
 			_, constructErr := factWriteConstructInitialContract(t, s, definition, workID, ownerRef, factWriteApproveFields(t, workID, factCase.fact, factCase.present), baselineVersion)
 			var failure *Failure
@@ -1117,7 +1117,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			s, owner := seedResolutionSelection(t, workID, registry, registered)
 			advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
 			ownerRef := ownerRefForTest(t, owner)
-			baselineVersion := verdictItemVersion(t, s, workID)
+			baselineVersion := readWorkVersion(t, s, workID)
 			predecessorPayload := factWriteEventPayloadByID(t, s, "resolution-contract-"+workID)
 			raw, fields := factWriteSuccessorPayload(t, workID, set, true)
 			events, constructErr := factWriteConstructSuccessorContract(t, s, definition, workID, ownerRef, raw, fields, baselineVersion)
@@ -1164,7 +1164,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				t.Fatalf("the successor fold for %s rewrote the predecessor contract event bytes", expected)
 			}
 			assertFactWriteProjectedDomains(t, s, registry, workID, 2, set)
-			if version := verdictItemVersion(t, s, workID); version != baselineVersion+1 {
+			if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 				t.Fatalf("the successor fold for %s left the work at version %d, want the one derived advance from %d", expected, version, baselineVersion)
 			}
 			s.Close()
@@ -1501,7 +1501,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 		preflight := func(raw json.RawMessage) error {
 			return WorkflowActionPreflightWithRegistry(context.Background(), s, registry, WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "approve_contract", Payload: raw, Actor: owner,
+				WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "approve_contract", Payload: raw, Actor: owner,
 			})
 		}
 		if err := preflight(missingEvidenceRaw); err == nil {
@@ -1564,7 +1564,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		ownerRef := ownerRefForTest(t, owner)
 		factWriteSeedAtPlanning(t, s, registry, workID, ownerRef, false)
 
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := approvalEventCount(t, s, workID)
 
 		_, _, discoverErr := WorkflowActionDefinitionFor(context.Background(), s, registry, workID, "approve_contract")
@@ -1627,7 +1627,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 		// The refusals are reads: the work version and its event rows did
 		// not move.
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Errorf("the open-initial refusals advanced the work version from %d to %d", baselineVersion, version)
 		}
 		if events := approvalEventCount(t, s, workID); events != baselineEvents {
@@ -1905,7 +1905,7 @@ func factWriteSetLabel(set []string) string {
 // folds through the registered fold; no projection column is touched.
 func factWriteInitialContractEvent(t *testing.T, s *Store, workID, ownerRef string, fact any, present bool) Event {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	payload := map[string]any{
 		"contract_version": int64(1), "premise": "deliver the checked change",
 		"outcome_kind":      "check",
@@ -1925,7 +1925,7 @@ func factWriteInitialContractEvent(t *testing.T, s *Store, workID, ownerRef stri
 // registered fold. present false omits the member from the successor alone.
 func factWriteSuccessorEvent(t *testing.T, s *Store, workID, actorRef string, fact any, present bool) Event {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	successor := map[string]any{
 		"contract_version": int64(2), "premise": "the reclassified accepted change",
 		"outcome_kind":      "check",
@@ -1948,7 +1948,7 @@ func factWriteSuccessorEvent(t *testing.T, s *Store, workID, actorRef string, fa
 // no successor contract member at all.
 func factWriteCloneOnlyEvent(t *testing.T, s *Store, workID, actorRef string) Event {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	return resolutionEvent("decision-fact-clone-only-"+workID, WorkflowContractSuperseded, workID, actorRef, version, map[string]any{
 		"previous_contract_version": 1, "predecessor_contract_versions": []int64{1}, "new_contract_version": 2,
 		"supersede_reason": "revise without supplying the successor contract", "audit_evidence": []string{"audit:decision-fact-clone-only-" + workID},
@@ -1982,7 +1982,7 @@ func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, Def
 	if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != ownerRefForTest(t, owner) {
 		t.Fatalf("the confirmed seed's confirmation row = %q (present %v), want the executing coordinator", confirmed, ok)
 	}
-	return s, registry, definition, owner, verdictItemVersion(t, s, workID)
+	return s, registry, definition, owner, readWorkVersion(t, s, workID)
 }
 
 // factWriteOperatorSelection runs the stateless operator-selection chain in
@@ -1993,7 +1993,7 @@ func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, Def
 func factWriteOperatorSelection(t *testing.T, s *Store, registry DefinitionRegistry, workID, digest string) error {
 	t.Helper()
 	ctx := context.Background()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -2010,7 +2010,7 @@ func factWriteOperatorSelection(t *testing.T, s *Store, registry DefinitionRegis
 // advance, and no stranded fold guard.
 func assertFactWriteInitialNoEffect(t *testing.T, s *Store, workID string, baselineVersion int64, baselineEvents int) {
 	t.Helper()
-	if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+	if version := readWorkVersion(t, s, workID); version != baselineVersion {
 		t.Fatalf("the refused initial fact write advanced the work version from %d to %d", baselineVersion, version)
 	}
 	if events := approvalEventCount(t, s, workID); events != baselineEvents {
@@ -2029,7 +2029,7 @@ func assertFactWriteInitialNoEffect(t *testing.T, s *Store, workID string, basel
 // and no consent challenge, approval-kind evidence, or fold guard row exists.
 func assertFactWritePredecessorPreserved(t *testing.T, s *Store, workID string, baselineVersion int64, baselineEvents int, confirmedBy string) {
 	t.Helper()
-	if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+	if version := readWorkVersion(t, s, workID); version != baselineVersion {
 		t.Fatalf("the refused successor write advanced the work version from %d to %d", baselineVersion, version)
 	}
 	if events := approvalEventCount(t, s, workID); events != baselineEvents {
@@ -2305,7 +2305,7 @@ func factWritePinnedApprovePayload(workID, premise string, evidence []string, fa
 // pin keeps that route open.
 func factWriteSeedAtPlanning(t *testing.T, s *Store, registry DefinitionRegistry, workID, ownerRef string, withContract bool) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	events := []Event{
 		workflowActionCompletedFixture("decision-fact-planning-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("decision-fact-planning-discovery-"+workID, workID, ownerRef, version+1, "discovery", "record_discovery"),

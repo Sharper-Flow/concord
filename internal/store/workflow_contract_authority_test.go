@@ -26,7 +26,7 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	event := workflowEventWithActor("duplicate-approval", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 3, "premise": "must refuse", "outcome_kind": "check",
@@ -65,7 +65,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval", "outcome_kind": "check",
@@ -83,7 +83,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	version = verdictItemVersion(t, s, workID)
+	version = readWorkVersion(t, s, workID)
 	if _, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
 		t.Fatalf("duplicate recovery action = %q, error = %v", action.ID, err)
 	}
@@ -140,7 +140,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	operatorVersion := verdictItemVersion(t, s, workID)
+	operatorVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-operator", WorkflowActorRecorded, workID, operatorRef, map[string]any{
 		"work_id": workID, "expected_version": operatorVersion, "resulting_version": operatorVersion + 1,
 		"actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef,
@@ -148,7 +148,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): operatorVersion}}); err != nil {
 		t.Fatal(err)
 	}
-	version = verdictItemVersion(t, s, workID)
+	version = readWorkVersion(t, s, workID)
 	// The fold owns the binding's self-consistency: the payload must name the
 	// approval the recorded operator actor asserts, and every binding field
 	// admission checked must be present. A mismatched digest is admission's
@@ -163,7 +163,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-incomplete", WorkflowContractSuperseded, workID, operatorRef, incomplete)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "carries no complete operator approval binding") {
 		t.Fatalf("incomplete recovery binding was accepted: %v", err)
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("rejected recovery approval changed work version from %d to %d", version, got)
 	}
 	event := workflowEventWithActor("duplicate-recovery", WorkflowContractSuperseded, workID, operatorRef, makeRecoveryEventFields(version))
@@ -192,7 +192,7 @@ func TestReplayPreservesLegacyApprovalBeforeSupersession(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	approval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy replacement contract", "outcome_kind": "check",

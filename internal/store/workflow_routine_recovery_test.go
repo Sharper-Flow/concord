@@ -46,7 +46,7 @@ func routineRecoveryPolicyDefinition(t *testing.T, ref string, version int64) Wo
 // two active contracts for one work item on the legacy fixture pin.
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "duplicate projection approval",
@@ -168,7 +168,7 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		event := workflowEventWithActor("routine-recovery-gate-"+workID, WorkflowContractSuperseded, workID, ownerRef, duplicateRecoveryEventFields(workID, version))
 		var payload workflowContractSupersededPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -202,13 +202,13 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		event := workflowEventWithActor("routine-recovery-duplicate-"+workID, WorkflowContractSuperseded, workID, ownerRef, duplicateRecoveryEventFields(workID, version))
 		err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
 		if err == nil || !strings.Contains(err.Error(), "operator approval") {
 			t.Fatalf("legacy unsigned duplicate recovery returned %v, want the operator approval refusal", err)
 		}
-		if got := verdictItemVersion(t, s, workID); got != version {
+		if got := readWorkVersion(t, s, workID); got != version {
 			t.Fatalf("refused legacy recovery changed the work version from %d to %d", version, got)
 		}
 	})
@@ -325,7 +325,7 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		base := duplicateRecoveryEventFields(workID, version)
 		// The audit-evidence wall keeps both bounded-list edges: the empty
 		// set and the over-bound set refuse before any effect.
@@ -341,7 +341,7 @@ func TestRoutineRecovery(t *testing.T) {
 				t.Fatalf("%s audit evidence recovery returned %v, want the audit wall refusal", name, err)
 			}
 		}
-		if got := verdictItemVersion(t, s, workID); got != version {
+		if got := readWorkVersion(t, s, workID); got != version {
 			t.Fatalf("refused recoveries changed the work version from %d to %d", version, got)
 		}
 		// A recovery naming a predecessor set the active projection does not
@@ -354,13 +354,13 @@ func TestRoutineRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		loneVersion := verdictItemVersion(t, lone, singleID)
+		loneVersion := readWorkVersion(t, lone, singleID)
 		phantom := workflowEventWithActor("routine-recovery-phantom-"+singleID, WorkflowContractSuperseded, singleID, loneRef, duplicateRecoveryEventFields(singleID, loneVersion))
 		err = applyWorkflowTestOperation(ctx, lone, Operation{Events: []Event{phantom}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, singleID): loneVersion}})
 		if err == nil || !strings.Contains(err.Error(), "does not match active workflow contracts") {
 			t.Fatalf("mismatched-predecessor recovery returned %v, want the overlap wall refusal", err)
 		}
-		if got := verdictItemVersion(t, lone, singleID); got != loneVersion {
+		if got := readWorkVersion(t, lone, singleID); got != loneVersion {
 			t.Fatalf("refused recovery changed the work version from %d to %d", loneVersion, got)
 		}
 	})
@@ -623,7 +623,7 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedDuplicateContractProjection(t, s, workID, ownerRef)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		fields := duplicateRecoveryEventFields(workID, version)
 		fields["approval_ref"] = strings.Repeat("b", 64)
 		fields["approval_operation_digest"] = "sha256:" + strings.Repeat("c", 64)
@@ -635,7 +635,7 @@ func TestRoutineRecovery(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "operator approval") {
 			t.Fatalf("unbound legacy recovery returned %v, want the operator approval refusal", err)
 		}
-		if got := verdictItemVersion(t, s, workID); got != version {
+		if got := readWorkVersion(t, s, workID); got != version {
 			t.Fatalf("refused recovery changed the work version from %d to %d", version, got)
 		}
 	})

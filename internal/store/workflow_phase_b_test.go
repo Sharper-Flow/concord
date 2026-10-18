@@ -561,9 +561,9 @@ func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowA
 	events := []Event{
 		{EventID: workID + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: workID + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-" + workID, Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
+		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-"+workID): 0, VersionRef(SubjectProject, "project-"+workID): 0, VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
@@ -574,7 +574,7 @@ func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowA
 // spikeDecisionRecordEnvelope is one record_decision payload whose token can
 // be varied per case.
 func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
-	return mustJSONBytes(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
+	return mustJSONValue(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
 }
 
 // CD-0013 D4 binds the architecture-spike record at evaluation and completion

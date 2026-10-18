@@ -126,7 +126,7 @@ func resolutionSeedStore(t *testing.T, workID string) (*Store, WorkflowActor) {
 // and digest, against the work item's current version.
 func resolutionSelectionOperation(t *testing.T, s *Store, workID string, registered RegisteredDefinition, owner WorkflowActor) Operation {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
 	return Operation{
 		Events: []Event{
@@ -239,7 +239,7 @@ func bindResolutionEvidence(t *testing.T, s *Store, registry DefinitionRegistry,
 func advanceResolutionPrefix(t *testing.T, s *Store, registry DefinitionRegistry, workID string, owner WorkflowActor, domains []string, withProducer bool) {
 	t.Helper()
 	ownerRef := ownerRefForTest(t, owner)
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	lane := BuiltinLaneDefinitions()[0]
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
@@ -275,7 +275,7 @@ func advanceResolutionPrefix(t *testing.T, s *Store, registry DefinitionRegistry
 // instance at the acceptance step.
 func advanceResolutionDelivery(t *testing.T, s *Store, registry DefinitionRegistry, workID string, owner WorkflowActor) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("resolution-delivery-"+workID, workID, ownerRefForTest(t, owner), version, "execution", "record_delivery"),
@@ -339,7 +339,7 @@ func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
 // refusals, and folds only when construction succeeded.
 func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string, actor WorkflowActor, operator *WorkflowActor, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -609,7 +609,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		s, owner := seedResolutionSelection(t, workID, registry, registered)
 		advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
 		ownerRef := ownerRefForTest(t, owner)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		checkpoint := resolutionEvent("resolution-decision-"+workID, WorkflowActionCheckpointed, workID, ownerRef, version, map[string]any{
 			"step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 1,
 			"checkpoint_payload": map[string]any{
@@ -777,7 +777,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
 			t.Fatalf("engineering confirmation refused before completion: %v", err)
 		}
-		if err := CompleteWorkflowWithRegistry(context.Background(), s, registry, resolutionCompletionEvent(workID, ownerRefForTest(t, owner), ownerRefForTest(t, reviewer), verdictItemVersion(t, s, workID))); err != nil {
+		if err := CompleteWorkflowWithRegistry(context.Background(), s, registry, resolutionCompletionEvent(workID, ownerRefForTest(t, owner), ownerRefForTest(t, reviewer), readWorkVersion(t, s, workID))); err != nil {
 			t.Fatalf("completion refused under the caller registry: %v", err)
 		}
 		var lifecycle, instanceState string
@@ -828,7 +828,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		s4, owner4 := seedResolutionSelection(t, noVerdictID, registry, registered)
 		advanceResolutionToExecution(t, s4, registry, noVerdictID, owner4, []string{})
 		advanceResolutionDelivery(t, s4, registry, noVerdictID, owner4)
-		noVerdictErr := CompleteWorkflowWithRegistry(context.Background(), s4, registry, resolutionCompletionEvent(noVerdictID, ownerRefForTest(t, owner4), ownerRefForTest(t, owner4), verdictItemVersion(t, s4, noVerdictID)))
+		noVerdictErr := CompleteWorkflowWithRegistry(context.Background(), s4, registry, resolutionCompletionEvent(noVerdictID, ownerRefForTest(t, owner4), ownerRefForTest(t, owner4), readWorkVersion(t, s4, noVerdictID)))
 		var noVerdictFailure *Failure
 		if noVerdictErr == nil || !failureAs(noVerdictErr, &noVerdictFailure) || noVerdictFailure.Kind != KindMissingEvidence {
 			t.Fatalf("completion without a verdict returned %v, want the missing-evidence refusal", noVerdictErr)
@@ -868,7 +868,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		// The builtin fixture pin verifies in every phase, so the only
 		// behavior under test is the scope's transaction binding.
 		fixture := workflowFixtureDefinition(t, 1)
@@ -942,7 +942,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		// Both registries carry the same builtin fixture shape, so only the
 		// binding conflict can refuse: one open transaction, one scope, two
 		// different definition registries.
@@ -1025,7 +1025,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		fixture := workflowFixtureDefinition(t, 1)
 		emptyForBuiltin := NewWorkflowDefinitionRegistry()
 		s3, owner3 := resolutionSeedStore(t, builtinID)
-		builtinVersion := verdictItemVersion(t, s3, builtinID)
+		builtinVersion := readWorkVersion(t, s3, builtinID)
 		builtinErr := tryAppendWorkflowEventsWithRegistry(s3, emptyForBuiltin, Operation{
 			Events: []Event{resolutionEvent("resolution-selection-"+builtinID, WorkflowDefinitionSelected, builtinID, ownerRefForTest(t, owner3), builtinVersion, map[string]any{
 				"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),

@@ -492,7 +492,7 @@ func TestRoutineCoordination(t *testing.T) {
 		// the current delivery assertion is correctable.
 		staleStore := completedDeliveryFixtureWithAssertions(t, "routine-coord-correction-stale", 2)
 		staleEventID, staleSeq, stalePayloadVersion := deliveryAssertionEvent(t, staleStore, "routine-coord-correction-stale", 1)
-		stale := unsignedDeliveryCorrectionRequest(t, staleStore, "routine-coord-correction-stale", deliveryWorkVersion(t, staleStore, "routine-coord-correction-stale"), staleEventID, staleSeq, stalePayloadVersion)
+		stale := unsignedDeliveryCorrectionRequest(t, staleStore, "routine-coord-correction-stale", readWorkVersion(t, staleStore, "routine-coord-correction-stale"), staleEventID, staleSeq, stalePayloadVersion)
 		stale.EventID = "routine-correction-stale"
 		requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, staleStore, stale), KindInvalidOperation, "not the current delivery assertion")
 
@@ -509,7 +509,7 @@ func TestRoutineCoordination(t *testing.T) {
 		if expected := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID); eventActor != expected {
 			t.Fatalf("correction actor = %q, want the recorded coordinator %q", eventActor, expected)
 		}
-		if got := deliveryWorkVersion(t, s, workID); got != version+1 {
+		if got := readWorkVersion(t, s, workID); got != version+1 {
 			t.Fatalf("correction version = %d, want the single correction advance %d", got, version+1)
 		}
 		var afterEffectPayload string
@@ -519,7 +519,7 @@ func TestRoutineCoordination(t *testing.T) {
 		if originalPayload != afterEffectPayload {
 			t.Fatal("the correction effect rewrote the original assertion event payload")
 		}
-		second := unsignedDeliveryCorrectionRequest(t, s, workID, deliveryWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
+		second := unsignedDeliveryCorrectionRequest(t, s, workID, readWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
 		second.EventID = "routine-correction-second"
 		requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
 
@@ -572,7 +572,7 @@ func TestRoutineCoordination(t *testing.T) {
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatalf("v2 correction without an approval claim refused: %v", err)
 			}
-			if got := deliveryWorkVersion(t, s, workID); got != version+1 {
+			if got := readWorkVersion(t, s, workID); got != version+1 {
 				t.Fatalf("v2 correction left version %d, want %d", got, version+1)
 			}
 			read, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
@@ -623,7 +623,7 @@ func TestRoutineCoordination(t *testing.T) {
 			if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "approval") {
 				t.Fatalf("v2 correction with a supplied claim error = %v, want an invalid_payload refusal naming the approval", err)
 			}
-			if got := deliveryWorkVersion(t, s, workID); got != version {
+			if got := readWorkVersion(t, s, workID); got != version {
 				t.Fatalf("refused v2 claim moved version to %d", got)
 			}
 		})
@@ -837,7 +837,7 @@ func requireRoutineCorrectionNoEffect(t *testing.T, s *Store, workID string, eve
 	if got := routineActorRowCount(t, s); got != actors {
 		t.Fatalf("refused correction left %d actor rows, want %d", got, actors)
 	}
-	if got := deliveryWorkVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused correction moved the work version to %d, want %d", got, version)
 	}
 }
@@ -951,7 +951,7 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		if got := routineActorRowCount(t, s); got != actorsBefore+1 {
 			t.Fatalf("actor rows after the effect = %d, want only the fresh coordinator row added to %d", got, actorsBefore)
 		}
-		if got := deliveryWorkVersion(t, s, workID); got != version+2 {
+		if got := readWorkVersion(t, s, workID); got != version+2 {
 			t.Fatalf("correction version = %d, want the prefix plus correction advance %d", got, version+2)
 		}
 		var afterPayload string

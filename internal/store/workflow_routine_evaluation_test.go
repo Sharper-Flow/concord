@@ -70,7 +70,7 @@ func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer Workflow
 		}
 		refs[index] = ref
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	setup := []Event{
 		workflowEventWithActor("routine-reviewer-"+workID, WorkflowActorRecorded, workID, refs[0], map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": refs[0], "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"}),
 		workflowEventWithActor("routine-operator-"+workID, WorkflowActorRecorded, workID, refs[1], map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "actor_ref": refs[1], "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"}),
@@ -93,7 +93,7 @@ func foldRoutineVerdict(t *testing.T, s *Store, workID string, reviewer Workflow
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	event := workflowEventWithActor("routine-verdict-"+workID, WorkflowVerdictRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"evidence:operator-verdict"}, "incomparable_with_approved": false})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("fold independent verdict: %v", err)
@@ -131,7 +131,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
 		definition := routinePolicyDefinition(t)
 		operator := operatorVerdictActor(t, workID)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -152,7 +152,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		reviewer, operator, coordinator := seedRoutineActors(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -176,7 +176,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		reviewer, _, coordinator := seedRoutineActors(t, s, workID)
 		foldRoutineVerdict(t, s, workID, reviewer)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -209,7 +209,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		const workID = "routine-new-self-verdict"
 		s, owner := seedDeliveredItemAtAcceptance(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -229,7 +229,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
 		reviewer, _, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -280,7 +280,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		if authority != WorkflowWorkerEvaluator {
 			t.Fatalf("dispatched reviewer authority = %q, want worker", authority)
 		}
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -356,7 +356,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
 		reviewer, _, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -442,7 +442,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
 		_, _, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)

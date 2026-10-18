@@ -18,7 +18,7 @@ import (
 // the delivery gate with the post-rejection review debt outstanding.
 func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	acceptorRef, err := WorkflowActorRef(acceptor)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	}
 
 	// A terminal instance refuses the corrective return outright.
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	cancelPayload, err := json.Marshal(map[string]any{"from": "in_progress", "to": "cancelled", "reason": "abandoned", "expected_version": version, "resulting_version": version + 1})
 	if err != nil {
 		t.Fatal(err)

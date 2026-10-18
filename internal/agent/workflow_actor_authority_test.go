@@ -334,7 +334,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	// The canonical head removed the discovery marker: alignment feeds design
 	// directly, so the pre-contract walk is proposal, alignment, design.
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
-		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "issue31-"+actionID)
+		invokeWorkflowIssue31Action(t, s, service, env, actionID, workOneVersion(t, s), "issue31-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "issue31-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, approve)
@@ -351,17 +351,17 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approved contract=%+v", response)
 	}
-	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workflowIssue31Version(t, s), "issue31-start")
+	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workOneVersion(t, s), "issue31-start")
 	// The premise gate refuses while contract-required evidence is unbound.
-	invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", workflowIssue31Version(t, s), "issue31-bind-verification")
+	invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", workOneVersion(t, s), "issue31-bind-verification")
 	// The identity boundary is the subject of this test; place the fixture at
 	// its accepted checkpoint without bypassing the fold-only trigger policy.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
-	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workflowIssue31Version(t, s), "issue31-verdict")
+	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workOneVersion(t, s), "issue31-verdict")
 
-	confirm := issue31ConfirmInput(t, s, workflowIssue31Version(t, s), "issue31-confirm")
+	confirm := issue31ConfirmInput(t, s, workOneVersion(t, s), "issue31-confirm")
 	challenge = invokeWorkflowIssue31(t, s, service, env, confirm)
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		if challenge.Error != nil {
@@ -371,9 +371,9 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	}
 	challengeRef, _ = challenge.Error.Details["approval_ref"].(string)
 	digest = mutationDigest("concord_work_transition", "workflow_action", env, confirm)
-	versions = map[string]any{"work": workflowIssue31Version(t, s), "contract": 1}
+	versions = map[string]any{"work": workOneVersion(t, s), "contract": 1}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-confirm-nonce")
-	approved = json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workflowIssue31Version(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"issue31-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	approved = json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workOneVersion(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"issue31-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	beforeEvents := countWorkflowEvents(t, s)
 	response = invokeWorkflowIssue31(t, s, service, env, approved)
 	if response.Outcome != OutcomeOK {
@@ -428,7 +428,7 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
-		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "empty-principal-"+actionID)
+		invokeWorkflowIssue31Action(t, s, service, env, actionID, workOneVersion(t, s), "empty-principal-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "empty-principal-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, approve)
@@ -444,26 +444,26 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	if response := invokeWorkflowIssue31(t, s, service, env, approved); response.Outcome != OutcomeOK {
 		t.Fatalf("approved contract=%+v", response)
 	}
-	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workflowIssue31Version(t, s), "empty-principal-start")
-	invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", workflowIssue31Version(t, s), "empty-principal-bind-verification")
+	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workOneVersion(t, s), "empty-principal-start")
+	invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", workOneVersion(t, s), "empty-principal-bind-verification")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
-	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workflowIssue31Version(t, s), "empty-principal-verdict")
+	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workOneVersion(t, s), "empty-principal-verdict")
 
-	confirm := issue31ConfirmInput(t, s, workflowIssue31Version(t, s), "empty-principal-confirm")
+	confirm := issue31ConfirmInput(t, s, workOneVersion(t, s), "empty-principal-confirm")
 	challenge = invokeWorkflowIssue31(t, s, service, env, confirm)
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("premise challenge=%+v", challenge)
 	}
 	challengeRef, _ = challenge.Error.Details["approval_ref"].(string)
 	digest = mutationDigest("concord_work_transition", "workflow_action", env, confirm)
-	versions = map[string]any{"work": workflowIssue31Version(t, s), "contract": 1}
+	versions = map[string]any{"work": workOneVersion(t, s), "contract": 1}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "empty-principal-confirm-nonce")
 	// The production shape: the confirming envelope carries no host-named
 	// principal. The registry, not the host, owns that field.
 	env.PrincipalRef = ""
-	confirmApproved := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workflowIssue31Version(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"empty-principal-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	confirmApproved := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workOneVersion(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"empty-principal-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	response := invokeWorkflowIssue31(t, s, service, env, confirmApproved)
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("confirmed premise with empty host principal=%+v error=%+v", response, response.Error)
@@ -523,7 +523,7 @@ func invokeWorkflowIssue31(t *testing.T, s *store.Store, service *Service, env C
 	return response
 }
 
-func workflowIssue31Version(t *testing.T, s *store.Store) int64 {
+func workOneVersion(t *testing.T, s *store.Store) int64 {
 	t.Helper()
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
@@ -610,7 +610,7 @@ func TestConfirmPremiseInvokeRejectsMissingWrongAndPayloadActorsWithoutState(t *
 		t.Run(testCase.name, func(t *testing.T) {
 			s, service, grant, privateKey, env, confirm, challengeRef, digest, scope, versions := prepareIssue31Confirm(t)
 			beforeEvents := countWorkflowEvents(t, s)
-			beforeVersion := workflowIssue31Version(t, s)
+			beforeVersion := workOneVersion(t, s)
 			beforeActors := countWorkflowActorRowsIssue31(t, s)
 			if testCase.name == "missing assertion" {
 				env.HostApproval = nil
@@ -623,8 +623,8 @@ func TestConfirmPremiseInvokeRejectsMissingWrongAndPayloadActorsWithoutState(t *
 			if response.Outcome != OutcomeError {
 				t.Fatalf("rejected confirmation response=%+v", response)
 			}
-			if countWorkflowEvents(t, s) != beforeEvents || workflowIssue31Version(t, s) != beforeVersion || countWorkflowActorRowsIssue31(t, s) != beforeActors {
-				t.Fatalf("rejected confirmation changed state events=%d/%d version=%d/%d actors=%d/%d", countWorkflowEvents(t, s), beforeEvents, workflowIssue31Version(t, s), beforeVersion, countWorkflowActorRowsIssue31(t, s), beforeActors)
+			if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion || countWorkflowActorRowsIssue31(t, s) != beforeActors {
+				t.Fatalf("rejected confirmation changed state events=%d/%d version=%d/%d actors=%d/%d", countWorkflowEvents(t, s), beforeEvents, workOneVersion(t, s), beforeVersion, countWorkflowActorRowsIssue31(t, s), beforeActors)
 			}
 			_ = confirm
 		})
@@ -635,15 +635,15 @@ func TestConfirmPremiseInvokeRejectsPayloadActorBorrowing(t *testing.T) {
 	t.Parallel()
 	s, service, _, _, env, _, challengeRef, _, _, _ := prepareIssue31Confirm(t)
 	beforeEvents := countWorkflowEvents(t, s)
-	beforeVersion := workflowIssue31Version(t, s)
+	beforeVersion := workOneVersion(t, s)
 	beforeActors := countWorkflowActorRowsIssue31(t, s)
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(beforeVersion, 10) + `,"action_id":"confirm_premise","fields":{"confirming_actor_ref":"actor:payload-selected"},"idempotency_key":"payload-actor-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
 	response := invokeWorkflowIssue31(t, s, service, env, input)
 	if response.Outcome != OutcomeError {
 		t.Fatalf("payload actor response=%+v", response)
 	}
-	if countWorkflowEvents(t, s) != beforeEvents || workflowIssue31Version(t, s) != beforeVersion || countWorkflowActorRowsIssue31(t, s) != beforeActors {
-		t.Fatalf("payload actor changed state events=%d/%d version=%d/%d actors=%d/%d", countWorkflowEvents(t, s), beforeEvents, workflowIssue31Version(t, s), beforeVersion, countWorkflowActorRowsIssue31(t, s), beforeActors)
+	if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion || countWorkflowActorRowsIssue31(t, s) != beforeActors {
+		t.Fatalf("payload actor changed state events=%d/%d version=%d/%d actors=%d/%d", countWorkflowEvents(t, s), beforeEvents, workOneVersion(t, s), beforeVersion, countWorkflowActorRowsIssue31(t, s), beforeActors)
 	}
 }
 
@@ -783,7 +783,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
-		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "prepare-"+actionID)
+		invokeWorkflowIssue31Action(t, s, service, env, actionID, workOneVersion(t, s), "prepare-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "prepare-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, approve)
@@ -798,20 +798,20 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 	if response := invokeWorkflowIssue31(t, s, service, env, approved); response.Outcome != OutcomeOK {
 		t.Fatalf("contract approval response=%+v", response)
 	}
-	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workflowIssue31Version(t, s), "prepare-start")
+	invokeWorkflowIssue31Action(t, s, service, env, "start_execution", workOneVersion(t, s), "prepare-start")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workflowIssue31Version(t, s), "prepare-verdict")
-	confirm := issue31ConfirmInput(t, s, workflowIssue31Version(t, s), "prepare-confirm")
+	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", workOneVersion(t, s), "prepare-verdict")
+	confirm := issue31ConfirmInput(t, s, workOneVersion(t, s), "prepare-confirm")
 	challenge = invokeWorkflowIssue31(t, s, service, env, confirm)
 	if challenge.Error == nil {
 		t.Fatalf("missing premise challenge: %+v", challenge)
 	}
 	challengeRef, _ = challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, confirm)
-	versions := map[string]any{"work": workflowIssue31Version(t, s), "contract": 1}
+	versions := map[string]any{"work": workOneVersion(t, s), "contract": 1}
 	return s, service, grant, privateKey, env, confirm, challengeRef, digest, scope, versions
 }
 

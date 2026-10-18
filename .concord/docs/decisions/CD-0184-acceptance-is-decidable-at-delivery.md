@@ -14,10 +14,14 @@
 - **Amendment reason:** The published tool surface declares no condition
   action under
   [CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2.
-  Schema teaching must name only published predicate fields.
-- **P12:** This amendment affects only the workflow-engine Domain. It removes
-  or reverses no user-visible behavior, touches no security or data-safety
-  rule, and changes no UI/UX.
+  Schema teaching must name only published predicate fields. The D3 example
+  uses a retained verification route because
+  [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
+  D1 retires ops_runbook from new execution. The example changes no acceptance
+  requirement.
+- **P12:** One affected Domain: workflow-engine. No user-visible behavior is
+  removed or reversed. No security or data-safety rule changes. No UI/UX
+  changes.
 
 ## Context
 
@@ -57,10 +61,12 @@ rule removes that failure.
 ### D3. One-shot live checks stay allowed
 
 A check against a live system stays allowed when verification can decide its
-result at delivery. An `ops_runbook` health check run right after the change
-is delivered is acceptance, because its result exists when verification runs.
-The line is the time of evaluation, not whether the subject is a production
-system.
+result at delivery. For example, native service tooling runs a one-shot health
+check just after delivery. A `workflow.implementation` item binds its result as
+verification evidence for a `check` predicate with `bind_evidence`. At acceptance,
+an independent evaluator records its verdict with `record_verdict`. The result exists
+when verification runs. The line is the time of evaluation, not whether the
+subject is a production system.
 
 ### D4. The authoring schema teaches the rule
 

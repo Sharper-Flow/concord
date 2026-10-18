@@ -307,7 +307,7 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			event := workflowEventWithActor("spoof-verdict", WorkflowVerdictRecorded, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"), executorRefForIssue31(t, executor), map[string]any{"work_id": "spoof-verdict-" + strings.ReplaceAll(testCase.name, " ", "-"), "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:spoof", "verdict_kind": "ok", "verdict_actor_ref": spoofRef, "evaluation_evidence": []string{"evidence:spoof"}, "incomparable_with_approved": false})
+			event := workflowEventWithActor("spoof-verdict", WorkflowVerdictRecorded, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"), mustActorRef(t, executor), map[string]any{"work_id": "spoof-verdict-" + strings.ReplaceAll(testCase.name, " ", "-"), "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:spoof", "verdict_kind": "ok", "verdict_actor_ref": spoofRef, "evaluation_evidence": []string{"evidence:spoof"}, "incomparable_with_approved": false})
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): version}}); err == nil {
 				t.Fatal("spoofed verdict was accepted")
 			}
@@ -336,15 +336,6 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 		t.Fatalf("valid authenticated operator rejected: %v", err)
 	}
 	_ = executor
-}
-
-func executorRefForIssue31(t *testing.T, actor WorkflowActor) string {
-	t.Helper()
-	ref, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ref
 }
 
 func assertIssue31VersionAndNoVerdict(t *testing.T, s *Store, workID string, want int64) {

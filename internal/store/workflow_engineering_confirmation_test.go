@@ -100,7 +100,7 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 	reviewer = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/independent-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	operator = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 	coordinator = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/" + workID + "-coordinator", ActorClass: ActorAgent}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	events := []Event{}
 	for index, actor := range []WorkflowActor{reviewer, operator, coordinator} {
 		ref, err := WorkflowActorRef(actor)
@@ -141,7 +141,7 @@ func reviewerForSeed(t *testing.T, s *Store, workID string) WorkflowActor {
 // builtin registry does not carry.
 func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefinition, workID, invokerRef string, operator *WorkflowActor, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedEngineeringInvestigation(t, s, workID)
-		selectionVersion := verdictItemVersion(t, s, workID)
+		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -336,7 +336,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 			t.Fatal(err)
 		}
 		seedEngineeringInvestigation(t, s, workID)
-		selectionVersion := verdictItemVersion(t, s, workID)
+		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -374,7 +374,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 			DELETE FROM fold_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
-		selectionVersion := verdictItemVersion(t, s, workID)
+		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -403,7 +403,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 			DELETE FROM fold_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
-		selectionVersion := verdictItemVersion(t, s, workID)
+		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -484,13 +484,13 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 		operatorRef := ownerRefForTest(t, operator)
 		definition := routineDefinitionOnPin(t, s, workID)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		recorded := workflowEventWithActor("engineering-coordinator-"+workID, WorkflowActorRecorded, workID, coordinatorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": coordinatorRef, "principal_ref": coordinator.PrincipalRef, "client_ref": coordinator.ClientRef, "agent_ref": coordinator.AgentRef, "session_ref": coordinator.SessionRef, "actor_class": "agent"})
 		operatorRecorded := workflowEventWithActor("engineering-operator-"+workID, WorkflowActorRecorded, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{recorded, operatorRecorded}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 			t.Fatalf("record confirmation actors: %v", err)
 		}
-		version = verdictItemVersion(t, s, workID)
+		version = readWorkVersion(t, s, workID)
 		expectedV, resultingV := version, version+1
 		// The factored fold body receives the verified synthetic definition
 		// and genuinely writes the engineering confirmation row for v1.
@@ -533,7 +533,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 			"successor_contract": successor,
 		})
 		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
-		currentVersion := verdictItemVersion(t, s, workID)
+		currentVersion := readWorkVersion(t, s, workID)
 		supersede.Payload = mustJSONValue(map[string]any{"work_id": workID, "expected_version": currentVersion, "resulting_version": currentVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"}, "successor_contract": successor})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {
 			t.Fatalf("class upgrade supersession refused: %v", err)
@@ -543,7 +543,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		// a live re-confirmation of v1 refuses as stale, a coordinator
 		// confirmation of v2 refuses as decision-bearing, and the stale v1
 		// row reads as invalid under the clause 5 authority owner.
-		staleCurrent := verdictItemVersion(t, s, workID)
+		staleCurrent := readWorkVersion(t, s, workID)
 		staleTx, staleErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if staleErr != nil {
 			t.Fatal(staleErr)
@@ -606,7 +606,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		seedDecisionDomainsItemFatal(t, s, workID, []string{})
 		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 		operatorRef := ownerRefForTest(t, operator)
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		recorded := workflowEventWithActor("engineering-old-operator-"+workID, WorkflowActorRecorded, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 		// A recorded v1 confirmation carries no authority member; the upcast
 		// stamps the original operator authority and the stored bytes stay.
@@ -634,7 +634,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		// A forged authority member on a recorded v1 payload is authored
 		// bytes no store ever wrote.
 		forged := workflowEventWithActor("engineering-confirm-forged-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version + 2, "resulting_version": version + 3, "contract_version": 1, "confirming_actor_ref": operatorRef, "confirmation_authority": "operator"})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{forged}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): verdictItemVersion(t, s, workID)}}); err == nil {
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{forged}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err == nil {
 			t.Fatal("a v1-stamped payload carrying an authority member folded, want the upcast refusal")
 		}
 	})

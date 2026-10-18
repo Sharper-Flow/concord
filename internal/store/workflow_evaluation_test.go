@@ -42,11 +42,11 @@ func TestWorkflowEvaluationAuthoritySurvivesLeaseRotation(t *testing.T) {
 		})
 	}
 	worker := workflowActorForRef(t, s, laneRef)
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runOperatorVerdict(t, s, workID, worker, operatorVerdictActor(t, workID)); err == nil || !strings.Contains(err.Error(), "worker actors cannot submit operator decisions") {
 		t.Fatalf("worker submitted operator verdict: %v", err)
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused worker verdict changed version: %d -> %d", version, got)
 	}
 	for _, action := range []string{"record_verdict", "confirm_premise", "complete"} {

@@ -111,7 +111,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				}
 			}
 			beforeEvents := countWorkflowEvents(t, s)
-			beforeVersion := workflowReplayWorkVersion(t, s)
+			beforeVersion := workOneVersion(t, s)
 			beforeChallenges := countWorkflowApprovalChallenges(t, s)
 			for _, pinned := range []bool{true, false} {
 				if !pinned {
@@ -127,7 +127,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					t.Fatal(err)
 				}
 				requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)
-				if countWorkflowEvents(t, s) != beforeEvents || workflowReplayWorkVersion(t, s) != beforeVersion || countWorkflowApprovalChallenges(t, s) != beforeChallenges {
+				if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion || countWorkflowApprovalChallenges(t, s) != beforeChallenges {
 					t.Fatal("replay repeated the workflow action or approval")
 				}
 				if pinned {
@@ -150,7 +150,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	before := s.DurableCommits()
 	metadataBefore := replayMetadataCount(t, s, "durability-replay")
 	beforeEvents := countWorkflowEvents(t, s)
-	beforeVersion := workflowReplayWorkVersion(t, s)
+	beforeVersion := workOneVersion(t, s)
 	writer, err := sql.Open("sqlite", store.SQLiteFileURI(s.Path()))
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 		t.Fatalf("replay after writer release: response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)
-	if countWorkflowEvents(t, s) != beforeEvents || workflowReplayWorkVersion(t, s) != beforeVersion {
+	if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion {
 		t.Fatal("retry repeated the business effect")
 	}
 	release()
@@ -221,7 +221,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					t.Fatal(err)
 				}
 				beforeEvents := countWorkflowEvents(t, s)
-				beforeVersion := workflowReplayWorkVersion(t, s)
+				beforeVersion := workOneVersion(t, s)
 				r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_compact", Operation: operation}
 				op, ok := ValidateContractOperation(r.Tool, r.Operation)
 				if !ok {
@@ -246,7 +246,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					}
 					requireReplayCommit(t, s, "compaction-replay", before, metadataBefore, true)
 					step, err := store.Step(ctx, s, claim.OpID)
-					if err != nil || step.AttemptEpoch != beforeStep.AttemptEpoch || step.ResultKind != beforeStep.ResultKind || step.ResultPayload != beforeStep.ResultPayload || countWorkflowEvents(t, s) != beforeEvents || workflowReplayWorkVersion(t, s) != beforeVersion {
+					if err != nil || step.AttemptEpoch != beforeStep.AttemptEpoch || step.ResultKind != beforeStep.ResultKind || step.ResultPayload != beforeStep.ResultPayload || countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion {
 						t.Fatalf("replay changed the business effect or fenced attempt: %+v err=%v", step, err)
 					}
 					if pinned {

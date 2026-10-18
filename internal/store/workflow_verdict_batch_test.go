@@ -621,7 +621,7 @@ func batchVerdictRefSet(refs []string) []string {
 func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
 	const workID = "batch-union-authority"
 	fixture := seedWorkflowVerdictBatchFixtureWithEvidence(t, workID, 32)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 
 	extra := func(from, to int) []string {
@@ -689,7 +689,7 @@ func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
 func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) {
 	const workID = "batch-union-maximum"
 	fixture := seedWorkflowVerdictBatchFixturePredicates(t, workID, 256, []string{"verification"}, batchVerdictPredicateSet(workID, 8))
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 
 	entries := make([]any, 0, 8)
@@ -753,7 +753,7 @@ func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) {
 func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
 	const workID = "batch-mixed-default-per-entry"
 	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 	mintedRef := "evidence:" + operationID
 	artifact := "evidence:return-route-artifact"
@@ -851,7 +851,7 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 	const workID = "batch-union-native-run"
 	fixture := seedWorkflowVerdictBatchFixtureRequiring(t, workID, 4, []string{"verification", "native_run"})
 	capture := seedVerifiedNativeRunCapture(t, fixture.store, workID)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 	mintedRef := "evidence:" + operationID
 	explicitRefs := []string{"evidence:return-route-artifact", "evidence:batch-extra-00"}

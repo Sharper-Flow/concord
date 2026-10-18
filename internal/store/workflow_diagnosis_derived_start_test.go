@@ -229,7 +229,7 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	version := issue31WorkflowActionWithPayload(t, s, workID, verdictItemVersion(t, s, workID), "record_diagnosis", "diagnosis-record-"+workID, actor,
+	version := issue31WorkflowActionWithPayload(t, s, workID, readWorkVersion(t, s, workID), "record_diagnosis", "diagnosis-record-"+workID, actor,
 		diagnosisPayload("the defect reproduces from a clean store", "the backlog search covered the tracker", "related_found", []string{relatedID}, "the defect is the fold's pool"))
 
 	if step := currentStep(t, s, workID); step != "planning" {
@@ -258,7 +258,7 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	if diagnosisEvents != 1 {
 		t.Fatalf("workflow.diagnosis_recorded events = %d, want 1", diagnosisEvents)
 	}
-	if version <= verdictItemVersion(t, s, workID)-1 {
+	if version <= readWorkVersion(t, s, workID)-1 {
 		t.Fatal("record_diagnosis recorded no work version")
 	}
 
@@ -299,7 +299,7 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 
 	cases := []struct {
 		name    string
@@ -319,7 +319,7 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 			t.Fatalf("%s: record_diagnosis admitted a malformed payload", testCase.name)
 		}
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused record_diagnosis calls moved the work version %d -> %d", version, got)
 	}
 	if rows := diagnosisAlignmentRows(t, s, workID); len(rows) != 0 {
@@ -542,11 +542,11 @@ func TestRefusedQualifyingActionLeavesNoStart(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	actor := fixture.owner
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{"unknown_field":true}`), 0, actor); err == nil {
 		t.Fatal("checkpoint_repair admitted an unknown payload field")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused checkpoint_repair moved the work version %d -> %d", version, got)
 	}
 	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 0 {
@@ -573,7 +573,7 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	s := fixture.store
 	first := diagnosisS1Actor(workID, "first")
 	second := diagnosisS1Actor(workID, "second")
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAtVersion(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), version, first); err != nil {
 		t.Fatalf("first concurrent checkpoint_repair: %v", err)
 	}
@@ -853,11 +853,11 @@ func TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair(t *testing.T) {
 	if len(starts) != 1 || starts[0].ActionID != "dispatch_worker" || starts[0].Epoch != 1 {
 		t.Fatalf("repair starts after the dispatch = %+v, want one dispatch_worker start at epoch 1", starts)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, dispatcher); err == nil {
 		t.Fatal("the dispatch-started coordinator authored checkpoint_repair behind a live lane")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
 	}
 	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 {
@@ -887,11 +887,11 @@ func TestReleasedPinsAnswerToTheCheckpointWriterRule(t *testing.T) {
 	if len(starts) != 2 || starts[1].ActionID != "dispatch_worker" || starts[1].Epoch != 2 {
 		t.Fatalf("repair starts after the dispatch = %+v, want the start_repair start and the dispatch start at epoch 2", starts)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, starter); err == nil {
 		t.Fatal("the v24 starter authored checkpoint_repair behind a live lane")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
 	}
 }
@@ -934,11 +934,11 @@ func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
 	}
 	failWorkerAttemptWithKind(t, s, workID, "attempt:"+workID+":2", "the lane failed before a judgeable result existed")
 	applyRecordWorkerFailureForTest(t, s, workID, fixture.owner, "attempt:"+workID+":2", 2, readWorkVersion(t, s, workID), "diagnosis-failure-"+workID)
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err == nil {
 		t.Fatal("the derivation pair's actor authored the later checkpoint after the disposal moved the writer")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
 	}
 }
@@ -966,7 +966,7 @@ func seedDerivedRepairDisposal(t *testing.T, workID string) (workflowReturnRoute
 		t.Fatalf("the attributed terminal ingest: %v", err)
 	}
 	records := s2DerivedFailureRecords(t, s, workID, attemptID)
-	if len(records) != 1 || records[0]["actor"] != s2ActorRef(t, coordinator) {
+	if len(records) != 1 || records[0]["actor"] != mustActorRef(t, coordinator) {
 		t.Fatalf("derived records = %+v, want one record whose actor is the dispatch coordinator", records)
 	}
 	return fixture, coordinator, attemptID
@@ -976,13 +976,13 @@ func seedDerivedRepairDisposal(t *testing.T, workID string) (workflowReturnRoute
 // the checkpoint-writer refusal with an unchanged work version.
 func requireCheckpointWriterRefusal(t *testing.T, s *Store, workID string, actor WorkflowActor) {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, actor)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "checkpoint actor does not hold the workflow writing authority") {
 		t.Fatalf("checkpoint_repair as %s = %v, want the checkpoint-writer refusal", actor.AgentRef, err)
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the refused checkpoint moved the work version %d -> %d", version, got)
 	}
 }
@@ -997,11 +997,11 @@ func TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint(t *testing.T) {
 	s := fixture.store
 	// The disposer holds the fenced pen: the coordinator's own checkpoint is
 	// admitted.
-	beforeCheckpoint := verdictItemVersion(t, s, workID)
+	beforeCheckpoint := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
 		t.Fatalf("the disposer's fenced checkpoint after its own derived disposal: %v", err)
 	}
-	if got := verdictItemVersion(t, s, workID); got != beforeCheckpoint+2 {
+	if got := readWorkVersion(t, s, workID); got != beforeCheckpoint+2 {
 		t.Fatalf("the admitted checkpoint moved the work version %d -> %d", beforeCheckpoint, got)
 	}
 	// A different recorded actor's fenced checkpoint refuses, and the work
@@ -1019,7 +1019,7 @@ func TestDerivedDispositionRefusesTheDisposedLaneCheckpoint(t *testing.T) {
 	fixture, _, attemptID := seedDerivedRepairDisposal(t, workID)
 	s := fixture.store
 	lane := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/lane:implement", SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
-	laneRef := s2ActorRef(t, lane)
+	laneRef := mustActorRef(t, lane)
 	if recorded := crossAttemptDispatchedLaneActor(t, s, workID, attemptID); recorded != laneRef {
 		t.Fatalf("dispatched lane actor = %q, want the implement lane actor %q", recorded, laneRef)
 	}
@@ -1062,14 +1062,14 @@ func TestDiagnosisLaneCannotStrandTheMergedRecord(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "diagnosis")
 	s := fixture.store
 	actor := fixture.owner
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 
 	// The structural refusal: the dispatch route itself refuses the attempt
 	// the merged step never declared, before any write.
 	if err := diagnosisS1DispatchAttemptErr(t, s, workID, "diagnosis", "attempt:"+workID+":1", actor, "review"); err == nil {
 		t.Fatal("dispatch_worker admitted at the merged diagnosis step")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the refused dispatch moved the work version %d -> %d", version, got)
 	}
 	if starts := workflowStartedEventsAtStep(t, s, workID, "diagnosis"); len(starts) != 0 {
@@ -1085,7 +1085,7 @@ func TestDiagnosisLaneCannotStrandTheMergedRecord(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"attempt:`+workID+`:1","attempt_epoch":1}`), 0, actor); err == nil {
 		t.Fatal("record_worker_failure admitted at the merged diagnosis step")
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the refused failure record moved the work version %d -> %d", version, got)
 	}
 	if rows := diagnosisAlignmentRows(t, s, workID); len(rows) != 0 {
@@ -1171,7 +1171,7 @@ func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, pa
 func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, suffix string) error {
 	t.Helper()
 	if version == 0 {
-		version = verdictItemVersion(t, s, workID)
+		version = readWorkVersion(t, s, workID)
 	}
 	operation := action + "-" + suffix + "-" + workID + "-" + fmt.Sprint(version)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)

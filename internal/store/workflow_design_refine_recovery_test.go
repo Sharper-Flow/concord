@@ -36,7 +36,7 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}
-	if _, err := dispatchJoinAttempt(ctx, t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(ctx, t, fixture.store, workID, readWorkVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
 		return attemptID, 0, binding, err
 	}
 	var packetDigest string
@@ -335,7 +335,7 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	var design map[string]any
 	if err := json.Unmarshal([]byte(refineRecoveryDesign), &design); err != nil {
 		t.Fatal(err)
@@ -442,7 +442,7 @@ func seedReturnedRefineWithRecordedFailure(t *testing.T, workID string) (workflo
 		t.Fatalf("first-pass refine dispatch with a current design: %v", err)
 	}
 	failReviewWorkerAttempt(t, s, workID, failedAttempt, reviewGateLane(t, "review"))
-	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, verdictItemVersion(t, s, workID), "refine-failure:"+workID)
+	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, readWorkVersion(t, s, workID), "refine-failure:"+workID)
 	reviewAttempt, reviewEpoch, reviewBinding, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-review-2", refineRetryCorrection(t, s, workID))
 	if err != nil {
 		t.Fatalf("first-pass refine recovery dispatch after the recorded failure: %v", err)
@@ -568,7 +568,7 @@ func TestReturnedRefineSamePassRetryClosesCorrection(t *testing.T) {
 		t.Fatalf("same-pass dispatch with a current design: %v", err)
 	}
 	failReviewWorkerAttempt(t, s, workID, failedAttempt, reviewGateLane(t, "review"))
-	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, verdictItemVersion(t, s, workID), "same-pass-failure:"+workID)
+	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, readWorkVersion(t, s, workID), "same-pass-failure:"+workID)
 	if _, _, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-retry", refineRetryCorrection(t, s, workID)); err != nil {
 		t.Fatalf("same-pass retry dispatch after the recorded failure: %v", err)
 	}

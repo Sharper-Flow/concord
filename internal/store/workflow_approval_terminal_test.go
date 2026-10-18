@@ -62,7 +62,7 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, operator *WorkflowActor, choice, digest, payload string) error {
 	t.Helper()
 	ctx := context.Background()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID,
 		SelectedChoice: choice, DecisionContextDigest: digest,
@@ -137,7 +137,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, definition WorkflowDefiniti
 func approvalOperatorQuestionProjection(t *testing.T, s *Store, definition WorkflowDefinition, digest string, workID string) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld) {
 	t.Helper()
 	ctx := context.Background()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("approval-absent-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
@@ -344,7 +344,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
 		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
 	}
-	carryVersion := verdictItemVersion(t, s, workID)
+	carryVersion := readWorkVersion(t, s, workID)
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			resolutionEvent("approval-absent-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
@@ -397,7 +397,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 // fold guard row survived.
 func assertNoApprovalEffect(t *testing.T, s *Store, workID string, baselineVersion, baselineEvents int64) {
 	t.Helper()
-	if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+	if version := readWorkVersion(t, s, workID); version != baselineVersion {
 		t.Fatalf("the refused action advanced the work version from %d to %d", baselineVersion, version)
 	}
 	if events := int64(approvalEventCount(t, s, workID)); events != baselineEvents {
@@ -452,7 +452,7 @@ func approvalPreflightSelection(t *testing.T, s *Store, registry DefinitionRegis
 	ctx := context.Background()
 	// The store pools one connection: the expected version is read before the
 	// transaction opens, so no pool-backed read runs beside the open tx.
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +602,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// confirmation still requires the recorded investigation, and the
 		// refusal is that requirement's typed failure — never the operator
 		// question machinery.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var failure *Failure
@@ -631,7 +631,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		advanceResolutionDelivery(t, s, registry, workID, owner)
 		seedResolutionInvestigation(t, s, workID)
 		// No independent verdict is recorded: the deliverables gate refuses.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var failure *Failure
@@ -666,7 +666,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		}}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		// The worker-authority identity cannot record the engineering
 		// confirmation through the public action route.
@@ -699,7 +699,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		}
 		// Completion cannot bypass the acceptance step the confirmation
 		// advances through.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err == nil {
 			t.Fatal("engineering completion bypassed the unconfirmed acceptance step")
@@ -772,7 +772,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-unbound"
 		s, registry, _, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}`)
 		var failure *Failure
@@ -836,7 +836,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		if staleErr == nil || !failureAs(staleErr, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview || !strings.Contains(staleFailure.Detail, "stale or forged") {
 			t.Fatalf("the preflight accepted a stale decision digest or refused it with the wrong shape: %v", staleErr)
 		}
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		for name, request := range map[string][2]string{
 			"missing digest": {"confirm", ""},
 			"missing choice": {"", digest},
@@ -846,7 +846,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 			if missingErr == nil || !failureAs(missingErr, &missingFailure) || missingFailure.Kind != KindInvalidPayload {
 				t.Fatalf("the preflight accepted the decision %s: %v", name, missingErr)
 			}
-			if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+			if version := readWorkVersion(t, s, workID); version != baselineVersion {
 				t.Fatalf("the refused %s preflight moved the work version to %d", name, version)
 			}
 		}
@@ -915,7 +915,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		advanceResolutionDelivery(t, s, registry, workID, owner)
 		// No investigation observation and no verdict: the confirmation
 		// refuses with the first unmet prerequisite's typed failure.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		digest := approvalDecisionDigest(t, s, workID)
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`)

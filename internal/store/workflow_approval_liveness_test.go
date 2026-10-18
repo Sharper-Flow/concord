@@ -164,7 +164,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
 		ownerRef := ownerRefForTest(t, owner)
 		lane := BuiltinLaneDefinitions()[0]
-		version := verdictItemVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events: []Event{
 				workflowEventWithActor("approval-retry-start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
@@ -294,13 +294,13 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: target, contracts: 1, verdict: "bad", artifact: true, artifactStale: true, started: true, engineering: true}, "correction returned to the producer")
 		// The route is spent at the target: a second correction refuses with
 		// no version advance and no stranded fold guard.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		againErr := runApprovalActionTx(t, s, registry, workID, "request_correction", owner, nil, "", "", `{"diagnosis":"the delivered subject still does not satisfy the approved predicate","strategy":"repeat the implementation external effect","predicate_ids":["predicate:primary"],"evidence_refs":["evidence:operator-verdict"]}`)
 		var againFailure *Failure
 		if againErr == nil || !failureAs(againErr, &againFailure) {
 			t.Fatalf("the second correction folded %v, want a typed refusal", againErr)
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused correction advanced the work version from %d to %d", baselineVersion, version)
 		}
 		assertNoFoldGuardRows(t, s)
@@ -346,7 +346,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// fresh production at its route target.
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{approvalClassRevisionEvent(t, s, workID, ownerRefForTest(t, owner), []string{"product"})},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): verdictItemVersion(t, s, workID)},
+			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)},
 		})
 		// The revision stales the judged artifact: a fresh healthy verdict
 		// needs real production at the route target, so the successor's
@@ -367,7 +367,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The successor is unconfirmed and unproduced: completion cannot run
 		// from the acceptance step, and the work stays open.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		completeErr := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
 		var completeFailure *Failure
 		if completeErr == nil || !failureAs(completeErr, &completeFailure) {
@@ -376,7 +376,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if _, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
 			t.Fatal("the unconfirmed successor completed the revised work")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused completion advanced the work version to %d", version)
 		}
 		assertNoFoldGuardRows(t, s)
@@ -392,7 +392,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		conformanceCheckpoint(t, s, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true}, "decision before the revision")
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{approvalClassRevisionEvent(t, s, workID, ownerRefForTest(t, owner), []string{})},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): verdictItemVersion(t, s, workID)},
+			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)},
 		})
 		// The revision stales the judged artifact: a fresh healthy verdict
 		// needs real production at the route target, so the successor's
@@ -414,7 +414,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The successor is unconfirmed and unproduced: completion cannot run
 		// from the acceptance step, and the work stays open.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		completeErr := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
 		var completeFailure *Failure
 		if completeErr == nil || !failureAs(completeErr, &completeFailure) {
@@ -423,7 +423,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if _, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
 			t.Fatal("the unconfirmed successor completed the revised work")
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused completion advanced the work version to %d", version)
 		}
 		assertNoFoldGuardRows(t, s)
@@ -545,7 +545,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		s, registry, owner := seedApprovalAbsentFactAtAcceptance(t, workID)
 		// The confirmation classifies from the active contract's fact: absence
 		// is a legacy shape, not engineering, and refuses before any effect.
-		baselineVersion := verdictItemVersion(t, s, workID)
+		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		var baselineConfirmations int
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&baselineConfirmations); err != nil {
@@ -559,7 +559,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if events := int64(approvalEventCount(t, s, workID)); events != baselineEvents {
 			t.Fatalf("the refused confirmation left %d events (baseline %d)", events, baselineEvents)
 		}
-		if version := verdictItemVersion(t, s, workID); version != baselineVersion {
+		if version := readWorkVersion(t, s, workID); version != baselineVersion {
 			t.Fatalf("the refused confirmation advanced the work version to %d", version)
 		}
 		var confirmations int
@@ -587,7 +587,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		}
 		// The store pools one connection: the version reads before the
 		// transaction opens, never beside it.
-		noActionVersion := verdictItemVersion(t, s, workID)
+		noActionVersion := readWorkVersion(t, s, workID)
 		tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if txErr != nil {
 			t.Fatal(txErr)
@@ -679,7 +679,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 // the registered fold; no projection column is touched.
 func approvalClassRevisionEvent(t *testing.T, s *Store, workID, actorRef string, successorDomains []string) Event {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	successor := map[string]any{
 		"contract_version": 2, "premise": "the reclassified accepted change",
 		"outcome_kind":      "check",

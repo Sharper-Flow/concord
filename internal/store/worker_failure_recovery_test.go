@@ -32,7 +32,7 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 	if err != nil {
 		t.Fatalf("read work pin before recovery: %v", err)
 	}
-	if !containsWorkPinAction(pin.NextValidIntents, "record_worker_failure") {
+	if !workPinContainsAction(pin.NextValidIntents, "record_worker_failure") {
 		t.Fatalf("work pin does not advertise record_worker_failure: %#v", pin.NextValidIntents)
 	}
 
@@ -53,7 +53,7 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 	if err != nil {
 		t.Fatalf("read work pin after recovery: %v", err)
 	}
-	if containsWorkPinAction(pin.NextValidIntents, "record_worker_failure") {
+	if workPinContainsAction(pin.NextValidIntents, "record_worker_failure") {
 		t.Fatal("work pin advertised a duplicate failure recovery")
 	}
 
@@ -105,15 +105,6 @@ func TestFailedWorkerRetryBindingPinsFailureAndContract(t *testing.T) {
 	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 || binding.ContractVersion != 1 {
 		t.Fatalf("retry binding = %#v, want failed attempt and contract version 1", binding)
 	}
-}
-
-func containsWorkPinAction(intents []WorkPinIntent, actionID string) bool {
-	for _, intent := range intents {
-		if intent.ActionID == actionID {
-			return true
-		}
-	}
-	return false
 }
 
 func seedOldDefinitionWorker(t *testing.T, workID string) (*Store, WorkflowActor, string, RegisteredDefinition) {

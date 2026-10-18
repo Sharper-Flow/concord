@@ -6,19 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/version"
 )
-
-// stampAsRelease pins the build as a stamped release for one test, the way
-// unstamped_open_test.go does, so Upgrade exercises the release migration
-// path instead of the development-build isolation rule (CD-0139).
-func stampAsRelease(t *testing.T) {
-	t.Helper()
-	previous := version.Value
-	version.Value = "v-test"
-	t.Cleanup(func() { version.Value = previous })
-}
 
 // migratedStoreWithTailRemoved builds a real, fully migrated store and then
 // removes the manifest rows from `from` on. The schema objects those steps
@@ -66,7 +54,7 @@ func storePathForTest(t *testing.T) string {
 // operating it. This is the failure half of CON-807 recovery: nothing about
 // a failed migration damages the usable active release (CON-807).
 func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
-	stampAsRelease(t)
+	useStampedBuild(t)
 	path := migratedStoreWithTailRemoved(t, 112)
 	held := []HeldSchema{}
 
@@ -98,7 +86,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 // the tail. An interrupted or failed migration is retried by running it
 // again; no intermediate state survives the failed transaction.
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
-	stampAsRelease(t)
+	useStampedBuild(t)
 	path := migratedStoreWithTailRemoved(t, 115)
 	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")

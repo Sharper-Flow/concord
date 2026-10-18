@@ -125,7 +125,7 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	const failedID = "attempt:work-1:authorized-failed"
 	recordReadyRetryJob(t, s, service, env, "job:authorize-unstarted-worker")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
+		"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, env)
 	if first.Outcome != OutcomeOK {
@@ -259,7 +259,7 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 	const failedID = "attempt:work-1:concurrent-abandonment"
 	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:concurrent-abandonment")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
+		"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, mutationEnvelope(grant, scopeVersion))
 	if first.Outcome != OutcomeOK {

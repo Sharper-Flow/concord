@@ -70,6 +70,29 @@ func workerCompletionAtClaim(t *testing.T, s *Store, event Event) Event {
 	return event
 }
 
+// The corpus cannot state the hash of a runtime claim path. An omitted identity
+// cannot express a legacy authorization; Go tests own that case.
+func workerDispatchAuthorizationAtClaim(t *testing.T, s *Store, event Event) Event {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["worker_worktree_identity"] = workerFixtureWorktreeIdentity(t, s, event.SubjectID)
+	event.Payload = mustJSONValue(payload)
+	t.Logf("materialized dispatch worktree identity for %s", event.EventID)
+	return event
+}
+
+func workerFixtureWorktreeIdentity(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workerWorktreeIdentity(canonical)
+}
+
 func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var directory string

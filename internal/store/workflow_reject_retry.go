@@ -160,7 +160,7 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScop
 		// routes that can carry it.
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Kind == KindApprovalRequired {
-			return result, record, newFailure(KindApprovalRequired, "workflow_action", "the combined retry dispatch requires operator approval", false, "reject without the retry payload, then dispatch_worker with the approval it requires")
+			return result, record, newFailure(KindApprovalRequired, "workflow_action", "the combined retry dispatch requires operator approval the combined call cannot carry: reject without the retry payload, then dispatch_worker with the approval it requires", false, "reject without the retry payload, then dispatch_worker with the approval it requires")
 		}
 		return result, record, err
 	}

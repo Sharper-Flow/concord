@@ -15,7 +15,6 @@ func TestFencedStartTakeoverPropertyReachesEveryFencedStart(t *testing.T) {
 	registry := BuiltinWorkflowRegistry()
 	want := map[string]bool{"dispatch_worker": true, "start_execution": true, "start_refine": true, "start_repair": true, "start_poc": true, "start_run": true, "rollback_run": true, "run_analysis": true, "start_action": true}
 	got := map[string]bool{}
-	sawDispatch := false
 	refs := []string{}
 	for ref := range liveWorkflowAuthoringFamilies {
 		refs = append(refs, ref)
@@ -30,8 +29,8 @@ func TestFencedStartTakeoverPropertyReachesEveryFencedStart(t *testing.T) {
 				continue
 			}
 			for _, action := range registered.Definition.ActionDefinitions {
-				if action.ID == "dispatch_worker" {
-					sawDispatch = true
+				if action.ID == "dispatch_worker" && (action.ExecutionMode != ActionFenced || action.RequiredCapability != WorkerDispatchCapability) {
+					t.Fatalf("%s@%d dispatch_worker mode %q capability %q, want fenced under the worker_dispatch capability the lane-attempt hold keys on", ref, version, action.ExecutionMode, action.RequiredCapability)
 				}
 				if !WorkflowActionOpensHeldAttempt(action) {
 					continue
@@ -46,9 +45,6 @@ func TestFencedStartTakeoverPropertyReachesEveryFencedStart(t *testing.T) {
 				}
 			}
 		}
-	}
-	if !sawDispatch {
-		t.Fatal("no registered definition declares dispatch_worker")
 	}
 	for id := range want {
 		if !got[id] {

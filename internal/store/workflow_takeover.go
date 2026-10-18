@@ -109,13 +109,14 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 
 // workflowLaneAttemptHeldFrom reports whether the step's latest start is a
 // lane dispatch whose attempt another session dispatched and that has not
-// ended through a recorded result decision or a terminal failure.
+// ended through a recorded result decision, a terminal failure, or a
+// born-failed dispatch.
 func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step string, startSeq int64, start workflowActionStartedPayload, callerActorRef string) (bool, error) {
 	if start.ActorRef == callerActorRef {
 		return false, nil
 	}
 	var attemptID string
-	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.attempt_epoch')=? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq, step, start.AttemptEpoch).Scan(&attemptID)
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.attempt_epoch')=? AND json_extract(payload,'$.worker_attempt_id') IS NOT NULL ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq, step, start.AttemptEpoch).Scan(&attemptID)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -125,7 +126,8 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 	var ended int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND (
 		(kind=? AND json_extract(payload,'$.action_id') IN (`+workerAttemptDisposalActions+`) AND json_extract(payload,'$.worker_attempt_id')=?)
-		OR (kind=? AND json_extract(payload,'$.attempt_id')=?))`, string(SubjectWorkItem), workID, startSeq, WorkflowActionCompleted, attemptID, WorkerFailed, attemptID).Scan(&ended); err != nil {
+		OR (kind=? AND json_extract(payload,'$.attempt_id')=?)
+		OR (kind=? AND json_extract(payload,'$.attempt_id')=? AND json_extract(payload,'$.terminal')='failed'))`, string(SubjectWorkItem), workID, startSeq, WorkflowActionCompleted, attemptID, WorkerFailed, attemptID, WorkerDispatched, attemptID).Scan(&ended); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect whether the held lane attempt ended")
 	}
 	return ended == 0, nil

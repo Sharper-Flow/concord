@@ -1183,7 +1183,7 @@ func correctionPacketSource(t *testing.T, packet map[string]any) *WorkflowCorrec
 // The combined rejection's retry answers to the dispatch admission (CD-0198
 // D5), the takeover rule included. Rejecting an earlier result with a retry
 // while another session's later attempt is undecided refuses the whole call;
-// the rejection alone still commits, and the retry dispatch then needs the
+// the rejection alone still commits, and the retry dispatch then carries the
 // takeover approval of its own.
 func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *testing.T) {
 	t.Parallel()
@@ -1234,7 +1234,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	})
 	_, err = invokeWorkflowActionForCD0059(ctx, t, f.s, combined)
 	var refusal *Failure
-	if !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired || !strings.Contains(refusal.RecoveryAction, "reject without the retry payload") {
+	if !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired || !strings.Contains(refusal.RecoveryAction, "reject without the retry payload") || !strings.Contains(refusal.Detail, "reject without the retry payload") {
 		t.Fatalf("combined retry over the other session's undecided review = %v, want approval_required naming the rejection-only route", err)
 	}
 	if rejections := f.rejectionCount(t, f.attemptR, epochR); rejections != 0 {
@@ -1245,6 +1245,37 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	}
 	if _, err := f.invokeReject(t, versionBefore, f.attemptR, epochR, "rejection-only", 52); err != nil {
 		t.Fatalf("the rejection-only escape: %v", err)
+	}
+	epochV := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptV)
+	var laneV string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptV).Scan(&laneV); err != nil {
+		t.Fatal(err)
+	}
+	retryAttempt := f.attemptR + ":retry"
+	correction, err := workflowCorrectionContextForDispatch(ctx, f.s.DatabaseForTesting(), workID, f.step, retryAttempt)
+	if err != nil || correction == nil {
+		t.Fatalf("correction context for the retry dispatch = %v err %v, want the rejection's", correction, err)
+	}
+	retryPacket := joinPacketFor(t, f.s, workID, f.step, retryAttempt, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+	retryPacket["inputs"].(map[string]any)["correction"] = correction
+	retryFields, err := json.Marshal(map[string]any{"attempt_id": retryAttempt, "worker_packet": retryPacket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := func(key string, approved *WorkflowStartTakeover) error {
+		_, err := invokeWorkflowActionForCD0059(ctx, t, f.s, WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, f.s, workID), ActionID: "dispatch_worker", Payload: retryFields, Actor: f.dispatcher,
+			ApprovedTakeover: approved, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
+			AcceptedInputsDigest: cd0059TestDigest(t, key+"-inputs"), ContractDigest: testManifestDigest, Tool: "concord_work_transition",
+			IdempotencyKey: key, RequestID: key, IdempotencyIdentity: key, OperationID: key, PrincipalRef: f.dispatcher.PrincipalRef, Now: time.Now().UTC(),
+		})
+		return err
+	}
+	if err := retry("combined-escape-unapproved", nil); !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired {
+		t.Fatalf("unapproved retry dispatch over the other session's undecided review = %v, want approval_required", err)
+	}
+	if err := retry("combined-escape-approved", &WorkflowStartTakeover{HeldEpoch: epochV, HolderActorRef: laneV}); err != nil {
+		t.Fatalf("the approved retry dispatch that completes the escape: %v", err)
 	}
 }
 

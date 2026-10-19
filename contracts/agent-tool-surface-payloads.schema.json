@@ -1581,6 +1581,20 @@
               "type": "null"
             }
           ]
+        },
+        "decision_domains": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "enum": [
+              "preference",
+              "product",
+              "ui_ux"
+            ]
+          },
+          "description": "The contract's declared decision domains, sorted. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work."
         }
       }
     },

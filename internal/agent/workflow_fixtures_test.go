@@ -82,6 +82,9 @@ func workflowContractFieldsFixture() map[string]any {
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
+		// The live heads answer consent under consequence_v1: the contract
+		// declares its decision domains, here none, so it is engineering.
+		"decision_domains": []string{},
 	}
 }
 

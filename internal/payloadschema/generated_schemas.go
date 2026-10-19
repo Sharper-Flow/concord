@@ -23551,6 +23551,20 @@ const GeneratedPayloadSchemaDocument = `{
         "changes_product_truth": {
           "type": "boolean"
         },
+        "decision_domains": {
+          "description": "The contract's declared decision domains, sorted. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work.",
+          "items": {
+            "enum": [
+              "preference",
+              "product",
+              "ui_ux"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "type": "array",
+          "uniqueItems": true
+        },
         "definition_pin": {
           "oneOf": [
             {

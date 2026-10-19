@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:6440eda1708acae177dbf42ceb5845ae712b311fe64d9722db647ce1340d6dd0"
+const ManifestDigest = "sha256:e161f64b46c73ff40fd19555892c33097309861517e210ec377e20c3488ba99a"
 
 type OperationKind string
 
@@ -365,7 +365,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet_worker_job":                              {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "acceptance_oracle"}},
 	"worker_recovery_context":                               {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "packet_schema_version", "report_schema_version", "dispatch"}, Properties: []string{"packet_digest", "packet_schema_version", "report_schema_version", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},
 	"workflow_completion_payload":                           {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
-	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair", "approved_at", "approved_by", "superseded_by", "definition_pin"}},
+	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair", "approved_at", "approved_by", "superseded_by", "definition_pin", "decision_domains"}},
 	"workflow_correction_context":                           {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "source_event_id", "source_event_seq"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch", "source_event_id", "source_event_seq"}},
 	"workflow_delivery_assertion":                           {Required: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact"}, Properties: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact", "correction"}},
 	"workflow_delivery_correction":                          {Required: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}},

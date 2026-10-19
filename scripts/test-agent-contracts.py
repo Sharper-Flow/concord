@@ -1933,8 +1933,18 @@ class CIContractRoutingTests(unittest.TestCase):
     def test_verify_adapter_runs_the_adapter_suite_directly(self):
         # The adapter_test evidence anchors resolve only against a direct
         # workflow invocation, so deleting the direct step would strand them.
-        direct = [step for step in workflow_job_steps("verify-adapter") if "bun test adapter/opencode" in step["run"]]
-        self.assertTrue(direct, "verify-adapter must run the adapter suite directly")
+        direct = [step for step in workflow_job_steps("verify-adapter-rest") if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "verify-adapter-rest must run the adapter suite directly")
+        aggregate = workflow_job_block("verify-adapter")
+        self.assertEqual(job_needs(aggregate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertRegex(aggregate, r"(?m)^ {4}if: always\(\)$")
+        gate = workflow_job_steps("verify-adapter")
+        self.assertEqual(len(gate), 1)
+        self.assertEqual(gate[0]["env"], {
+            "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
+            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
+        })
+        self.assertEqual(gate[0]["run"].strip().splitlines(), ['test "$REST_RESULT" = success', 'test "$DISPATCH_RESULT" = success'])
 
     def test_verify_tooling_runs_the_contract_selftest_directly(self):
         direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]

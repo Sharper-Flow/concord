@@ -56,6 +56,8 @@ CI_JOB_IDS = (
     "verify-history",
     "verify",
     "verify-adapter",
+    "verify-adapter-rest",
+    "verify-adapter-dispatch",
     "verify-contracts",
     "verify-tooling",
     "verify-go",
@@ -205,6 +207,84 @@ class CIWorkflowDriftTests(unittest.TestCase):
         )
         self.assertIs(type(fetch_depth), int, "fetch-depth must parse as a YAML integer")
         self.assertIs(with_block.get("persist-credentials"), False)
+
+
+class AdapterCIShardTests(unittest.TestCase):
+    def test_aggregate_adapter_gate_refuses_every_non_success_result(self) -> None:
+        gate = jobs(load_workflow(CI_WORKFLOW))["verify-adapter"]
+        self.assertEqual(needs_list(gate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertEqual(str(gate.get("if")).strip(), "always()")
+        self.assertNotIn("continue-on-error", gate)
+        steps = gate["steps"]
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        self.assertEqual(step["env"], {
+            "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
+            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
+        })
+        for rest in ("success", "failure", "cancelled", "skipped"):
+            for dispatch in ("success", "failure", "cancelled", "skipped"):
+                with self.subTest(rest=rest, dispatch=dispatch):
+                    run = subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", step["run"]],
+                        env={**os.environ, "REST_RESULT": rest, "DISPATCH_RESULT": dispatch},
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(run.returncode == 0, rest == dispatch == "success", run.stdout + run.stderr)
+
+    def test_real_shard_commands_execute_each_discovered_test_once(self) -> None:
+        workflow = jobs(load_workflow(CI_WORKFLOW))
+        shard_ids = needs_list(workflow["verify-adapter"])
+        environments = []
+        files = (
+            "adapter/opencode/dispatch_route_end_to_end.test.ts",
+            "adapter/opencode/ordinary.test.ts",
+            "adapter/opencode/nested/dispatch_route_end_to_end.test.ts",
+            "adapter/opencode/nested/new.spec.ts",
+        )
+        with tempfile.TemporaryDirectory(prefix="adapter-ci-partition-") as temporary:
+            root = Path(temporary)
+            observed = root / "observed.jsonl"
+            # A nested namesake must not disappear with the root journey file.
+            # A new ordinary test must join the remainder without an allowlist.
+            for name in (*files, "outside/unrelated.test.ts"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    'import { test } from "bun:test";\n'
+                    'import { appendFileSync } from "node:fs";\n'
+                    'test("records its execution", () => appendFileSync('
+                    'process.env.CI_ADAPTER_OBSERVATIONS!, JSON.stringify(import.meta.path) + "\\n"));\n',
+                    encoding="utf-8",
+                )
+            for selection in shard_ids:
+                shard = workflow[selection]
+                self.assertNotIn("strategy", shard)
+                self.assertNotIn("continue-on-error", shard)
+                test_steps = [step for step in shard["steps"] if "bun test" in str(step.get("run", ""))]
+                self.assertEqual(len(test_steps), 1)
+                step = test_steps[0]
+                environments.append(step["env"])
+                output = root / selection
+                output.mkdir()
+                run = subprocess.run(
+                    ["bash", "-euo", "pipefail", "-c", step["run"]],
+                    cwd=root,
+                    env={**os.environ, "RUNNER_TEMP": str(output),
+                         "CI_ADAPTER_OBSERVATIONS": str(observed)},
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertTrue((output / "adapter-test-timings.json").is_file(), run.stdout + run.stderr)
+                uploads = [step for step in shard["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
+                self.assertEqual(len(uploads), 1)
+                self.assertEqual(str(uploads[0].get("if")).strip(), "always()")
+                self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/adapter-test-timings.json")
+            self.assertCountEqual(
+                [json.loads(line) for line in observed.read_text(encoding="utf-8").splitlines()],
+                [str(root / name) for name in files],
+            )
+        self.assertEqual(environments[0], environments[1], "both shards must retain the same poison inputs")
 
 
 class ReleaseWorkflowDriftTests(unittest.TestCase):

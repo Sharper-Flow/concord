@@ -39,6 +39,10 @@ import (
 //   - short closes through a live derivation of the bootstrap rollback
 //     reason (the sole production caller's errors.New literal plus the
 //     writer's fixed prefix).
+//   - retained work identity, work intent text, and Project identity echo
+//     presence-only fold writers with no complete-string guard; they type
+//     through the output-only retained_work_id, retained_work_text, and
+//     retained_project_id defs and are unbounded, byte-ceiling only.
 
 // id primitive scope note (constraint, recorded because it bounds the row's
 // family claim): the knowledge index admits IDs of up to 256 code points
@@ -75,7 +79,7 @@ func init() {
 			"project_locators.normalized_value carries only a TEXT length() CHECK (1..4096), which under the NUL "+
 			"model bounds only the prefix, never the full destination. Missing: a filesystem-path derivation "+
 			"constructor, or the consumer repair removing /$defs/absolute_path/maxLength",
-		"internal/agent/runtime.go:readSizeRefusal"))
+		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
 
 	// digest: every output value is a boundary-admitted digest (<=128 code
 	// points, hex pattern — the admission is a full-string bound), a
@@ -120,13 +124,22 @@ func init() {
 	// id: the family maximum is the boundary admission itself (<= 128 code
 	// points with the ASCII pattern), cited live — a full-string bound,
 	// unlike the store's TEXT length() CHECKs, which under the NUL model
-	// bound only the prefix. The CHECK'd echo columns (workflow_actors
+	// bound only the prefix. The row's family claim covers the def's
+	// remaining consumers only. The retained work and Project identity
+	// echoes (work_summary.id and workflow_type_ref, work_pin.work_id, the
+	// message, relation-edge, and observation endpoint echoes, and the
+	// project_ids items) were traced to fold writers that store event
+	// subjects with presence-only checks and no id column CHECK; they are
+	// not admission-bounded and now type through the output-only
+	// retained_work_id and retained_project_id defs, outside this claim. No
+	// generic event admission is claimed for the def. The CHECK'd echo
+	// columns (workflow_actors
 	// principal/client/agent refs, project_locators.locator_id, agent_grants
 	// refs) store values that entered through the same admission or through
 	// smaller full-string guards; the actor fold re-guards every stored ref
 	// at 128 bytes (internal/store/workflow.go:foldWorkflowActorRecorded,
 	// workflowString at 128), so their prefix CHECKs prove nothing and are
-	// not cited. Independent writers are all strictly smaller: Go-minted
+	// not cited. The remaining writers are all strictly smaller: Go-minted
 	// shapes (work-<24hex>, bootstrap-<48hex>, mutation-<24hex>, obs:
 	// event/observation IDs, actor: refs of exactly 70 code points), and
 	// predicate IDs held to 128 bytes by internal/store/workflow.go:
@@ -198,11 +211,18 @@ func init() {
 		referenceGuard,
 	))
 
-	// short: the family maximum is the boundary admission (<= 256 code
-	// points and <= 256 UTF-8 bytes), and the display-name writer is held to
-	// maxDisplayNameLength code points. The bootstrap host path holds
-	// title/value_statement/external_ref to 256 bytes inline. The remaining
-	// store-side writer is the bootstrap rollback reason:
+	// short: the row's family claim covers the def's remaining consumers
+	// only. The boundary admission (<= 256 code points and <= 256 UTF-8
+	// bytes) bounds the admitted writers, and the display-name writer is
+	// held to maxDisplayNameLength code points. The retained work text
+	// echoes (work_summary.title/value_statement/tags items and
+	// work_pin.title) were traced to the presence-only fold writers behind
+	// work_items.title and intent_json and are not admission-bounded; they
+	// now type through the output-only retained_work_text def, outside this
+	// claim — no generic event admission is claimed for the def. The
+	// bootstrap host path holds its title/value_statement/external_ref
+	// writes to 256 bytes inline. The remaining store-side writer is the
+	// bootstrap rollback reason:
 	// internal/store/bootstrap.go:rollbackBootstrapTx writes
 	// "bootstrap rolled back: " + reason with no length guard into a
 	// short-typed work_transitioned reason, and foldWorkTransitioned checks
@@ -215,6 +235,65 @@ func init() {
 		goConstantBound("internal/store/operation.go", "maxDisplayNameLength", boundCharacters),
 		sharedRollbackReasonBound(),
 	))
+
+	// retained_work_id: the retained work identity writer is the creation
+	// fold, which stores the event subject verbatim as work_items.id with
+	// presence-only checks (internal/store/lifecycle.go:foldWorkCreated via
+	// internal/store/operation.go:checkSubject) while work_items carries no
+	// id CHECK (internal/store/schema.go:228), so any retained identity
+	// length projects verbatim into work_summary.id and workflow_type_ref,
+	// work_pin.work_id (internal/store/workpin.go:335, beside the unguarded
+	// mutation identity copy at internal/store/workpin.go:159), the message
+	// endpoints (internal/store/work_messages.go:foldMessageSent), the
+	// relation edge endpoints (internal/store/lifecycle.go:insertRelation),
+	// the observation work_id
+	// (internal/store/work_observations.go:foldWorkObservationRecorded), and
+	// the workflow read's copied query identity
+	// (internal/store/workflow_read.go:276). The managed pin read's own
+	// 2..128 argument check bounds only its query, never the stored value.
+	// The echoes are read-owned and mutation-owned (work_pins in mutation
+	// result envelopes), so both typed refusal emitters are cited.
+	registerOutputBound("/$defs/retained_work_id/maxLength", unboundedOutput(
+		"retained work identity has no complete-string guard: foldWorkCreated stores the event subject verbatim as "+
+			"work_items.id with presence-only checks (internal/store/lifecycle.go:230, internal/store/operation.go:1219) "+
+			"and work_items.id carries no CHECK (internal/store/schema.go:228); foldMessageSent, insertRelation, and "+
+			"foldWorkObservationRecorded store endpoint identities the same way, and the pin and workflow reads copy "+
+			"the queried stored identity verbatim (internal/store/workpin.go:335, internal/store/workflow_read.go:276)",
+		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
+
+	// retained_work_text: the retained intent text writers are the creation
+	// and revise folds, which copy title, value_statement, tags, and the
+	// workflow-type ref verbatim with presence-only checks
+	// (internal/store/lifecycle.go:foldWorkCreated and
+	// foldWorkIntentRevised) while work_items.title carries no length CHECK
+	// and intent_json is unbounded text, so every echoed text length
+	// projects verbatim through the summary (internal/agent/runtime.go:1500)
+	// and the pin title read (internal/store/workpin.go:329). The echoes are
+	// read-owned and mutation-owned, so both typed refusal emitters are
+	// cited.
+	registerOutputBound("/$defs/retained_work_text/maxLength", unboundedOutput(
+		"retained work intent text has no complete-string guard: foldWorkCreated and foldWorkIntentRevised copy "+
+			"title, value_statement, tags, and the workflow-type ref verbatim with presence-only checks "+
+			"(internal/store/lifecycle.go:238,306-324,349-423); work_items.title carries no CHECK and intent_json is "+
+			"unbounded text, so the echoed text projects verbatim (internal/agent/runtime.go:1500, "+
+			"internal/store/workpin.go:329)",
+		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
+
+	// retained_project_id: the retained Project identity writer is the
+	// Project creation fold, which stores the event subject verbatim as
+	// projects.id with a presence-only check
+	// (internal/store/operation.go:foldProjectCreated via checkSubject)
+	// while projects carries no id CHECK (internal/store/schema.go:173), so
+	// the stored identity echoes verbatim into the work project memberships
+	// (internal/store/query.go:attachWorkMemberships) behind
+	// work_summary.project_ids. The echo is read-owned only (no mutation
+	// result embeds work_summary), so the read refusal emitter is cited.
+	registerOutputBound("/$defs/retained_project_id/maxLength", unboundedOutput(
+		"retained Project identity has no complete-string guard: foldProjectCreated stores the event subject "+
+			"verbatim as projects.id with a presence-only check (internal/store/operation.go:1329, "+
+			"internal/store/operation.go:1219) and projects.id carries no CHECK (internal/store/schema.go:173), so "+
+			"the membership echo in work_summary.project_ids projects verbatim",
+		"internal/agent/runtime.go:readSizeRefusal"))
 }
 
 // ---------------------------------------------------------------------------

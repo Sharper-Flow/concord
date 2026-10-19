@@ -619,39 +619,38 @@ func init() {
 
 	// The store guard validateResearchScopes refuses the 101st scope ID of
 	// a kind through its inline comparison, so the store admits 100 per
-	// kind; the consumer maximum below must rise to admit it because the
-	// wire admission on research_scopes_input bounds the agent surface
-	// only.
-	registerOutputBound("/$defs/research_scopes/properties/domain_ids/maxItems",
+	// kind and the retained twin the reads replay carries that maximum. The
+	// wire admission on research_scopes_input bounds the agent surface only;
+	// the shared definition keeps the cap packet dispatch admits.
+	registerRetainedTwinBound("/$defs/research_scopes/properties/domain_ids/maxItems",
 		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerOutputBound("/$defs/research_scopes/properties/product_ids/maxItems",
+	registerRetainedTwinBound("/$defs/research_scopes/properties/product_ids/maxItems",
 		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerOutputBound("/$defs/research_scopes/properties/project_ids/maxItems",
+	registerRetainedTwinBound("/$defs/research_scopes/properties/project_ids/maxItems",
 		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerOutputBound("/$defs/research_scopes/properties/tag_ids/maxItems",
+	registerRetainedTwinBound("/$defs/research_scopes/properties/tag_ids/maxItems",
 		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
 
 	// ------------------------------------------------------------------
 	// research source (PM1.Q11 content)
 	// ------------------------------------------------------------------
 
-	// Source fields are the admitted input record copied verbatim:
-	// validateSource checks non-empty only and the table CHECKs are
-	// length > 0, so the input admission on research_source_input is the
-	// producer bound for each field.
+	// Source fields are the retained record projected verbatim:
+	// validateSource checks the text fields non-empty only and the table
+	// CHECKs are length > 0, so no admission bounds any retained field,
+	// and copyResearchRevisionContent plus the research rebuild carry
+	// retained sources without revalidation; only the envelope byte
+	// ceilings apply, shared by the read and mutation refusals.
 
-	registerOutputBound("/$defs/research_source/properties/accessed_at/maxLength",
-		unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
+	researchSourceFields := unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult")
 
-	registerOutputBound("/$defs/research_source/properties/locator/maxLength",
-		unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
+	registerRetainedTwinBound("/$defs/research_source/properties/accessed_at/maxLength", researchSourceFields)
 
-	registerOutputBound("/$defs/research_source/properties/published_at/maxLength",
-		unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
+	registerRetainedTwinBound("/$defs/research_source/properties/locator/maxLength", researchSourceFields)
 
-	registerOutputBound("/$defs/research_source/properties/publisher_or_author/maxLength",
-		unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
+	registerRetainedTwinBound("/$defs/research_source/properties/published_at/maxLength", researchSourceFields)
 
-	registerOutputBound("/$defs/research_source/properties/title/maxLength",
-		unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
+	registerRetainedTwinBound("/$defs/research_source/properties/publisher_or_author/maxLength", researchSourceFields)
+
+	registerRetainedTwinBound("/$defs/research_source/properties/title/maxLength", researchSourceFields)
 }

@@ -183,74 +183,77 @@ func init() {
 	registerOutputBound("/$defs/native_oracle_stage/properties/argv/maxItems", commandArgs)
 	registerOutputBound("/$defs/native_oracle_stage/properties/argv/items/maxLength", commandPart)
 
-	// -- native_oracle_preparation (read views: continuity, work pin, worker
-	// packet; typed refusal owner is the shared read refusal) --
+	// -- native_oracle_preparation (the dispatched worker packet) and its
+	// retained twin (read views: continuity, work pin; typed refusal owner is
+	// the shared read refusal) --
 
 	prep := "/$defs/native_oracle_preparation"
 	// RunRef echoes worktreeVerifyOperationRef, whose widest live arm is the
 	// no-separator fallback over the widest admitted lease id.
-	registerOutputBound(prep+"/properties/run_ref/maxLength", nativeRunRefDerived())
-	registerOutputBound(prep+"/oneOf/*/properties/run_ref/maxLength", nativeRunRefDerived())
-	registerOutputBound(prep+"/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
-	registerOutputBound(prep+"/oneOf/*/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
+	registerOutputBoundWithTwin(prep+"/properties/run_ref/maxLength", nativeRunRefDerived())
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/run_ref/maxLength", nativeRunRefDerived())
+	registerOutputBoundWithTwin(prep+"/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
 	// The ambient Project identity has no admission guard anywhere
 	// (internal/store/operator.go:CreateProjectForProduct checks non-empty
 	// only and projects.id carries no length CHECK), and every writer of the
 	// published value copies it verbatim; genuinely unbounded, byte-ceiling
 	// only.
-	registerOutputBound(prep+"/properties/project_id/maxLength", unboundedOutput(projectIDGap, nativeReadSurfaceRefusal))
-	registerOutputBound(prep+"/oneOf/*/properties/project_id/maxLength", unboundedOutput(projectIDGap, nativeReadSurfaceRefusal))
-	registerOutputBound(prep+"/properties/subject_commit/maxLength", shaBound)
-	registerOutputBound(prep+"/oneOf/*/properties/subject_commit/maxLength", shaBound)
-	registerOutputBound(prep+"/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
-	registerOutputBound(prep+"/oneOf/*/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
-	registerOutputBound(prep+"/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
-	registerOutputBound(prep+"/oneOf/*/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
-	registerOutputBound(prep+"/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
-	registerOutputBound(prep+"/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
-	registerOutputBound(prep+"/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
-	registerOutputBound(prep+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
-	registerOutputBound(prep+"/properties/build_environment_digest/maxLength", maxBound(
+	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1"} {
+		registerRetainedTwinBound(prep+branch+"/properties/project_id/maxLength", unboundedOutput(projectIDGap, nativeReadSurfaceRefusal, nativeMutationResultRefusal))
+	}
+	registerOutputBoundWithTwin(prep+"/properties/subject_commit/maxLength", shaBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/subject_commit/maxLength", shaBound)
+	registerOutputBoundWithTwin(prep+"/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
+	registerOutputBoundWithTwin(prep+"/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
+	registerOutputBoundWithTwin(prep+"/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
+	registerOutputBoundWithTwin(prep+"/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerOutputBoundWithTwin(prep+"/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),
 	))
-	registerOutputBound(prep+"/oneOf/*/properties/build_environment_digest/maxLength", maxBound(
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),
 	))
-	registerOutputBound(prep+"/properties/logical_cwd/maxLength", repoPathBytes)
-	registerOutputBound(prep+"/oneOf/*/properties/logical_cwd/maxLength", repoPathBytes)
-	registerOutputBound(prep+"/properties/manifest_blob/maxLength", shaBound)
-	registerOutputBound(prep+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
-	registerOutputBound(prep+"/properties/files/maxItems", filesBound)
-	registerOutputBound(prep+"/oneOf/*/properties/files/maxItems", filesBound)
+	registerOutputBoundWithTwin(prep+"/properties/logical_cwd/maxLength", repoPathBytes)
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/logical_cwd/maxLength", repoPathBytes)
+	registerOutputBoundWithTwin(prep+"/properties/manifest_blob/maxLength", shaBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
+	registerOutputBoundWithTwin(prep+"/properties/files/maxItems", filesBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/files/maxItems", filesBound)
 	// No finite per-field guard exists on either family: the target identity
 	// concatenates recipe version pins admitted only through the unbounded
 	// dotted-numeric pattern, and the Go family concatenates the go.mod
 	// toolchain directive admitted only through nativeGoToolchainName, whose
 	// digit runs are also unbounded - the width of today's toolchain string is
 	// not a source. Byte-ceiling only.
-	registerOutputBound(prep+"/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeReadSurfaceRefusal))
-	registerOutputBound(prep+"/oneOf/*/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeReadSurfaceRefusal))
+	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1"} {
+		registerRetainedTwinBound(prep+branch+"/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeReadSurfaceRefusal, nativeMutationResultRefusal))
+	}
 	// Distinct selected test names are bounded by the rendered selector
 	// budget: nativeOracleSelector renders "^(" + join(names, "|") + ")$" and
 	// refuses the render over maxWorktreeVerifyCommandPart bytes, while every
 	// name matches the ASCII test-name grammar whose minimum width is 5.
-	registerOutputBound(prep+"/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
-	registerOutputBound(prep+"/oneOf/0/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
+	registerOutputBoundWithTwin(prep+"/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
+	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	// Distinct selected witnesses are bounded by the rendered verify-command
 	// shape: nativeTargetSelector prepends exactly one runner literal to the
 	// witness list and refuses more than maxWorktreeVerifyCommandArgs parts.
-	registerOutputBound(prep+"/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBound(prep+"/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBound(prep+"/properties/selected_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBound(prep+"/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBound(prep+"/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
-	registerOutputBound(prep+"/oneOf/0/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
-	registerOutputBound(prep+"/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBound(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBound(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
-	registerOutputBound(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
+	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
+	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
+	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
 
 	// -- native_oracle_result (published inside the worktree_verify mutation
 	// result; typed refusal owner is mutationResult) --

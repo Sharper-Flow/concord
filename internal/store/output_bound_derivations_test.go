@@ -333,10 +333,15 @@ func (w *inlineGuardScan) expr(e ast.Expr, mode derivationScanMode) {
 			w.expr(node.X, inner)
 			w.expr(node.Y, inner)
 		case token.LOR:
+			// A rejecting disjunction gates each side alone. Under a
+			// rejecting conjunction each disjunct still refuses together
+			// with the conjunction's other operand, so it stays conditional.
 			inner := deriveModeOther
 			switch mode {
 			case deriveModeRefuse:
 				inner = deriveModeRefuse
+			case deriveModeConditionalRefuse:
+				inner = deriveModeConditionalRefuse
 			case deriveModeAdmit, deriveModeConditionalAdmit:
 				inner = deriveModeConditionalAdmit
 			}
@@ -1030,6 +1035,8 @@ func TestDerivationGoInlineBound(t *testing.T) {
 		{name: "missing function fails", body: "func other(x string) bool {\n\treturn len(x) <= 4\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "not declared"},
 		{name: "duplicated function fails", body: "func site(x string) bool {\n\treturn len(x) <= 4\n}\n\nfunc site(y string) bool {\n\treturn len(y) <= 5\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "declared 2 times"},
 		{name: "emptiness check held by a rejecting conjunction is a lower bound", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && len(x) == 0 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, want: 4, wantInferred: "len"},
+		{name: "emptiness check in a disjunction held by a rejecting conjunction is a lower bound", body: "func site(x, y []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && (len(x) == 0 || len(y) == 0) {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, want: 4, wantInferred: "len"},
+		{name: "upper comparison in a disjunction held by a rejecting conjunction fails", body: "func site(x, y []string, flag bool) bool {\n\tif flag && (len(x) > 4 || len(y) == 0) {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "nonzero equality held by a rejecting conjunction fails", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && len(x) == 3 {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "negated lower comparison held by a rejecting conjunction fails", body: "func site(x []string, flag bool) bool {\n\tif len(x) > 4 {\n\t\treturn false\n\t}\n\tif flag && !(len(x) < 2) {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},
 		{name: "comparison held by a conjunction in a rejecting condition fails", body: "func site(x string, flag bool) bool {\n\tif len(x) > 4 && flag {\n\t\treturn false\n\t}\n\treturn true\n}\n", function: "site", measurement: "len(x)", unit: boundItems, wantErr: "does not gate admission"},

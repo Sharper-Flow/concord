@@ -84,6 +84,8 @@ import (
 	"sync"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // ---------------------------------------------------------------------------
@@ -326,6 +328,33 @@ func registerOutputBound(pattern string, source outputBoundSource) {
 		reg.invalid = err.Error()
 	}
 	ledgerRegistrations = append(ledgerRegistrations, reg)
+}
+
+// retainedTwinPattern maps a pattern under a shared payload definition to the
+// same pattern under its generator-owned retained output twin
+// (RETAINED_OUTPUT_TWINS in scripts/generate-agent-contracts.py).
+func retainedTwinPattern(pattern string) string {
+	return "/$defs/retained_" + strings.TrimPrefix(pattern, "/$defs/")
+}
+
+// registerOutputBoundWithTwin registers a cap that a shared definition and its
+// retained output twin both keep: one producer bounds both copies.
+func registerOutputBoundWithTwin(pattern string, source outputBoundSource) {
+	registerOutputBound(pattern, source)
+	registerOutputBound(retainedTwinPattern(pattern), source)
+}
+
+// registerRetainedTwinBound registers a cap the retained output twin drops or
+// raises (RETAINED_OUTPUT_TWINS and RETAINED_OUTPUT_RAISES). The twin replays
+// stored values, so its row carries the retained producer source. The shared
+// definition reaches output only inside a dispatched
+// worker packet, and dispatch admission validates every packet against its
+// declared schema (validateWorkflowPayloadSchema in workflow_preflight.go),
+// so the shared row cites that admitted cap. pattern must be concrete: an
+// input source names one node.
+func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
+	registerOutputBound(pattern, inputBound(pattern))
+	registerOutputBound(retainedTwinPattern(pattern), retained)
 }
 
 // registerOutputRoot registers one host/internal output node that the census
@@ -2314,7 +2343,10 @@ type boundCensus struct {
 	bounds map[string]*censusBound
 	nodes  map[string][]string // output-reachable node key -> owning operation classes
 	inputs map[string]bool
-	order  []string
+	// inputNodes are the schema nodes an input root reaches; an uncapped
+	// node there widens admission, whatever an output row claims.
+	inputNodes map[string]bool
+	order      []string
 }
 
 type censusRootRef struct {
@@ -2404,7 +2436,7 @@ func scanManifestRoots(value any, owner, kind string, refs *[]censusRootRefRaw) 
 // bound keyword pointer once with the union of its consuming operations, and
 // each input-reachable bound pointer for inputBound verification. The bound
 // count is computed, never frozen.
-func buildCensus(rt *ledgerRuntime, extraRoots []censusRootRequest) (*boundCensus, []ledgerFailure) {
+func buildCensus(rt *ledgerRuntime, extraRoots, inputRoots []censusRootRequest) (*boundCensus, []ledgerFailure) {
 	var failures []ledgerFailure
 	manifest, err := rt.loadDoc(surfaceManifestFile)
 	if err != nil {
@@ -2424,7 +2456,10 @@ func buildCensus(rt *ledgerRuntime, extraRoots []censusRootRequest) (*boundCensu
 	for _, extra := range extraRoots {
 		roots = append(roots, censusRootRef{direction: "output", file: extra.file, pointer: extra.pointer, owner: "registered output root"})
 	}
-	census := &boundCensus{bounds: map[string]*censusBound{}, nodes: map[string][]string{}, inputs: map[string]bool{}}
+	for _, input := range inputRoots {
+		roots = append(roots, censusRootRef{direction: "input", file: input.file, pointer: input.pointer, owner: "registered input root"})
+	}
+	census := &boundCensus{bounds: map[string]*censusBound{}, nodes: map[string][]string{}, inputs: map[string]bool{}, inputNodes: map[string]bool{}}
 	for _, root := range roots {
 		census.walkRoot(rt, root, &failures)
 	}
@@ -2434,6 +2469,49 @@ func buildCensus(rt *ledgerRuntime, extraRoots []censusRootRequest) (*boundCensu
 		sort.Strings(census.bounds[key].classes)
 	}
 	return census, failures
+}
+
+// ledgerPayloadInputRoots are the payload schema definitions every registered
+// workflow definition version and the canonical recovery actions declare.
+// Action payload admission validates every declared field against its schema
+// in the published document (workflow_preflight.go), so each is an input root
+// exactly like a manifest input, though the manifest does not list it. A live
+// call validates against the published document whatever the pin's age
+// (workflowLivePayloadSchemaDocument), so retained versions count too. A
+// declared name the published document no longer carries refuses every live
+// call (validateWorkflowPayloadSchema), so it admits nothing and roots nothing.
+func ledgerPayloadInputRoots() []censusRootRequest {
+	names := map[string]bool{}
+	add := func(action WorkflowActionDefinition) {
+		for _, field := range action.Payload.Fields {
+			for _, ref := range []string{field.SchemaRef, field.ItemRef} {
+				if ref != "" {
+					names[ref] = true
+				}
+			}
+		}
+	}
+	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+		for _, action := range definition.ActionDefinitions {
+			add(action)
+		}
+	}
+	for _, action := range BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
+		add(action)
+	}
+	sorted := make([]string, 0, len(names))
+	document := workflowLivePayloadSchemaDocument()
+	for name := range names {
+		if payloadschema.HasIn(document, name) {
+			sorted = append(sorted, name)
+		}
+	}
+	sort.Strings(sorted)
+	roots := make([]censusRootRequest, 0, len(sorted))
+	for _, name := range sorted {
+		roots = append(roots, censusRootRequest{file: payloadSchemaFile, pointer: "/$defs/" + name})
+	}
+	return roots
 }
 
 // ledgerAppendClass unions one operation class into a node's or bound's
@@ -2487,6 +2565,9 @@ func (c *boundCensus) walk(rt *ledgerRuntime, root censusRootRef, file string, n
 	}
 	stack[key] = true
 	defer delete(stack, key)
+	if root.direction == "input" {
+		c.inputNodes[key] = true
+	}
 	if root.direction == "output" {
 		c.nodes[key] = ledgerAppendClass(c.nodes[key], root.kind)
 		for _, keyword := range ledgerUnsupportedSchemaKeywords {
@@ -2730,6 +2811,21 @@ func runOutputBoundLedger(rt *ledgerRuntime, census *boundCensus, registrations 
 			}
 		}
 		if evaluated.unbounded && len(matched) == 0 {
+			// An uncapped node an input root also reaches widens admission:
+			// the shared definition needs an output-only twin instead.
+			inputParents := []string{parent}
+			if wildcardParent {
+				inputParents = parentNodes
+			}
+			for _, nodeKey := range inputParents {
+				if census.inputNodes[nodeKey] {
+					failures = append(failures, ledgerFailure{
+						Kind:    "input-widened",
+						Subject: nodeKey,
+						Detail:  fmt.Sprintf("the row %s registers this node unbounded, but an input root reaches it, so the missing cap widens admission; keep the cap on the input definition and point the output at an output-only twin", reg.pattern),
+					})
+				}
+			}
 			// The unbounded row's caps stay removed; its class evidence is
 			// checked against the underlying output node, which carries the
 			// owning operations' classes even without the bound keyword.
@@ -2861,7 +2957,7 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt.ddl = ddl
-	census, censusFailures := buildCensus(rt, ledgerOutputRoots)
+	census, censusFailures := buildCensus(rt, ledgerOutputRoots, ledgerPayloadInputRoots())
 	if len(censusFailures) > 0 {
 		details := make([]string, 0, len(censusFailures))
 		for _, failure := range censusFailures {
@@ -2958,13 +3054,13 @@ func TestLedgerRemovedCapWitnesses(t *testing.T) {
 		if err := rt.parseGoSource("witness.go", "package store\n\nconst witnessAdmitted = 64\n\nconst witnessExceeds = 4096\n"); err != nil {
 			t.Fatal(err)
 		}
-		census, censusFailures := buildCensus(rt, nil)
+		census, censusFailures := buildCensus(rt, nil, nil)
 		if len(censusFailures) > 0 {
 			t.Fatalf("witness census is broken: %v", censusFailures)
 		}
 		return runOutputBoundLedger(rt, census, registrations)
 	}
-	guards := []string{"removed-finite-bound", "restored-cap", "stale-registration", "bound-not-admitted", "unit-domain", "source-evaluation", "refusal-class"}
+	guards := []string{"input-widened", "removed-finite-bound", "restored-cap", "stale-registration", "bound-not-admitted", "unit-domain", "source-evaluation", "refusal-class"}
 	countGuards := func(failures []ledgerFailure) int {
 		total := 0
 		for _, failure := range failures {
@@ -3100,7 +3196,7 @@ func TestLedgerRefTraversal(t *testing.T) {
 		rt := newLedgerRuntime(ledgerRepoRoot(t))
 		rt.docs[surfaceManifestFile] = manifest
 		rt.docs[payloadSchemaFile] = doc
-		return buildCensus(rt, nil)
+		return buildCensus(rt, nil, nil)
 	}
 	census, failures := build(payload())
 	if len(failures) != 0 {
@@ -3122,7 +3218,7 @@ func TestLedgerRefTraversal(t *testing.T) {
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
 	rt.docs[surfaceManifestFile] = manifest
 	rt.docs[payloadSchemaFile] = payload()
-	census, _ = buildCensus(rt, nil)
+	census, _ = buildCensus(rt, nil, nil)
 	if _, err := rt.evaluateSource(schemaBound(payloadSchemaFile, "/$defs/out/properties/items/maxItems"), census); err == nil {
 		t.Fatal("an output-only payload node was accepted as a producer source")
 	}
@@ -3626,13 +3722,13 @@ func TestLedgerWildcardArmWitnesses(t *testing.T) {
 		if err := rt.parseGoSource("witness.go", "package store\n\nconst witnessCap = 64\n"); err != nil {
 			t.Fatal(err)
 		}
-		census, censusFailures := buildCensus(rt, nil)
+		census, censusFailures := buildCensus(rt, nil, nil)
 		if len(censusFailures) > 0 {
 			t.Fatalf("wildcard witness census is broken: %v", censusFailures)
 		}
 		return runOutputBoundLedger(rt, census, []outputBoundRegistration{{pattern: pattern, source: source}})
 	}
-	guards := []string{"removed-finite-bound", "restored-cap", "stale-registration", "bound-not-admitted", "unit-domain", "source-evaluation", "refusal-class"}
+	guards := []string{"input-widened", "removed-finite-bound", "restored-cap", "stale-registration", "bound-not-admitted", "unit-domain", "source-evaluation", "refusal-class"}
 	countGuards := func(failures []ledgerFailure) int {
 		total := 0
 		for _, failure := range failures {
@@ -3686,7 +3782,7 @@ func TestLedgerRegisteredRootWitness(t *testing.T) {
 		if err := rt.parseGoSource("witness.go", "package store\n\nconst witnessCap = 64\n"); err != nil {
 			t.Fatal(err)
 		}
-		census, censusFailures := buildCensus(rt, []censusRootRequest{{file: rootDoc, pointer: "/$defs/tool_result"}})
+		census, censusFailures := buildCensus(rt, []censusRootRequest{{file: rootDoc, pointer: "/$defs/tool_result"}}, nil)
 		if len(censusFailures) > 0 {
 			t.Fatalf("registered-root census is broken: %v", censusFailures)
 		}
@@ -3705,6 +3801,37 @@ func TestLedgerRegisteredRootWitness(t *testing.T) {
 		delete(doc["$defs"].(map[string]any)["tool_result"].(map[string]any), "items")
 	}, finite); !ledgerHasFailure(failures, "stale-registration", pattern) {
 		t.Fatalf("a vanished registered node must leave the row stale: %v", failures)
+	}
+}
+
+// TestLedgerInputWidenedWitness proves a registered input root marks the
+// nodes it reaches: an unbounded row on a node that an input root also
+// reaches fails as a widened admission, while the same row passes when only
+// an output root reaches the node.
+func TestLedgerInputWidenedWitness(t *testing.T) {
+	t.Parallel()
+	const rootDoc = "witness_surface.schema.json"
+	const pattern = rootDoc + "#/$defs/shared/maxLength"
+	document := map[string]any{"$defs": map[string]any{
+		"tool_result":  map[string]any{"$ref": "#/$defs/shared"},
+		"action_field": map[string]any{"$ref": "#/$defs/shared"},
+		"shared":       map[string]any{"type": "string"},
+	}}
+	run := func(inputRoots []censusRootRequest) []ledgerFailure {
+		rt := newLedgerRuntime(ledgerRepoRoot(t))
+		rt.docs[surfaceManifestFile] = map[string]any{}
+		rt.docs[rootDoc] = ledgerDeepCopyDoc(t, document)
+		census, censusFailures := buildCensus(rt, []censusRootRequest{{file: rootDoc, pointer: "/$defs/tool_result"}}, inputRoots)
+		if len(censusFailures) > 0 {
+			t.Fatalf("input-widened census is broken: %v", censusFailures)
+		}
+		return runOutputBoundLedger(rt, census, []outputBoundRegistration{{pattern: pattern, source: unboundedOutput("the shared witness accumulates with no finite producer guard", ledgerReadRefusalPath)}})
+	}
+	if failures := run(nil); ledgerHasFailure(failures, "input-widened", rootDoc+"#/$defs/shared") {
+		t.Fatalf("an output-only node must not fail as widened admission: %v", failures)
+	}
+	if failures := run([]censusRootRequest{{file: rootDoc, pointer: "/$defs/action_field"}}); !ledgerHasFailure(failures, "input-widened", rootDoc+"#/$defs/shared") {
+		t.Fatalf("an uncapped node an input root reaches must fail as widened admission: %v", failures)
 	}
 }
 
@@ -3914,7 +4041,7 @@ func TestLedgerUnknownSchemaKeywords(t *testing.T) {
 		rt := newLedgerRuntime(ledgerRepoRoot(t))
 		rt.docs[surfaceManifestFile] = manifest
 		rt.docs[payloadSchemaFile] = payload
-		census, censusFailures := buildCensus(rt, nil)
+		census, censusFailures := buildCensus(rt, nil, nil)
 		if len(censusFailures) > 0 {
 			failedClosed := false
 			for _, failure := range censusFailures {
@@ -3981,7 +4108,7 @@ func TestLedgerSharedNodeRefusalClasses(t *testing.T) {
 		rt := newLedgerRuntime(ledgerRepoRoot(t))
 		rt.docs[surfaceManifestFile] = manifest
 		rt.docs[payloadSchemaFile] = ledgerDeepCopyDoc(t, payload())
-		census, censusFailures := buildCensus(rt, nil)
+		census, censusFailures := buildCensus(rt, nil, nil)
 		if len(censusFailures) > 0 {
 			t.Fatalf("shared-node witness census is broken: %v", censusFailures)
 		}

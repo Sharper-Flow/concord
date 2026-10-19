@@ -129,37 +129,37 @@ func init() {
 	// validator (validateWorkerOracleFindingShape) owns their bounds, and
 	// the case/control identities additionally join the dispatched oracle,
 	// whose own ids were admitted at the authoring input.
-	registerOutputBound(defOracleFinding+"/properties/case_ids/items/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/case_ids/items/maxLength",
 		inputBound(defOracleCase+"/properties/case_id/maxLength"))
-	registerOutputBound(defOracleFinding+"/properties/case_ids/maxItems",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/case_ids/maxItems",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingCaseMax", boundItems))
-	registerOutputBound(defOracleFinding+"/properties/continues_finding_id/maxLength", workerRankedFindingIDBound())
-	registerOutputBound(defOracleFinding+"/properties/control_ids/items/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/continues_finding_id/maxLength", workerRankedFindingIDBound())
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/control_ids/items/maxLength",
 		inputBound(defOracleControl+"/properties/control_id/maxLength"))
-	registerOutputBound(defOracleFinding+"/properties/control_ids/maxItems",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/control_ids/maxItems",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingControlMax", boundItems))
-	registerOutputBound(defOracleFinding+"/properties/entry_point/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/entry_point/maxLength",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingEntryPointMaxBytes", boundBytes))
-	registerOutputBound(defOracleFinding+"/properties/evidence_refs/items/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/evidence_refs/items/maxLength",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingEvidenceRefBytes", boundBytes))
-	registerOutputBound(defOracleFinding+"/properties/evidence_refs/maxItems",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/evidence_refs/maxItems",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingEvidenceRefsMax", boundItems))
-	registerOutputBound(defOracleFinding+"/properties/failure_family/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/failure_family/maxLength",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingFamilyMaxBytes", boundBytes))
-	registerOutputBound(defOracleFinding+"/properties/law_bindings/maxItems",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/law_bindings/maxItems",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingLawBindingsMax", boundItems))
 	// A follow_up finding escapes the owner join, so the writer bound is
 	// the owner: grammar itself, live-derived from the anchored pattern.
-	// The consumer must admit the full pattern, not only joined owner ids.
-	registerOutputBound(defOracleFinding+"/properties/owner_id/maxLength",
+	// The retained twin admits the full pattern; the packet keeps its cap.
+	registerRetainedTwinBound(defOracleFinding+"/properties/owner_id/maxLength",
 		goPatternBound("internal/store/worker_oracle.go", "oracleOwnerIDPattern"))
 	// validateWorkerOracleFindingShape bounds every predicate id through
 	// validWorkerPredicateID's inline comparison.
-	registerOutputBound(defOracleFinding+"/properties/predicate_ids/items/maxLength",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/predicate_ids/items/maxLength",
 		goInlineBound("internal/store/worker_lanes.go", "validWorkerPredicateID", "len(id)", boundBytes))
-	registerOutputBound(defOracleFinding+"/properties/predicate_ids/maxItems",
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/predicate_ids/maxItems",
 		goConstantBound("internal/store/worker_oracle_findings.go", "oracleFindingPredicateMax", boundItems))
-	registerOutputBound(defOracleFinding+"/properties/variant_of/maxLength", workerRankedFindingIDBound())
+	registerOutputBoundWithTwin(defOracleFinding+"/properties/variant_of/maxLength", workerRankedFindingIDBound())
 
 	// Oracle receipts: shape validator plus the receipt join, which
 	// resolves every named control and case against the dispatched oracle.
@@ -257,24 +257,21 @@ func init() {
 	// shape; the retry derivation never authors constraints of its own.
 	proposalConstraints := inputBound("/$defs/work_transition_action_variant_record_proposal/properties/fields/properties/constraints/maxItems")
 	proposalConstraintText := inputBound("/$defs/proposal_text/maxLength")
-	// No writer emits inputs.context on any current route: the retry
-	// derivation never sets it and dispatch admission refuses the member.
-	// Byte-ceiling only, with the shared result envelope refusal.
-	unwrittenContext := unboundedOutput(
-		"no writer emits $.inputs.context on any current route: deriveRetryWorkerPacketTx never sets it (internal/store/workflow_reject_retry.go:395-421) and dispatch admission refuses the member outright (internal/store/worker_packet_records.go:63-65); the member describes packets dispatched before the typed record members",
-		"internal/agent/runtime.go:readSizeRefusal")
-	// The task selects one alternative: the contract premise, recorded
-	// task, title, or narrative. An unbounded retained arm remains unbounded.
-	retryTaskBound := workerRetryTaskBound()
-
 	registerOutputBound(defPacket2+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
 	registerOutputBound(defPacket2+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
-	registerOutputBound(defPacket2+"/properties/inputs/properties/context/maxLength", unwrittenContext)
-	registerOutputBound(defPacket2+"/properties/inputs/properties/task/maxLength", retryTaskBound)
 	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
 	registerOutputBound(defPacket3+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
-	registerOutputBound(defPacket3+"/properties/inputs/properties/context/maxLength", unwrittenContext)
-	registerOutputBound(defPacket3+"/properties/inputs/properties/task/maxLength", retryTaskBound)
+	// Dispatch admission validates every packet against the schema its
+	// definition version declares (validateWorkflowPayloadSchema in
+	// workflow_preflight.go, against the published document whatever the
+	// pin's age), so the admitted caps bound the retry copy whatever the
+	// retained record holds.
+	for _, packet := range []string{defPacket2, defPacket3} {
+		for _, member := range []string{"context", "task"} {
+			pointer := packet + "/properties/inputs/properties/" + member + "/maxLength"
+			registerOutputBound(pointer, inputBound(pointer))
+		}
+	}
 
 	// The assigned result is one fixed token of the generated lane map,
 	// byte-compared into the packet binding at dispatch.
@@ -283,17 +280,16 @@ func init() {
 	registerOutputBound("/$defs/worker_packet_outcome_predicates/maxItems",
 		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems"))
 
-	// Packet work record: copied verbatim from work_items.
+	// Packet work record: copied verbatim from work_items. Dispatch
+	// admission validates the packet that embeds it, so the narrative and
+	// value statement ride their admitted caps whatever the retained row
+	// holds.
 	registerOutputBound(defWorkRecord+"/properties/narrative/maxLength",
-		workerRecordedNarrativeBound())
+		inputBound(defWorkRecord+"/properties/narrative/maxLength"))
 	registerOutputBound(defWorkRecord+"/properties/task/maxLength",
 		workerRecordedTaskBound())
-	// Bootstrap and agent admission do not cover generic event append or
-	// retained intent. Both intent folds copy value_statement without a cap.
 	registerOutputBound(defWorkRecord+"/properties/value_statement/maxLength",
-		unboundedOutput(
-			"internal/store/lifecycle.go:foldWorkCreated and foldWorkIntentRevised copy ValueStatement into intent_json without a length guard; internal/store/operation.go:eventKindRegistry admits both through generic event append, independently of validateBootstrapRequest and agent input admission; internal/store/worker_packet_records.go:readWorkerPacketWorkRecord returns the retained value verbatim",
-			"internal/agent/mutations.go:mutationResult"))
+		inputBound(defWorkRecord+"/properties/value_statement/maxLength"))
 
 	// The packet worker_job must byte-equal the recorded revision view at
 	// dispatch (validateWorkerPacketJob), and the recorded revision was
@@ -1313,7 +1309,7 @@ func workerInlineRefuseBound(file, function, measurement string) outputBoundSour
 }
 
 // ---------------------------------------------------------------------------
-// Retry packet task: one alternative-writer output
+// Packet work record task
 // ---------------------------------------------------------------------------
 
 // workerRecordedTaskBound cites both intent folds, which also guard generic
@@ -1324,107 +1320,4 @@ func workerRecordedTaskBound() outputBoundSource {
 		workerInlineRefuseBound(file, "foldWorkCreated", "len(payload.Task)"),
 		workerInlineRefuseBound(file, "foldWorkIntentRevised", "len(*payload.Task)"),
 	)
-}
-
-// workerRecordedNarrativeBound covers valid retained state, not only fresh
-// work whose narrative defaults to empty. The retired fold does not rewrite
-// narrative, and a TEXT-prefix CHECK cannot bound a retained NUL tail.
-func workerRecordedNarrativeBound() outputBoundSource {
-	return unboundedOutput(
-		"internal/store/schema.go:initiative_narrative adds work_items.narrative with an empty default and only CHECK(length(narrative) <= 16384), which measures the NUL-terminated prefix, not the full string; internal/store/operation.go:eventKindRegistry retires initiative.narrative_revised, and internal/store/planning_retirement.go:foldRetiredInitiativeNarrativeRevised only bumps version; no current writer supplies a full-string guard for retained rows, which internal/store/worker_packet_records.go:readWorkerPacketWorkRecord and internal/store/worker_packet_binding.go:readRecordedWorkQuestion project verbatim",
-		"internal/agent/mutations.go:mutationResult")
-}
-
-// workerRetryTaskBound preserves the task-copy and recorded-question shape
-// proofs while maxBound handles all alternative writers, including retained
-// text without a finite producer guard. Output validation is not a producer.
-func workerRetryTaskBound() outputBoundSource {
-	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		if err := workerPacketTaskCopyShape(rt); err != nil {
-			return evaluatedBound{}, fmt.Errorf("worker retry task bound: %w", err)
-		}
-		if err := workerQuestionArmsShape(rt); err != nil {
-			return evaluatedBound{}, fmt.Errorf("worker retry task bound: %w", err)
-		}
-		return rt.evaluateSource(maxBound(
-			goCallBound("internal/store/workflow.go", "foldWorkflowContractApproved", "workflowString", "", 1, boundBytes),
-			workerRecordedTaskBound(),
-			unboundedOutput(
-				"internal/store/lifecycle.go:foldWorkCreated and foldWorkIntentRevised copy Title without a length guard through generic event append and replay; internal/store/worker_packet_binding.go:readRecordedWorkQuestion selects the retained title verbatim when task is blank; bootstrap and agent short-text admission do not cover this independent writer",
-				"internal/agent/mutations.go:mutationResult"),
-			workerRecordedNarrativeBound(),
-		), census)
-	}}
-}
-
-// workerPacketTaskCopyShape pins the single packet task writer:
-// deriveRetryWorkerPacketTx copies the resolved objective into
-// inputs.task verbatim, exactly once.
-func workerPacketTaskCopyShape(rt *ledgerRuntime) error {
-	writer, err := workerUniqueFunc(rt, "internal/store/workflow_reject_retry.go", "deriveRetryWorkerPacketTx")
-	if err != nil {
-		return err
-	}
-	copies := 0
-	ast.Inspect(writer, func(n ast.Node) bool {
-		literal, ok := n.(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		for _, elt := range literal.Elts {
-			keyValue, ok := elt.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			key, ok := keyValue.Key.(*ast.BasicLit)
-			if !ok || key.Kind != token.STRING {
-				continue
-			}
-			if value, err := strconv.Unquote(key.Value); err == nil && value == "task" {
-				if ident, ok := keyValue.Value.(*ast.Ident); ok && ident.Name == "task" {
-					copies++
-				}
-			}
-		}
-		return true
-	})
-	if copies != 1 {
-		return fmt.Errorf("deriveRetryWorkerPacketTx no longer copies the resolved objective into inputs.task verbatim")
-	}
-	return nil
-}
-
-// workerQuestionArmsShape pins the recorded question router: exactly the
-// task, title, and narrative parameters, and exactly three returns
-// selecting those parameters, so a fourth source or a dropped arm fails
-// the derivation instead of silently understating the writers.
-func workerQuestionArmsShape(rt *ledgerRuntime) error {
-	route, err := workerUniqueFunc(rt, "internal/store/worker_packet_binding.go", "recordedWorkQuestion")
-	if err != nil {
-		return err
-	}
-	params := route.Type.Params.List
-	if len(params) != 1 || len(params[0].Names) != 3 {
-		return fmt.Errorf("recordedWorkQuestion no longer takes the task, title, and narrative parameters")
-	}
-	arms := map[string]bool{}
-	for _, name := range params[0].Names {
-		arms[name.Name] = true
-	}
-	totalReturns, armReturns := 0, 0
-	ast.Inspect(route.Body, func(n ast.Node) bool {
-		results, ok := n.(*ast.ReturnStmt)
-		if !ok || len(results.Results) != 1 {
-			return true
-		}
-		totalReturns++
-		if ident, ok := results.Results[0].(*ast.Ident); ok && arms[ident.Name] {
-			armReturns++
-		}
-		return true
-	})
-	if totalReturns != 3 || armReturns != 3 {
-		return fmt.Errorf("recordedWorkQuestion no longer selects exactly the three recorded question arms (task, title, narrative)")
-	}
-	return nil
 }

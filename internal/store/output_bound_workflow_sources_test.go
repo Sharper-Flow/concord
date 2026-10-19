@@ -30,9 +30,11 @@ import (
 )
 
 func init() {
-	// The typed whole-result refusal every byte-ceiling-only row names: the
-	// shared read envelope budget owner in internal/agent.
+	// The typed whole-result refusals every byte-ceiling-only row names:
+	// the shared read envelope budget owner and the shared mutation
+	// envelope check, both in internal/agent.
 	const readSizeRefusalPath = "internal/agent/runtime.go:readSizeRefusal"
+	const mutationResultPath = "internal/agent/mutations.go:mutationResult"
 
 	// The RFC3339Nano timestamp every fold writes into recorded_at,
 	// approved_at, and last_progress columns. The shared bounded-layout
@@ -63,7 +65,7 @@ func init() {
 	// (internal/store/events.go:164-180), so the digest-suffixed ids the
 	// agent boundary mints are one finite alternative beside an unbounded
 	// raw identity that projects into the resolved views verbatim.
-	eventIDRaw := unboundedOutput("Event.validate admits any caller-supplied non-empty event id with no length bound (internal/store/events.go:164-180 checks presence only); the agent boundary mints digest-suffixed ids (internal/agent/mutations.go:1552-1553), but the raw identity is a valid durable event id and the resolved views project it verbatim", readSizeRefusalPath)
+	eventIDRaw := unboundedOutput("Event.validate admits any caller-supplied non-empty event id with no length bound (internal/store/events.go:164-180 checks presence only); the agent boundary mints digest-suffixed ids (internal/agent/mutations.go:1552-1553), but the raw identity is a valid durable event id and the resolved views project it verbatim", readSizeRefusalPath, mutationResultPath)
 
 	// Guard constants cited by more than one row.
 	overlapDetailItems := goConstantBound("internal/store/workflow_domain_overlap.go", "maxWorkflowOverlapDetailItems", boundItems)
@@ -293,13 +295,13 @@ func init() {
 
 	// Work context finding view: the shared report wire bounds both the
 	// declaration and the worker-report origin.
-	registerOutputBound("/$defs/work_context_finding_view/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerOutputBound("/$defs/work_context_finding_view/properties/evidence_refs/items/maxLength", findingEvidenceRefMax)
-	registerOutputBound("/$defs/work_context_finding_view/properties/evidence_refs/maxItems", findingEvidenceRefCount)
-	registerOutputBound("/$defs/work_context_finding_view/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
-	registerOutputBound("/$defs/work_context_finding_view/properties/source_event_id/maxLength", eventIDRaw)
-	registerOutputBound("/$defs/work_context_finding_view/properties/statement/maxLength", findingStatementMax)
-	registerOutputBound("/$defs/work_context_finding_view/properties/subject_ref/maxLength", findingSubjectMax)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/domain_id/maxLength", domainIDMaxBytes)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/evidence_refs/items/maxLength", findingEvidenceRefMax)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/evidence_refs/maxItems", findingEvidenceRefCount)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
+	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/source_event_id/maxLength", eventIDRaw)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/statement/maxLength", findingStatementMax)
+	registerOutputBoundWithTwin("/$defs/work_context_finding_view/properties/subject_ref/maxLength", findingSubjectMax)
 
 	// Required readings and their closed source union.
 	registerOutputBound("/$defs/work_context_reading/properties/domain_id/maxLength", domainIDMaxBytes)
@@ -315,26 +317,28 @@ func init() {
 	// citation list, and the linked source descriptors are unbounded at the
 	// store: the research write checks presence only and the CLI route
 	// applies no schema, so the resolved view embeds them verbatim.
-	registerOutputBound("/$defs/work_context_research_finding/properties/finding_id/maxLength",
+	registerOutputBoundWithTwin("/$defs/work_context_research_finding/properties/finding_id/maxLength",
 		inputBound("/$defs/work_context_research_finding/properties/finding_id/maxLength"))
-	registerOutputBound("/$defs/work_context_research_finding/properties/pack_id/maxLength",
+	registerOutputBoundWithTwin("/$defs/work_context_research_finding/properties/pack_id/maxLength",
 		inputBound("/$defs/work_context_research_finding/properties/pack_id/maxLength"))
-	registerOutputBound("/$defs/work_context_research_finding/properties/source_ids/items/maxLength",
-		unboundedOutput("the research write checks source_id non-empty only (internal/store/research_operations.go:133-138) and active_research_sources CHECKs length(source_id) > 0 only (internal/store/schema.go:645); the resolved work-context view embeds the finding's source ids verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath))
-	registerOutputBound("/$defs/work_context_research_finding/properties/source_ids/maxItems",
-		unboundedOutput("the finding citation loop admits any number of source_ids, foreign-key-checked per row only (internal/store/research_mutations.go:474-478), with no count cap on active_research_finding_sources; the view embeds the recorded citation list verbatim", readSizeRefusalPath))
-	registerOutputBound("/$defs/work_context_research_finding/properties/statement/maxLength",
-		unboundedOutput("the research write checks the finding statement non-empty only (internal/store/research_operations.go:127-132) and active_research_findings CHECKs length(statement) > 0 only (internal/store/schema.go:630); store admission carries no upper text guard, and the projection rebuild snapshot/restore (internal/store/research_rebuild.go:18,44) plus copyResearchRevisionContent (internal/store/research_operations.go:364) carry existing rows forward without revalidation, so the resolved view embeds the recorded statement verbatim (internal/store/work_context_research.go:124)", readSizeRefusalPath))
+	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/source_ids/items/maxLength",
+		unboundedOutput("the research write checks source_id non-empty only (internal/store/research_operations.go:133-138) and active_research_sources CHECKs length(source_id) > 0 only (internal/store/schema.go:645); the resolved work-context view embeds the finding's source ids verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath, mutationResultPath))
+	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/source_ids/maxItems",
+		unboundedOutput("the finding citation loop admits any number of source_ids, foreign-key-checked per row only (internal/store/research_mutations.go:474-478), with no count cap on active_research_finding_sources; the view embeds the recorded citation list verbatim", readSizeRefusalPath, mutationResultPath))
+	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/statement/maxLength",
+		unboundedOutput("the research write checks the finding statement non-empty only (internal/store/research_operations.go:127-132) and active_research_findings CHECKs length(statement) > 0 only (internal/store/schema.go:630); store admission carries no upper text guard, and the projection rebuild snapshot/restore (internal/store/research_rebuild.go:18,44) plus copyResearchRevisionContent (internal/store/research_operations.go:364) carry existing rows forward without revalidation, so the resolved view embeds the recorded statement verbatim (internal/store/work_context_research.go:124)", readSizeRefusalPath, mutationResultPath))
 
 	// Research finding view: both oneOf arms carry the same provenance
 	// derivations, so one wildcard row covers the repeated arms; only the
 	// resolved arm carries sources. The view id is the fixed
 	// research:<seq>:<ordinal> Sprintf construction.
-	registerOutputBound("/$defs/work_context_research_finding_view/oneOf/*/properties/selection_event_id/maxLength", eventIDRaw)
-	registerOutputBound("/$defs/work_context_research_finding_view/oneOf/*/properties/view_id/maxLength",
+	for _, arm := range []string{"0", "1"} {
+		registerRetainedTwinBound("/$defs/work_context_research_finding_view/oneOf/"+arm+"/properties/selection_event_id/maxLength", eventIDRaw)
+	}
+	registerOutputBoundWithTwin("/$defs/work_context_research_finding_view/oneOf/*/properties/view_id/maxLength",
 		workflowSprintfFieldCharactersBound("internal/store/work_context_research.go", "readWorkContextResearchSelections", "ViewID"))
-	registerOutputBound("/$defs/work_context_research_finding_view/oneOf/0/properties/sources/maxItems",
-		unboundedOutput("revision sources are unbounded rows of active_research_sources per pack and revision with non-empty CHECKs only (internal/store/schema.go:633-650), and the resolved view embeds them verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath))
+	registerRetainedTwinBound("/$defs/work_context_research_finding_view/oneOf/0/properties/sources/maxItems",
+		unboundedOutput("revision sources are unbounded rows of active_research_sources per pack and revision with non-empty CHECKs only (internal/store/schema.go:633-650), and the resolved view embeds them verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath, mutationResultPath))
 
 	// Research selection: the declaration's admitted shape, re-admitted by
 	// the fold with ValidReference at the same numbers.
@@ -346,10 +350,11 @@ func init() {
 	registerOutputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength",
 		inputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength"))
 
-	// Work context view: the three packet variants render one shared
-	// assembly, so each row of a variant cites the same source. The subject
+	// Work context view: the read parents' retained twin and the two packet
+	// variants render one shared assembly, so each row cites the same
+	// source; the unversioned view is output only through its twin. The subject
 	// commit rides the inline 40..64 lowercase-hex guard.
-	viewDefs := []string{"work_context_view", "work_context_view2", "work_context_view3"}
+	viewDefs := []string{"retained_work_context_view", "work_context_view2", "work_context_view3"}
 	for _, def := range viewDefs {
 		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
 			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
@@ -363,7 +368,7 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}
-	registerOutputBound("/$defs/work_context_view/properties/research_findings/maxItems", viewFindingsMax)
+	registerOutputBound("/$defs/retained_work_context_view/properties/research_findings/maxItems", viewFindingsMax)
 	registerOutputBound("/$defs/work_context_view3/properties/research_findings/maxItems", viewFindingsMax)
 
 	// Work liveness: read-time evidence assembled from one state-switch
@@ -430,20 +435,20 @@ func init() {
 	// admitted request shape the fold re-admits at the same numbers; the
 	// diagnosis and failure detail read worker_attempts.failure_detail,
 	// whose terminal-at-birth dispatch writer is unguarded.
-	registerOutputBound("/$defs/workflow_correction_context/properties/diagnosis/maxLength",
-		unboundedOutput("two writers feed the correction diagnosis: the request_correction fold admits correction_diagnosis at 4096 bytes (internal/store/workflow.go:2189), but the record_worker_failure diagnosis fallback copies worker_attempts.failure_detail verbatim (internal/store/workflow_correction.go:1607-1611) and the terminal-at-birth worker.dispatched path folds payload.terminal_detail into that column unchecked (internal/store/worker_lanes.go:833-854 has no terminal_detail check) while the column carries no length CHECK", readSizeRefusalPath))
-	registerOutputBound("/$defs/workflow_correction_context/properties/evidence_refs/maxItems",
+	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/diagnosis/maxLength",
+		unboundedOutput("two writers feed the correction diagnosis: the request_correction fold admits correction_diagnosis at 4096 bytes (internal/store/workflow.go:2189), but the record_worker_failure diagnosis fallback copies worker_attempts.failure_detail verbatim (internal/store/workflow_correction.go:1607-1611) and the terminal-at-birth worker.dispatched path folds payload.terminal_detail into that column unchecked (internal/store/worker_lanes.go:833-854 has no terminal_detail check) while the column carries no length CHECK", readSizeRefusalPath, mutationResultPath))
+	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/evidence_refs/maxItems",
 		sumBound(
 			pkGuardArgBound("internal/store/workflow.go", "validateWorkflowActionCompletedShape", "workflowList", "p.CorrectionEvidenceRefs", 1, boundItems),
 			goConstantBound("internal/store/workflow.go", "workflowOperationEvidenceRefBound", boundItems),
 		)) // the read unions the fold-admitted correction refs (workflowList 32, rejected at workflow.go:2189) with the result refs (workflowOperationEvidenceRefBound 32, workflow.go:675); a rejected correction can carry both groups, and correction_evidence_refs is written for reject_worker_result and request_correction completions only (workflow_action_guards.go:1688)
-	registerOutputBound("/$defs/workflow_correction_context/properties/failure_detail/maxLength",
-		unboundedOutput("the correction read copies worker_attempts.failure_detail verbatim (internal/store/workflow_correction.go:1601-1605); the worker.failed report path bounds Detail at 4096 bytes (internal/store/worker_lanes.go:807), but the terminal-at-birth worker.dispatched path folds payload.terminal_detail into the column unchecked (internal/store/worker_lanes.go:833-854) and the column carries no length CHECK", readSizeRefusalPath))
-	registerOutputBound("/$defs/workflow_correction_context/properties/failure_kind/maxLength",
+	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/failure_detail/maxLength",
+		unboundedOutput("the correction read copies worker_attempts.failure_detail verbatim (internal/store/workflow_correction.go:1601-1605); the worker.failed report path bounds Detail at 4096 bytes (internal/store/worker_lanes.go:807), but the terminal-at-birth worker.dispatched path folds payload.terminal_detail into the column unchecked (internal/store/worker_lanes.go:833-854) and the column carries no length CHECK", readSizeRefusalPath, mutationResultPath))
+	registerOutputBoundWithTwin("/$defs/workflow_correction_context/properties/failure_kind/maxLength",
 		inputBound("/$defs/workflow_correction_context/properties/failure_kind/maxLength")) // the writer admits only the typed failure-kind vocabulary, tighter than this bound
-	registerOutputBound("/$defs/workflow_correction_context/properties/predicate_ids/maxItems",
+	registerOutputBoundWithTwin("/$defs/workflow_correction_context/properties/predicate_ids/maxItems",
 		inputBound("/$defs/workflow_correction_context/properties/predicate_ids/maxItems"))
-	registerOutputBound("/$defs/workflow_correction_context/properties/strategy/maxLength",
+	registerOutputBoundWithTwin("/$defs/workflow_correction_context/properties/strategy/maxLength",
 		inputBound("/$defs/workflow_correction_context/properties/strategy/maxLength"))
 
 	// Delivery assertion: the asserted artifact rides the action input's
@@ -473,12 +478,12 @@ func init() {
 	registerOutputBound("/$defs/workflow_design_record/properties/touched_refs/maxItems", designTouchedRefsGuard)
 
 	// Law context.
-	registerOutputBound("/$defs/workflow_law_context/properties/domains/maxItems",
+	registerOutputBoundWithTwin("/$defs/workflow_law_context/properties/domains/maxItems",
 		workflowLawContextDomainsItemsBound())
-	registerOutputBound("/$defs/workflow_law_context/properties/laws/maxItems",
+	registerOutputBoundWithTwin("/$defs/workflow_law_context/properties/laws/maxItems",
 		sumBound(contractSpecMandate, bindingMaxLawAdditions, bindingMaxObligations)) // the 128-entry ceiling is the documented write-side sum (workflow_law_revision.go:941-943)
-	registerOutputBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
-		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath))
+	registerRetainedTwinBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
+		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	registerOutputBound("/$defs/workflow_law_context_criterion/properties/predicate_id/maxLength",
 		manifestCriterionPredicate) // the manifest contract bounds criterion predicate ids with a closed pattern
 	// Law context Domain identity: the full-string guards sit upstream of
@@ -488,26 +493,30 @@ func init() {
 	// registry.
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/name/maxLength", domainNameGuard)
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/purpose/maxLength", domainPurposeGuard)
-	registerOutputBound("/$defs/workflow_law_context_law/properties/criteria/maxItems",
+	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/criteria/maxItems",
 		criterionBindingsMax) // the law's criterion bindings filtered to this work; the store admits up to 1000 bindings per law record
-	registerOutputBound("/$defs/workflow_law_context_law/properties/obligation_ids/maxItems",
+	registerOutputBoundWithTwin("/$defs/workflow_law_context_law/properties/obligation_ids/maxItems",
 		bindingMaxObligations) // the law's obligations are its subset of the binding's verification obligations
 	// Genuinely unbounded: the law file locator joins the knowledge home's
 	// normalized canonical-path locator, whose value derives through
 	// normalizePath — NUL is refused, but symlink resolution expands the
 	// path to filesystem-target text no code length bounds — with the
 	// record path.
-	registerOutputBound("/$defs/workflow_law_context_law/properties/path/maxLength",
-		unboundedOutput("the law locator joins the knowledge home's canonical-path locator, whose normalized value derives through normalizePath: NUL is refused (internal/store/project_locator.go:150-152) but filepath.EvalSymlinks expands symlinked ancestors to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath))
-	registerOutputBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
+	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/path/maxLength",
+		unboundedOutput("the law locator joins the knowledge home's canonical-path locator, whose normalized value derives through normalizePath: NUL is refused (internal/store/project_locator.go:150-152) but filepath.EvalSymlinks expands symlinked ancestors to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
+	registerOutputBoundWithTwin("/$defs/workflow_law_context_law/properties/roles/maxItems",
 		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
-	registerOutputBound("/$defs/workflow_law_context_law/properties/title/maxLength",
+	registerOutputBoundWithTwin("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the projection copies the manifest record title verbatim
 
 	// Outcome payloads: subjects ride the fold's list guard and its member
 	// bound; the surface and check fields ride the admitted input shape the
-	// fold re-admits at the same numbers; the allowed list and the absent
-	// distinguish_from list ride the fold's inline comparison guards.
+	// fold re-admits at the same numbers; the absent distinguish_from list
+	// rides the fold's inline comparison guard.
+	// The live outcome union reaches output only inside a dispatched worker
+	// packet's predicates, which dispatch admission validates against it.
+	registerOutputBound("/$defs/workflow_outcome_outcome/properties/allowed/maxItems",
+		inputBound("/$defs/workflow_outcome_outcome/properties/allowed/maxItems"))
 	registerOutputBound("/$defs/workflow_outcome_absent/properties/distinguish_from/maxItems", distinguishFromCount)
 	registerOutputBound("/$defs/workflow_outcome_absent/properties/subjects/maxItems", outcomeSubjects)
 	registerOutputBound("/$defs/workflow_outcome_check/properties/check_ref/maxLength",
@@ -515,10 +524,49 @@ func init() {
 	registerOutputBound("/$defs/workflow_outcome_check/properties/immutable_subject_ref/maxLength",
 		inputBound("/$defs/workflow_outcome_check/properties/immutable_subject_ref/maxLength"))
 	registerOutputBound("/$defs/workflow_outcome_exists/properties/subjects/maxItems", outcomeSubjects)
-	registerOutputBound("/$defs/workflow_outcome_outcome/properties/allowed/maxItems", outcomeAllowedCount)
 	registerOutputBound("/$defs/workflow_outcome_subject/maxLength", workflowListMember)
 	registerOutputBound("/$defs/workflow_outcome_surface/maxLength",
 		inputBound("/$defs/workflow_outcome_surface/maxLength"))
+
+	// Retained outcome payloads: the output surfaces replay stored
+	// predicates unchanged, so the allowed list rides the retained output
+	// def, not the narrowed live authoring def, whose allowed array is
+	// input-only once every output use is separated. The fold re-admits the
+	// same 1..8 list it enforced at approval (workflow.go:4364).
+	registerOutputBound("/$defs/workflow_retained_outcome/properties/allowed/maxItems", outcomeAllowedCount)
+
+	// Retained decision record: the enforcing guards are the inline
+	// validateDecisionRecord comparisons and the anchored actor pattern
+	// (internal/store/workflow_outcome.go). Element text and the supersedes
+	// fields carry no field guard; their one finite ceiling is the
+	// whole-predicate decode refusal maxWorkflowPredicateBytes, because a
+	// serialized input of N bytes decodes to at most N code points.
+	predicateDecodeCeiling := goConstantBound("internal/store/workflow_outcome.go", "maxWorkflowPredicateBytes", boundBytes)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/consequences/maxItems",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Consequences)", boundItems))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/consequences/items/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/inputs/maxItems",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Inputs)", boundItems))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/inputs/items/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/options_considered/maxItems",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.OptionsConsidered)", boundItems))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/options_considered/items/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/poc_findings/maxLength",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.POCFindings)", boundBytes))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/question/maxLength",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Question)", boundBytes))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/rationale/maxLength",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Rationale)", boundBytes))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/required_to_decide/maxItems",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.RequiredToDecide)", boundItems))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/required_to_decide/items/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/reviewer_actor_ref/maxLength",
+		goPatternBound("internal/store/workflow_outcome.go", "workflowActorRefPattern"))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/supersedes/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/superseded_by/maxLength", predicateDecodeCeiling)
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/unknowns/maxItems",
+		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Unknowns)", boundItems))
+	registerOutputBound("/$defs/workflow_retained_decision_record/properties/unknowns/items/maxLength", predicateDecodeCeiling)
 
 	// Contract premise: the fold's admission guard is
 	// workflowString(p.Premise, WorkflowPremiseMaxLength); the cited

@@ -744,7 +744,7 @@ func validateBuiltinWorkflowVersionContinuity(definitions []WorkflowDefinition) 
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
-	registry := &workflowDefinitionRegistry{entries: make(map[string]RegisteredDefinition)}
+	registry := NewWorkflowDefinitionRegistry().(*workflowDefinitionRegistry)
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if err := validateBuiltinWorkflowVersionContinuity(definitions); err != nil {
 		panic(err)

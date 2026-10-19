@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -15,14 +16,19 @@ import (
 // declarations; the UI/UX declaration is the contract's ui_ux decision
 // domain. The core derives the changed laws, the child Domains, and the size
 // from recorded state and writes them into the event, so replay never re-reads
-// the live law projection. The before-state belongs to the work item, not to
-// one contract version: a successor carries every law its predecessors
-// changed, the Domains they counted, the registry before-state recorded at the
-// item's first registry edit, and their seriousness, and counts the enacted
-// state against that baseline. A serious change also pins the exact text the
-// operator approves: the after-state content hash of every changed law, and
-// the Domain registry's after-state content hash when the cumulative change
-// edits the registry. Completion refuses an enacted state that differs.
+// the live law projection.
+//
+// The before-state belongs to the work item, not to one contract version. The
+// item's first law-change approval snapshots the Domain registry, and the
+// first approval that names a law snapshots that law; every successor carries
+// both. A law is changed only when it differs from its before-state. LawIDs
+// holds the laws the contract declares and every other law the item changed,
+// so a successor drops a declared law only while that law is unchanged.
+// Seriousness carries forward once the item has made a change. A serious
+// change also pins the exact text the operator approves: the after-state
+// content hash of every law in LawIDs, and the Domain registry's after-state
+// content hash when the item edits the registry. Completion refuses an
+// enacted state that differs.
 type WorkflowLawChange struct {
 	Reason                     string                       `json:"reason"`
 	RemovesUserVisibleBehavior bool                         `json:"removes_user_visible_behavior"`
@@ -32,10 +38,27 @@ type WorkflowLawChange struct {
 	Crucial                    bool                         `json:"crucial"`
 	PredecessorSerious         bool                         `json:"predecessor_serious,omitempty"`
 	Serious                    bool                         `json:"serious"`
+	EditsRegistry              bool                         `json:"edits_registry,omitempty"`
 	TextPins                   []WorkflowLawRevision        `json:"text_pins,omitempty"`
 	RegistryContentHash        string                       `json:"registry_content_hash,omitempty"`
 	Approval                   *workflowLawChangeApproval   `json:"approval,omitempty"`
-	RegistryBefore             *workflowLawRegistrySnapshot `json:"registry_before,omitempty"`
+	LawBefore                  []workflowLawState           `json:"law_before"`
+	RegistryBefore             *workflowLawRegistrySnapshot `json:"registry_before"`
+}
+
+// workflowLawState is one law's state as the projection holds it: absent, or
+// its content hash, authority tier, and the child and root Domains it is homed
+// in or applies to.
+type workflowLawState struct {
+	LawID       string   `json:"law_id"`
+	Absent      bool     `json:"absent,omitempty"`
+	ContentHash string   `json:"content_hash,omitempty"`
+	Tier        string   `json:"tier,omitempty"`
+	DomainIDs   []string `json:"domain_ids"`
+}
+
+func (state workflowLawState) differs(other workflowLawState) bool {
+	return state.Absent != other.Absent || state.ContentHash != other.ContentHash || state.Tier != other.Tier || !slices.Equal(state.DomainIDs, other.DomainIDs)
 }
 
 // The consent proof comes from the existing consumed approval, not from the
@@ -105,7 +128,7 @@ func workflowLawChangeFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowContractChangesLaw reports whether a contract modifies or removes
+// workflowContractChangesLaw reports whether a contract declares that it modifies or removes
 // law, adds law, or changes the Domain registry. A mandate alone binds law the
 // work must meet; it changes none.
 func workflowContractChangesLaw(lawModifies []string, binding *WorkflowArchitectureBinding) bool {
@@ -161,7 +184,7 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 	}
 	reason, _ := workflowFieldString(fields, workflowLawChangeReasonField)
 	if strings.TrimSpace(reason) == "" || len(reason) > workflowLawChangeReasonMaxBytes {
-		return nil, newFailure(KindInvalidPayload, "workflow_law_change", "a contract that changes law must record why (CD-0230 D4)", false, "supply law_change_reason")
+		return nil, newFailure(KindInvalidPayload, "workflow_law_change", "every contract of a work item that changes law must record why (CD-0230 D4)", false, "supply law_change_reason")
 	}
 	for _, name := range []string{workflowLawChangeBehaviorField, workflowLawChangeSecurityField} {
 		raw := strings.TrimSpace(string(fields[name]))
@@ -189,38 +212,112 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 }
 
 // deriveWorkflowLawChangeCountTx fills the derived facts of one law change
-// from the item's baseline and current state: the cumulative changed laws,
-// the registry before-state (inherited, or snapshot at the item's first
-// registry edit), the counted child Domains, the size, and the inherited
-// seriousness.
+// from the item's baseline and current state: the before-states (inherited,
+// or snapshot now for the item's first approval and each newly named law),
+// the laws declared or changed, whether the item edits the registry, the
+// counted child Domains, the size, and the inherited seriousness.
 func deriveWorkflowLawChangeCountTx(ctx context.Context, q queryer, workID string, change, baseline *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
-	changed := workflowChangedLawIDs(lawModifies, binding)
-	var prior []string
+	declared := workflowChangedLawIDs(lawModifies, binding)
+	before := map[string]workflowLawState{}
 	if baseline != nil {
-		changed = append(changed, baseline.LawIDs...)
+		for _, state := range baseline.LawBefore {
+			before[state.LawID] = state
+		}
 		change.RegistryBefore = baseline.RegistryBefore
-		change.PredecessorSerious = baseline.Serious
-		prior = baseline.DomainIDs
 	}
-	change.LawIDs = uniqueSorted(changed)
-	var err error
-	if change.RegistryBefore == nil && workflowContractEditsRegistry(binding) {
+	tracked := slices.Clone(declared)
+	for lawID := range before {
+		tracked = append(tracked, lawID)
+	}
+	states, err := readWorkflowLawStatesTx(ctx, q, workID, uniqueSorted(tracked))
+	if err != nil {
+		return err
+	}
+	for _, lawID := range declared {
+		if _, known := before[lawID]; !known {
+			before[lawID] = states[lawID]
+		}
+	}
+	if change.RegistryBefore == nil {
 		if change.RegistryBefore, err = readWorkflowLawRegistrySnapshot(ctx, q, workID); err != nil {
 			return err
 		}
 	}
-	if change.DomainIDs, err = workflowLawChangeCountTx(ctx, q, workID, change.LawIDs, binding, prior, change.RegistryBefore); err != nil {
+	registryChanged, err := workflowLawRegistryDiffTx(ctx, q, workID, change.RegistryBefore)
+	if err != nil {
 		return err
 	}
+	made := len(registryChanged) != 0
+	laws := declared
+	change.LawBefore = make([]workflowLawState, 0, len(before))
+	var prior []string
+	for _, lawID := range uniqueSorted(tracked) {
+		state := before[lawID]
+		change.LawBefore = append(change.LawBefore, state)
+		if state.differs(states[lawID]) {
+			made = true
+			laws = append(laws, lawID)
+		}
+	}
+	change.LawIDs = uniqueSorted(laws)
+	for _, lawID := range change.LawIDs {
+		prior = append(prior, before[lawID].DomainIDs...)
+	}
+	change.EditsRegistry = workflowContractEditsRegistry(binding) || len(registryChanged) != 0
+	change.PredecessorSerious = baseline != nil && baseline.Serious && made
+	domains, err := workflowLawChangeDomainsTx(ctx, q, workID, change.LawIDs, binding, prior)
+	if err != nil {
+		return err
+	}
+	change.DomainIDs = uniqueSorted(append(domains, registryChanged...))
 	change.Crucial, err = workflowWorkIsCrucial(ctx, q, workID)
 	return err
 }
 
+// readWorkflowLawStatesTx reads the current state of each law: absent when
+// the projection holds no revision of it.
+func readWorkflowLawStatesTx(ctx context.Context, q queryer, workID string, laws []string) (map[string]workflowLawState, error) {
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	resolutions, err := resolveWorkflowChangedLawsTx(ctx, q, homeProjectID, homeLocatorID, laws)
+	if err != nil {
+		return nil, err
+	}
+	states := make(map[string]workflowLawState, len(laws))
+	for _, lawID := range laws {
+		resolution, present := resolutions[lawID]
+		if !present {
+			states[lawID] = workflowLawState{LawID: lawID, Absent: true, DomainIDs: []string{}}
+			continue
+		}
+		domains, err := readWorkflowLawDomainsTx(ctx, q, resolution)
+		if err != nil {
+			return nil, err
+		}
+		states[lawID] = workflowLawState{LawID: lawID, ContentHash: resolution.hash, Tier: resolution.tier, DomainIDs: domains}
+	}
+	return states, nil
+}
+
+// workflowLawRegistryDiffTx lists the child Domains whose registry entry
+// or relation differs from the recorded before-state.
+func workflowLawRegistryDiffTx(ctx context.Context, q queryer, workID string, before *workflowLawRegistrySnapshot) ([]string, error) {
+	if before == nil {
+		return nil, nil
+	}
+	after, err := readWorkflowLawRegistrySnapshot(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	return workflowLawRegistryChangedDomains(before, after), nil
+}
+
 // readWorkflowLawChangeBaselineTx joins the law changes recorded on the
 // item's active contracts, the predecessors a successor supersedes, and
-// returns nil when none recorded one. The registry before-state is the one
-// recorded at the item's first registry edit, so active contracts that
-// disagree on it are an invariant violation.
+// returns nil when none recorded one. Each before-state is the one recorded
+// first, so active contracts that disagree on one are an invariant violation.
 func readWorkflowLawChangeBaselineTx(ctx context.Context, q queryer, workID string) (*WorkflowLawChange, error) {
 	rows, err := q.QueryContext(ctx, `SELECT law_change FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL AND law_change IS NOT NULL ORDER BY contract_version`, workID)
 	if err != nil {
@@ -228,6 +325,8 @@ func readWorkflowLawChangeBaselineTx(ctx context.Context, q queryer, workID stri
 	}
 	defer func() { _ = rows.Close() }()
 	var baseline *WorkflowLawChange
+	before := map[string]workflowLawState{}
+	disagree := newFailure(KindInvariantViolation, "workflow_law_change", "the item's active contracts record different before-states", false, "rebuild projections from the event log")
 	for rows.Next() {
 		var encoded string
 		if err := rows.Scan(&encoded); err != nil {
@@ -238,19 +337,25 @@ func readWorkflowLawChangeBaselineTx(ctx context.Context, q queryer, workID stri
 			return nil, newFailure(KindInvariantViolation, "workflow_law_change", "the item's recorded law change is malformed", false, "rebuild projections from the event log")
 		}
 		if baseline == nil {
-			baseline = &WorkflowLawChange{}
+			baseline = &WorkflowLawChange{RegistryBefore: recorded.RegistryBefore}
+		} else if !reflect.DeepEqual(baseline.RegistryBefore, recorded.RegistryBefore) {
+			return nil, disagree
 		}
-		baseline.LawIDs = uniqueSorted(append(baseline.LawIDs, recorded.LawIDs...))
-		baseline.DomainIDs = uniqueSorted(append(baseline.DomainIDs, recorded.DomainIDs...))
 		baseline.Serious = baseline.Serious || recorded.Serious
-		if baseline.RegistryBefore == nil {
-			baseline.RegistryBefore = recorded.RegistryBefore
-		} else if recorded.RegistryBefore != nil && !reflect.DeepEqual(baseline.RegistryBefore, recorded.RegistryBefore) {
-			return nil, newFailure(KindInvariantViolation, "workflow_law_change", "the item's active contracts record different registry before-states", false, "rebuild projections from the event log")
+		for _, state := range recorded.LawBefore {
+			if known, found := before[state.LawID]; found && !reflect.DeepEqual(known, state) {
+				return nil, disagree
+			}
+			before[state.LawID] = state
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, workflowProjectionError(err, "cannot finish reading the item's recorded law change")
+	}
+	if baseline != nil {
+		for _, lawID := range slices.Sorted(maps.Keys(before)) {
+			baseline.LawBefore = append(baseline.LawBefore, before[lawID])
+		}
 	}
 	return baseline, nil
 }
@@ -282,7 +387,6 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string) error {
 		}
 		return nil
 	}
-	changed := uniqueSorted(change.LawIDs)
 	pinned := make([]string, 0, len(change.TextPins))
 	for _, pin := range change.TextPins {
 		if err := validateContentHash(pin.ContentHash); err != nil {
@@ -290,10 +394,10 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string) error {
 		}
 		pinned = append(pinned, pin.LawID)
 	}
-	if !slices.Equal(pinned, changed) {
-		return newFailure(KindInvalidPayload, op, fmt.Sprintf("a serious law change must pin the approved text of exactly each changed law: changed [%s], pinned [%s] (CD-0230 D4)", strings.Join(changed, ", "), strings.Join(pinned, ", ")), false, "draft the law text first, then pin each changed law's content hash once")
+	if !slices.Equal(pinned, change.LawIDs) {
+		return newFailure(KindInvalidPayload, op, fmt.Sprintf("a serious law change must pin the approved text of exactly each changed law: changed [%s], pinned [%s] (CD-0230 D4)", strings.Join(change.LawIDs, ", "), strings.Join(pinned, ", ")), false, "draft the law text first, then pin each changed law's content hash once")
 	}
-	if (change.RegistryBefore != nil) != (change.RegistryContentHash != "") {
+	if change.EditsRegistry != (change.RegistryContentHash != "") {
 		return newFailure(KindInvalidPayload, op, "a serious law change pins the Domain registry content hash exactly when it edits the registry (CD-0230 D4)", false, "pin the drafted registry's content hash only for a registry edit")
 	}
 	if change.RegistryContentHash != "" {
@@ -319,22 +423,6 @@ func workflowWorkIsCrucial(ctx context.Context, q queryer, workID string) (bool,
 // the consent obligation of a change already made.
 func workflowLawChangeSerious(change *WorkflowLawChange, decisionDomains []string) bool {
 	return len(change.DomainIDs) > 1 || change.RemovesUserVisibleBehavior || change.TouchesSecurityOrDataSafe || change.Crucial || change.PredecessorSerious || slices.Contains(decisionDomains, "ui_ux")
-}
-
-// workflowLawChangeCountTx counts the child Domains of a law change: the
-// Domains recorded in prior, the current Domains of the changed laws, the
-// declared registry scope, and every registry entry or relation end that
-// differs from the recorded before-state.
-func workflowLawChangeCountTx(ctx context.Context, q queryer, workID string, laws []string, binding *WorkflowArchitectureBinding, prior []string, registryBefore *workflowLawRegistrySnapshot) ([]string, error) {
-	domains, err := workflowLawChangeDomainsTx(ctx, q, workID, laws, binding, prior)
-	if err != nil || registryBefore == nil {
-		return domains, err
-	}
-	after, err := readWorkflowLawRegistrySnapshot(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	return uniqueSorted(append(domains, workflowLawRegistryChangedDomains(registryBefore, after)...)), nil
 }
 
 // workflowLawChangeDomainsTx counts the child Domains of a law change from
@@ -371,32 +459,40 @@ func workflowLawChangeDomainsTx(ctx context.Context, q queryer, workID string, l
 		return nil, err
 	}
 	for _, resolution := range resolutions {
-		rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?
-UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
-			resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID,
-			resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID)
+		lawDomains, err := readWorkflowLawDomainsTx(ctx, q, resolution)
 		if err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the changed law's Domains", true, "retry once the law projection is readable", err)
+			return nil, err
 		}
-		for rows.Next() {
-			var domainID string
-			if err := rows.Scan(&domainID); err != nil {
-				_ = rows.Close()
-				return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot decode the changed law's Domains", true, "retry once the law projection is readable", err)
-			}
-			domains = append(domains, domainID)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot finish reading the changed law's Domains", true, "retry once the law projection is readable", err)
-		}
-		if err := rows.Close(); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the changed law's Domains", true, "retry once the law projection is readable", err)
-		}
+		domains = append(domains, lawDomains...)
 	}
 	domains = slices.DeleteFunc(domains, func(domainID string) bool { return domainID == root })
 	slices.Sort(domains)
 	return append([]string{}, slices.Compact(domains)...), nil
+}
+
+// readWorkflowLawDomainsTx reads the Domains one resolved law is homed in or
+// applies to, sorted and unique, the root included.
+func readWorkflowLawDomainsTx(ctx context.Context, q queryer, resolution federatedLawResolution) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?
+UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY domain_id`,
+		resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID,
+		resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the changed law's Domains", true, "retry once the law projection is readable", err)
+	}
+	defer func() { _ = rows.Close() }()
+	domains := []string{}
+	for rows.Next() {
+		var domainID string
+		if err := rows.Scan(&domainID); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot decode the changed law's Domains", true, "retry once the law projection is readable", err)
+		}
+		domains = append(domains, domainID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot finish reading the changed law's Domains", true, "retry once the law projection is readable", err)
+	}
+	return domains, nil
 }
 
 // resolveWorkflowChangedLawsTx resolves changed law references through the
@@ -431,22 +527,47 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 	}
 	for _, lawID := range workflowChangedLawIDs(lawModifies, binding) {
 		if _, found := slices.BinarySearch(change.LawIDs, lawID); !found {
-			return newFailure(KindInvalidPayload, "fold_event", "law_change law_ids omits the changed law "+lawID, false, "record every law the item changes")
+			return newFailure(KindInvalidPayload, "fold_event", "law_change law_ids omits the declared law "+lawID, false, "record every law the contract declares")
 		}
 	}
-	if len(change.LawIDs) == 0 && change.RegistryBefore == nil {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change records no changed law and no registry edit", false, "omit law_change on a contract whose item changes no law")
+	if change.LawBefore == nil || !slices.IsSortedFunc(change.LawBefore, func(a, b workflowLawState) int { return strings.Compare(a.LawID, b.LawID) }) {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change law_before must be a list sorted by law_id", false, "record the derived before-states")
+	}
+	for index, state := range change.LawBefore {
+		if index > 0 && change.LawBefore[index-1].LawID == state.LawID {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change law_before names "+state.LawID+" twice", false, "record one before-state per law")
+		}
+		if state.DomainIDs == nil || !slices.IsSorted(state.DomainIDs) || len(slices.Compact(slices.Clone(state.DomainIDs))) != len(state.DomainIDs) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state Domains of "+state.LawID+" must be a sorted unique list", false, "record the derived before-state")
+		}
+		if state.Absent != (state.ContentHash == "") || state.Absent && (state.Tier != "" || len(state.DomainIDs) != 0) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" is neither absent nor a content hash", false, "record the derived before-state")
+		}
+		if !state.Absent {
+			if err := validateContentHash(state.ContentHash); err != nil {
+				return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" carries no sha256 content hash", false, "record the derived before-state")
+			}
+		}
+	}
+	for _, lawID := range change.LawIDs {
+		if !slices.ContainsFunc(change.LawBefore, func(state workflowLawState) bool { return state.LawID == lawID }) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change records no before-state for "+lawID, false, "record the before-state of every counted law")
+		}
+	}
+	if len(change.LawBefore) == 0 && !change.EditsRegistry {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change records no law and no registry edit", false, "omit law_change on a contract whose item changes no law")
 	}
 	if change.Serious != workflowLawChangeSerious(change, decisionDomains) {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change seriousness does not follow its recorded facts", false, "record the derived seriousness")
 	}
-	if workflowContractEditsRegistry(binding) && change.RegistryBefore == nil {
-		return newFailure(KindInvalidPayload, "fold_event", "a registry edit must record its projected before-state", false, "derive the registry before-state from the Product projection")
+	if workflowContractEditsRegistry(binding) && !change.EditsRegistry {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change edits_registry omits the contract's declared registry edit", false, "record the derived registry edit")
 	}
-	if change.RegistryBefore != nil {
-		if err := validateWorkflowLawRegistrySnapshot(change.RegistryBefore); err != nil {
-			return err
-		}
+	if change.RegistryBefore == nil {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change must record the registry before-state of the item's first law-change approval", false, "derive the registry before-state from the Product projection")
+	}
+	if err := validateWorkflowLawRegistrySnapshot(change.RegistryBefore); err != nil {
+		return err
 	}
 	if err := validateWorkflowLawChangePins(change, "fold_event"); err != nil {
 		return err
@@ -474,11 +595,11 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 		return err
 	}
 	recorded := p.LawChange
-	if !slices.Equal(expected.LawIDs, recorded.LawIDs) || !slices.Equal(expected.DomainIDs, recorded.DomainIDs) || expected.Crucial != recorded.Crucial || expected.PredecessorSerious != recorded.PredecessorSerious {
+	if !slices.Equal(expected.LawIDs, recorded.LawIDs) || !slices.Equal(expected.DomainIDs, recorded.DomainIDs) || expected.Crucial != recorded.Crucial || expected.PredecessorSerious != recorded.PredecessorSerious || expected.EditsRegistry != recorded.EditsRegistry {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change does not match the item's recorded law change, law Domains, and work size", false, "derive law_change from the item's baseline and current state")
 	}
-	if !reflect.DeepEqual(expected.RegistryBefore, recorded.RegistryBefore) {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change registry before-state differs from the item's first registry edit", false, "carry the registry before-state recorded at the item's first registry edit")
+	if !reflect.DeepEqual(expected.RegistryBefore, recorded.RegistryBefore) || !reflect.DeepEqual(expected.LawBefore, recorded.LawBefore) {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change before-state differs from the one the item recorded first", false, "carry the before-states recorded at the item's first law-change approval")
 	}
 	if recorded.Serious {
 		proof := recorded.Approval
@@ -493,17 +614,47 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 	return nil
 }
 
-// checkWorkflowLawChangeEnactmentTx is the completion half of CD-0230 D4. A
-// serious change must enact exactly the text the operator approved. A
+// checkWorkflowLawChangeEnactmentTx is the completion half of CD-0230 D4.
+// Every enacted difference from the item's before-state must lie inside the
+// active contract: each changed law is in LawIDs, and each changed registry
+// Domain is one the contract's binding declares. No merged edit of another
+// item is excluded, because nothing records which item made it. A serious
+// change must then enact exactly the text the operator approved. A
 // non-serious change must still be non-serious once enacted: the work is not
-// crucial, the child Domains the item's changed laws hold now, joined with
-// those recorded against its baseline and every registry difference from its
-// recorded before-state, number at most one, and each changed law revision
-// carries the derived tier, whatever tier it held before, including a D5
-// cohort default.
-func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange) error {
+// crucial, the child Domains the counted laws hold now, joined with those
+// recorded at approval and every registry difference, number at most one,
+// and each counted law revision carries the derived tier, whatever tier it
+// held before, including a D5 cohort default.
+func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, binding *WorkflowArchitectureBinding) error {
 	if change == nil {
 		return nil
+	}
+	tracked := make([]string, 0, len(change.LawBefore))
+	for _, state := range change.LawBefore {
+		tracked = append(tracked, state.LawID)
+	}
+	states, err := readWorkflowLawStatesTx(ctx, tx, workID, tracked)
+	if err != nil {
+		return err
+	}
+	for _, before := range change.LawBefore {
+		if _, counted := slices.BinarySearch(change.LawIDs, before.LawID); !counted && before.differs(states[before.LawID]) {
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law "+before.LawID+" changed, but the active contract no longer declares it (CD-0230 D4)", false, "restore the law, or supersede the contract to declare it")
+		}
+	}
+	registryChanged, err := workflowLawRegistryDiffTx(ctx, tx, workID, change.RegistryBefore)
+	if err != nil {
+		return err
+	}
+	var declared []string
+	if binding != nil {
+		declared = append(declared, binding.DomainModifies...)
+		for _, relation := range binding.DomainRelationModifies {
+			declared = append(declared, relation.SourceDomainID, relation.TargetDomainID)
+		}
+	}
+	if undeclared := slices.DeleteFunc(slices.Clone(registryChanged), func(domainID string) bool { return slices.Contains(declared, domainID) }); len(undeclared) != 0 {
+		return newFailure(KindOutcomeMismatch, "complete_workflow", fmt.Sprintf("the enacted Domain registry changes %s, which the active contract does not declare (CD-0230 D4)", strings.Join(undeclared, ", ")), false, "restore the registry entries, or supersede the contract to declare them")
 	}
 	if change.Serious {
 		return checkWorkflowLawChangePinsEnactedTx(ctx, tx, workID, change)
@@ -515,23 +666,22 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	if crucial {
 		return newFailure(KindApprovalRequired, "complete_workflow", "every law change at crucial size requires the operator's approval of its exact text (CD-0230 D4)", false, "supersede the contract with the operator's approval of the exact text")
 	}
-	changed := change.LawIDs
-	domains, err := workflowLawChangeCountTx(ctx, tx, workID, changed, nil, change.DomainIDs, change.RegistryBefore)
+	domains, err := workflowLawChangeDomainsTx(ctx, tx, workID, change.LawIDs, nil, change.DomainIDs)
 	if err != nil {
 		return err
 	}
-	if len(domains) > 1 {
+	if domains = uniqueSorted(append(domains, registryChanged...)); len(domains) > 1 {
 		return newFailure(KindApprovalRequired, "complete_workflow", fmt.Sprintf("the enacted law change affects child Domains %s, so it is serious and needs the operator's approval of its exact text (CD-0230 D4)", strings.Join(domains, ", ")), false, "supersede the contract with the operator's approval of the exact text")
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	resolutions, err := resolveWorkflowChangedLawsTx(ctx, tx, homeProjectID, homeLocatorID, changed)
+	resolutions, err := resolveWorkflowChangedLawsTx(ctx, tx, homeProjectID, homeLocatorID, change.LawIDs)
 	if err != nil {
 		return err
 	}
-	for _, reference := range changed {
+	for _, reference := range change.LawIDs {
 		resolution, ok := resolutions[reference]
 		if !ok {
 			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision")

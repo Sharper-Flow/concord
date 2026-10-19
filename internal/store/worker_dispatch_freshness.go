@@ -71,9 +71,9 @@ type workerDispatchProof struct {
 	observation *WorkerObservedDelivery
 	anchor      *reviewDeliveryAnchor
 	ancestry    reviewSubjectAncestry
-	// correctionAncestry proves the dispatched capped job's base_commit is
-	// an ancestor of the observed subject, probed beside the review
-	// delivery anchor. The correction dispatch admission revalidates it.
+	// correctionAncestry proves the dispatched job's correction base is an
+	// ancestor of the observed subject, probed beside the review
+	// delivery anchor. The repeat dispatch admission revalidates it.
 	correctionBase     string
 	correctionAncestry reviewSubjectAncestry
 	acceptance         bool
@@ -162,9 +162,8 @@ type workerDispatchSample struct {
 	anchors    []reviewDeliveryAnchor
 	pinReceipt *WorktreeVerifyResult
 
-	// correctionBase is the dispatched job's recorded base_commit, sampled
-	// from its latest recorded revision's measurement basis; empty when the
-	// job is uncapped or unnamed.
+	// correctionBase is the dispatched job's retained original base; empty
+	// before the job's first implementation dispatch or when unnamed.
 	correctionBase string
 }
 
@@ -253,12 +252,9 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 		binding = resolved
 	}
 	if binding != nil {
-		content, contentErr := readWorkerJobSizeContentTx(ctx, q, request.WorkID)
-		if contentErr != nil {
-			return sample, contentErr
-		}
-		if latest := latestWorkerJobSizeRevision(content, binding.JobID); latest != nil && latest.basis != nil {
-			sample.correctionBase = latest.basis.BaseCommit
+		sample.correctionBase, err = workerJobRetainedBaseTx(ctx, q, request.WorkID, binding.JobID)
+		if err != nil {
+			return sample, err
 		}
 	}
 	return sample, nil
@@ -445,7 +441,7 @@ func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorC
 		} else {
 			var exit *exec.ExitError
 			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
-				// A correction dispatch needs its base ancestry; an outage
+				// A repeat dispatch needs its base ancestry; an outage
 				// refuses the preparation before any effect.
 				correctionAncestry.failure = dispatchSubjectProbeFailure("correction base ancestry", probeCtx, ancestorErr)
 			}

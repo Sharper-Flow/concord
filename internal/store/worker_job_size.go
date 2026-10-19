@@ -180,8 +180,16 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 	if err := validateWorkerJobSizeInheritanceTx(ctx, tx, workID, payload.JobID, sizeCap, basis); err != nil {
 		return err
 	}
-	if err := validateWorkerJobCorrectionBaseTx(ctx, tx, workID, payload.JobID, basis.BaseCommit); err != nil {
+	// A dispatched job keeps its original base: a revision recording another
+	// base would hide the job's unaccepted work behind a later foundation
+	// (CD-0225 D1).
+	original, err := workerJobRetainedBaseTx(ctx, tx, workID, payload.JobID)
+	if err != nil {
 		return err
+	}
+	if original != "" && basis.BaseCommit != original {
+		return workerJobSizeAuthorFailure("record_worker_job measurement_basis base_commit "+basis.BaseCommit+" hides the job's original base "+original,
+			"record the revision on the original base_commit")
 	}
 	payload.ProductionSizeMax = &sizeCap
 	payload.MeasurementBasis = basis
@@ -189,39 +197,24 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 	return nil
 }
 
-// validateWorkerJobCorrectionBaseTx holds CD-0225 D1's correction rule: a
-// job in correction keeps its original base, so a new revision recording
-// another base hides the job's unaccepted work behind a later foundation and
-// refuses.
-func validateWorkerJobCorrectionBaseTx(ctx context.Context, tx *sql.Tx, workID, jobID, baseCommit string) error {
-	original, err := workerJobCorrectionBaseTx(ctx, tx, workID, jobID)
-	if err != nil {
-		return err
-	}
-	if original != "" && baseCommit != original {
-		return workerJobSizeAuthorFailure("record_worker_job measurement_basis base_commit "+baseCommit+" hides the correction's original base "+original,
-			"record the correction revision on the original base_commit")
-	}
-	return nil
-}
-
-// workerJobCorrectionBaseTx returns the original base of a job in
-// correction: the recorded base of the revision the correction's first
-// implementation dispatch bound, after the job's last satisfaction. The
-// first-dispatch rule held that base equal to the admitted clean subject. It
-// is empty when the job is not in correction.
-func workerJobCorrectionBaseTx(ctx context.Context, q queryer, workID, jobID string) (string, error) {
-	corrections, err := workerJobCorrectionStatesTx(ctx, q, workID)
-	if err != nil || !corrections[jobID] {
-		return "", err
-	}
+// workerJobRetainedBaseTx returns the base a job keeps until its next
+// satisfaction: the recorded base of the revision its first implementation
+// dispatch authorization bound after the job's last satisfaction. That
+// dispatch's attempt may have left a draft, live or terminal, so every later
+// revision and dispatch measures from the same base. The first-dispatch rule
+// held that base equal to the admitted clean subject. It is empty when no
+// implementation dispatch followed the last satisfaction.
+func workerJobRetainedBaseTx(ctx context.Context, q queryer, workID, jobID string) (string, error) {
 	cutoff, err := workerJobSatisfactionSeqTx(ctx, q, workID, jobID)
 	if err != nil {
 		return "", err
 	}
 	first := WorkerJobBinding{JobID: jobID}
-	if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_job.revision'), json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id')=? AND seq>? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, jobID, cutoff).Scan(&first.Revision, &first.Digest); err != nil {
-		return "", wrapFailure(KindUnavailable, "worker_job_size", "cannot read the correction's first implementation dispatch", true, "retry once the event log is readable", err)
+	switch err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_job.revision'), json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id')=? AND seq>? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, jobID, cutoff).Scan(&first.Revision, &first.Digest); {
+	case err == sql.ErrNoRows:
+		return "", nil
+	case err != nil:
+		return "", wrapFailure(KindUnavailable, "worker_job_size", "cannot read the job's first implementation dispatch", true, "retry once the event log is readable", err)
 	}
 	content, err := readWorkerJobSizeContentTx(ctx, q, workID)
 	if err != nil {
@@ -507,10 +500,8 @@ func workerAttemptTerminatedTx(ctx context.Context, q queryer, workID, attemptID
 
 // workerJobCorrectionMeasuredTx returns the measured paths (CD-0225 D1) of
 // every job in correction, keyed by job_id: the inventory each job's latest
-// recorded revision declared. Slice 3 extends this one function with the
-// sealed observed_delivery paths of the job's earlier implementation
-// attempts; every caller shares the seam. The recorded content is read once
-// for all jobs.
+// recorded revision declared. The recorded content is read once for all
+// jobs.
 func workerJobCorrectionMeasuredTx(ctx context.Context, q queryer, workID string) (map[string][]string, error) {
 	corrections, err := workerJobCorrectionStatesTx(ctx, q, workID)
 	if err != nil {
@@ -642,8 +633,9 @@ func refuseUncappedRevisionOfCappedJob(ctx context.Context, tx *sql.Tx, workID, 
 // refuses: the recorded cap is what makes an editing dispatch admissible. A
 // capped implementation dispatch serializes against the work's corrections —
 // another job's correction holds its measured paths — and binds the base:
-// a first dispatch measures from base_commit, and a correction dispatches
-// only a clean subject that is the recorded base or its sealed descendant.
+// a first dispatch measures from base_commit, and every later dispatch
+// before satisfaction keeps that base and admits only a clean subject that
+// is the base or its sealed descendant.
 func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, lane LaneDefinition, binding WorkerJobBinding, subject string) error {
 	if !workflowJobSizeActive(definition) {
 		return nil
@@ -698,7 +690,11 @@ func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string
 			"the implementation dispatch of worker job "+binding.JobID+" has no admitted clean subject to compare with its recorded base_commit",
 			true, "prepare the dispatch from the claimed clean worktree through the authenticated mutation boundary, then dispatch again")
 	}
-	if _, inCorrection := corrections[binding.JobID]; !inCorrection {
+	original, err := workerJobRetainedBaseTx(ctx, tx, workID, binding.JobID)
+	if err != nil {
+		return err
+	}
+	if original == "" {
 		if subject != entry.basis.BaseCommit {
 			return newFailure(KindInvalidOperation, "workflow_action",
 				"dispatch_worker implementation job "+binding.JobID+"'s recorded base_commit "+entry.basis.BaseCommit+" does not equal the admitted clean subject "+subject,
@@ -706,14 +702,22 @@ func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string
 		}
 		return nil
 	}
+	// A later dispatch before satisfaction — a correction, a retry, or a
+	// re-dispatch beside a live attempt — keeps the original base, and its
+	// subject may carry the job's own draft above it.
+	if entry.basis.BaseCommit != original {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"the repeat dispatch of worker job "+binding.JobID+" binds base "+entry.basis.BaseCommit+", not the job's original base "+original,
+			false, "record the revision on the original base_commit through record_worker_job")
+	}
 	if proof == nil || proof.proof.workID != workID {
 		return newFailure(KindInvalidOperation, "workflow_action",
-			"the correction dispatch of worker job "+binding.JobID+" reached assembly without its sealed subject preparation",
+			"the repeat dispatch of worker job "+binding.JobID+" reached assembly without its sealed subject preparation",
 			false, "prepare the dispatch through the authenticated mutation boundary")
 	}
 	if proof.proof.observation == nil || proof.proof.observation.State != "clean" || proof.proof.observation.Commit != subject {
 		return newFailure(KindProjectionConflict, "workflow_action",
-			"the correction dispatch of worker job "+binding.JobID+" has no clean admitted subject at the claimed worktree",
+			"the repeat dispatch of worker job "+binding.JobID+" has no clean admitted subject at the claimed worktree",
 			true, "re-qualify the candidate at the claimed worktree, then prepare and dispatch again")
 	}
 	if subject == entry.basis.BaseCommit {
@@ -723,7 +727,7 @@ func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string
 	// the dispatched revision's own base.
 	if proof.proof.correctionBase != entry.basis.BaseCommit {
 		return newFailure(KindProjectionConflict, "workflow_action",
-			"the correction dispatch of worker job "+binding.JobID+" was prepared against base "+proof.proof.correctionBase+", not the dispatched revision's base "+entry.basis.BaseCommit,
+			"the repeat dispatch of worker job "+binding.JobID+" was prepared against base "+proof.proof.correctionBase+", not the dispatched revision's base "+entry.basis.BaseCommit,
 			true, "prepare the dispatch again for the dispatched revision, then dispatch")
 	}
 	if proof.proof.correctionAncestry.failure != nil {
@@ -731,7 +735,7 @@ func admitWorkerJobSizeDispatchTx(ctx context.Context, tx *sql.Tx, workID string
 	}
 	if !proof.proof.correctionAncestry.strictDescendant {
 		return newFailure(KindUnauthorizedDispatch, "workflow_action",
-			"the correction dispatch of worker job "+binding.JobID+" is not the recorded base "+entry.basis.BaseCommit+" nor its descendant",
+			"the repeat dispatch of worker job "+binding.JobID+" is not the recorded base "+entry.basis.BaseCommit+" nor its descendant",
 			false, "dispatch a subject that is the recorded base_commit or descends from it")
 	}
 	return nil

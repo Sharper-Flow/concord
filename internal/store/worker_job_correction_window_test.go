@@ -628,17 +628,12 @@ func earlierJobSizeBasisForTest(t *testing.T, s *Store, workID, jobID string) (p
 	if err != nil {
 		t.Fatal(err)
 	}
-	corrections, err := workerJobCorrectionStatesTx(ctx, s.db, workID)
-	if err != nil {
+	if correctionBase, err = workerJobRetainedBaseTx(ctx, s.db, workID, jobID); err != nil {
 		t.Fatal(err)
 	}
-	originalRevision := int64(0)
 	for binding, entry := range content {
 		if binding.JobID != jobID || entry.basis == nil {
 			continue
-		}
-		if corrections[jobID] && (correctionBase == "" || entry.revision < originalRevision) {
-			correctionBase, originalRevision = entry.basis.BaseCommit, entry.revision
 		}
 		for _, measured := range entry.basis.Paths {
 			if measured.Class == "production" && !slices.Contains(paths, measured.Path) {

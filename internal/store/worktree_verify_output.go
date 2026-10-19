@@ -52,6 +52,8 @@ type nativeStreamCapture struct {
 	stdout, stderr, preview []byte
 	complete                bool
 	previewTruncated        bool
+	stdoutObserver          io.Writer
+	discardStdout           bool
 }
 
 type nativeCaptureWriter struct {
@@ -67,13 +69,21 @@ func (w nativeCaptureWriter) Write(b []byte) (int, error) {
 	if w.stderr {
 		target = &w.capture.stderr
 	}
-	n := len(b)
-	if n > nativeOracleStreamLimit-len(*target) {
-		n = nativeOracleStreamLimit - len(*target)
-		w.capture.complete = false
-		w.cancel()
+	if !w.stderr && w.capture.stdoutObserver != nil {
+		if _, err := w.capture.stdoutObserver.Write(b); err != nil {
+			w.capture.complete = false
+			w.cancel()
+		}
 	}
-	*target = append(*target, b[:n]...)
+	if w.stderr || !w.capture.discardStdout {
+		n := len(b)
+		if n > nativeOracleStreamLimit-len(*target) {
+			n = nativeOracleStreamLimit - len(*target)
+			w.capture.complete = false
+			w.cancel()
+		}
+		*target = append(*target, b[:n]...)
+	}
 	room := defaultWorktreeVerifyBytes - len(w.capture.preview)
 	if room < len(b) {
 		w.capture.previewTruncated = true
@@ -189,6 +199,10 @@ func marshalNativeVerifyRecord(result *WorktreeVerifyResult, capture *nativeStre
 	result.Oracle.Stdout = nativeStreamDescriptor(result.OperationRef, "stdout", capture.stdout, capture.complete)
 	result.Oracle.Stderr = nativeStreamDescriptor(result.OperationRef, "stderr", capture.stderr, capture.complete)
 	result.Oracle.StreamsComplete = capture.complete
+	return marshalBoundWorktreeVerifyRecord(result)
+}
+
+func marshalBoundWorktreeVerifyRecord(result *WorktreeVerifyResult) ([]byte, error) {
 	raw, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -205,14 +219,21 @@ func marshalNativeVerifyRecord(result *WorktreeVerifyResult, capture *nativeStre
 	if len(raw) > 48*1024 {
 		// The immutable plan still retains the full identity inventory. This
 		// bounded diagnostic cannot qualify as readiness or execution evidence.
-		result.Oracle.Qualification = "unavailable"
-		result.Oracle.Detail = "native metadata exceeds the unchanged result envelope; the immutable plan retains the full inventory"
-		result.Oracle.Files = []NativeOracleFile{}
-		result.Oracle.SelectedTestNames = []string{}
-		result.Oracle.CaseToTestMap = map[string][]string{}
-		result.Oracle.SelectedDistinctCount = 0
-		result.Oracle.ObservedTestNames = nil
-		result.Oracle.Stages = []NativeOracleStage{}
+		if result.Oracle != nil {
+			result.Oracle.Qualification = "unavailable"
+			result.Oracle.Detail = "native metadata exceeds the unchanged result envelope; the immutable plan retains the full inventory"
+			result.Oracle.Files = []NativeOracleFile{}
+			result.Oracle.SelectedTestNames = []string{}
+			result.Oracle.CaseToTestMap = map[string][]string{}
+			result.Oracle.SelectedDistinctCount = 0
+			result.Oracle.ObservedTestNames = nil
+			result.Oracle.Stages = []NativeOracleStage{}
+		}
+		if result.GoSuite != nil {
+			result.GoSuite.Complete = false
+			result.GoSuite.Detail = "Go observation exceeds the unchanged result envelope"
+			result.GoSuite.Packages = nil
+		}
 		raw, err = json.Marshal(result)
 		if err != nil {
 			return nil, err

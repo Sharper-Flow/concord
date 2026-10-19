@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -5427,19 +5428,20 @@ type WorktreeVerifyRequest struct {
 // names the durable operation a green run recorded, so a caller can bind the
 // run as verification evidence (CD-0192).
 type WorktreeVerifyResult struct {
-	Oracle              *NativeOracleResult `json:"oracle,omitempty"`
-	WorkID              string              `json:"work_id"`
-	ProjectID           string              `json:"project_id"`
-	Branch              string              `json:"branch"`
-	Path                string              `json:"path"`
-	LeaseID             string              `json:"lease_id"`
-	OperationRef        string              `json:"operation_ref"`
-	SubjectRef          string              `json:"subject_ref,omitempty"`
-	Command             []string            `json:"command"`
-	ExitCode            int                 `json:"exit_code"`
-	Output              string              `json:"output"`
-	OutputTruncated     bool                `json:"output_truncated"`
-	TrackedFilesChanged bool                `json:"tracked_files_changed"`
+	Oracle              *NativeOracleResult    `json:"oracle,omitempty"`
+	GoSuite             *WorktreeGoSuiteResult `json:"go_suite,omitempty"`
+	WorkID              string                 `json:"work_id"`
+	ProjectID           string                 `json:"project_id"`
+	Branch              string                 `json:"branch"`
+	Path                string                 `json:"path"`
+	LeaseID             string                 `json:"lease_id"`
+	OperationRef        string                 `json:"operation_ref"`
+	SubjectRef          string                 `json:"subject_ref,omitempty"`
+	Command             []string               `json:"command"`
+	ExitCode            int                    `json:"exit_code"`
+	Output              string                 `json:"output"`
+	OutputTruncated     bool                   `json:"output_truncated"`
+	TrackedFilesChanged bool                   `json:"tracked_files_changed"`
 }
 
 // VerifyWorktree acquires the exclusive verify lease, runs the command, and
@@ -5503,6 +5505,14 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	observingGo := req.RunCommand == nil && slices.Equal(req.Command, worktreeGoSuiteCommand())
+	var wanted map[string]bool
+	if observingGo {
+		wanted, err = worktreeGoSuiteWanted(ctx, s.db, req.WorkID)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+	}
 	acquireTx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
@@ -5537,7 +5547,16 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	released := false
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 
-	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
+	var commandResult WorktreeVerifyResult
+	var runErr error
+	if observingGo {
+		commandResult, runErr = runWorktreeGoSuite(ctx, entry.Path, wanted, maxOutput)
+	} else {
+		var output []byte
+		commandResult.ExitCode, output, commandResult.OutputTruncated, runErr = runCommand(ctx, entry.Path, req.Command, maxOutput)
+		commandResult.Output = string(output)
+	}
+	exitCode, output, truncated := commandResult.ExitCode, []byte(commandResult.Output), commandResult.OutputTruncated
 	cancelErr := ctx.Err()
 	if cancelErr == nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
 		cancelErr = runErr
@@ -5584,7 +5603,14 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
 	result.SubjectRef = oracleVerifySubject(beforeSubject, afterSubject, changed)
+	result.GoSuite = commandResult.GoSuite
 	resultJSON, _ := json.Marshal(result)
+	if result.GoSuite != nil {
+		resultJSON, err = marshalBoundWorktreeVerifyRecord(&result)
+		if err != nil {
+			return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
+		}
+	}
 	releasedAt := nowFromClock(nil)
 	if _, err := releaseTx.ExecContext(finalizeCtx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
 		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {

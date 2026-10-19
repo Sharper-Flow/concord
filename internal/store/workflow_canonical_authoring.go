@@ -29,7 +29,7 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 	canonical := make([]WorkflowActionDefinition, 0, len(recovery)+2)
 	for _, action := range recovery {
 		if action.ID == "supersede_contract" {
-			action.Payload = WorkflowPayloadDefinition{Closed: true, Fields: workflowCanonicalContractRecoveryPayloadFields()}
+			action.Payload = WorkflowPayloadDefinition{Closed: true, Fields: workflowCanonicalContractRecoveryPayloadFields(action.Payload.Fields)}
 		}
 		canonical = append(canonical, action)
 	}
@@ -57,8 +57,12 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 	return canonical
 }
 
-func workflowCanonicalContractRecoveryPayloadFields() []WorkflowPayloadField {
-	fields := workflowContractRecoveryPayloadFields()
+// workflowCanonicalContractRecoveryPayloadFields filters the supplied
+// recovery declaration onto the canonical authoring contract: the paired
+// outcome authoring shape drops, the explicit predicate array becomes
+// required, and every other field keeps the requiredness and closed enum
+// its one declaration owner supplies.
+func workflowCanonicalContractRecoveryPayloadFields(fields []WorkflowPayloadField) []WorkflowPayloadField {
 	canonical := make([]WorkflowPayloadField, 0, len(fields)-2)
 	for _, field := range fields {
 		switch field.Name {

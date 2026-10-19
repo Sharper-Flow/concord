@@ -5,6 +5,28 @@ commit message, a pull request body, a review comment, a decision note. A
 conversation ends with the session. A record outlives it, and the reader who
 opens it does not hold the context you hold now.
 
+Record each fact with its owner and link to it elsewhere. Keep decisions,
+evidence, unresolved risks, and remaining scope in the work record, not a
+transcript of commands and status changes. Do not mirror routine progress in
+chat, receipts, and planning comments. Required workflow transitions and planning
+state changes still belong in their owning systems.
+
+## State the problem and the end state
+
+Every Linear issue you create or rewrite, and every work item you capture,
+states three things before any plan:
+
+- the problem, with the evidence you observed: the error, the path, the
+  measurement, or the operator's words;
+- who or what the problem affects;
+- the end state that closes the item, written so a check or a reviewer can
+  decide it when the change is delivered.
+
+A goal, a feature request, or a law to implement is not yet a problem. Say what
+fails, is missing, or costs too much today without it.
+
+## Write for the later reader
+
 Name what the reader can open. Give the path, the symbol, the command, the
 identifier, or the error text. "The validator rejected the change" sends nobody
 anywhere. Name the validator and quote what it printed, and the reader goes
@@ -37,37 +59,19 @@ the reader cannot match it against what they see.
 
 ## Encountered inefficiencies
 
-Record each distinct inefficiency you encounter, even when a workaround lets
-the task continue. Examples include repeated discovery, unnecessary tool calls,
-slow or unavailable tools, unclear instructions, and avoidable handoffs.
+Record actionable defects and recurring delivery costs once in the existing work
+record or assigned report. Name the affected surface, cite the evidence, and
+state the impact, workaround, and unresolved scope. Reuse an existing finding.
+Separate observations from suspected causes; do not invent timings or savings.
 
-Name the affected tool, command, file, or step. State what happened, cite the
-evidence, and describe the observed cost or risk. Include any workaround and
-what remains unresolved. Separate observations from suspected causes. Do not
-invent timings, counts, or savings.
+Resolved, incidental friction needs no separate log, ticket, or handoff entry.
+Raise blockers and material safety risks when they need attention. Include other
+unresolved findings by reference in the next handoff or completion report, not
+in a status update for each occurrence. Workers keep their permitted report
+format; no extra bookkeeping fields are required.
 
-Use the existing work record or assigned report, not a private scratch note or
-a repository backlog. Workers and utilities use their permitted return format;
-do not add unsupported report fields. The coordinator preserves their findings
-in the work record. Reuse an existing finding for the same inefficiency and add
-new evidence instead of creating duplicates. If no permitted durable record
-exists, report that gap rather than claiming the finding is saved.
-
-Raise every finding to the coordinator, or directly to the user when no
-coordinator exists. Report blockers and safety risks at the next permitted
-reporting point. Include other findings in the next handoff or final response.
-Give the record reference when one exists.
-
-The coordinator turns each unresolved finding about a production tool into a
-ticket in the planning system, so that an optimized solution can be built.
-Production tools are what agents use to deliver work: Concord, its adapters and
-CLIs, the host launch and session tools, and the repository's CI. Do not file a
-ticket for friction in an operation's own coordination, such as its status
-updates, runbook, rules file, or coordinator procedure. Record that friction in
-the work record and the handoff only. Reuse an existing ticket for the same
-inefficiency and add the new evidence. Put the evidence, observed cost,
-workaround, and open questions in the ticket, and report the ticket reference to
-the user. An agent without a coordinator gives the user the ticket text instead.
+File a planning follow-up when an actionable defect needs work outside the
+approved scope. Routine coordination does not require a ticket.
 
 Keep safe work moving within the current role and approved scope. Recording an
 inefficiency or filing a ticket does not authorize a repair, a bypass of a

@@ -85,6 +85,10 @@ func Start(t *testing.T, path string, mode Mode) {
 	}
 }
 
+// ChildRequested reports whether Start launched this process as a neighbor
+// child, so a TestMain can skip setup the child never uses.
+func ChildRequested() bool { return os.Getenv(childEnv) != "" }
+
 // Child holds a real WAL snapshot or write lock in a separate OS process.
 // The reader releases only on pipe EOF. The writer releases on EOF or its
 // bounded hold, shorter than the production busy timeout. No sleep gates ready.

@@ -1,16 +1,16 @@
 # CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted
+- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1, accepted under operator delegation on 2026-10-09;
   calendar expiration was rejected.
-- **Supersedes:** [CD-0009](CD-0009-active-research-context.md)
-- **Preserves:** [CD-0041](CD-0041-architecture-bound-product-law.md) Initiative
+- **Preserves:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) Initiative
   context, [CD-0022](CD-0022-active-research-finding-scope.md) applicability,
   PM3 event authority, PM10 recovery, and separate durable promotion.
 - **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
-  [compaction-retention-policy](../compaction-retention-policy-successor.md)
+  [compaction-retention-policy](../compaction-retention-policy.md)
 
 ## Context
 
@@ -19,11 +19,13 @@ Owner completion ends content authoring, not the usefulness of an exact research
 Publication must not destroy content that another work item still uses.
 An optional pin protects stored content without creating a workflow blocker.
 
-This record replaces the complete research obligations of CD-0009.
 CD-0222 remains the authority for Initiative identity, narrative, entries, architecture, and migration.
 This replacement does not restore Epic identity or alter unrelated Initiative obligations.
 
 ## Decision
+
+Physical pack deletion through `research_retire` retains operator approval as a listed gap under CD-0013 D11, without a new class assignment. Non-dry-run retirement requires exact one-use approval bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. Approval does not waive CD-0230 D5's destructive-action safety requirements.
+
 
 ### D1. Initiative remains secondary business context
 
@@ -209,8 +211,6 @@ Migration must preserve bodies, provenance, revisions, pins, freshness, versions
 Mixed binaries must refuse incompatible storage or operation semantics before effects.
 
 CD-0036 governs the breaking replacement and its consumer recovery.
-Deployment must enumerate active consumers of CD-0009 and recover each contract to CD-0215, or cancel or supersede the work.
-This offline law edit neither enumerates live consumers nor proves re-contracting or activation.
 No Concord workflow contract was created here; the manifest does not invent legislative workflow provenance.
 
 ## Verification

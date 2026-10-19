@@ -216,7 +216,7 @@ describe("a confirmed terminal vacate records the move notice", () => {
     }, () => ({ status: 200, body: { directory: sitting } }), invokeRunner({ invoke: (operation) => operation === "session_vacate"
       ? { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" } })) + "\n", stderr: "" }
       : undefined }))
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope())
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope())
     expect(envelope.outcome).toBe("ok")
     expectMoveNotice(takeMoveNotice("session-1"), "/main")
   })
@@ -231,7 +231,7 @@ describe("a confirmed terminal vacate records the move notice", () => {
       : undefined }))
     const terminal = terminalOkEnvelope()
     terminal.result.vacate_target!.destination_directory = "/earlier-main"
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), vacateContext(), terminal)
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), vacateContext(), terminal)
     expect(envelope.outcome).toBe("ok")
     expect(sitting).toBe("/main")
     expectMoveNotice(takeMoveNotice("session-1"), "/main")
@@ -242,7 +242,7 @@ describe("a confirmed terminal vacate records the move notice", () => {
     await bindHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: sitting } }), invokeRunner({ invoke: (operation) => operation === "session_vacate"
       ? { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" } })) + "\n", stderr: "" }
       : undefined }))
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope())
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(takeMoveNotice("session-1")).toBeNull()
     // The failure keeps its own channel: the work notice names the replay.
@@ -251,7 +251,7 @@ describe("a confirmed terminal vacate records the move notice", () => {
 
   test("a lifecycle without a vacate target records no notice", async () => {
     await bindHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/main" } }), invokeRunner({ invoke: () => undefined }))
-    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope(false))
+    const envelope = await vacateTerminalWorktree(lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope(false))
     expect(envelope.outcome).toBe("ok")
     expect(takeMoveNotice("session-1")).toBeNull()
   })

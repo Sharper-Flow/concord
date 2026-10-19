@@ -1027,8 +1027,9 @@ type WorktreeReclaimRequest struct {
 	// recorded_at, which proves the row's recording process ended; an
 	// unreadable lease set releases nothing.
 	HostLeases HostLeaseSet
-	// withinTx captures an audit row's post-state before commit and native removal.
-	withinTx func(*sql.Tx) error
+	// withinTx captures an audit row's post-state before commit and native
+	// removal. An error rolls the reclaim back with neither.
+	withinTx func(*sql.Tx, WorktreeEntry) error
 }
 
 // HostLeaseSet is the caller's observation of the live host lease set, kept
@@ -1545,7 +1546,7 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 		return WorktreeEntry{}, err
 	}
 	if req.withinTx != nil {
-		if err := req.withinTx(tx); err != nil {
+		if err := req.withinTx(tx, entry); err != nil {
 			return WorktreeEntry{}, err
 		}
 	}
@@ -4715,7 +4716,19 @@ type WorktreeAuditReclaimRequest struct {
 	Now          time.Time
 	Runner       GitRunner
 	Limit        int
+	// Admit bounds what the pass commits to what its caller can report
+	// (CD-0185). It runs inside each reclaimed row's transaction, before the
+	// commit and the native removal, with the pass root, the rows so far
+	// ending in the candidate, and the attempts not yet run. A decline rolls
+	// the candidate back, and the pass reports it and every later attempt
+	// unattempted in report_only. The pool's one connection is held while it
+	// runs, so it computes from its arguments alone and never reaches the
+	// store. A nil Admit admits every row.
+	Admit func(root string, rows []WorktreeAuditReclaimRow, remaining []WorktreeDrift) bool
 }
+
+// errAuditReclaimDeclined rolls back a row the pass's Admit bound declined.
+var errAuditReclaimDeclined = errors.New("audit reclaim row declined by the pass bound")
 
 // WorktreeAuditReclaimRow is the outcome of one terminal-present worktree.
 // A refusal carries the typed kind and detail the reclaim gate produced, so
@@ -4770,7 +4783,9 @@ type WorktreeAuditReclaimResult struct {
 // The pass classifies every drift row before the limit applies (CD-0179): the
 // limit bounds reclaim attempts only, so report-only rows never crowd a
 // reclaimable row out of the pass, and a reclaimable row beyond the limit is
-// classified and reported unattempted rather than silently dropped.
+// classified and reported unattempted rather than silently dropped. The
+// Admit bound ends the pass the same way: the row it declines and every later
+// attempt are reported unattempted.
 //
 // Each row reclaims in its own transaction. Rows are independent, and one
 // refusal must not roll back another row's reclamation; the pass is a loop
@@ -4812,19 +4827,19 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		}
 		attempts = append(attempts, drift)
 	}
-	for _, drift := range attempts {
+	for i, drift := range attempts {
 		requireTerminal, requireUnstarted := drift.Class == WorktreeDriftTerminalPresent, drift.Class == WorktreeDriftUnstartedPresent
 		row := WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle}
 		version, err := currentWorkVersion(ctx, s.db, drift.WorkID)
 		if err != nil {
 			return out, err
 		}
-		entry, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		_, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
 			HostLeases: leases,
-			withinTx: func(tx *sql.Tx) error {
+			withinTx: func(tx *sql.Tx, entry WorktreeEntry) error {
 				pin, available, err := readMutationWorkPinTx(ctx, tx, drift.WorkID, nil)
 				if err != nil {
 					return err
@@ -4832,27 +4847,34 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 				if available {
 					row.WorkPin = &pin
 				}
+				// The row reports the work item's true post-reclaim version:
+				// a converged reclaim whose stored advance is already public
+				// history repairs the projection without another bump.
 				row.Version = pin.Version
+				row.Outcome = WorktreeAuditReclaimed
+				// The retained refs the reclamation recorded stay visible on
+				// the row after the directory is gone (CD-0212 D3).
+				row.RetainedRefs = retainedRefsFromFacts(entry.GitFacts)
+				if req.Admit != nil && !req.Admit(out.Root, append(append([]WorktreeAuditReclaimRow{}, out.Rows...), row), attempts[i+1:]) {
+					return errAuditReclaimDeclined
+				}
 				return nil
 			},
 		})
 		if reclaimErr == nil {
-			// The row reports the work item's true post-reclaim version: a
-			// converged reclaim whose stored advance is already public
-			// history repairs the projection without another bump.
-			row.Outcome = WorktreeAuditReclaimed
-			// The retained refs the reclamation recorded stay visible on the
-			// row after the directory is gone (CD-0212 D3).
-			row.RetainedRefs = retainedRefsFromFacts(entry.GitFacts)
 			out.Rows = append(out.Rows, row)
 			continue
+		}
+		if errors.Is(reclaimErr, errAuditReclaimDeclined) {
+			out.ReportOnly = append(out.ReportOnly, attempts[i:]...)
+			break
 		}
 		var failure *Failure
 		if !errors.As(reclaimErr, &failure) {
 			return out, reclaimErr
 		}
 		row.Outcome, row.RefusalKind, row.Detail = WorktreeAuditRefused, string(failure.Kind), failure.Detail
-		row.Version, row.WorkPin = 0, nil
+		row.Version, row.WorkPin, row.RetainedRefs = 0, nil, nil
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil

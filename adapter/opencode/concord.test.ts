@@ -1,7 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
-import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
@@ -17,6 +16,7 @@ import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } 
 import { syntheticHostVersionFixture } from "./host-version.test-support"
 import { privateKeyObject } from "./credentials"
 import { canonicalWorkerControl } from "./worker_control"
+import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
   const directory = await createDirectory(prefix)
@@ -26,26 +26,6 @@ async function mkdtemp(prefix: string): Promise<string> {
 
 syntheticHostVersionFixture()
 
-function schemaBuilder(kind: string, ...args: unknown[]) {
-  return {
-    kind, args, metadata: undefined as unknown,
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta(metadata: unknown) { this.metadata = metadata; return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: (...args: unknown[]) => schemaBuilder("object", ...args),
-    record: (...args: unknown[]) => schemaBuilder("record", ...args),
-    union: (...args: unknown[]) => schemaBuilder("union", ...args),
-    literal: (...args: unknown[]) => schemaBuilder("literal", ...args),
-    array: (...args: unknown[]) => schemaBuilder("array", ...args),
-    string: (...args: unknown[]) => schemaBuilder("string", ...args),
-    number: (...args: unknown[]) => schemaBuilder("number", ...args),
-    unknown: (...args: unknown[]) => schemaBuilder("unknown", ...args),
-    null: (...args: unknown[]) => schemaBuilder("null", ...args),
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
@@ -107,6 +87,60 @@ test("the worker reader transport uses only the held request and dispatched dire
     expect(calls[1]).toEqual({ argv: ["concord", "worker-diff"], request: diffRequest, signal, options: { cwd: "/dispatched-worktree" } })
   } finally {
     adapter.configureConcordAdapter({ reset: true })
+  }
+})
+
+for (const [label, read] of [["source", adapter.readBoundWorkerSource], ["diff", adapter.readBoundWorkerDiff]] as const) {
+  for (const [scenario, failure, message] of [
+    ["empty-stderr refusal", { exitCode: 1, stdout: "", stderr: "" }, `the core refused the pinned ${label} read`],
+    ["oversized page", { exitCode: 0, stdout: "x".repeat(16_385), stderr: "" }, `pinned ${label} page exceeded its transport bound`],
+  ] as const) {
+    test(`the ${label} reader transport names its operation on ${scenario}`, async () => {
+      configureHostLease({ reset: true })
+      let result = { exitCode: 0, stdout: "{}\n", stderr: "" }
+      adapter.configureConcordAdapter({ runner: { run: async () => result } })
+      try {
+        // The transport forwards the held request; these cases never enter the store.
+        expect(await read({} as never, new AbortController().signal, "/dispatched-worktree")).toEqual({})
+        result = failure
+        await expect(read({} as never, new AbortController().signal, "/dispatched-worktree")).rejects.toThrow(message)
+      } finally {
+        adapter.configureConcordAdapter({ reset: true })
+        configureHostLease({ reset: true })
+      }
+    })
+  }
+
+  test(`the ${label} reader transport names its operation when the host lease refuses`, async () => {
+    configureHostLease({ reset: true })
+    let calls = 0
+    adapter.configureConcordAdapter({ runner: { run: async () => { calls++; return { exitCode: 0, stdout: "{}\n", stderr: "" } } } })
+    try {
+      expect(await read({} as never, new AbortController().signal, "/dispatched-worktree")).toEqual({})
+      configureHostLease({ release: { coreBinary: "concord", releaseRoot: "/release" }, runner: { run: async () => ({ exitCode: 1, stdout: "", stderr: "fixture lease refusal" }) } })
+      await claimHostLease(process.pid)
+      expect(hostLeaseFault()).toBe("host lease claim failed with exit 1: fixture lease refusal")
+      await expect(read({} as never, new AbortController().signal, "/dispatched-worktree")).rejects.toThrow(`${hostLeaseFault()}; no ${label} read ran`)
+      expect(calls).toBe(1)
+    } finally {
+      adapter.configureConcordAdapter({ reset: true })
+      configureHostLease({ reset: true })
+    }
+  })
+}
+
+test("the diff reader transport preserves the core's typed refusal and recovery verbatim", async () => {
+  configureHostLease({ reset: true })
+  const diagnostic = "concord worker-diff: store: worker_diff: unauthorized_dispatch: worker diff read requires an active workflow contract\nrecovery: use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history"
+  adapter.configureConcordAdapter({ runner: { run: async () => ({ exitCode: 1, stdout: "", stderr: diagnostic + "\n" }) } })
+  let caught: unknown
+  try {
+    try { await adapter.readBoundWorkerDiff({} as never, new AbortController().signal, "/dispatched-worktree") } catch (error) { caught = error }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toBe(diagnostic)
+  } finally {
+    adapter.configureConcordAdapter({ reset: true })
+    configureHostLease({ reset: true })
   }
 })
 
@@ -636,7 +670,7 @@ test("single core response rejects invalid trailing content", async () => {
 const foreignDigest = (envelope: Record<string, unknown>) => ({ ...envelope, manifest_digest: "sha256:" + "0".repeat(63) + "1" })
 
 test("a read answered by a newer core contract is typed as version skew", async () => {
-  const result: any = await runProduct(runnerWithContext((argv: string[]) => foreignDigest(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } }))))
+  const result: any = await runProduct(runnerWithContext((_argv: string[]) => foreignDigest(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } }))))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("transport_failure")
   expect(result.error.adapter_reason).toBe("manifest_mismatch")
@@ -1005,7 +1039,7 @@ test("all context and transport failures produce valid adapter envelopes", async
   }
 })
 
-// CD-0017 D4, extended by CD-0196. A session with a managed parent is a
+// CD-0017 D4, extended by CD-0223. A session with a managed parent is a
 // dispatched worker lane: every concord_* tool refuses before the core is
 // invoked, and the refusal is a structured adapter envelope with effect_state
 // none. A session the host answers as unparented is a coordinator session and
@@ -1883,7 +1917,7 @@ test("approval rejection and possible-effect conflict are valid adapter envelope
   expect(rejected.error.effect_state).toBe("none")
 
   let calls = 0
-  const conflicted: any = await runTransition({ async run(argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
+  const conflicted: any = await runTransition({ async run(_argv: string[]) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }; return { exitCode: 0, stdout: "not-json", stderr: "" } } })
   assertAdapterEnvelope(conflicted)
   expect(conflicted.error.kind).toBe("operation_conflict")
   expect(conflicted.error.adapter_reason).toBe("unknown_effect")
@@ -2707,7 +2741,7 @@ test("work start resume keeps an ordinary work-resume failure retryable", async 
 // typed refusal exit must classify the same way, not collapse into the retry
 // route a stale-environment read failure keeps.
 test("work start resume classifies the post-landing handoff re-read refusal exit", async () => {
-  const { moved } = bindRetargetRoute()
+  bindRetargetRoute()
   const calls: RetargetCall[] = []
   let resumeReads = 0
   adapter.configureConcordAdapter({ runner: {
@@ -2741,7 +2775,7 @@ test("work start resume keeps a retryable post-landing re-read failure on the re
   bindRetargetRoute()
   let resumeReads = 0
   adapter.configureConcordAdapter({ runner: {
-    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+    async run(argv: string[], _input: string, _signal: AbortSignal, _options?: any) {
       const command = argv[1]
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") {
@@ -3221,7 +3255,7 @@ test("capture and resume refuse before core effects when managed participation c
 })
 
 test("invalid work start input cannot enroll a host session", async () => {
-  // The lane guard's caller check (CD-0196) is the one permitted host read;
+  // The lane guard's caller check (CD-0223) is the one permitted host read;
   // invalid input reaches no host write and no core transport.
   let hostReads = 0
   let hostWrites = 0
@@ -3287,7 +3321,7 @@ for (const field of ["constructor", "toString", "__proto__"]) {
 }
 for (const { name, args, fragments } of workStartDiagnosticCases) {
   test(`work start diagnostic: ${name}`, async () => {
-    // The lane guard's caller check (CD-0196) is the one permitted host read;
+    // The lane guard's caller check (CD-0223) is the one permitted host read;
     // a diagnostic refusal reaches no host write and no core transport.
     let hostWrites = 0
     hostControlPlane().bind({
@@ -4625,6 +4659,10 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("Put the task identity, scope, and stop conditions in the assignment.")
   expect(recordsSource).toContain("prompt names the agent's role and points to that assignment instead of restating")
   expect(recordsSource).not.toContain("carries only the agent's role")
+  expect(recordsSource).toContain("Every Linear issue you create or rewrite, and every work item you capture,")
+  expect(recordsSource).toContain("the problem, with the evidence you observed")
+  expect(recordsSource).toContain("who or what the problem affects;")
+  expect(recordsSource).toContain("decide it when the change is delivered.")
 })
 
 // CD-0191: installed-versus-session release staleness. The installer

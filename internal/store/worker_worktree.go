@@ -21,7 +21,7 @@ func validateWorkerCompletionWorktree(ctx context.Context, tx *sql.Tx, workID, a
 	if err := validateWorkerDispatchWorktree(ctx, tx, workID, sessionWorktree); err != nil {
 		return err
 	}
-	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID)
+	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID, "worker_complete", "restore the attempt's recorded worktree claim before completion")
 	if err != nil {
 		return err
 	}
@@ -32,11 +32,11 @@ func validateWorkerCompletionWorktree(ctx context.Context, tx *sql.Tx, workID, a
 	return err
 }
 
-// workerAttemptProjectTx resolves ownership from the attempt's own dispatch
-// authorization, including reclaimed entries whose native directory is gone.
-// Legacy authorizations without a worktree binding cannot prove a Project:
-// they retain the conservative occupancy check across the whole work item.
-func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (string, error) {
+// workerAttemptProjectTx resolves completion or abandonment ownership from the
+// attempt's dispatch authorization, including reclaimed entries whose directory
+// is gone. Unbound legacy authorizations cannot prove a Project: completion
+// refuses them, while abandonment checks occupancy across the whole work item.
+func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID, operation, recovery string) (string, error) {
 	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
 	if err != nil {
 		var failure *Failure
@@ -62,7 +62,7 @@ func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID s
 			return entry.ProjectID, nil
 		}
 	}
-	return "", newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt worktree identity has no recorded Project", false, "restore the attempt's recorded worktree claim before abandonment")
+	return "", newFailure(KindWorktreeOwnershipConflict, operation, "worker attempt worktree identity has no recorded Project", false, recovery)
 }
 
 // canonicalWorkerRecoveryPath resolves surviving ancestors without requiring

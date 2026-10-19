@@ -68,8 +68,8 @@ registeredBytes.set("concord_worker_check", Buffer.byteLength(JSON.stringify(che
 const diffOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
 await publishWorkerDiffDefinition({ toolID: "concord_worker_diff" }, diffOutput)
 expect(diffOutput.jsonSchema).toEqual(hostToolSchemas.concord_worker_diff)
-const diffBytes = Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8")
-registeredBytes.set("concord_worker_diff", diffBytes)
+const diffBytes = 322
+registeredBytes.set("concord_worker_diff", Buffer.byteLength(JSON.stringify(diffOutput.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -136,10 +136,11 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const READER_BUDGET = { allowed: ["concord_worker_read"], bytes: 481 }
   const CHECKER_BUDGET = { allowed: ["concord_worker_check", "concord_worker_read"], bytes: 826 }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const COORDINATOR_BUDGET = { allowed: [...READS, "concord_ci_watch", "concord_worker_check", "concord_worker_diff", "concord_worker_read"].sort(), bytes: 20_381 + diffBytes }
-  const OPERATOR_BUDGET = { allowed: CATALOG, bytes: 126_066 + 826 + diffBytes }
-  expect(projectedBytes("concord-coordinator")).toEqual(COORDINATOR_BUDGET)
-  expect(projectedBytes("concord-operator")).toEqual(OPERATOR_BUDGET)
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 127_397 + 826 + diffBytes }
+  // Neither primary profile denies a tool, so each no-overlay budget is
+  // the whole registered catalog at the full published total.
+  expect(projectedBytes("Concord-RTE")).toEqual(PRIMARY_BUDGET)
+  expect(projectedBytes("Concord")).toEqual(PRIMARY_BUDGET)
   for (const lane of agentLanes) {
     const role = `concord-${lane.id}`
     const executes = lane.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
@@ -150,12 +151,12 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(126_066 + 826 + diffBytes)
+  expect(registeredTotal).toBe(127_397 + 826 + diffBytes)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
-  // Each coordinator-allowed tool keeps its complete per-operation branch
-  // list; the operator keeps the full transition root with every registry
+  // Each allowed tool keeps its complete per-operation branch list; the
+  // primary profiles keep the full transition root with every registry
   // action variant. Role authority never rewrites publication: it can only
   // withhold a whole tool.
   for (const tool of READS) {
@@ -165,7 +166,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(73_915)
+  expect(registeredBytes.get("concord_work_transition")).toBe(73_985)
   expect(workflowActionPublicVariants.length).toBe(31)
 })
 

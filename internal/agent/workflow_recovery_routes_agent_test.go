@@ -1497,26 +1497,20 @@ func approvedRecoveryAction(t *testing.T, s *store.Store, service *Service, env 
 		if input["action_id"] != action {
 			continue
 		}
-		// supersede_contract at a duplicated active contract projection
-		// (CD-0172 D6) names the highest active version, so the test
-		// reads that slice directly; the singular reader refuses on
-		// duplicates and would mislead the validation. request_correction
-		// and confirm_premise require exactly one active contract, so the
-		// singular reader is the right source for them.
-		var contractStr string
-		if input["action_id"] == "supersede_contract" {
-			versions, err := s.ActiveWorkflowContractVersions(context.Background(), "work-1")
-			if err != nil || len(versions) == 0 {
-				t.Fatalf("supersede_contract active contract versions: %+v, %v", versions, err)
-			}
-			contractStr = "contract:" + strconv.FormatInt(versions[len(versions)-1], 10)
-		} else {
-			contract, err := s.LatestWorkflowContractVersion(context.Background(), "work-1")
-			if err != nil {
-				t.Fatalf("%s latest contract: %v", input["action_id"], err)
-			}
-			contractStr = "contract:" + strconv.FormatInt(contract, 10)
+		// supersede_contract binds the highest active version even when the
+		// projection is ambiguous; the other recovery actions require one.
+		boundary, boundaryErr := store.ReadWorkflowApprovalBoundary(context.Background(), s, nil, store.WorkflowActionPreflightRequest{
+			WorkID:   "work-1",
+			ActionID: input["action_id"].(string),
+			Actor:    store.WorkflowActor{PrincipalRef: env.PrincipalRef, ClientRef: env.ClientRef, AgentRef: env.AgentRef, SessionRef: env.SessionRef, ActorClass: store.ActorAgent},
+		})
+		if boundaryErr != nil {
+			t.Fatalf("%s approval boundary read: %v", input["action_id"], boundaryErr)
 		}
+		if input["action_id"] == "supersede_contract" && len(boundary.ActiveContractVersions) == 0 {
+			t.Fatalf("supersede_contract active contract versions: %+v", boundary.ActiveContractVersions)
+		}
+		contractStr := "contract:" + strconv.FormatInt(boundary.ContractVersion, 10)
 		if !slices.Contains(details.Versions, contractStr) {
 			t.Fatalf("%s challenge does not bind active contract %s: %+v", input["action_id"], contractStr, details)
 		}
@@ -1684,11 +1678,11 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 // Record the job under the active contract, including after supersession.
 func recordRecoveryWorkerJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
 	t.Helper()
-	contract, err := s.LatestWorkflowContractVersion(context.Background(), "work-1")
+	active, err := s.ActiveWorkflowContract(context.Background(), "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	recordReadyRetryJobWithChecks(t, s, service, env, jobID, contract, []string{"go vet ./..."})
+	recordReadyRetryJobWithChecks(t, s, service, env, jobID, active.Version, []string{"go vet ./..."})
 }
 
 func requireRecoveryLocalAcceptance(t *testing.T, s *store.Store, step, attemptID string) {
@@ -2512,7 +2506,7 @@ func recoveryProducerLane(t *testing.T, laneID string) store.LaneDefinition {
 func readOperatorQuestionDigest(t *testing.T, s *store.Store, workID, actionID string) string {
 	t.Helper()
 	ctx := context.Background()
-	question, err := store.ReadWorkflowOperatorQuestion(ctx, s, workID)
+	question, err := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("read operator question: %v", err)
 	}

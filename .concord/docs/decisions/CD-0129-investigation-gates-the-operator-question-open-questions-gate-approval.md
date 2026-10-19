@@ -28,6 +28,9 @@ contract in the Product without adding an investigation.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, the pending operator question exists only when CD-0013 D11 requires consent. Engineering confirmation has an authenticated non-worker route without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not silently remove those checks or weaken declared open-question research obligations.
+
+
 ### D1. The operator question is the obligated surface
 
 `workflowOperatorQuestionTx` is the single path that produces a pending

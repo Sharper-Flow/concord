@@ -453,7 +453,7 @@ func TestRecordedWorkflowBoundaryLiveConfirmRoutesOnPersistedSeq(t *testing.T) {
 		t.Fatalf("record the healthy verdict: %v", err)
 	}
 	operatorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/"+workID)
-	premiseVersion := verdictItemVersion(t, s, workID)
+	premiseVersion := readWorkVersion(t, s, workID)
 	operatorRecorded := workflowEvent("operator-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/" + workID, "actor_class": "operator"})
 	premise := workflowEventWithActor("premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	confirmCompleted := workflowActionCompletedFixture("premise-completed-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")

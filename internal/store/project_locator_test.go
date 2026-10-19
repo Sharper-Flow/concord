@@ -485,12 +485,12 @@ func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project-native", ProjectLocator{ID: "path-native", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
 		t.Fatal(err)
 	}
-	base := strings.TrimSpace(runBootstrapGit(t, repo, "rev-parse", "HEAD"))
+	base := strings.TrimSpace(runTestGit(t, repo, "rev-parse", "HEAD"))
 	if err := os.WriteFile(filepath.Join(repo, "local-only.txt"), []byte("local\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runBootstrapGit(t, repo, "add", "local-only.txt")
-	runBootstrapGit(t, repo, "commit", "-q", "-m", "local-only")
+	runTestGit(t, repo, "add", "local-only.txt")
+	runTestGit(t, repo, "commit", "-q", "-m", "local-only")
 	worktreePath := filepath.Join(t.TempDir(), "native-worktree")
 	// The default-based selection pins the remote-tracking ref, so a
 	// local-only commit on the default branch never leaks into the base a
@@ -502,8 +502,8 @@ func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
 	if location.BaseSHA != base {
 		t.Fatalf("base SHA=%q want tracking SHA %q", location.BaseSHA, base)
 	}
-	runBootstrapGit(t, repo, "worktree", "add", "--detach", worktreePath, location.BaseSHA)
-	checkedOut := strings.TrimSpace(runBootstrapGit(t, worktreePath, "rev-parse", "HEAD"))
+	runTestGit(t, repo, "worktree", "add", "--detach", worktreePath, location.BaseSHA)
+	checkedOut := strings.TrimSpace(runTestGit(t, worktreePath, "rev-parse", "HEAD"))
 	if checkedOut != location.BaseSHA {
 		t.Fatalf("native worktree HEAD=%q want %q", checkedOut, location.BaseSHA)
 	}

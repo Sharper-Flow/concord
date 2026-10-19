@@ -192,7 +192,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
-	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
+	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), head_sha (pr), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -988,7 +988,21 @@ func validateRequiredCommandFields(command string, raw []byte) error {
 	return nil
 }
 
+// databasePath resolves the store every command route uses. It admits the
+// path before any route reads or writes the data root's leases, locks,
+// fences, or store (CD-0240 D1).
 func databasePath() (string, error) {
+	path, err := resolveDatabasePath()
+	if err != nil {
+		return "", err
+	}
+	if err := store.AdmitStorePath(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func resolveDatabasePath() (string, error) {
 	if override := os.Getenv(dbOverrideEnv); override != "" {
 		absolute, err := filepath.Abs(override)
 		if err != nil {
@@ -1465,8 +1479,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			// The source is a backup file, not a data root's store, so the
-			// refusal names no owner.
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
@@ -1591,7 +1603,11 @@ func writeDiagnostic(out io.Writer, message string) {
 func diagnosticText(err error) string {
 	var failure *store.Failure
 	if errors.As(err, &failure) && failure.RecoveryAction != "" {
-		return err.Error() + "\n" + recoveryLine(failure.RecoveryAction)
+		action := failure.RecoveryAction
+		if len(failure.RecoveryRefs) > 0 {
+			action += ": " + strings.Join(failure.RecoveryRefs, ", ")
+		}
+		return err.Error() + "\n" + recoveryLine(action)
 	}
 	return err.Error()
 }

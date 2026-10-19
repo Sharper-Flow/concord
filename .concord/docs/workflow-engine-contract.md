@@ -61,6 +61,9 @@ dispatch, and the built-in family graphs.
 
 ## Contract
 
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their event and actor mappings. Engineering records a valid contract and coordinator confirmation; independent evaluators record verdicts without consent; coordinators record completion against those verdicts. No synthetic operator or approval evidence is created. Decision-bearing checkpoints retain human authority. Historical pins keep their original gates, and every evidence, recovery, source, and liveness obligation remains required.
+
+
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, the event
 families, the projections and folds, outcome evaluation and strength, the
@@ -402,8 +405,8 @@ lease and its streams; worktree reclamation alone does not erase access.
 It then replays the retained event log through the same upcasters and fold
 handlers. A poison event quarantines the affected subject sub-log and leaves its
 last known-good state explicitly degraded; it never deletes history. The live and
-rebuilt byte representations must match. `ReconstructSubjectAt(work_id, seq)`
-uses the same fold over the prefix through `seq` and is read-only.
+rebuilt byte representations must match. The core has no point-in-time
+reconstruction (CD-0238); a restored log prefix rebuilds through the same fold.
 
 ## 6. Outcome evaluation and strength
 
@@ -734,7 +737,7 @@ the exact argv.
 |---|---|
 | **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) and [`feature-inventory.md` §1.6](./feature-inventory.md#16-durable-execution-safety-substrate) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Version 8 makes refine mandatory and requires artifact evidence at that step. Version 13 splices the CD-0156 alignment step after proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
 | **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Version 7 makes refine mandatory and requires artifact evidence at that step. Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. Version 11 splices the CD-0156 alignment step after reproduce on the same terms. |
-| **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0009 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
+| **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 | **Architecture spike** — [`architecture-spike.md` §2](./architecture-spike.md#2-shape) | `frame[frame_question, approve_contract] → research[record_research, bind_evidence] → options[record_option] → poc_optional[start_poc, checkpoint_poc, discard_poc, record_delivery] → decision_record[record_decision] → review[record_verdict, accept_decision] → acceptance[confirm_premise] → complete[complete]`. The optional POC edge skips only `poc_optional`; completion still requires the accepted decision record, verdict, premise confirmation, and `complete`. |
 | **Ops runbook** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and [`managed-resource-inventory.md` §3](./managed-resource-inventory.md#3-stage-rule) | `plan[approve_contract, resolve_condition, cancel_condition] → approval[approve_operation, resolve_condition, cancel_condition] → execute[start_run, checkpoint_run, bind_evidence, add_condition, resolve_condition, cancel_condition, record_delivery] → health[record_health, record_verdict, resolve_condition, cancel_condition] → rollback_optional[rollback_run, resolve_condition, cancel_condition, record_delivery] → cleanup[cleanup_run, confirm_premise, resolve_condition, cancel_condition] → complete[complete, resolve_condition, cancel_condition]`. Rollback is optional recovery, not a second completion path. |
 | **Static analysis** — [`workflows.md` §4–§5](./workflows.md#5-coordinating-external-analysis-tools) | `scope[approve_contract, declare_scope] → analyze[run_analysis, checkpoint_analysis, record_delivery] → report[record_report, bind_evidence] → review[record_verdict, confirm_premise] → complete[complete]`. Completion verb: report exists over the declared surface. |

@@ -23,14 +23,21 @@ REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
 PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
-# The closed named primary set (CD-0154): one central supervisor and one
-# repository-local operator. Primaries are never lanes or utilities.
-PRIMARY_PROFILE_IDS = ("concord-coordinator", "concord-operator")
+# The closed named primary set (CD-0154): Concord and an optional release train
+# engineer. Primaries are never lanes or utilities.
+PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
+AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
 # name it by this lead sentence, so the rule has one statement.
 CONDUCT_CHANGE = ROOT / ".concord/instructions/change.md"
 COMMITTED_CONTENT_LEAD = "Commit only durable content."
+# The host's trailing " *" also matches a command without arguments. Cover
+# Git's global options and explicit executable paths as well as plain git.
+STASH_DENIALS = tuple(
+    f"    {json.dumps(pattern)}: deny"
+    for pattern in ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
+)
 
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
@@ -203,15 +210,6 @@ def go_string(value: str) -> str:
 
 def go_slice(values: list[str]) -> str:
     return "[]string{" + ", ".join(go_string(value) for value in values) + "}"
-
-
-def current_schema_version(schema: dict) -> str:
-    """The current identity of a versioned packet/report schema: the last
-    entry of schema_version's enum. Earlier entries are released historical
-    identities a stored payload may still carry; new packets and reports
-    record the current one."""
-    versions = schema["properties"]["schema_version"]["enum"]
-    return versions[-1]
 
 
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
@@ -870,6 +868,36 @@ the parent workflow keeps every other required result explicit.
 """
 
 
+def subagent_execution_instructions() -> str:
+    return """## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
+"""
+
+
+def review_method_instructions(lane: dict) -> str:
+    if lane["id"] != "review":
+        return ""
+    return """## Review method
+
+For a changed contract, event, or value, trace the producing code through the
+relevant consumer or dispatch path. Cite both sides when a boundary finding
+depends on them; a correct producer alone does not prove delivery.
+
+For each defect, state the triggering input or state, impact, and exact source
+location. Distinguish proven defects, missing required evidence, and optional
+suggestions using the existing finding detail. For an oracle-governed finding,
+use `review_finding.oracle.classification` and keep the detail consistent with
+it; do not invent report fields. Missing required evidence remains a gap, not a
+reason to invent a defect. Do not turn style preferences into defects or a
+`no_ship` verdict, and do not broaden the review into an unrelated audit.
+
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
@@ -893,7 +921,11 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         *(f"  {tool_id}: false" for tool_id, allowed in lane_tool_grants(lane).items() if not allowed),
         concord_denies,
     ])
-    edit_denies = "" if edits_scoped_files(lane) else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
+    edit_denies = (
+        "  bash:\n" + "\n".join(STASH_DENIALS) + "\n"
+        if edits_scoped_files(lane)
+        else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
+    )
     if discharged:
         obligation_rule = (
             "A successful report must carry at least one entry for every obligation below "
@@ -929,7 +961,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         block_rule = ""
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
-mode: all
+mode: subagent
 hidden: true
 tools:
 {tool_denies}
@@ -948,6 +980,7 @@ This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
+{subagent_execution_instructions()}
 ## Repository edit boundary
 
 {repository_edit_boundary(lane)}
@@ -959,7 +992,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {checkpoint_instructions()}
 {acceptance_oracle_instructions(packet_schema, lane)}
 {objective_binding_instructions()}
-{concord_context_boundary_instructions()}
+{review_method_instructions(lane)}{concord_context_boundary_instructions()}
 {command_duration_instructions(lane)}
 When `inputs.report_protocol` is present, return exactly one Markdown fence
 whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
@@ -1038,6 +1071,15 @@ question from the working directory.
    cap stops you.
 
 ## Facts packet
+
+Answer the bounded question first. Return the complete requested inventory or
+report, not a summary of it. Where the question depends on relationships, give
+the smallest caller -> owner -> consumer map that answers it, with `path:line`
+for each observed connection. Mark unverified connections as unknown; do not
+expand the answer into an unrelated architecture tour.
+
+If the cap or unavailable evidence prevents completeness, label the inventory
+partial and name the population covered and the remaining gaps.
 
 Return plain text. The packet holds:
 
@@ -1126,6 +1168,7 @@ def utility_projection(utility: dict) -> str:
         raise ValueError(f"utility registry has no body template for {utility['id']!r}")
     tools = [f"  {key}: {'true' if key in utility['allowed_tools'] else 'false'}" for key in UTILITY_TOOL_KEYS]
     permissions = ["    \"*\": deny"] + [f"    \"{command}\": allow" for command in utility["allowed_commands"]]
+    permissions.extend(STASH_DENIALS)
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     body_text = body.format(duration=duration).rstrip()
@@ -1144,6 +1187,7 @@ permission:
 
 {utility['purpose']}
 
+{subagent_execution_instructions()}
 {body_text}
 """
 
@@ -1188,6 +1232,8 @@ def primary_projection(profile: dict, role_source: str) -> str:
     for key in ("bash", "task"):
         lines.append(f"  {key}:")
         lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
+        if key == "bash":
+            lines.extend(STASH_DENIALS)
     lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
     lines.extend(["---", "", role_source.rstrip("\n")])
     return "\n".join(lines) + "\n"
@@ -1197,10 +1243,7 @@ def primary_projection(profile: dict, role_source: str) -> str:
 # the profile's denied tools. Every profile that denies at least one tool must
 # carry one, so a new profile fails generation instead of refusing with an
 # empty boundary.
-PRIMARY_PROFILE_REFUSAL_BOUNDARIES = {
-    "concord-coordinator": "that role supervises live sessions and holds no Concord execution authority; a repository-local operator session makes this call",
-    "concord-operator": "",
-}
+PRIMARY_PROFILE_REFUSAL_BOUNDARIES: dict[str, str] = {}
 LANE_REFUSAL_BOUNDARY = "this Concord worker lane holds no general Concord tool access: its dispatch packet is its complete Concord context"
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 
@@ -1300,17 +1343,22 @@ def main() -> int:
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",
             ROOT / ".concord/docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
-        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema) for lane in manifest["lanes"]})
-        expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
+        expected.update({AGENT_DIR / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema) for lane in manifest["lanes"]})
+        expected.update({AGENT_DIR / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
         primary_profiles = load_primary_profiles(manifest)
         expected.update({
-            ROOT / ".opencode/agents" / f"{profile['id']}.md": primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
+            AGENT_DIR / f"{profile['id']}.md": primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
             for profile in primary_profiles["profiles"]
         })
         expected[ROOT / "adapter/opencode/generated-primary-profiles.ts"] = primary_ts_projection(primary_profiles, manifest)
         lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
         if EVAL_PACKETS.is_dir():
             expected.update({path: eval_packet_projection(path, lane_digests) for path in sorted(EVAL_PACKETS.glob("*.json"))})
+        # The generator owns the agent directory: a definition no manifest
+        # entry projects is a removed lane, utility, or profile left behind.
+        for path in sorted(AGENT_DIR.iterdir()) if AGENT_DIR.is_dir() else ():
+            if path not in expected:
+                raise ValueError(f"unprojected agent definition: {path.name}; delete it or declare it in the manifest")
         if check:
             for path, content in expected.items():
                 if not path.is_file() or path.read_text(encoding="utf-8") != content:

@@ -28,8 +28,12 @@ func TestConvergenceBareApprovalCannotAdmitEscalatedRetry(t *testing.T) {
 	if after := readWorkVersion(t, s, workID); after != before {
 		t.Fatalf("refused dispatch changed work version: %d -> %d", before, after)
 	}
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("retry approval binding = %+v, %v, want nil", binding, err)
 	}
 	for _, intent := range issue1013Pin(t, s, workID).NextValidIntents {

@@ -46,6 +46,7 @@ other aliases are accepted:
 | Hyphenated form | Two-word form |
 |---|---|
 | `client-register` | `client register` |
+| `client-show` | `client show` |
 | `client-policy-update` | `client policy-update` |
 | `client-policy-expand` | `client policy-expand` |
 | `client-key-rotate` | `client key-rotate` |
@@ -78,6 +79,48 @@ values. Operator setup commands use these closed values:
 - Locator `kind`: `canonical_path` or `git_remote`.
 - Client capabilities: `product_read`, `work_define`,
   `work_transition`, `work_relate`, `work_compact`, or `cross_scope`.
+
+### Authorize the primary agent names before activation
+
+Before installing or activating a release with `Concord` and `Concord-RTE`,
+the operator must authorize the exact agent names on every trusted client
+that will run them. Agent scope matches are case-sensitive. Installing an
+agent definition does not grant its name authority, and neither new profile
+can request its own missing grant: authorization precedes the grant-request
+operation too.
+
+Use the same database selection and data home as the affected adapter. Inspect
+the current policy, add the needed names with the operator CLI, then inspect
+the result. This example uses the default client `opencode` and authorizes
+both available primary profiles; replace the client reference when the host
+uses another client. A client that will run only Concord needs only `Concord`.
+
+```sh
+concord client-show <<'JSON'
+{"client_ref":"opencode"}
+JSON
+concord client-policy-expand <<'JSON'
+{"client_ref":"opencode","agent_scope":["Concord","Concord-RTE"]}
+JSON
+concord client-show <<'JSON'
+{"client_ref":"opencode"}
+JSON
+```
+
+Do not activate the release or select either profile until the final read
+reports an active client whose `agent_scope` includes each intended exact name.
+Verify that the principal, capabilities, Product scope, Project scope, and all
+previous agent names survive unchanged. Retain the before and after policy
+revisions with the installation evidence. On a fresh installation, register
+the intended names in the client's `agent_scope` before starting managed work.
+
+The additive command preserves existing grants under
+[CD-0097 D6](../../.concord/docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md#d6-trusted-client-policy-grows-by-an-additive-operator-command).
+Removing retired names is a separate operator decision through the
+full-statement `client-policy-update` command; it is not part of this expansion.
+The installer does not modify trusted-client policy. This is an operator
+installation prerequisite, not an automatic installer check or an authority
+transfer to the RTE. If it is skipped, managed calls remain refused.
 
 ## Agent Product–Project links
 
@@ -182,6 +225,15 @@ native worker card, child session, progress, and cancellation. See
 The adapter selects the registered `concord-<lane>` agent. OpenCode resolves
 its model and provider from the operator's host configuration. The
 [native Task queue](move-session.ts) supplies no worker model override.
+If a stale native subtask is replayed, the authorization guard still refuses
+it. [Refusal cleanup](native-subtask-refusal.ts) uses the host part-update API
+to mark the Task failed and replace its executable subtask with visible refusal
+text. The original subtask stays in that text part's metadata. Matching unfinished
+replays are repaired too, so the next prompt does not retry them. A retained
+in-flight worker is left alone. The host may leave the old assistant message
+unfinished; cleanup does not invent a message-completion API or change workflow
+state. A host read or write failure is logged and the original refusal remains.
+
 The worker returns its closed `agent-lane-report.v1` report as its final text
 part. [Completion](dispatch.ts) reads the child through the host session API,
 verifies its authorized opening and executing identity, and supplies canonical
@@ -334,17 +386,12 @@ failed call warns and never changes a recorded outcome.
 
 ### Recommended host permission and fallback configuration
 
-Apply Concord-only Task permissions to each coordinator's agent definition,
-not to the global host Task permission. A coordinator definition can use:
-
-```yaml
-permission:
-  task:
-    "*": deny
-    "general": deny
-    "explore": deny
-    "concord-*": allow
-```
+The generated `Concord` primary agent works end to end without an RTE session.
+`Concord-RTE` is optional coordination for busy Product or Project work. Both
+profiles allow Task delegation; the adapter still requires an open typed
+dispatch window for a Concord execution lane. Broad Task permission does not
+grant lane authority. Numbered host examples keep their narrower Task policy;
+hosts own those files and may configure their permissions independently.
 
 The lane agent definitions also deny nested task dispatch. If a host wants
 per-lane model fallback behavior, configure the OMR plugin's ordered fallback

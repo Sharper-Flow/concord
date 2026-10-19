@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -412,7 +413,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	if err := validateRuntimeScope(ctx, s, env, grant, op.Kind); err != nil {
 		var stale *runtimeFailure
-		if errors.As(err, &stale) && stale.Refreshable && op.Kind == OperationRead && equalStrings(stale.Candidates, grant.CandidateProducts) {
+		if errors.As(err, &stale) && stale.Refreshable && op.Kind == OperationRead && slices.Equal(stale.Candidates, grant.CandidateProducts) {
 			base.Warnings = append(base.Warnings, Notice{Kind: "context_refreshed"})
 			env.ScopeVersion = stale.CurrentScopeVersion
 		} else {
@@ -537,14 +538,14 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			if len(products) == 0 {
 				return newRuntimeFailure("unknown_scope", "knowledge reference is not in Product scope", "reread_entities", false)
 			}
-			if !scopeIntersects(products, grant.ProductScope) || env.SelectedProductID != "" && !contains(products, env.SelectedProductID) {
+			if !scopeIntersects(products, grant.ProductScope) || env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) {
 				return newRuntimeFailure("unauthorized", "knowledge reference is outside authorized Product scope", "contact_operator", false)
 			}
 		}
 	}
 	if raw, ok := fields["product_id"]; ok {
 		var product string
-		if json.Unmarshal(raw, &product) == nil && product != "" && !contains(grant.ProductScope, product) {
+		if json.Unmarshal(raw, &product) == nil && product != "" && !slices.Contains(grant.ProductScope, product) {
 			return newRuntimeFailure("unauthorized", "Product is outside grant scope", "contact_operator", false)
 		}
 	}
@@ -563,7 +564,7 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 				if !scopeIntersects(products, grant.ProductScope) {
 					return newRuntimeFailure("unauthorized", "Project is outside authorized Product scope", "contact_operator", false)
 				}
-				if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+				if kind != OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
 					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 				}
 			}
@@ -585,7 +586,7 @@ func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind Operatio
 		if !scopeIntersects(products, grant.ProductScope) {
 			return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
 		}
-		if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+		if kind != OperationRead && env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
 			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 		}
 	}
@@ -682,7 +683,7 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 }
 func scopeIntersects(left, right []string) bool {
 	for _, a := range left {
-		if contains(right, a) {
+		if slices.Contains(right, a) {
 			return true
 		}
 	}
@@ -733,7 +734,7 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 	if env.AmbientProjectID == "" {
 		return newRuntimeFailure("unknown_scope", "ambient Project is required", "resolve_ambiguity", false)
 	}
-	if !contains(grant.ProjectScope, env.AmbientProjectID) {
+	if !slices.Contains(grant.ProjectScope, env.AmbientProjectID) {
 		return newRuntimeFailure("unauthorized", "Project is outside grant scope", "contact_operator", false)
 	}
 	version, candidates, err := s.ScopeVersion(ctx, env.AmbientProjectID)
@@ -760,7 +761,7 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 	// Project no longer resolves to is context the caller can re-resolve itself;
 	// a Product outside the grant is not. Reporting the first as unauthorized
 	// escalates a self-recoverable condition to the operator.
-	if !contains(candidates, env.SelectedProductID) {
+	if !slices.Contains(candidates, env.SelectedProductID) {
 		if len(candidates) > 1 {
 			f := newRuntimeFailure("ambiguous_scope", "selected Product no longer owns the ambient Project", "resolve_ambiguity", false)
 			f.Candidates = candidates
@@ -771,7 +772,7 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 		f.CurrentScopeVersion = version
 		return f
 	}
-	if !contains(grant.ProductScope, env.SelectedProductID) {
+	if !slices.Contains(grant.ProductScope, env.SelectedProductID) {
 		return newRuntimeFailure("unauthorized", "selected Product is outside grant scope", "contact_operator", false)
 	}
 	return nil
@@ -891,6 +892,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		}
 		if sf.ExternalRefConflict != nil {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
+		}
+		if len(sf.AdmittedEventKinds) > 0 {
+			out.Error.Details = map[string]any{"admitted_event_kinds": sf.AdmittedEventKinds}
 		}
 		return out
 	}
@@ -1281,17 +1285,6 @@ func deref(v *string) string {
 	}
 	return *v
 }
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 func historyDirection(v string) string {
 	if v == "incoming" {
 		return "newest_first"
@@ -1653,6 +1646,9 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		// optional field fails the generated schema and refuses the whole
 		// page (issue #383).
 		event := map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "evidence": evidence}
+		if e.AttemptID != "" {
+			event["attempt_id"] = e.AttemptID
+		}
 		if e.Actor != "" {
 			event["actor"] = e.Actor
 		}

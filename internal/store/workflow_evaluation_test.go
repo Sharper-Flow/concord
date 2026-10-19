@@ -30,18 +30,23 @@ func TestWorkflowEvaluationAuthoritySurvivesLeaseRotation(t *testing.T) {
 		{DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/independent", "session/independent"), WorkflowIndependentEvaluator},
 	} {
 		t.Run(string(tc.want), func(t *testing.T) {
-			got, err := s.WorkflowEvaluationAuthority(context.Background(), workID, tc.actor)
+			var got WorkflowEvaluationAuthority
+			err := s.readSnapshot(context.Background(), func(q queryer) error {
+				var innerErr error
+				got, innerErr = workflowEvaluationAuthority(context.Background(), q, workID, tc.actor)
+				return innerErr
+			})
 			if err != nil || got != tc.want {
 				t.Fatalf("authority=%q err=%v, want %q", got, err, tc.want)
 			}
 		})
 	}
 	worker := workflowActorForRef(t, s, laneRef)
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := runOperatorVerdict(t, s, workID, worker, operatorVerdictActor(t, workID)); err == nil || !strings.Contains(err.Error(), "worker actors cannot submit operator decisions") {
 		t.Fatalf("worker submitted operator verdict: %v", err)
 	}
-	if got := verdictItemVersion(t, s, workID); got != version {
+	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused worker verdict changed version: %d -> %d", version, got)
 	}
 	for _, action := range []string{"record_verdict", "confirm_premise", "complete"} {
@@ -66,7 +71,9 @@ func TestWorkflowEvaluationAuthorityReadFailureIsNotIndependent(t *testing.T) {
 	if err := s.DatabaseForTesting().Close(); err != nil {
 		t.Fatal(err)
 	}
-	if authority, err := s.WorkflowEvaluationAuthority(context.Background(), "work-unavailable", "actor-unavailable"); err == nil || authority != "" {
+	// Exercise the query failure, not a failure to open a snapshot.
+	authority, err := workflowEvaluationAuthority(context.Background(), s.db, "work-unavailable", "actor-unavailable")
+	if err == nil || authority != "" {
 		t.Fatalf("unreadable authority=%q err=%v", authority, err)
 	}
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { AgentLanePacket, DispatchRunner, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
+import type { AgentLanePacket, NativeOracleGoPreparation, NativeOraclePreparation, NativeOracleTargetPreparation } from "./dispatch"
 
 // Readiness consumes the native owner's qualified, job-selected preparation
 // records. The core dispatch admission owns subject freshness — it observes
@@ -7,12 +7,6 @@ import type { AgentLanePacket, DispatchRunner, NativeOracleGoPreparation, Native
 // action transaction — so this check runs no git at all. It still refuses a
 // packet whose oracle lacks a core-qualified subject or a matching
 // qualified preparation per control.
-export interface OracleReadinessDeps {
-  runner: DispatchRunner
-  directory: string
-  signal: AbortSignal
-}
-
 export type OracleReadinessRefusal = { message: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,7 +81,7 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
       : goWitnessesValid(preparation, cases))
 }
 
-export async function verifyPacketOracleReadiness(packet: AgentLanePacket, deps: OracleReadinessDeps): Promise<OracleReadinessRefusal | null> {
+export async function verifyPacketOracleReadiness(packet: AgentLanePacket): Promise<OracleReadinessRefusal | null> {
   const oracle = packet.inputs.worker_job?.acceptance_oracle as unknown
   if (!isRecord(oracle)) return null
   const subject = packet.inputs.work_context?.subject_commit

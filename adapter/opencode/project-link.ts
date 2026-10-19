@@ -591,13 +591,13 @@ export async function ensureConductLink(directory: string, signal: AbortSignal):
   if (signal.aborted || !managedWorktree(directory)) return
   const releaseLock = await acquireProjectLinkLock()
   try {
-    await ensureConductLinkLocked(directory, signal)
+    await ensureConductLinkLocked(directory)
   } finally {
     releaseLock()
   }
 }
 
-async function ensureConductLinkLocked(directory: string, signal: AbortSignal): Promise<void> {
+async function ensureConductLinkLocked(directory: string): Promise<void> {
   recoverPendingProjectLink()
   const configDir = path.join(directory, ".opencode")
   const configDirStat = lstatIfPresent(configDir)

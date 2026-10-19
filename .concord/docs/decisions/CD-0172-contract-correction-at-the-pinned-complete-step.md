@@ -27,6 +27,9 @@ no mechanism could reopen the work under a corrected contract.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, complete-step contract correction requires attributed supersession, not verified operator approval. Exact successor content, audit evidence, current versions, evidence cutoffs, stale acceptance invalidation, and declared recovery remain required. Conditional human confirmation follows CD-0013 D11; historical pins retain their operator requirement.
+
+
 ### D1. Admit correction at the pinned complete step
 
 `supersede_contract` is available at the step that declares `complete` on a

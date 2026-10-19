@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import fnmatch
+import gc
 import hashlib
 import io
 import json
@@ -19,6 +21,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
@@ -35,6 +38,65 @@ import install as installer
 
 
 SCRIPT = Path(__file__).with_name("install.py")
+
+# The roots an installer child resolves without --root, under the environment
+# this suite started in. Every installer command locks and recovers the root it
+# resolves, so a child that resolves one of these acts on the operator's live
+# installation.
+with contextlib.redirect_stderr(io.StringIO()):
+    _OPERATOR_PATHS = installer.paths_for(None)
+OPERATOR_ROOTS = (_OPERATOR_PATHS.data_home, _OPERATOR_PATHS.config_home, _OPERATOR_PATHS.bin_dir)
+
+# Every child inherits this process's environment or a copy of it, so the
+# private home and XDG roots cover children that pass no --root. The directory
+# is removed when the interpreter exits.
+_PRIVATE_HOME = tempfile.TemporaryDirectory(prefix="concord-installer-test-home-")
+for _name, _directory in (
+    ("HOME", "home"),
+    ("XDG_DATA_HOME", "data"),
+    ("XDG_CONFIG_HOME", "config"),
+    ("XDG_STATE_HOME", "state"),
+    ("XDG_CACHE_HOME", "cache"),
+):
+    _path = Path(_PRIVATE_HOME.name) / _directory
+    _path.mkdir()
+    os.environ[_name] = str(_path)
+
+# Under an "error" filter, a ResourceWarning raised in a finalizer is
+# unraisable: Python prints it and the run still passes. unittest's runner
+# installs its own "default" filter, so setUpModule arms the guard after it.
+_LEAKS: list[str] = []
+_DEFAULT_UNRAISABLEHOOK = sys.unraisablehook
+
+
+def _record_leak(unraisable: sys.UnraisableHookArgs) -> None:
+    if isinstance(unraisable.exc_value, ResourceWarning):
+        _LEAKS.append(str(unraisable.exc_value))
+    _DEFAULT_UNRAISABLEHOOK(unraisable)
+
+
+def setUpModule() -> None:
+    warnings.simplefilter("error", ResourceWarning)
+    sys.unraisablehook = _record_leak
+
+
+def tearDownModule() -> None:
+    gc.collect()
+    sys.unraisablehook = _DEFAULT_UNRAISABLEHOOK
+    if _LEAKS:
+        raise AssertionError("the suite leaked resources:\n" + "\n".join(_LEAKS))
+
+
+def default_root_overlap() -> list[str]:
+    """Name each default root a child of this process would share with the operator."""
+    with contextlib.redirect_stderr(io.StringIO()):
+        paths = installer.paths_for(None)
+    return [
+        f"{name}={resolved} overlaps {protected}"
+        for name, resolved in (("data_home", paths.data_home), ("config_home", paths.config_home), ("bin_dir", paths.bin_dir))
+        for protected in OPERATOR_ROOTS
+        if resolved.is_relative_to(protected) or protected.is_relative_to(resolved)
+    ]
 
 
 def _repository_snapshot(root: Path) -> dict[str, bytes]:
@@ -101,6 +163,8 @@ esac''',
         marker: str | None = None,
         include_binary_checksum: bool = True,
         agent_names: tuple[str, ...] | None = None,
+        generated_agents: bool = False,
+        agent_contents: dict[str, str] | None = None,
     ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
@@ -116,7 +180,12 @@ esac''',
             (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
         (source / "agents").mkdir()
         for name in agent_names if agent_names is not None else installer.AGENT_FILES:
-            (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
+            content = f"agent:{name}:{marker or version}\n"
+            if generated_agents:
+                content = (SCRIPT.parents[1] / ".opencode" / "agents" / name).read_text(encoding="utf-8") + "\n" + content
+            if agent_contents and name in agent_contents:
+                content = agent_contents[name]
+            (source / "agents" / name).write_text(content, encoding="utf-8")
         binary = (source / "bin" / "concord")
         # The staged core is a shell script so the installer can ask it which
         # releases live sessions hold (CD-0111 D2), whether activation is
@@ -1226,7 +1295,7 @@ esac''',
         """Runtime tool discovery cannot strand a committed fixture migration."""
         self.prepare_a_blocked_release()
         database = self.data_root / "migration-fixture.sqlite"
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store, store:
             store.execute("CREATE TABLE payload (value TEXT)")
             store.execute("INSERT INTO payload VALUES ('preserved')")
             store.execute("PRAGMA user_version = 111")
@@ -1236,7 +1305,7 @@ esac''',
                 "operation": installer.CORE_UPGRADE_OPERATION,
                 "release_root": str(self.data_root / "v1.1.0"),
             }), encoding="utf-8")
-            with sqlite3.connect(database) as store:
+            with contextlib.closing(sqlite3.connect(database)) as store, store:
                 store.execute("ALTER TABLE payload ADD COLUMN migrated INTEGER NOT NULL DEFAULT 1")
                 store.execute("PRAGMA user_version = 112")
         environment = self.plan_env(blocked=False)
@@ -1246,7 +1315,7 @@ esac''',
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
         (self.commands / "opencode").unlink()
         self.assertIsNone(shutil.which("opencode", path=environment["PATH"]))
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.fence_path.exists())
@@ -1259,7 +1328,7 @@ esac''',
         self.assertEqual(manifest["version"], "v1.1.0")
         self.assertFalse(self.prepared_path.exists())
         self.assertFalse(self.fence_path.exists())
-        with sqlite3.connect(database) as store:
+        with contextlib.closing(sqlite3.connect(database)) as store:
             self.assertEqual(store.execute("PRAGMA user_version").fetchone(), (112,))
             self.assertEqual(store.execute("SELECT * FROM payload").fetchall(), [("preserved", 1)])
 
@@ -2194,6 +2263,20 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(outside.read_text(encoding="utf-8"), '{"keep": true}\n')
 
+    def test_manifest_agent_file_names_admit_concord_and_refuse_a_bare_lowercase_name(self) -> None:
+        # The manifest admits the prefix-free exact primary name Concord.md
+        # alongside the existing concord- and Concord- prefixes, and refuses
+        # any other spelling, so a recorded manifest key cannot reach a
+        # delete outside the managed agent set.
+        manifest_path = self.install_for_manifest_attack()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertIn("Concord.md", manifest["agent_files"])
+        manifest["agent_files"]["concord.md"] = manifest["agent_files"]["Concord.md"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = self.run_installer("uninstall")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid agent file name", result.stderr)
+
     def test_install_process_death_at_every_phase_recovers(self) -> None:
         phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
         for index, phase in enumerate(phases, 1):
@@ -2732,31 +2815,163 @@ esac''',
         for name in installer.AGENT_FILES:
             self.assertFalse((agents_dir / name).exists())
 
+    def test_user_agent_layers_survive_upgrade_repair_and_uninstall(self) -> None:
+        self.make_release("v1.0.0", generated_agents=True)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        instructions = self.config.parent / "user-instructions.md"
+        instructions.write_text("User instruction sentinel.\n", encoding="utf-8")
+        config = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
+        user_agent = {"model": "openai/test-model"}
+        config.update({"agent": {"concord-explore": user_agent}, "instructions": [str(instructions)]})
+        self.config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        global_bytes = self.config.read_bytes()
+
+        machine_dir = self.root / "home" / ".opencode"
+        machine_dir.mkdir(parents=True)
+        machine_agent = {
+            "model": "openai/machine-model",
+            "tools": {"read": False},
+            "permission": {"read": "deny", "bash": {"git status *": "deny", "custom-command *": "allow"}},
+        }
+        machine_config = machine_dir / "opencode.jsonc"
+        machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}}, indent=2) + "\n", encoding="utf-8")
+        machine_bytes = machine_config.read_bytes()
+
+        project = self.root / "consumer"
+        project_config = project / ".opencode" / "opencode.jsonc"
+        project_config.parent.mkdir(parents=True)
+        project_agent = {"description": "User project description"}
+        project_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": project_agent}}, indent=2) + "\n", encoding="utf-8")
+        project_bytes = project_config.read_bytes()
+        host_agent = self.config.parent / "agents" / "concord-host.md"
+        host_agent.write_text("---\ndescription: User agent\nmode: primary\n---\nUser-owned prompt.\n", encoding="utf-8")
+        host_bytes = host_agent.read_bytes()
+        target = self.config.parent / "agents" / "concord-explore.md"
+
+        def assert_user_layers() -> None:
+            self.assertEqual(self.config.read_bytes(), global_bytes)
+            self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
+            self.assertEqual(installer.jsonc_data(project_config.read_text(encoding="utf-8"))["agent"]["concord-explore"], project_agent)
+            self.assertEqual(host_agent.read_bytes(), host_bytes)
+            self.assertEqual(machine_config.read_bytes(), machine_bytes)
+            binary = os.environ.get("CONCORD_INSTALLER_HOST_PROBE")
+            if not binary:
+                return
+            # The release fixture's adapter is synthetic. Resolve the installed
+            # agents and user layers without loading those fake TypeScript files.
+            probe_config = self.root / "probe-config" / "opencode"
+            probe_config.mkdir(parents=True, exist_ok=True)
+            (probe_config / "agents").mkdir(exist_ok=True)
+            shutil.copyfile(target, probe_config / "agents" / target.name)
+            (probe_config / "opencode.jsonc").write_text(json.dumps({
+                "$schema": "https://opencode.ai/config.json",
+                "agent": config["agent"], "instructions": config["instructions"],
+            }), encoding="utf-8")
+            # Whitelist the environment: no live host config, plugins, account,
+            # or inherited OPENCODE_* variables can affect the resolved agent.
+            host_env = {"PATH": os.defpath, "HOME": str(self.root / "home")}
+            host_env.update({f"XDG_{key}_HOME": str(self.root / directory) for key, directory in (
+                ("CONFIG", "probe-config"), ("DATA", "probe-data"), ("CACHE", "probe-cache"), ("STATE", "probe-state"),
+            )})
+            for args in (("debug", "agent", "concord-explore"), ("debug", "config")):
+                resolved = subprocess.run([binary, "--pure", *args], cwd=project, env=host_env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+                value = json.loads(resolved.stdout)
+                if args[1] == "agent":
+                    self.assertEqual(value["model"], {"providerID": "openai", "modelID": "machine-model"})
+                    self.assertFalse(value["tools"]["read"])
+                    self.assertEqual(next(rule["action"] for rule in reversed(value["permission"]) if rule["permission"] == "read" and rule["pattern"] == "*"), "deny")
+                    bash_rules = [rule for rule in value["permission"] if rule["permission"] == "bash"]
+                    self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "git status *")), "deny")
+                    self.assertEqual(next(rule["action"] for rule in reversed(bash_rules) if rule["pattern"] in ("*", "custom-command *")), "allow")
+                    self.assertIn("# concord-explore", value["prompt"])
+                else:
+                    self.assertIn(str(instructions), value["instructions"])
+
+        assert_user_layers()
+        linked = self.run_installer("link", "--project", str(project))
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        assert_user_layers()
+        competing_agent = (SCRIPT.parents[1] / ".opencode" / "agents" / "concord-explore.md").read_text(encoding="utf-8")
+        competing_agent = competing_agent.replace("---\n", "---\nmodel: openai/shipped-model\n", 1)
+        competing_agent = competing_agent.replace("\npermission:\n", "\npermission:\n  read: allow\n")
+        competing_agent += "\nagent:concord-explore.md:v2.0.0\n"
+        self.make_release("v2.0.0", generated_agents=True, agent_contents={"concord-explore.md": competing_agent})
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertIn("agent:concord-explore.md:v2.0.0", target.read_text(encoding="utf-8"))
+        assert_user_layers()
+        target.unlink()
+        repaired = self.run_installer("repair", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertIn("agent:concord-explore.md:v2.0.0", target.read_text(encoding="utf-8"))
+        assert_user_layers()
+        unlinked = self.run_installer("unlink", "--project", str(project))
+        self.assertEqual(unlinked.returncode, 0, unlinked.stderr)
+        self.assertEqual(project_config.read_bytes(), project_bytes)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(installer.jsonc_data(self.config.read_text(encoding="utf-8"))["agent"]["concord-explore"], user_agent)
+        self.assertIn(str(instructions), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["instructions"])
+        self.assertEqual(instructions.read_text(encoding="utf-8"), "User instruction sentinel.\n")
+        self.assertEqual(host_agent.read_bytes(), host_bytes)
+        self.assertEqual(machine_config.read_bytes(), machine_bytes)
+        self.assertFalse(target.exists())
+
     def test_agent_files_equal_every_generated_definition(self) -> None:
-        # release.yml packs every generated concord-*.md and then requires
+        # release.yml packs every generated profile and then requires
         # AGENT_FILES in the archive, so the two sets must agree exactly.
+        release_workflow = (SCRIPT.parents[1] / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn(f"cp .opencode/agents/{installer.AGENT_GLOB} release/package/agents/", release_workflow)
         generated = {path.name for path in (SCRIPT.parents[1] / ".opencode" / "agents").glob(installer.AGENT_GLOB)}
         self.assertEqual(set(installer.AGENT_FILES), generated)
-        self.assertIn("concord-coordinator.md", installer.AGENT_FILES)
-        self.assertIn("concord-operator.md", installer.AGENT_FILES)
+        # The glob admits both named primary files: the prefix-free
+        # Concord.md as well as the hyphenated Concord-RTE.md.
+        for name in ("Concord.md", "Concord-RTE.md", "concord-design.md"):
+            self.assertTrue(fnmatch.fnmatch(name, installer.AGENT_GLOB), name)
+        self.assertIn("Concord-RTE.md", installer.AGENT_FILES)
+        self.assertIn("Concord.md", installer.AGENT_FILES)
+        self.assertNotIn("concord-coordinator.md", installer.AGENT_FILES)
+        self.assertNotIn("concord-operator.md", installer.AGENT_FILES)
+        self.assertNotIn("concord-rte.md", installer.AGENT_FILES)
+        self.assertNotIn("concord-RTE.md", installer.AGENT_FILES)
 
     def test_upgrade_refuses_named_primary_profile_over_unmanaged_host_file(self) -> None:
-        # A host that already defined its own concord-coordinator keeps it:
-        # the upgrade that introduces the managed profile refuses whole.
-        introduced = "concord-coordinator.md"
+        # A host's unowned profile must survive a conflicting upgrade.
+        introduced = "Concord-RTE.md"
         earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
         self.make_release("v1.0.0", agent_names=earlier)
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
         target = self.root / "config" / "opencode" / "agents" / introduced
-        target.write_bytes(b"host coordinator\n")
+        target.write_bytes(b"host release train engineer\n")
         self.make_release("v2.0.0")
         upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
 
         self.assertNotEqual(upgraded.returncode, 0)
         self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host coordinator\n")
+        self.assertEqual(target.read_bytes(), b"host release train engineer\n")
+
+    def test_upgrade_refuses_unmanaged_concord_primary_over_host_file(self) -> None:
+        # The collision rule is not an RTE-only rule: a host's unowned
+        # Concord.md must survive a conflicting upgrade whole.
+        introduced = "Concord.md"
+        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
+        self.make_release("v1.0.0", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.write_bytes(b"host primary agent\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"host primary agent\n")
 
     def test_upgrade_refuses_new_managed_name_over_user_agent(self) -> None:
         introduced = installer.AGENT_FILES[-1]
@@ -2840,6 +3055,86 @@ esac''',
         recovered = self.run_installer("status")
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
         self.assertEqual(target.read_bytes(), old_content)
+        self.assertIn('"version": "v1.0.0"', recovered.stdout)
+
+    # The old and new agent names swap in one installer transaction: both
+    # retired files (concord-coordinator.md and concord-operator.md) are
+    # removed exactly when Concord-RTE.md and Concord.md are placed, the
+    # rollback restores both retired files and removes both introduced ones,
+    # and host-authored copies of either new name still refuse the upgrade
+    # whole (the collision tests above).
+
+    def test_upgrade_replaces_both_retired_profiles_with_both_new_names(self) -> None:
+        previous = (
+            tuple(name for name in installer.AGENT_FILES if name not in ("Concord-RTE.md", "Concord.md"))
+            + ("concord-coordinator.md", "concord-operator.md")
+        )
+        agents_dir = self.root / "config" / "opencode" / "agents"
+        self.make_release("v1.0.0", marker="old", agent_names=previous)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        retired_coordinator = agents_dir / "concord-coordinator.md"
+        retired_operator = agents_dir / "concord-operator.md"
+        introduced_rte = agents_dir / "Concord-RTE.md"
+        introduced_concord = agents_dir / "Concord.md"
+        self.assertEqual(retired_coordinator.read_text(encoding="utf-8"), "agent:concord-coordinator.md:old\n")
+        self.assertEqual(retired_operator.read_text(encoding="utf-8"), "agent:concord-operator.md:old\n")
+        self.assertFalse(introduced_rte.exists())
+        self.assertFalse(introduced_concord.exists())
+
+        self.make_release("v2.0.0", marker="new")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertFalse(retired_coordinator.exists())
+        self.assertFalse(retired_operator.exists())
+        self.assertEqual(introduced_rte.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
+        self.assertEqual(introduced_concord.read_text(encoding="utf-8"), "agent:Concord.md:new\n")
+        # The shipped names have no aliases: neither a lowercase nor a
+        # wrong-case spelling of either new name is placed centrally.
+        self.assertFalse((agents_dir / "concord-rte.md").exists())
+        self.assertFalse((agents_dir / "concord-RTE.md").exists())
+        self.assertFalse((agents_dir / "concord.md").exists())
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertNotIn("concord-coordinator.md", manifest["agent_files"])
+        self.assertNotIn("concord-operator.md", manifest["agent_files"])
+        self.assertIn("Concord-RTE.md", manifest["agent_files"])
+        self.assertIn("Concord.md", manifest["agent_files"])
+        self.assertNotIn("concord-rte.md", manifest["agent_files"])
+        self.assertNotIn("concord-RTE.md", manifest["agent_files"])
+        self.assertNotIn("concord.md", manifest["agent_files"])
+
+    def test_upgrade_rollback_restores_both_retired_files_and_removes_both_new_names(self) -> None:
+        previous = (
+            tuple(name for name in installer.AGENT_FILES if name not in ("Concord-RTE.md", "Concord.md"))
+            + ("concord-coordinator.md", "concord-operator.md")
+        )
+        agents_dir = self.root / "config" / "opencode" / "agents"
+        self.make_release("v1.0.0", marker="old", agent_names=previous)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        retired_coordinator = agents_dir / "concord-coordinator.md"
+        retired_operator = agents_dir / "concord-operator.md"
+        introduced_rte = agents_dir / "Concord-RTE.md"
+        introduced_concord = agents_dir / "Concord.md"
+        old_coordinator = retired_coordinator.read_bytes()
+        old_operator = retired_operator.read_bytes()
+
+        self.make_release("v2.0.0", marker="new")
+        stopped = self.run_after_phase(
+            "agents_swapped", "install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts)
+        )
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        self.assertFalse(retired_coordinator.exists())
+        self.assertFalse(retired_operator.exists())
+        self.assertEqual(introduced_rte.read_text(encoding="utf-8"), "agent:Concord-RTE.md:new\n")
+        self.assertEqual(introduced_concord.read_text(encoding="utf-8"), "agent:Concord.md:new\n")
+
+        recovered = self.run_installer("status")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertEqual(retired_coordinator.read_bytes(), old_coordinator)
+        self.assertEqual(retired_operator.read_bytes(), old_operator)
+        self.assertFalse(introduced_rte.exists())
+        self.assertFalse(introduced_concord.exists())
         self.assertIn('"version": "v1.0.0"', recovered.stdout)
 
     def test_uninstall_removes_central_agents_and_current_symlink(self) -> None:
@@ -3110,6 +3405,9 @@ esac''',
         )
         # Tampered file is preserved; the installer did not silently overwrite.
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
+        self.assertIn("instructions[]", again.stderr)
+        self.assertIn(".opencode/opencode.json", again.stderr)
+        self.assertIn("~/.opencode/opencode.json", again.stderr)
 
 
     def test_install_without_version_picks_highest_artifact_dir_release(self) -> None:
@@ -4269,6 +4567,11 @@ class StandaloneInstallerTest(unittest.TestCase):
     """
 
     def run_standalone(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # The child runs without --root, as the operator does, so it must
+        # inherit an environment whose default roots are private to the suite.
+        overlap = default_root_overlap()
+        if overlap:
+            self.fail("refusing to start a standalone installer on the operator's default roots: " + "; ".join(overlap))
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "concord-installer.py"
             script.write_bytes(SCRIPT.read_bytes())
@@ -4289,6 +4592,8 @@ class StandaloneInstallerTest(unittest.TestCase):
         # status may report nothing installed; it must not fail to start.
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("NameError", result.stderr)
+        # status locks the data root it resolved and leaves it in place.
+        self.assertTrue((Path(os.environ["XDG_DATA_HOME"]) / "concord").is_dir(), result.stderr)
 
     def test_a_failure_to_derive_reports_its_cause(self) -> None:
         """The raise path must name the module, not NameError.

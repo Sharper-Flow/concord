@@ -11,7 +11,11 @@ verification boundary at completion.
 **Amends:** CD-0006 D5 and D10 by extending the approved-mandate pattern from specs
 authorized for modification to end-state required for delivery. Amends the value-statement
 invariant in [`workflows.md`](../workflows.md) §2.1 by giving it a binding counterpart.
-**Research:** [`R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md)
+**Amended:** 2026-10-18. [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
+amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
+[CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
+conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
+**Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 
 ## Context
@@ -46,7 +50,7 @@ approves a **spec mandate** listing exactly which specs a change may modify, exe
 bounded by it, and "completion verifies delivered changes match the approved mandate: no
 silent scope expansion or reduction." CD-0006 D5 places conflict resolution and scope
 decisions at planning under human authority. CD-0006 R1 provides forward-linked successor
-work. CD-0009 D8 forbids automatic conversion of a research conclusion into a binding
+work. CD-0215 D7 forbids automatic conversion of a research conclusion into a binding
 decision. [`specs-as-laws.md`](../specs-as-laws.md) forbids silent scope *contraction*
 under spec-law pressure.
 
@@ -63,6 +67,9 @@ for its instances is a net regression rather than an improvement. That counter-e
 not the supporting evidence, determines the shape below.
 
 ## Decisions
+
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Historical pins retain their operator requirements.
+
 
 ### D1. The outcome contract has three parts with three revision authorities
 
@@ -192,7 +199,7 @@ and it mirrors the three options in [`specs-as-laws.md`](../specs-as-laws.md) §
 | **(b) Revise the end-state** | The operator changes what must be delivered. The prior contract is superseded, not edited, and the item's history retains both. Revision re-enters planning under CD-0006 D5 — which already requires that "a new execution-time conflict stops and returns to planning" — and execution resumes only against the superseding contract. |
 | **(c) Consciously defer** | The operator keeps the approved end-state and records the discovery as separate work. |
 
-Never silent, and never the agent's decision. This extends CD-0009 D8 — "no automatic
+Never silent, and never the agent's decision. This extends CD-0215 D7 — "no automatic
 conversion of a research conclusion into a binding decision" — from research conclusions
 to in-flight discoveries generally.
 
@@ -269,7 +276,7 @@ count, and that is unchanged.
 | Workflow type | Required end-state asserts |
 |---|---|
 | Implementation change | The capability exists and the specified behavior holds. |
-| Architecture spike | An accepted binding decision record exists. The verb is fixed by [`architecture-spike.md`](../architecture-spike.md) §1.1 and §2.3, which make a reached decision the completion criterion and `insufficient evidence` a satisfying decision outcome. CD-0009 D2 reinforces it by distinguishing spikes, which "must publish an accepted binding decision," from research, which "may conclude `no change`"; CD-0009's conformance scenario 9 already requires that an architecture spike cannot complete from a research conclusion alone. |
+| Architecture spike | An accepted binding decision record exists. The verb is fixed by [`architecture-spike.md`](../architecture-spike.md) §1.1 and §2.3, which make a reached decision the completion criterion and `insufficient evidence` a satisfying decision outcome. CD-0215 D2 reinforces it by distinguishing spikes, which "must publish an accepted binding decision," from research, which "may conclude `no change`". |
 | Research / investigation | Findings are recorded. A `no change` conclusion **satisfies** this end-state; it is not a failure, and D3 does not convert it into one. |
 | Ops runbook | The operational postcondition holds, with the step evidence the type requires. |
 | Break-fix | The reproduced defect no longer reproduces. |
@@ -408,7 +415,7 @@ Every document this decision touches or introduces, classified by the force of t
 
 | Document | Change | Class |
 |---|---|---|
-| [`research/R5-goal-to-outcome-binding.md`](../research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
+| [`research/R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
 | [`workflows.md`](../workflows.md) §2.1 | The one-sentence value statement remains and gains a stated limit: it answers why the work matters, not what must be true when it is done. | Binding amendment |
 | [`workflows.md`](../workflows.md) §2.1a | New section defining the outcome contract, plus an `Outcome contract` row in the §2 workflow-type aspect table. | Binding amendment |
 | [`design-constraints.md`](../design-constraints.md) §10 | Completion criteria declared by a workflow type must include an outcome contract. | Binding amendment |

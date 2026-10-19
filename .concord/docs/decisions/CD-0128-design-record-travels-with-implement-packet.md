@@ -13,6 +13,9 @@ The implementation workflow has a design step, but `record_design` carried no ty
 
 ## Decision
 
+For `approval_policy=consequence_v1`, a design correction travels with an attributed contract supersession without a separate operator signature. The complete design record, contract binding, packet projection, and audit evidence remain required. Human consent follows CD-0013 D11; historical pins retain their approval rule.
+
+
 `record_design` is a typed workflow action in the next implementation definition version. Its durable record contains an approach, one to sixteen typed decisions, and one to sixty-four touched references.
 
 The continuity projection exposes the latest current design record. A contract

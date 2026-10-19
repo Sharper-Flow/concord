@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -546,7 +547,7 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 				continue
 			}
 			key := [2]string{overlap.FromWorkID, overlap.ToWorkID}
-			if seen[key] || (req.Domain != "" && !containsString(overlap.SharedAffectedDomainIDs, req.Domain)) {
+			if seen[key] || (req.Domain != "" && !slices.Contains(overlap.SharedAffectedDomainIDs, req.Domain)) {
 				continue
 			}
 			seen[key] = true

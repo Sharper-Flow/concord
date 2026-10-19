@@ -612,7 +612,7 @@
   {
    "id": "AJ5-resolve-domain-overlap",
    "job_id": "AJ5",
-   "instruction": "Authorize work-1 and work-2 to proceed concurrently after confirming their current Domain overlap is compatible.",
+   "instruction": "Record the compatible overlap answer for work-1 and work-2 unsigned, and settle the destructive merged_into control through one consumed operator approval.",
    "initial_state": {
     "fixture": "domain-overlap",
     "idempotency_seed": "compatible-work-1-work-2"
@@ -649,6 +649,18 @@
      {
       "target": "authority",
       "path": "operator_approval_consumed",
+      "op": "eq",
+      "value": false
+     },
+     {
+      "target": "state",
+      "path": "destructive_control.resolution_kind",
+      "op": "eq",
+      "value": "merged_into"
+     },
+     {
+      "target": "state",
+      "path": "destructive_control.operator_approval_consumed",
       "op": "eq",
       "value": true
      },

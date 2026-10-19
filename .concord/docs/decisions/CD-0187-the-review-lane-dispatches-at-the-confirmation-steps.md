@@ -31,6 +31,9 @@ hold rule that the amended join implies.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, confirmation-step review dispatch remains routine and correction supersession requires no operator signature. Human confirmation depends on the recorded decision domains, not the step-kind label. Review acceptance cannot itself confirm a premise, create evaluator independence, or bypass acceptance deliverables. Historical pins retain their original human gates.
+
+
 ### D1. The review class binds the confirmation steps
 
 The `review` binding gains `human_checkpoint`. No other capability class gains

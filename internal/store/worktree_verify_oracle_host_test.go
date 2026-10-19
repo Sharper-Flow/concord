@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestNativeTargetAxisRootDotManifest(t *testing.T) {
 		t.Fatalf("root '.' pytest manifest refused: %v", err)
 	}
 	witnesses, err := nativeTargetSelector(m, c)
-	if err != nil || !slicesEqualStrings(witnesses, []string{"tests/test_value.py::test_value"}) {
+	if err != nil || !slices.Equal(witnesses, []string{"tests/test_value.py::test_value"}) {
 		t.Fatalf("root '.' selector %v err=%v", witnesses, err)
 	}
 	none := nativeTargetOracleManifest{
@@ -466,11 +467,11 @@ func TestNativeTargetAxisStageWitnessOrdinal(t *testing.T) {
 	plan := &nativeTargetOraclePlan{Recipe: shared}
 	sharedArgv := []string{"bash", "scripts/check.sh", "--expected", "7"}
 	first, err := nativeTargetStageWitnesses(plan, control, sharedArgv, 0)
-	if err != nil || !slicesEqualStrings(first, []string{"shell-first"}) {
+	if err != nil || !slices.Equal(first, []string{"shell-first"}) {
 		t.Fatalf("ordinal 0 named %v err=%v", first, err)
 	}
 	second, err := nativeTargetStageWitnesses(plan, control, sharedArgv, 1)
-	if err != nil || !slicesEqualStrings(second, []string{"shell-second"}) {
+	if err != nil || !slices.Equal(second, []string{"shell-second"}) {
 		t.Fatalf("ordinal 1 folded the second shared invocation into %v err=%v", second, err)
 	}
 	for _, ordinal := range []int{-1, 2} {
@@ -490,7 +491,7 @@ func TestNativeTargetAxisStageWitnessOrdinal(t *testing.T) {
 	pytestPlan := &nativeTargetOraclePlan{Recipe: pytest}
 	pytestArgv := []string{"pytest", "tests/test_value.py::test_value", "-ra"}
 	witnesses, err := nativeTargetStageWitnesses(pytestPlan, controlPytest, pytestArgv, 0)
-	if err != nil || !slicesEqualStrings(witnesses, []string{"tests/test_value.py::test_value"}) {
+	if err != nil || !slices.Equal(witnesses, []string{"tests/test_value.py::test_value"}) {
 		t.Fatalf("pytest ordinal 0 named %v err=%v", witnesses, err)
 	}
 	if _, err := nativeTargetStageWitnesses(pytestPlan, controlPytest, []string{"pytest", "tests/other.py::test_value", "-ra"}, 0); err == nil {
@@ -505,11 +506,11 @@ func TestNativeTargetAxisStageArgvLiteralArgs(t *testing.T) {
 	p := &nativeTargetOraclePlan{Environment: nativeTargetEnvironment{Materializer: nativeTargetMaterializerNone, Bash: "/bin/bash", Python: "/usr/bin/python3", UV: "/bin/uv"}}
 	argv := nativeTargetStageArgv(p, "/scratch", []string{"bash", "scripts/check.sh", "--expected", "7", "pytest", "uv", "python3"})
 	want := []string{"/bin/bash", "scripts/check.sh", "--expected", "7", "pytest", "uv", "python3"}
-	if !slicesEqualStrings(argv, want) {
+	if !slices.Equal(argv, want) {
 		t.Fatalf("literal data arguments were rewritten: %v", argv)
 	}
 	staged := nativeTargetStageArgv(p, "/scratch", []string{"pytest", "--junitxml=$scratch/junit-0.xml"})
-	if !slicesEqualStrings(staged, []string{"/scratch/venv/bin/pytest", "--junitxml=/scratch/junit-0.xml"}) {
+	if !slices.Equal(staged, []string{"/scratch/venv/bin/pytest", "--junitxml=/scratch/junit-0.xml"}) {
 		t.Fatalf("producer scratch substitution lost: %v", staged)
 	}
 }
@@ -633,7 +634,7 @@ func TestNativeTargetAxisDependencyClosureDigest(t *testing.T) {
 func TestNativeTargetAxisSelector(t *testing.T) {
 	m, c := nativeTargetTestManifest()
 	witnesses, err := nativeTargetSelector(m, c)
-	if err != nil || !slicesEqualStrings(witnesses, []string{"tests/test_value.py::test_value"}) {
+	if err != nil || !slices.Equal(witnesses, []string{"tests/test_value.py::test_value"}) {
 		t.Fatalf("selector %v err=%v", witnesses, err)
 	}
 	c.Argv = []string{"pytest", "tests/other.py::test_value"}
@@ -670,18 +671,6 @@ func TestNativeTargetAxisSelector(t *testing.T) {
 	if _, err := nativeTargetSelector(chk, chkC); err == nil {
 		t.Fatal("unsorted check selector was admitted")
 	}
-}
-
-func slicesEqualStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // budgetWitnesses renders n zero-padded witnesses under one pinned harness
@@ -823,7 +812,7 @@ func TestNativeTargetStageBudgetMatchesGeneratedResultBound(t *testing.T) {
 func TestNativeTargetAxisPytestCollectParser(t *testing.T) {
 	good := []byte("tests/test_value.py::test_value\n\n1 test collected in 0.01s\n")
 	collected, err := nativeTargetPytestCollectOutput(good)
-	if err != nil || !slicesEqualStrings(collected, []string{"tests/test_value.py::test_value"}) {
+	if err != nil || !slices.Equal(collected, []string{"tests/test_value.py::test_value"}) {
 		t.Fatalf("collect %v err=%v", collected, err)
 	}
 	for name, bad := range map[string]string{
@@ -1219,7 +1208,7 @@ func pytestScopeAssertStages(t *testing.T, root, phase string, plan *nativeTarge
 		t.Fatalf("root %s %s rendered %d stages, want %d", root, phase, len(stages), len(want))
 	}
 	for i := range want {
-		if stages[i].Name != want[i].Name || !slicesEqualStrings(stages[i].Argv, want[i].Argv) {
+		if stages[i].Name != want[i].Name || !slices.Equal(stages[i].Argv, want[i].Argv) {
 			t.Fatalf("root %s %s stage %d = %s %v, want %s %v", root, phase, i, stages[i].Name, stages[i].Argv, want[i].Name, want[i].Argv)
 		}
 	}

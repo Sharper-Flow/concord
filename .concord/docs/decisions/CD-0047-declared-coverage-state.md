@@ -3,13 +3,16 @@
 - **Status:** Accepted
 - **Date:** 2026-08-20
 - **Scope:** What counts as proof that accepted law is implemented; what counts
-  as proof that store mechanism is reachable; the shared state vocabulary both
-  use; issue #219
+  as proof that store mechanism is reachable; the shared state vocabulary;
+  removal of dead code, instructions, and outdated documentation
 - **Approval:** Operator accepted the drafted decision on 2026-08-20; the public
-  record is [issue #219](https://github.com/Sharper-Flow/concord/issues/219)
+  record is [issue #219](https://github.com/Sharper-Flow/concord/issues/219).
+  The operator approved the exact amendment text for
+  [Concord (CON) issue 1164](https://linear.app/sharper-flow/issue/CON-1164).
 - **Related:** CD-0026 (learning capture and the drift audit), CD-0021 (floor
   condition scope), CD-0010 (pre-readiness development authority), CD-0013 D11
-  (reserved workflow action surface),
+  (reserved workflow action surface), CD-0036 (law supersession), CD-0055
+  (structural enforcement), CD-0222 D3 (law-graph pruning),
   [`floor-readiness.md`](../floor-readiness.md),
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** the floor-readiness state vocabulary and its state-conditional
@@ -19,45 +22,19 @@
 
 ## Context
 
-Two mechanisms in this repository state a purpose and check something adjacent
-to it.
+Record integrity and implementation evidence answer different questions. A hash
+proves that a document has not changed; it does not prove that the implementation
+still meets the document. Typed executable anchors carry that second claim.
 
-`scripts/check-knowledge-index.py:339-341` says it fires "before the recorded
-law and the current implementation drift apart silently." The check eleven
-lines below is `target.is_file()`. Path existence. An unrelated or vacuous file
-satisfies the same structural shape. The `sha256` pin beside it proves the
-document has not changed, which is a different proposition: code drifts away
-from a frozen document and every hash still verifies.
+`cmd/concord` is the runtime entry set. The OpenCode adapter reaches Go through
+the binary. Callgraph analysis distinguishes runtime-reachable functions from
+test seams, build-time accessors, and unused code; declared exceptions explain
+current obligations outside that entry set.
 
-`.concord/docs/workflow-engine-contract.md` documents `edge_class`,
-`severity`, and `edge_kind` vocabularies that
-`contracts/workflow-engine-scenarios.schema.json` closes independently, and
-nothing compares them.
-
-The second mechanism is absent rather than weak. `go run
-golang.org/x/tools/cmd/deadcode -test=false ./cmd/...` reports 128 functions
-unreachable from the CLI entrypoint, 111 of them in `internal/store`.
-`cmd/concord` is the complete entry set — the OpenCode adapter reaches Go only
-by executing the binary — so those functions cannot be invoked by any operator
-or agent action.
-
-Some of that is correct. CD-0013 D11 keeps `workflow_action` reserved until the
-engine ships, so `WorkflowActionAvailable` being unreachable is accepted law
-working as intended. Some of it is not: `Backup`, `VerifyBackup`, and
-`RestoreBackup` are unreachable while #187 requires a black-box acceptance path
-covering backup and restore. Nothing distinguishes the two, so neither is
-visible.
-
-Both gaps have one cause. CD-0010 forbids Concord from coordinating its own
-development before replacement readiness, so the system that would meter
-work-in-flight is the system being built. Law accretes at decision speed,
-mechanism accretes at implementation speed, and neither is metered against
-reachable product.
-
-This decision does not treat the resulting inventory as waste. Most store
-mechanism not reachable from the product is exercised by store tests — built
-and proven, not connected. The defect is that the disconnection is undeclared,
-so its size is discoverable only by someone who thinks to measure it.
+Both planes must inventory their full subject set. Checking only declared rows
+hides omissions, while keeping superseded code and prose hides which design is
+current. The repository needs evidence for what it keeps and removal of what
+no longer serves the accepted design.
 
 ## Decision
 
@@ -68,10 +45,8 @@ itself, rather than iterating whatever the manifest happens to list. Every
 subject in that set must carry a declared state. A subject the manifest does
 not mention is a finding.
 
-This is the property neither existing mechanism has. `check-knowledge-index.py`
-iterates the records the manifest declares, so a CD that is simply absent is
-invisible. A coverage manifest that can omit its hard cases proves nothing, and
-would be a third mechanism whose stated purpose exceeds its guarantee.
+A coverage manifest that can omit its hard cases proves nothing. Record
+integrity alone cannot establish the complete subject set.
 
 The inverse is equally a finding. A declared exception that has become covered
 is stale, and stale exceptions silently widen over time.
@@ -89,8 +64,8 @@ what differs is how a `satisfied` claim is proved, not what the states mean.
 Inventing a second enum for the same idea would reproduce, in the mechanism
 built to close drift, the drift it exists to close.
 
-`out_of_scope` is what makes reserved mechanism legal. CD-0013 D11's reserved
-surface is declared, not excused. `outstanding` is what makes an unbound
+`out_of_scope` declares a current obligation outside the analysis entry set.
+It does not authorize dead code. `outstanding` is what makes an unbound
 decision legal while it is being bound: prose-only law stays legal when it is
 declared prose-only. The failure mode is the undeclared case, never the case
 itself.
@@ -111,21 +86,18 @@ check:
 A scenario that sits in a corpus while a harness records it as deferred is
 executed by nothing. Accepting one would let presence stand in for enforcement
 inside the mechanism built to separate them, so the resolver reads the same
-deferral registry the corpus test reads. Three `AJ8` scenarios are deferred
-today, and one of them was proposed as evidence during the initial seeding.
+deferral registry the corpus test reads.
 
-A repository path is not an anchor. Paths are what the current drift audit
-accepts, and accepting them here would restate the defect in new syntax.
+A repository path is not an anchor. Presence alone does not prove behavior.
 
 The set is closed and stays minimal: a kind with no use is vocabulary nobody
-checks. A drafted `schema_pointer` kind was removed before this decision landed
-because no record needed it, and it can return with its first real use.
+checks. A new kind requires a current use and a resolver.
 
 ### D4. Reachability is computed; only exceptions are declared
 
 Law binding is a human claim — which test proves which decision cannot be
-derived. Reachability is not: `deadcode` derives it from a real callgraph in
-roughly eleven seconds, and does so correctly for the method plus
+derived. Reachability is not: `deadcode` derives it from a real callgraph,
+including the method plus
 tx-scoped-core pairs throughout `internal/store` that defeat textual analysis.
 
 So the code plane declares only its exceptions. The validator runs the
@@ -136,8 +108,8 @@ the manifest to disagree with the code.
 An exception may cover several symbols under one reason where a single accepted
 decision governs them, because that is how the reasons actually cluster.
 
-`deadcode` runs as a pinned `go run`, adding no module dependency —
-the precedent `.github/workflows/ci.yml:56` already sets for `govulncheck`.
+`deadcode` runs as a pinned `go run`, adding no module dependency, as the
+pinned `govulncheck` run in `.github/workflows/nightly.yml` does.
 
 ### D5. Declaring is not binding, and this decision only requires declaring
 
@@ -151,6 +123,51 @@ event that lets Concord meter itself at all. The manifest is what stops the gap
 growing while that work proceeds; closing the gap is incremental and follows
 the floor rather than preceding it.
 
+### D6. Dead and superseded material has zero tolerance
+
+Concord keeps only material that serves its current accepted design. This rule
+covers production code, tests, fixtures, scripts, instructions, generated agents,
+documentation, and law records. The change that replaces a mechanism removes
+its unused branches, aliases, instructions, and descriptions in the same change.
+Git history holds replaced designs; a retained file is not an archive.
+
+A test or fixture stays when it proves current behavior, including rejection of
+retired input. Remove obsolete expectations, not assertions that still protect
+the current contract. Never delete validation, error handling, or observability
+merely to reduce the finding count. Generated artifacts change through their
+source and generator, not by hand.
+
+Law keeps one canonical current statement per obligation. A compatible amendment
+edits the owning record in place and states only the current rule. A breaking
+replacement keeps the old record as `superseded` because CD-0036 quiescence and
+CD-0222 D3 read that supersession; the record leaves the current-law view, and
+its callers and citations move to the successor. A non-law document that claims
+to describe the current design but has been fully replaced is deleted with its
+manifest and coverage shards. Git history holds its earlier text. Historical
+research and lessons that still serve current evidence are not obsolete design
+descriptions; their historical text is not rewritten under CD-0222 D1.
+
+Required checks refuse mechanically established gaps: undeclared unreachable Go
+functions and packages, unprocessed knowledge documents, missing cited files or
+Go tests, and drift from generated registries.
+The citation resolver covers accepted law, published knowledge, and shipped
+instructions. The installer tests bind the shipped instruction list to
+`.concord/instructions/`; the lane generator refuses drift in each agent
+definition it projects and any `.opencode/agents/` file it does not project.
+These are structural or real-tool
+checks under CD-0055, not judgments based on words such as legacy or obsolete.
+
+A declared reachability exception is valid only for a current obligation outside
+the CLI callgraph, such as a used test seam, a generator, or accepted audit
+reconstruction. A hypothetical user, an old fixture, or the effort of deletion
+does not justify retaining dead code. D1 still rejects stale exceptions.
+
+Review decides whether prose describes the current design and whether a retained
+mechanism still has a purpose. CI does not claim to infer either from keywords.
+An existing cleanup that cannot land safely with the enforcement change receives
+an owned Linear follow-up naming the exact finding and its removal end state.
+That follow-up does not waive a required check or excuse new dead material.
+
 ## Consequences
 
 1. The size of both gaps becomes a CI-visible number rather than the result of
@@ -161,11 +178,10 @@ the floor rather than preceding it.
    that it is not yet proved and naming the issue.
 4. `deadcode` output is pinned by version. A toolchain upgrade that changes the
    analysis surfaces as a manifest diff, which is the correct place to see it.
-5. #187 and #181 become instances of this mechanism rather than separate
-   arguments about evidence strength.
-6. The initial seeding is a large, mostly mechanical diff. It is also the first
-   honest inventory of both gaps, and reviewing it is the point rather than a
-   cost of it.
+5. A change that replaces code, an instruction, or a document carries the
+   removal of what it replaced; a later cleanup round is not the default path.
+6. A citation in current law, published knowledge, or a shipped instruction to
+   a deleted file or Go test fails the required doc contract.
 
 ## Rejected alternatives
 
@@ -199,3 +215,11 @@ would fail on every unrelated edit while still not proving the document is true.
 - The reachability step fails on an undeclared unreachable function, and on a
   declared exception that is now reachable.
 - Both validators run in `.github/workflows/ci.yml`.
+- `scripts/check-knowledge-closure.py` refuses unprocessed documents in strict
+  mode.
+- `scripts/check-doc-contract.py` resolves current citations in accepted law,
+  published knowledge, and shipped instructions; `scripts/test-doc-contract.py`
+  proves the refusal and the passing counterpart for each population.
+- `scripts/generate-agent-lanes.py --check` refuses unprojected agent definitions;
+  `scripts/test-generate-agent-lanes.py` proves the refusal and the passing
+  counterpart in `AgentDirectoryInventoryTests`.

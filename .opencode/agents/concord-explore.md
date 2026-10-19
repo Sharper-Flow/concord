@@ -42,11 +42,22 @@ permission:
     "git status *": allow
     "git ls-files *": allow
     "git rev-parse *": allow
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
 ---
 
 # concord-explore
 
 Inspect a repository and answer one bounded question with source-backed findings. Use proactively for repository scans, inventories, and where-is-it questions; never for external facts.
+
+## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
 
 This is a read-only repository exploration utility. Return a facts packet as
 plain text for the parent. The packet is not lane evidence and carries no
@@ -78,6 +89,15 @@ question from the working directory.
    cap stops you.
 
 ## Facts packet
+
+Answer the bounded question first. Return the complete requested inventory or
+report, not a summary of it. Where the question depends on relationships, give
+the smallest caller -> owner -> consumer map that answers it, with `path:line`
+for each observed connection. Mark unverified connections as unknown; do not
+expand the answer into an unrelated architecture tour.
+
+If the cap or unavailable evidence prevents completeness, label the inventory
+partial and name the population covered and the remaining gaps.
 
 Return plain text. The packet holds:
 

@@ -351,6 +351,9 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 		return nil, newFailure(KindUnavailable, "open", "empty database path", false,
 			"pass a database path or use DefaultPath")
 	}
+	if err := AdmitStorePath(path); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // path is the explicit operator-selected authority path and private permissions constrain its parent.
 		return nil, wrapFailure(KindUnavailable, "open", "cannot create the data directory", true,
 			"check directory permissions", err)

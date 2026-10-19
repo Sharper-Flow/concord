@@ -24,7 +24,7 @@ try {
   // runs with the original HOME; telemetry is already private and off.
   const go = Bun.which("go")
   if (go) {
-    const result = Bun.spawnSync([go, "env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE", "GOENV"])
+    const result = Bun.spawnSync([go, "env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE", "GOENV"], { env: { ...process.env } })
     if (result.exitCode !== 0) throw new Error(`testenv: go env failed: ${result.stderr.toString()}`)
     Object.assign(process.env, JSON.parse(result.stdout.toString()))
   }

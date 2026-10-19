@@ -1,6 +1,6 @@
 ---
 description: Concord research lane — Investigate bounded questions and return source-backed findings. Dispatch through dispatch_worker when a workflow step owes recorded research findings the contract can bind. Does not edit repository source.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false
@@ -41,6 +41,13 @@ Investigate bounded questions and return source-backed findings. Dispatch throug
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
+
+## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
 
 ## Repository edit boundary
 

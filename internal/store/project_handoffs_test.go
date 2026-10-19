@@ -880,21 +880,12 @@ func recordHandoffSessionActor(t *testing.T, f projectHandoffFixture, sessionRef
 	if recorded == 1 {
 		return actorRef
 	}
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	event := workflowEventWithActor("ph-actor-"+sessionRef, WorkflowActorRecorded, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"})
 	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
 		t.Fatal(err)
 	}
 	return actorRef
-}
-
-func fixtureWorkVersion(t *testing.T, s *Store, workID string) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 // seedSessionOwnedDispatchedAttempt drives the real dispatch authorization
@@ -921,7 +912,7 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 		t.Fatal(err)
 	}
 	epoch := startedCount + 1
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	lane := BuiltinLaneDefinitions()[0]
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	identity := workerFixtureWorktreeIdentity(t, f.store, f.workID)
@@ -1426,7 +1417,7 @@ func TestRetirementDriftRefusesReadinessOnContractReplacementBetweenProbeAndFina
 	if ready.State != RetirementReady {
 		t.Fatalf("retirement=%+v, want readiness before any interleaved change", ready)
 	}
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	drifted := retireWithProbeInterleave(t, f, func() {
 		seedReplacementProjectHandoffContract(t, f.store, f.workID, version)
 	})
@@ -1502,7 +1493,7 @@ func TestRetirementDriftRefusesReadinessOnSourceClaimChangeBetweenProbeAndFinalR
 	if ready.State != RetirementReady {
 		t.Fatalf("retirement=%+v, want readiness before any interleaved change", ready)
 	}
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	drifted := retireWithProbeInterleave(t, f, func() {
 		if _, err := f.store.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 			WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
@@ -1605,7 +1596,7 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 	// The source Project claims its own worktree on THIS work: the record
 	// binds artifact preservation to the named work's claimed source, so a
 	// claim on a different work cannot stand in for it.
-	reviewSourceVersion := fixtureWorkVersion(t, f.store, work)
+	reviewSourceVersion := readWorkVersion(t, f.store, work)
 	reviewSourceBase, err := (ExecGitRunner{}).Run(ctx, f.sourceTree, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -1619,7 +1610,7 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "review-claim", WorkID: work, ProjectID: f.targetProject, BaseSHA: strings.TrimSpace(string(base)), PrincipalRef: "principal-2", RequestID: "review-claim", SessionRef: f.targetSession, HostPID: os.Getpid(), ExpectedVersion: fixtureWorkVersion(t, f.store, work), Now: time.Unix(50, 0).UTC()})
+	claim, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "review-claim", WorkID: work, ProjectID: f.targetProject, BaseSHA: strings.TrimSpace(string(base)), PrincipalRef: "principal-2", RequestID: "review-claim", SessionRef: f.targetSession, HostPID: os.Getpid(), ExpectedVersion: readWorkVersion(t, f.store, work), Now: time.Unix(50, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1862,7 +1853,7 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	if _, err := f.store.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
 		RequestID: "ph-reclaim-w", ExpectedVersion: version, Now: time.Unix(45, 0).UTC(), Runner: ExecGitRunner{},
@@ -1951,7 +1942,7 @@ func TestReclaimedClaimAfterVacateRecordsItsOwnFirstLanding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	if _, err := f.store.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: f.workID, ProjectID: f.targetProject, DefaultRef: "origin/main", PrincipalRef: "principal-2",
 		RequestID: "ph-reclaim-e", ExpectedVersion: version, Now: time.Unix(52, 0).UTC(), Runner: ExecGitRunner{},
@@ -2103,7 +2094,7 @@ func TestRecordProjectHandoffBindsPreservationToTheClaimedSourceWorktree(t *test
 	}
 	// Retiring the claim leaves no active source claim: the record refuses
 	// instead of trusting the supplied path.
-	version := fixtureWorkVersion(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
 	if _, err := f.store.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: f.workID, ProjectID: f.sourceProject, DefaultRef: "origin/main", PrincipalRef: "principal-1",
 		RequestID: "ph-bind-reclaim", ExpectedVersion: version, Now: time.Unix(50, 0).UTC(), Runner: ExecGitRunner{},
@@ -2161,7 +2152,7 @@ func TestProjectHandoffIdentityStaysWithinThePublishedIDBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedProjectHandoffLaw(t, s, "product-id", longSource)
-	seedProjectHandoffContract(t, s, longWork, fixtureWorkVersion(t, s, longWork))
+	seedProjectHandoffContract(t, s, longWork, readWorkVersion(t, s, longWork))
 	baseOut, err := ExecGitRunner{}.Run(ctx, repo, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -2169,7 +2160,7 @@ func TestProjectHandoffIdentityStaysWithinThePublishedIDBound(t *testing.T) {
 	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 		OpID: "ph-id-claim", WorkID: longWork, ProjectID: longSource,
 		BaseSHA: strings.TrimSpace(string(baseOut)), PrincipalRef: "principal-1", RequestID: "ph-id-req",
-		ExpectedVersion: fixtureWorkVersion(t, s, longWork), Now: time.Unix(10, 0).UTC(),
+		ExpectedVersion: readWorkVersion(t, s, longWork), Now: time.Unix(10, 0).UTC(),
 	})
 	if err != nil {
 		t.Fatal(err)

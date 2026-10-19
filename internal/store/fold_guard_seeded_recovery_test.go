@@ -7,7 +7,13 @@ import (
 	"time"
 )
 
-// Every seed statement inserts one row whose identifiers carry the rblSeed
+var (
+	rblDigest = "sha256:" + strings.Repeat("a", 64)
+	rblActor  = "actor:" + strings.Repeat("a", 64)
+	rblStamp  = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+)
+
+// Every seed statement inserts one row whose identifiers carry the "rbl"
 // prefix, so the post-rebuild assertions can tell a seeded row from a row the
 // replay restored. Seeds attach to the two work items the log restores
 // (work-rbl, work-rbl2) and to the product and project the log restores.
@@ -19,14 +25,7 @@ import (
 // edges), which exercise the dependency order of the clear. Active research is
 // seeded too, and must survive: it is direct-table authority the rebuild
 // snapshots and restores, never clears.
-const rblSeed = "rbl"
-
-var (
-	rblDigest = "sha256:" + strings.Repeat("a", 64)
-	rblActor  = "actor:" + strings.Repeat("a", 64)
-	rblStamp  = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
-)
-
+//
 // rblSeedStatements maps each seeded table to one INSERT. Order matters: a
 // row may only name parents seeded earlier in this list. The test fails when
 // the clear list gains a RESTRICT-FK table this map does not seed.

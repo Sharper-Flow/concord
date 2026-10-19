@@ -173,8 +173,8 @@ func overrideCommitRepo(t *testing.T, anchorBody string, anchorSHA string) (stri
 	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/manifest.json", string(encoded)+"\n")
 	anchor := canonicalAnchorShard()
 	anchor["sha256"] = anchorSHA
-	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/records/CD-0001.json", string(shardJSON(t, anchor))+"\n")
-	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/records/external-reference.json", string(shardJSON(t, externalShard("external-reference", "external/knowledge/reference.md")))+"\n")
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/records/CD-0001.json", string(mustJSONRaw(t, anchor))+"\n")
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/records/external-reference.json", string(mustJSONRaw(t, externalShard("external-reference", "external/knowledge/reference.md")))+"\n")
 	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0001-override.md", anchorBody)
 	writeKnowledgeFile(t, repo, "external/knowledge/reference.md", "external knowledge body\n")
 	return repo, commitKnowledgeRepo(t, repo, "override-backed manifest")

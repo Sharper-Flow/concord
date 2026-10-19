@@ -71,6 +71,17 @@ class WorkSizesFixture(unittest.TestCase):
         self.edit("internal/store/schema.go", "size_class TEXT NOT NULL " + STORED_CHECK, "size_class TEXT NOT NULL")
         self.assertTrue(any(item.startswith("migration-check-coverage:") for item in self.findings()))
 
+    def test_override_check_drift_is_reported(self) -> None:
+        self.edit(
+            "internal/store/schema.go",
+            STORED_CHECK + ",\n    recorded_at TEXT NOT NULL,\n    FOREIGN KEY",
+            "CHECK(size_class IN ('small','larger')),\n    recorded_at TEXT NOT NULL,\n    FOREIGN KEY",
+        )
+        findings = self.findings()
+        self.assertEqual([item for item in findings if item.startswith("migration-check-closure:")], [
+            "migration-check-closure: work_size_overrides expected ['small', 'larger', 'crucial'], got ['small', 'larger']",
+        ])
+
     def test_contract_size_without_stored_value_is_reported(self) -> None:
         path = self.root / "contracts/work-sizes.v1.json"
         vocabulary = json.loads(path.read_text(encoding="utf-8"))
@@ -119,6 +130,24 @@ class WorkSizesFixture(unittest.TestCase):
             document["$defs"]["work_size_inputs"]["additionalProperties"] = True
         self.edit_json("contracts/agent-tool-surface-payloads.schema.json", open_object)
         self.assertTrue(any("is not closed" in item for item in self.findings()))
+
+    def test_size_class_enum_drift_is_reported(self) -> None:
+        def drop(document) -> None:
+            document["$defs"]["work_size_class"]["enum"].remove("crucial")
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", drop)
+        self.assertTrue(any(item.startswith("schema-closure: work_size_class") for item in self.findings()))
+
+    def test_operator_size_off_the_vocabulary_is_reported(self) -> None:
+        def inline(document) -> None:
+            document["$defs"]["work_define_revise_input"]["properties"]["operator_size"] = {"type": "string"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", inline)
+        self.assertTrue(any("work_define_revise_input.operator_size" in item for item in self.findings()))
+
+    def test_revise_size_inputs_off_the_closed_object_is_reported(self) -> None:
+        def inline(document) -> None:
+            document["$defs"]["work_define_revise_input"]["properties"]["size_inputs"] = {"type": "object"}
+        self.edit_json("contracts/agent-tool-surface-payloads.schema.json", inline)
+        self.assertTrue(any("work_define_revise_input.size_inputs" in item for item in self.findings()))
 
 
 if __name__ == "__main__":

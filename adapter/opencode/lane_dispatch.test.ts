@@ -37,20 +37,8 @@ afterEach(() => {
 
 // The lane dispatcher reaches the Opencode plugin through ToolContext (typed
 // only) and the dispatch worker through dispatchWorker, but the test never
-// executes the real plugin path. The stub mirrors concord.test.ts so the
+// executes the real plugin path. With the shared stub the
 // suite never loads the real host module.
-function schemaBuilder() {
-  return {
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta() { return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: schemaBuilder, array: schemaBuilder, record: schemaBuilder, union: schemaBuilder, literal: schemaBuilder,
-    string: schemaBuilder, number: schemaBuilder, unknown: schemaBuilder, null: schemaBuilder,
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
@@ -58,6 +46,7 @@ const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
+import { fakeTool } from "./plugin-tool.fixture"
 const { dispatchAttemptID, dispatchLaneWorker } = await import("./lane_dispatch")
 const { laneDispatchRequest } = await import("./concord")
 

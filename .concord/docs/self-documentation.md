@@ -1,6 +1,6 @@
 # Concord Self-Documentation
 
-> **Status:** Aligned v4 with CD-0006/CD-0041. Companion to [`README.md`](./README.md),
+> **Status:** Aligned v4 with CD-0006/CD-0222. Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`product-data-model.md`](./product-data-model.md),

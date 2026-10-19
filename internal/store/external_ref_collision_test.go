@@ -68,16 +68,14 @@ func TestWorkCreatedExternalRefAcknowledgementRecordsRaisedFrom(t *testing.T) {
 	if from != "work-second" || to != "work-first" || kind != "raised_from" {
 		t.Fatalf("raised_from relation = %s -> %s (%s)", from, to, kind)
 	}
-	var asOf int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events`).Scan(&asOf); err != nil {
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild acknowledged work: %v", err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT work_id_from,work_id_to,kind FROM relations WHERE work_id_from='work-second'`).Scan(&from, &to, &kind); err != nil {
 		t.Fatal(err)
 	}
-	reconstructed, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, "work-second"), asOf, PurposeAudit)
-	if err != nil {
-		t.Fatalf("reconstruct acknowledged work: %v", err)
-	}
-	if len(reconstructed.Relations) != 1 || reconstructed.Relations[0].Target != "work-first" || reconstructed.Relations[0].Kind != "raised_from" {
-		t.Fatalf("reconstructed relations = %+v", reconstructed.Relations)
+	if from != "work-second" || to != "work-first" || kind != "raised_from" {
+		t.Fatalf("rebuilt raised_from relation = %s -> %s (%s)", from, to, kind)
 	}
 }
 

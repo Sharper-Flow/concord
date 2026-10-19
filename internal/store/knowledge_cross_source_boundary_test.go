@@ -65,7 +65,7 @@ func TestTransactionalLawBoundaryRequiresSourceSetProof(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, source); err == nil {
 		t.Fatal("setup: conflict rebuild succeeded")
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("setup: public read did not reject stale source")
 	}
 	tx, err = s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -111,7 +111,7 @@ func TestCrossSourceRelationTargetRemovalRefusesBoundary(t *testing.T) {
 	if _, err := s.RemoveProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "relation-remove-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, ExpectedVersion: 2, Reason: "remove target"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW"}, nil, false); err == nil {
 		t.Fatal("consequential boundary accepted HOME-LAW after its cross-source relation target left the source set")
 	}
 }
@@ -357,7 +357,7 @@ func TestVerifiedSourceSetProofRefusesLaterConflict(t *testing.T) {
 	}
 	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "HOME-LAW", SourceProjectID: home.HomeProjectID}})
 	commitKnowledgeRepo(t, source.RepoPath, "conflict after source-set verification")
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("setup: the public read did not reject the stale source set")
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(verified, nil)

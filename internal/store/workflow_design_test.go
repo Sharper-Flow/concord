@@ -102,7 +102,7 @@ func testContractDesignCorrectionRebuild(t *testing.T, replace bool) {
 	if err != nil || entry.Digest != definition.Digest {
 		t.Fatalf("correction changed the definition: %+v, %v", entry, err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

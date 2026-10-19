@@ -10,38 +10,88 @@ import (
 )
 
 // CD-0173 D2: the comparison-work count and the investigation-ref reads
-// answer one question and must run in one read transaction. The operator
-// question reader therefore opens its own read-only snapshot and every read
-// below flows through it; no read may bypass the transaction through the
-// store handle. This structural check fails when a read is reattached to
-// s.db, because a behavioral test cannot interleave a writer between two
-// reads of one serialized call.
+// answer one question and must run in one read transaction. ReadWorkPin
+// opens the one read-only snapshot for the pin read, and every read below
+// it flows through that snapshot; no read may bypass the
+// transaction through the store handle. This structural check fails when a
+// read is reattached to s.db, because a behavioral test cannot interleave a
+// writer between two reads of one serialized call. It also fails when the
+// workflow projection reads the question on any queryer but the one its
+// caller's snapshot supplied.
 func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
-	sourcePath := filepath.Join(filepath.Dir(thisFile), "workflow_operator.go")
+	storeDir := filepath.Dir(thisFile)
+
+	ownerPath := filepath.Join(storeDir, "workpin.go")
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, sourcePath, nil, 0)
+	ownerFile, err := parser.ParseFile(fset, ownerPath, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var body *ast.BlockStmt
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkflowOperatorQuestion" {
-			body = fn.Body
+	var ownerBody *ast.BlockStmt
+	for _, decl := range ownerFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ReadWorkPin" {
+			ownerBody = fn.Body
 			break
 		}
 	}
-	if body == nil {
-		t.Fatal("ReadWorkflowOperatorQuestion not found in internal/store/workflow_operator.go")
+	if ownerBody == nil {
+		t.Fatal("ReadWorkPin not found in internal/store/workpin.go")
 	}
-	readBegins, dbRefs := operatorQuestionReadSnapshotCounts(body)
+	readBegins, dbRefs := operatorQuestionReadSnapshotCounts(ownerBody)
 	if readBegins != 1 {
-		t.Errorf("ReadWorkflowOperatorQuestion must open exactly one read-only transaction for its reads (CD-0173 D2); got %d", readBegins)
+		t.Errorf("ReadWorkPin must open exactly one read-only transaction for its reads (CD-0173 D2); got %d", readBegins)
 	}
 	allowed := 1 + readBegins // the open guard and the read owner's database argument
 	if dbRefs > allowed {
-		t.Errorf("ReadWorkflowOperatorQuestion references s.db %d times; only the open guard and the beginReadTx argument are permitted, every read must flow through the transaction", dbRefs)
+		t.Errorf("ReadWorkPin references s.db %d times; only the open guard and the beginReadTx argument are permitted, every read must flow through the transaction", dbRefs)
+	}
+
+	projectionPath := filepath.Join(storeDir, "workflow_read.go")
+	projectionFile, err := parser.ParseFile(fset, projectionPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projection *ast.FuncDecl
+	for _, decl := range projectionFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "readWorkflowProjectionTx" {
+			projection = fn
+			break
+		}
+	}
+	if projection == nil {
+		t.Fatal("readWorkflowProjectionTx not found in internal/store/workflow_read.go")
+	}
+	// The projection runs inside its caller's snapshot, so the question
+	// must be read on that same queryer and never through a reader that
+	// opens its own snapshot.
+	queryerName := projection.Type.Params.List[1].Names[0].Name
+	questionReads, foreignReads := 0, 0
+	ast.Inspect(projection.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if fn, ok := call.Fun.(*ast.Ident); ok {
+			switch fn.Name {
+			case "workflowOperatorQuestionTx", "workflowOperatorQuestionForDefinitionTx":
+				if arg, ok := call.Args[1].(*ast.Ident); ok && arg.Name == queryerName {
+					questionReads++
+				} else {
+					foreignReads++
+				}
+			case "ReadWorkPin", "beginReadTx":
+				foreignReads++
+			}
+		}
+		return true
+	})
+	if questionReads < 1 {
+		t.Errorf("readWorkflowProjectionTx must read the operator question on its own queryer %q (CD-0173 D2); found %d such reads", queryerName, questionReads)
+	}
+	if foreignReads != 0 {
+		t.Errorf("readWorkflowProjectionTx reads the operator question outside its caller's snapshot %d times (CD-0173 D2)", foreignReads)
 	}
 }
 

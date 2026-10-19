@@ -3954,7 +3954,7 @@ with sqlite3.connect(":memory:") as connection:
     before = connection.execute("SELECT id,n,typeof(n) FROM t").fetchall()
     try:
         connection.executescript(UNICODE_TYPE_REBUILD)
-    except sqlite3.IntegrityError as error:
+    except sqlite3.IntegrityError:
         if before != [(1, "2", "text")]:
             FAILURES.append(f"unicode-affinity probe row read {before!r}")
     else:
@@ -4607,9 +4607,10 @@ finally:
     connection.close()
 
 
-# Remote locator identity v2 (128) sets the live compatibility floor.
-# The worker-attempt CHECK rebuild (126) also constrains older binaries.
-# Native lease plan-pair triggers (125) also constrain older binaries. The
+# The overlap routine-resolution CHECK rebuild (134) sets the live
+# compatibility floor. Remote locator identity v2 (128), the worker-attempt
+# CHECK rebuild (126), and native lease plan-pair triggers (125) also
+# constrain older binaries. The
 # planning retirement (124) also constrains older binaries. The
 # research retirement delete guard (123) constrains older binaries' writes
 # to active_research_packs. Initiative maintenance triggers (120) and the
@@ -4620,10 +4621,11 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-if max(live_breaking, default=0) != 128:
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134}
+if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
-if not {110, 111, 119, 120, 121, 123, 124, 125, 126, 128}.issubset(live_breaking):
+if not required_breaking.issubset(live_breaking):
     FAILURES.append(
         f"required migrations left breaking: {live_breaking}")
 

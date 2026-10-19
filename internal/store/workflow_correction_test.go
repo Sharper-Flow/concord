@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,7 +80,7 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": startEpoch,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
@@ -88,7 +89,7 @@ func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("fresh start_execution: %v", err)
 	}
-	dispatchVersion := verdictItemVersion(t, s, workID)
+	dispatchVersion := readWorkVersion(t, s, workID)
 	dispatchStart := workflowEventWithActor("dispatch-start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
 		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch,
@@ -136,7 +137,7 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	const workID = "issue1013-late-verdict-preflight"
 	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	reviewer := verdictReviewer(t, s, workID)
-	verdictVersion := verdictItemVersion(t, s, workID)
+	verdictVersion := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), verdictVersion, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict: %v", err)
 	}
@@ -337,7 +338,12 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if !correctionIntent {
 		t.Fatalf("work pin has no rejected-result correction intent: %#v", pin.NextValidIntents)
 	}
-	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID); err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after rejected result: %v", err)
 	} else if binding != nil {
 		t.Fatalf("rejected completed result has retry approval binding %#v", binding)
@@ -577,7 +583,13 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	if version := readWorkVersion(t, s, workID); version != pin.Version {
 		t.Fatalf("refused dispatch changed the work version: %d -> %d", pin.Version, version)
 	}
-	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	bindingErr := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	})
+	if bindingErr != nil || binding != nil {
 		t.Fatalf("retry approval binding at the wall = %+v, %v, want none", binding, bindingErr)
 	}
 
@@ -765,7 +777,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
 			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
 		}
-		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+		var binding *WorkflowRetryApprovalBinding
+		bindingErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+			var txErr error
+			binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+			return txErr
+		})
 		if bindingErr != nil {
 			t.Fatal(bindingErr)
 		}
@@ -780,7 +797,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	// The armed wall mints no retry approval binding: an escalated
 	// correction admits a dispatch only behind a store-derived convergence
 	// basis, and an operator approval has no effect (CON-885).
-	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+	var binding *WorkflowRetryApprovalBinding
+	bindingErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	})
 	if bindingErr != nil {
 		t.Fatal(bindingErr)
 	}
@@ -793,7 +815,12 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
 		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
 	}
-	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
+	var after *WorkflowRetryApprovalBinding
+	afterErr := fixture.store.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		after, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	})
 	if afterErr != nil {
 		t.Fatal(afterErr)
 	}
@@ -828,8 +855,12 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 		t.Fatalf("interrupted dispatch intent: %v", err)
 	}
 
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after the interrupted dispatch: %v", err)
 	}
 	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
@@ -841,8 +872,11 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 	}
 
 	issue1013RecordWorkerDispatch(t, s, workID, interrupted)
-	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatalf("read retry binding after the materialized dispatch: %v", err)
 	}
 	if binding != nil {
@@ -1412,7 +1446,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, "complete"); target != "" {
 			t.Fatalf("static analysis complete-step target = %q, want the unsupported shape", target)
 		}
-		stalenessFixture(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
+		pinWorkflowAtStep(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
 		stalenessSeedContract(t, s, workID)
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		recordCompleteStepContradictionObservation(t, s, workID, owner)
@@ -1430,7 +1464,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-no-approval"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		version := verdictItemVersion(t, fixture.store, workID)
+		version := readWorkVersion(t, fixture.store, workID)
 		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -1453,7 +1487,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-stale-version"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		version := verdictItemVersion(t, fixture.store, workID)
+		version := readWorkVersion(t, fixture.store, workID)
 		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -1699,7 +1733,7 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerVersion := verdictItemVersion(t, s, workID)
+	workerVersion := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor("reset-count-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -1986,7 +2020,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval",
@@ -2082,7 +2116,7 @@ func runDuplicateRecoveryWithApproval(t *testing.T, s *Store, workID string, pay
 	t.Helper()
 	approvalRef := strings.Repeat("a", 64)
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-recovery", ActorClass: ActorOperator}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -2225,7 +2259,7 @@ func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	historical, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"previous_contract_version": 1, "new_contract_version": 2,
@@ -2432,7 +2466,7 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval",
@@ -2476,4 +2510,14 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("discovery offered duplicate recovery on the completed off-shape instance")
 	}
+}
+
+// foldCompleteStepContractCorrectionTx resolves the builtin registry for
+// direct callers. The core keeps the route marker, historical replay, and
+// admission checks together before it returns the pinned instance to its
+// external-effect step, and the scoped supersession fold carries the
+// transaction's registry to the same core. The caller holds the fold
+// transaction.
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	return foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, successor)
 }

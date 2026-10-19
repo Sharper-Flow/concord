@@ -270,3 +270,125 @@ func TestKnowledgeSearchFailsClosedWithoutDegradedOptIn(t *testing.T) {
 		t.Fatalf("refusal carried no typed error: %+v", resp.Error)
 	}
 }
+
+// The direct Q10 precondition does not refresh, so the first public read must
+// discover the new law through its own demand-driven rebuild (CD-0082 D1).
+func TestKnowledgeResolveNoteRebuildsAStaleIndexOnDemand(t *testing.T) {
+	t.Parallel()
+	s, service, grant, corpus := agentJobsPM1Fixture(t)
+	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
+	}
+	unscanned, err := pm1fixture.SeedLaggingKnowledge(knowledge.Home)
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedLaggingKnowledge: %v", err)
+	}
+	if unscanned == "" {
+		t.Fatal("lagging fixture produced no unscanned record")
+	}
+	prior, err := s.QueryQ10(context.Background(), store.Q10Request{KnowledgeID: unscanned, Product: "prod-alpha", Home: store.KnowledgeHome{}})
+	if err != nil {
+		t.Fatalf("pre-demand QueryQ10: %v", err)
+	}
+	if prior.Status != "missing" {
+		t.Fatalf("pre-demand Q10 status = %q, want missing: the fixture is not lagging", prior.Status)
+	}
+	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
+	resp := dispatchRead(t, s, service, InvokeRequest{
+		Tool:      "concord_knowledge",
+		Operation: "resolve_note",
+		Input:     json.RawMessage(`{"knowledge_id":"` + unscanned + `"}`),
+	}, env)
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("first resolve_note after a reachable commit: outcome=%s error=%+v", resp.Outcome, resp.Error)
+	}
+	var result struct {
+		State   string  `json:"state"`
+		Status  *string `json:"status"`
+		Locator *string `json:"locator"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("unmarshal resolve_note result: %v", err)
+	}
+	if result.State != "canonical" {
+		t.Fatalf("resolve_note state = %q, want canonical for the newly committed law %q (result %s)", result.State, unscanned, string(resp.Result))
+	}
+	const wantLocator = ".concord/docs/decisions/CD-0003-lagging-authority.md"
+	if result.Locator == nil || *result.Locator == "" {
+		t.Fatalf("canonical resolve_note carried no locator: %s", string(resp.Result))
+	}
+	if *result.Locator != wantLocator {
+		t.Fatalf("resolve_note locator = %q, want %q", *result.Locator, wantLocator)
+	}
+	if _, err := os.ReadFile(filepath.Join(knowledge.Home.RepoPath, filepath.FromSlash(wantLocator))); err != nil {
+		t.Fatalf("resolved locator names no committed file in the reachable home: %v", err)
+	}
+	if result.Status == nil || *result.Status != "accepted" {
+		t.Fatalf("resolve_note status = %v, want accepted for the accepted lagging decision", result.Status)
+	}
+}
+
+// A demand from this binary cannot overwrite a newer projection's semantics.
+func TestKnowledgeResolveNoteRefusesANewerProjectionWatermark(t *testing.T) {
+	t.Parallel()
+	s, service, grant, corpus := agentJobsPM1Fixture(t)
+	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
+	}
+	unscanned, err := pm1fixture.SeedLaggingKnowledge(knowledge.Home)
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedLaggingKnowledge: %v", err)
+	}
+	home := knowledge.Home
+	db := s.DatabaseForTesting()
+	var scannedBefore, digestBefore string
+	var versionBefore int
+	if err := db.QueryRow(`SELECT scanned_commit_oid, scanned_content_digest, projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scannedBefore, &digestBefore, &versionBefore); err != nil {
+		t.Fatalf("read knowledge watermark: %v", err)
+	}
+	// The watermark table admits fixture writes only under the fold guard.
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE knowledge_index_watermark SET projection_version = ? WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, versionBefore+1, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
+	resp := dispatchRead(t, s, service, InvokeRequest{
+		Tool:      "concord_knowledge",
+		Operation: "resolve_note",
+		Input:     json.RawMessage(`{"knowledge_id":"` + unscanned + `"}`),
+	}, env)
+	if resp.Outcome != OutcomeError {
+		t.Fatalf("resolve_note over a newer projection watermark answered outcome=%s, want a typed refusal (result %s)", resp.Outcome, string(resp.Result))
+	}
+	if resp.Error == nil {
+		t.Fatal("refusal carried no typed error")
+	}
+	if resp.Error.Kind != "invariant_violation" {
+		t.Fatalf("refusal kind = %q, want invariant_violation, the public mapping of the store's schema_unsupported refusal", resp.Error.Kind)
+	}
+	if !strings.Contains(resp.Error.Message, "newer binary") {
+		t.Fatalf("refusal message = %q, want the newer-projection-watermark detail", resp.Error.Message)
+	}
+	var scannedAfter, digestAfter string
+	var versionAfter int
+	if err := db.QueryRow(`SELECT scanned_commit_oid, scanned_content_digest, projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scannedAfter, &digestAfter, &versionAfter); err != nil {
+		t.Fatalf("reread knowledge watermark: %v", err)
+	}
+	if scannedAfter != scannedBefore || digestAfter != digestBefore || versionAfter != versionBefore+1 {
+		t.Fatalf("refused rebuild rewrote the watermark: scanned=%q (want %q) digest=%q (want %q) version=%d (want %d)", scannedAfter, scannedBefore, digestAfter, digestBefore, versionAfter, versionBefore+1)
+	}
+	after, err := s.QueryQ10(context.Background(), store.Q10Request{KnowledgeID: unscanned, Product: "prod-alpha", Home: store.KnowledgeHome{}})
+	if err != nil {
+		t.Fatalf("post-refusal QueryQ10: %v", err)
+	}
+	if after.Status != "missing" {
+		t.Fatalf("post-refusal Q10 status = %q, want missing: a refused demand must not rebuild the index", after.Status)
+	}
+}

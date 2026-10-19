@@ -1,7 +1,6 @@
 # Concord managed development authority
 
-**Status:** Accepted under CD-0213. Supersedes
-[`development-authority.md`](development-authority.md).
+**Status:** Accepted under CD-0213.
 **Approval date:** 2026-10-09.
 **Approval:** Operator approval for Linear as the only planning authority.
 

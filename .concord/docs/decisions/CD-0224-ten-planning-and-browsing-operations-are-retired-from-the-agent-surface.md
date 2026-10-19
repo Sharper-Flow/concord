@@ -19,7 +19,10 @@
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Supersedes:** [CD-0068](CD-0068-domain-anchored-observations.md).
+- **Amended by:** [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md)
+  at the relation writers and the one-writer Consequences bullet: a size
+  revision that changes a work item's size is a fourth writer, of
+  `forward_link` and `supersedes`.
 
 ## Context
 
@@ -45,6 +48,9 @@ history rather than amended law.
 
 ## Decision
 
+The retained `resolve_overlap` route uses CD-0013 D11's per-kind consent rule: exact operator approval for merger and supersession, none for dependency, blocking, or compatibility. Every kind still pins both work versions and judged contract content. The retired planning/browsing operations remain retired; changing consent creates no replacement tool or bypass writer.
+
+
 The agent surface retires ten operations: `concord_domain.active_work`,
 `concord_domain.observation_record`, `concord_domain.observation_dismiss`,
 `concord_work_relate.link`, `concord_work_relate.unlink`,
@@ -64,12 +70,12 @@ gone, and nothing replaces the five-group projection. The operator
 question the row answered — which fields a glance row carries — returns to
 [`priorities.md`](../priorities.md) if a future surface needs it.
 
-Three writers create work-to-work relations, each scoped to its own kinds.
+Four writers create work-to-work relations, each scoped to its own kinds.
 
 1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
    or `merged_into` resolution commits the relation and the terminal
-   transition in one transaction. Every resolution kind except `depends_on`
+   transition in one transaction. A `merged_into` or `supersedes` resolution
    requires an operator approval pinned to both work versions and both
    contract versions.
 2. Capture writes `raised_from` through its `raised_from_work_id` input.
@@ -77,6 +83,9 @@ Three writers create work-to-work relations, each scoped to its own kinds.
    `relation.added` event and runs no cycle check, because capture knows
    both endpoints.
 3. The workflow `link_successor` action writes `forward_link`.
+4. A size revision that changes a work item's effective size writes
+   `forward_link` and `supersedes` from its successor, in the transaction
+   that creates the successor and ends the item (CD-0237).
 
 The `blocks` readiness gates are unchanged: a `blocks` row from
 `resolve_overlap`, and an existing link-made `blocks` row, hold a work item
@@ -132,8 +141,9 @@ fold validation, and every stored relation kind stay closed as they are.
 - One record states the retirement, its surviving writers, and its
   preserved history, so the superseded records can keep their original
   text as history.
-- Every surviving relation has exactly one writer and one stated approval
-  rule.
+- Every relation writer has one stated approval rule. `supersedes` and
+  `forward_link` each have two writers (CD-0237); every other surviving
+  relation has one.
 
 ### Cost
 

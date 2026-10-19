@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 // WorkflowRetryConvergence records the stored facts that admit one escalated
@@ -127,7 +128,7 @@ func workflowOracleConvergenceComparableTx(ctx context.Context, q queryer, workI
 		return false, nil
 	}
 	for _, id := range previous.fields.openFindings() {
-		if contains(latest.fields.openFindings(), id) {
+		if slices.Contains(latest.fields.openFindings(), id) {
 			continue
 		}
 		finding, exists := lineage.findings[id]
@@ -168,7 +169,7 @@ func workflowFindingsShrink(previous, latest []string) bool {
 		return false
 	}
 	for _, id := range latest {
-		if !contains(previous, id) {
+		if !slices.Contains(previous, id) {
 			return false
 		}
 	}

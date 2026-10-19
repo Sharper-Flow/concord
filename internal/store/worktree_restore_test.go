@@ -30,9 +30,9 @@ func TestResumeRestoresMissingWorktreeOnRecordedBranch(t *testing.T) {
 			if err := os.WriteFile(tracked, []byte("committed work\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			runBootstrapGit(t, claimed.Entry.Path, "add", "committed.txt")
-			runBootstrapGit(t, claimed.Entry.Path, "commit", "-qm", "fixture work")
-			tip := runBootstrapGit(t, repo, "rev-parse", "refs/heads/"+claimed.Entry.Branch)
+			runTestGit(t, claimed.Entry.Path, "add", "committed.txt")
+			runTestGit(t, claimed.Entry.Path, "commit", "-qm", "fixture work")
+			tip := runTestGit(t, repo, "rev-parse", "refs/heads/"+claimed.Entry.Branch)
 			var before int
 			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
 				t.Fatal(err)
@@ -41,7 +41,7 @@ func TestResumeRestoresMissingWorktreeOnRecordedBranch(t *testing.T) {
 				t.Fatal(err)
 			}
 			if prune {
-				runBootstrapGit(t, repo, "worktree", "prune", "--expire", "now")
+				runTestGit(t, repo, "worktree", "prune", "--expire", "now")
 			}
 			restored, err := s.RestoreResumeWorktree(ctx, claimed.WorkID, claimed.Entry, nil)
 			if err != nil || !restored.Restored || restored.RestoredTip != tip || !strings.Contains(restored.RestorationWarning, "not recoverable") {
@@ -62,7 +62,7 @@ func TestResumeRestoresMissingWorktreeOnRecordedBranch(t *testing.T) {
 			if err != nil || replay.Restored {
 				t.Fatalf("replay=%+v err=%v", replay, err)
 			}
-			if got := runBootstrapGit(t, repo, "rev-parse", "refs/heads/"+entry.Branch); got != tip {
+			if got := runTestGit(t, repo, "rev-parse", "refs/heads/"+entry.Branch); got != tip {
 				t.Fatalf("replay moved branch: %s != %s", got, tip)
 			}
 		})
@@ -76,7 +76,7 @@ func TestResumeRestoreRefusesUnsafeNativeState(t *testing.T) {
 			entry := claimed.Entry
 			root := filepath.Join(filepath.Dir(s.Path()), "worktrees")
 			if scenario == "locked" {
-				runBootstrapGit(t, repo, "worktree", "lock", entry.Path)
+				runTestGit(t, repo, "worktree", "lock", entry.Path)
 			}
 			if err := os.RemoveAll(entry.Path); err != nil {
 				t.Fatal(err)
@@ -84,7 +84,7 @@ func TestResumeRestoreRefusesUnsafeNativeState(t *testing.T) {
 			wantKind := KindProjectionConflict
 			switch scenario {
 			case "branch-gone":
-				runBootstrapGit(t, repo, "update-ref", "-d", "refs/heads/"+entry.Branch)
+				runTestGit(t, repo, "update-ref", "-d", "refs/heads/"+entry.Branch)
 				wantKind = KindProjectionNotFound
 			case "foreign-directory", "empty-directory":
 				if err := os.Mkdir(entry.Path, 0o700); err != nil {
@@ -107,8 +107,8 @@ func TestResumeRestoreRefusesUnsafeNativeState(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "other-checkout":
-				runBootstrapGit(t, repo, "worktree", "prune", "--expire", "now")
-				runBootstrapGit(t, repo, "worktree", "add", filepath.Join(t.TempDir(), "other\ncheckout"), entry.Branch)
+				runTestGit(t, repo, "worktree", "prune", "--expire", "now")
+				runTestGit(t, repo, "worktree", "add", filepath.Join(t.TempDir(), "other\ncheckout"), entry.Branch)
 			case "symlink-root":
 				if err := os.RemoveAll(root); err != nil {
 					t.Fatal(err)
@@ -118,10 +118,10 @@ func TestResumeRestoreRefusesUnsafeNativeState(t *testing.T) {
 				}
 			case "branch-replaced":
 				otherRepo := initBootstrapStoreRepo(t)
-				runBootstrapGit(t, otherRepo, "checkout", "--orphan", "unrelated")
-				runBootstrapGit(t, otherRepo, "commit", "-qm", "unrelated root")
-				runBootstrapGit(t, repo, "fetch", otherRepo, "unrelated")
-				runBootstrapGit(t, repo, "update-ref", "refs/heads/"+entry.Branch, "FETCH_HEAD")
+				runTestGit(t, otherRepo, "checkout", "--orphan", "unrelated")
+				runTestGit(t, otherRepo, "commit", "-qm", "unrelated root")
+				runTestGit(t, repo, "fetch", otherRepo, "unrelated")
+				runTestGit(t, repo, "update-ref", "refs/heads/"+entry.Branch, "FETCH_HEAD")
 			case "outside-root":
 				entry.Path = filepath.Join(t.TempDir(), "outside")
 			}

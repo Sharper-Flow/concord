@@ -29,7 +29,7 @@ Concord supports eight end-to-end jobs: orient/choose work, explain blockage,
 capture need, transition with evidence, relate/scope, compact/reconcile, retrieve
 durable knowledge, and coordinate native operational work. Twenty-two tool-neutral
 scenarios judge resulting state, communication, prohibited effects, and invariants;
-the operator-approved CD-0041/#195 amendment adds version-pinned Domain-overlap
+the operator-approved CD-0222/#195 amendment adds version-pinned Domain-overlap
 resolution within AJ5.
 
 Binding: [`../agent-tool-surface-jobs.md`](../agent-tool-surface-jobs.md) and

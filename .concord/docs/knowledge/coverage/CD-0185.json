@@ -22,7 +22,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestAuditReclaimBeyondChangedRefBoundReportsCommittedEffect"
+      "value": "internal/agent.TestAuditReclaimStopsAtChangedRefBound"
     }
   ],
   "id": "CD-0185",

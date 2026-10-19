@@ -228,9 +228,10 @@ type Failure struct {
 	// RecoveryRefs carries the ordered workflow actions of a declared-route
 	// remedy. It pairs with RecoveryUseDeclaredRoute and stays empty for
 	// every other RecoveryAction value.
-	RecoveryRefs     []string `json:"recovery_refs,omitempty"`
-	CandidateIDs     []string `json:"candidate_ids,omitempty"`
-	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
+	RecoveryRefs       []string `json:"recovery_refs,omitempty"`
+	CandidateIDs       []string `json:"candidate_ids,omitempty"`
+	UnavailableKinds   []string `json:"unavailable_kinds,omitempty"`
+	AdmittedEventKinds []string `json:"-"`
 	// CurrentVersions carries the typed current version for each subject whose
 	// version conflict produced this failure. Higher layers surface this
 	// structurally so callers do not have to regex the human detail string.
@@ -262,11 +263,6 @@ type Failure struct {
 	// keeps the marker out of the agent envelope, whose schema this failure
 	// does not amend.
 	StaleDomainRegistryPin *StaleDomainRegistryPin `json:"-"`
-	// UnstampedMigration marks an unstamped build's refusal to migrate an
-	// existing store (CD-0139) and carries the manifest facts it read, so the
-	// command layer adds the owning release without matching refusal text.
-	// The empty json tag keeps it out of the agent envelope.
-	UnstampedMigration *UnstampedMigrationRefusal `json:"-"`
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`

@@ -162,8 +162,12 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	}); err != nil {
 		t.Fatalf("seed pre-contract failure: %v", err)
 	}
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil || binding == nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding == nil {
 		t.Fatalf("pre-contract retry binding=%+v err=%v", binding, err)
 	}
 	if binding.ContractVersion != 0 {

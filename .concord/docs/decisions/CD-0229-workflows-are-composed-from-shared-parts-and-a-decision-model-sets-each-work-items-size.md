@@ -10,12 +10,12 @@
   model, and Appendix A2 rows 5 and 8
 - **Amends:** [CD-0006](CD-0006-concord-root-product-policy.md) D3;
   [CD-0013](CD-0013-workflow-engine-mechanism.md) D1;
+  [CD-0138](CD-0138-mandatory-refinement-pass.md) D1, the refine requirement
+  for the `small` implementation composition;
   [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
   D2, the steps every implementation item walks;
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) D3, the issue
-  identity of a resize successor;
-  [CD-0138](CD-0138-mandatory-refinement-pass.md) D1, the mandatory separate
-  refine step
+  identity of a resize successor
 - **Preserves:** [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md),
   released definition bytes, digests, and pins; CD-0006 R1 and CD-0013 D8,
   forward-link composition across work items; CD-0218 D1, the three live
@@ -25,6 +25,8 @@
   [CD-0091](CD-0091-maturity-promotion-ladder.md), the obligation bands and
   the promotion ladder; [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md)
   D10, an outcome contract at every size;
+  CD-0138 D1, mandatory refinement for break-fix and for `larger` and
+  `crucial` implementation;
   [CD-0201](CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md),
   the single admission derivation;
   [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md),
@@ -32,14 +34,17 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
-- **Amended:** 2026-10-18.
-- **Revision choice:** This is a compatible amendment under
-  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; this record keeps its ID.
-- **Amendment reason:** D5 needs an explicit exception to the general
-  refine rule. Timing records must distinguish actor submission from the
-  external queue's state.
-- **P12:** This amendment affects only the workflow-engine Domain. It removes
-  or reverses no user-visible behavior, changes no security or data-safety
+- **Amended:** 2026-10-18; 2026-10-19.
+- **Revision choice:** Compatible amendments under
+  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; the law ID stays unchanged.
+- **Amendment reason:** On 2026-10-18: D5 already fixes the small
+  implementation composition; its relationship to CD-0138 D1 must be
+  explicit. No composition, released definition, pin, or runtime behavior
+  changes in that amendment. On 2026-10-19: D7's two timing records must name
+  the events that stamp them and must distinguish the actor's submission from
+  the external queue's state.
+- **P12:** Each amendment affects only the workflow-engine Domain. Neither
+  removes or reverses user-visible behavior, touches a security or data-safety
   rule, and changes no UI/UX. It is not serious under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
   D4.
@@ -138,8 +143,10 @@ not vary by size may declare one composition for all three. The implementation
 family follows goal B's examples: `small` composes define, implement, review,
 and ship; `larger` adds research, architect, and refine; `crucial` adds
 repeated implement steps and repeats review and refine. This amends CD-0218
-D2: an implementation item walks the steps of its size's composition. At every
-size it keeps its outcome contract, its independent acceptance, and closure.
+D2 for implementation at every size and CD-0138 D1 only for the `small`
+implementation composition. An implementation item walks the steps of its
+size's composition. At every size it keeps its outcome contract, its independent
+acceptance, and closure.
 
 No size ships with zero proof. A `small` change runs the checks its footprint
 record names and receives one independent review.
@@ -153,10 +160,6 @@ medium problem inside its scope; problems outside its scope become follow-up
 items (R1). A `larger` change whose second review still finds one inside its
 scope has proved bigger than its size under D6. Those open findings are a
 model input, and the model returns `crucial` for them.
-
-For small work, D5's size-specific composition replaces CD-0138 D1's
-mandatory separate refine step; all other released pins keep that rule
-unchanged.
 
 ### D6. Only the model and the operator change a size
 

@@ -7,27 +7,8 @@ import { describe, expect, mock, test } from "bun:test"
 import { contractOperations, maxEnvelopeBytes, manifestDigest } from "./generated-contracts"
 import { envelopeFailurePath, validateGeneratedEnvelope } from "./generated-contract-tests"
 import { configureCoreBinary } from "./dispatch"
+import { fakeTool } from "./plugin-tool.fixture"
 
-function schemaBuilder(kind: string, ...args: unknown[]) {
-  return {
-    kind, args, metadata: undefined as unknown,
-    optional() { return this }, strict() { return this }, min() { return this }, max() { return this }, int() { return this }, regex() { return this },
-    meta(metadata: unknown) { this.metadata = metadata; return this },
-  }
-}
-const fakeTool = Object.assign((config: any) => config, {
-  schema: {
-    object: (...args: unknown[]) => schemaBuilder("object", ...args),
-    record: (...args: unknown[]) => schemaBuilder("record", ...args),
-    union: (...args: unknown[]) => schemaBuilder("union", ...args),
-    literal: (...args: unknown[]) => schemaBuilder("literal", ...args),
-    array: (...args: unknown[]) => schemaBuilder("array", ...args),
-    string: (...args: unknown[]) => schemaBuilder("string", ...args),
-    number: (...args: unknown[]) => schemaBuilder("number", ...args),
-    unknown: (...args: unknown[]) => schemaBuilder("unknown", ...args),
-    null: (...args: unknown[]) => schemaBuilder("null", ...args),
-  },
-})
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 configureCoreBinary("concord")

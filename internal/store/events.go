@@ -41,14 +41,6 @@ func (s SubjectType) valid() bool {
 	return ok
 }
 
-func knownSubjectTypes() []SubjectType {
-	out := make([]SubjectType, 0, len(subjectTypes))
-	for s := range subjectTypes {
-		out = append(out, s)
-	}
-	return out
-}
-
 // Event is one row of the append-only log.
 type Event struct {
 	// Seq is populated when an event is read from the log. It is not caller
@@ -99,9 +91,33 @@ func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) 
 	if err != nil {
 		return Event{}, false, err
 	}
+	return eventByID(ctx, tx, eventID)
+}
+
+// EventByID reads one durable event through the store's deferred read snapshot;
+// append-only receipt-linked event reads need no write-transaction join.
+func EventByID(ctx context.Context, s *Store, eventID string) (Event, bool, error) {
+	var event Event
+	var found bool
+	err := s.readSnapshot(ctx, func(q queryer) error {
+		return eventByIDInto(ctx, q, eventID, &event, &found)
+	})
+	return event, found, err
+}
+
+// eventByIDInto assigns the shared core's result so the snapshot closure stays
+// one store call.
+func eventByIDInto(ctx context.Context, q queryer, eventID string, event *Event, found *bool) error {
+	var err error
+	*event, *found, err = eventByID(ctx, q, eventID)
+	return err
+}
+
+// eventByID is the shared raw-event core; q is the caller's read handle.
+func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, error) {
 	var event Event
 	var occurredAt string
-	err = tx.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
+	err := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
 		Scan(&event.Seq, &event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

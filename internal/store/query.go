@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -202,11 +203,14 @@ type WorkItem struct {
 	Size *WorkSizeSummary `json:"size,omitempty"`
 }
 
-// WorkSizeSummary is the read projection of a work item's current size.
+// WorkSizeSummary is the read projection of a work item's current size: Size
+// is the effective size, the operator's when one is recorded.
 type WorkSizeSummary struct {
-	Size         WorkSize `json:"size"`
-	ModelVersion int      `json:"model_version"`
-	RecordedAt   string   `json:"recorded_at"`
+	Size         WorkSize  `json:"size"`
+	ModelSize    WorkSize  `json:"model_size"`
+	OperatorSize *WorkSize `json:"operator_size,omitempty"`
+	ModelVersion int       `json:"model_version"`
+	RecordedAt   string    `json:"recorded_at"`
 }
 
 type Q4Result struct {
@@ -243,6 +247,7 @@ type TimelineEvent struct {
 	Seq          int      `json:"seq"`
 	GlobalSeq    int64    `json:"global_seq,omitempty"`
 	Kind         string   `json:"kind"`
+	AttemptID    string   `json:"attempt_id,omitempty"`
 	Actor        string   `json:"actor"`
 	OccurredAt   string   `json:"occurred_at"`
 	From         *string  `json:"from"`
@@ -681,7 +686,7 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor is not valid base64url", false, "restart the bounded listing")
 	}
 	var c q3Cursor
-	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !equalStrings(c.States, states) || c.ID == "" || c.Timestamp == "" {
+	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !slices.Equal(c.States, states) || c.ID == "" || c.Timestamp == "" {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor does not match the requested listing", false, "use a cursor returned for the same query and filters")
 	}
 	if c.Urgency != "" && c.Urgency != "standard" && c.Urgency != "expedite" {
@@ -691,17 +696,6 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid ordering timestamp", false, "restart the bounded listing")
 	}
 	return c, nil
-}
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
@@ -878,11 +872,11 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 
 // attachWorkSize copies the item's current size record, when it has one.
 func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
-	record, ok, err := readWorkSize(ctx, q, item.ID)
+	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
 	if err != nil || !ok {
 		return err
 	}
-	item.Size = &WorkSizeSummary{Size: record.Size, ModelVersion: record.ModelVersion, RecordedAt: record.RecordedAt}
+	item.Size = &WorkSizeSummary{Size: decision.Effective, ModelSize: decision.Model.Size, OperatorSize: decision.OperatorSize, ModelVersion: decision.Model.ModelVersion, RecordedAt: decision.Model.RecordedAt}
 	return nil
 }
 
@@ -1486,6 +1480,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	where := ""
 	args := []any{req.Work}
+	var cursorSeq int64
 	if req.Cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(req.Cursor)
 		var c q7Cursor
@@ -1497,7 +1492,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		} else {
 			where = " AND seq < ?"
 		}
-		args = append(args, c.Seq)
+		cursorSeq = c.Seq
 	}
 	order := "DESC"
 	if direction == "oldest_first" {
@@ -1509,13 +1504,23 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	for _, kind := range eventKinds {
 		if _, ok := eventKindRegistry[kind]; !ok {
-			return out, newFailure(KindInvalidFilter, "PM1.Q7", "event kind is not recognized", false, "choose an accepted work event kind")
+			failure := newFailure(KindInvalidFilter, "PM1.Q7", "event kind "+strconv.Quote(kind)+" is not recognized", false, "choose an accepted work event kind")
+			for admitted := range eventKindRegistry {
+				failure.AdmittedEventKinds = append(failure.AdmittedEventKinds, admitted)
+			}
+			sort.Strings(failure.AdmittedEventKinds)
+			return out, failure
 		}
 	}
 	kindPlaceholders := make([]string, len(eventKinds))
 	for i, kind := range eventKinds {
 		kindPlaceholders[i] = "?"
 		args = append(args, kind)
+	}
+	if cursorSeq != 0 {
+		// The cursor seq placeholder follows the kind placeholders in the SQL
+		// text, so its bind argument must follow them too.
+		args = append(args, cursorSeq)
 	}
 	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
 	args = append(args, limit+1)
@@ -1586,6 +1591,14 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
 	}
 	e := TimelineEvent{EventID: eventID, GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
+	switch kind {
+	case WorkerDispatched, WorkerCompleted, WorkerFailed:
+		if raw, ok := fields["attempt_id"]; ok {
+			if err := json.Unmarshal(raw, &e.AttemptID); err != nil || e.AttemptID == "" {
+				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event worker attempt identity is malformed", false, "repair the event log before reading history")
+			}
+		}
+	}
 	for name, dst := range map[string]**string{"from": &e.From, "to": &e.To} {
 		if raw, ok := fields[name]; ok && string(raw) != "null" {
 			var v string

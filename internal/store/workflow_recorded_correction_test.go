@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -126,7 +127,7 @@ func archivedCorrectionResolverForProof(definition WorkflowDefinition, currentSt
 		if fallback == "" {
 			fallback = candidate.ID
 		}
-		if containsString(candidate.Actions, preferredAction) {
+		if slices.Contains(candidate.Actions, preferredAction) {
 			preferred = candidate.ID
 		}
 	}

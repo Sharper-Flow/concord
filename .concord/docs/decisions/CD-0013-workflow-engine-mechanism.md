@@ -1,6 +1,7 @@
 # CD-0013: Workflow Engine Mechanism and Contract
 
 **Status:** Accepted
+**Amended:** 2026-10-18.
 **Date:** 2026-08-08
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
@@ -10,7 +11,21 @@ evidence binding, outcome verification, impact propagation, and the durable shap
 workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
 CD-0008 D2 (evidence), D4 (checkpoints), D5 (external conditions), D6 (schema evolution);
-CD-0009 D1/D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
+CD-0215 D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
+**Amended:** 2026-10-18. These 2026-10-17 records amend this one:
+[CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+amends this record's D1 (workflows composed from shared parts);
+[CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
+amends D9 (operator approval only for serious law changes);
+[CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) amends D6's
+external conditions bullet and acceptance criterion 26 (no external-condition
+resolver); [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
+amends D4's strength comparison paragraph (the independent verdict is the outcome
+strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
+outcome-contract acceptance criterion 3 (vacuity is judged at review); and
+[CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
+`ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
+reconstruction runs outside the core).
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.
@@ -21,7 +36,7 @@ current compatibility policy.
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
-evidence binding, typed external conditions, and schema evolution. CD-0009 commits
+evidence binding, typed external conditions, and schema evolution. CD-0215 commits
 research ownership semantics. CD-0012 commits a three-part outcome contract with
 independent evaluator authority and a strengthening-only delivery comparison.
 
@@ -379,6 +394,36 @@ kind is added and no existing kind changes meaning.
 
 ### D11. Public surface for workflow actions stays reserved
 
+Definitions declaring `approval_policy=consequence_v1` use the following consent contract. Earlier definition pins retain their released approval, actor, evidence, and question rules. Released digests and historical events never change, and active instances do not migrate implicitly.
+
+This policy is the workflow-action form of CD-0230 D5. Its approval classes are independent of execution consequence and durability. Its decision-bearing classes are product or preference decisions and UI/UX changes; its destructive class is D5's destructive action on Concord-owned state. Destructive or irreversible effects require exact operator approval, but that approval is necessary, not sufficient. CD-0230 D5 requires a verified recovery route before a destructive action runs and requires the agent to stop without one. This paragraph neither establishes that route nor waives that stop. Routine actions never request operator approval. Law changes follow CD-0230 D4 separately, and D5's listed gaps retain approval until their holding records are amended.
+
+Only `approve_contract` and `confirm_premise` are decision-bearing workflow actions. They require operator approval exactly when the contract's recorded `decision_domains` is nonempty. Engineering work still records a valid contract and premise confirmation without a host consent prompt.
+
+`decision_domains` is an explicit, sorted, unique array containing zero to three members from `preference`, `product`, and `ui_ux`. `product` and `preference` represent CD-0230 D5's product-or-preference class; `ui_ux` represents its UI/UX class. An empty array means engineering; absence is not engineering. Mixed work records every applicable member. No title, tag, kind, path, premise text, or `changes_product_truth` flag determines this field.
+
+An authenticated non-worker coordinator declares the field with the contract. Once committed, only attributed contract supersession changes it, with expected predecessor versions, a reason, and audit evidence. A successor invalidates previous premise confirmation. A downgrade does not rewrite prior human authority; a decision-bearing successor requires human premise confirmation before completion.
+
+For this policy, `supersede_contract`, `request_correction`, `record_verdict`, `complete`, failed-worker retry dispatch, and routine acceptance records require no consent. Removed approvals do not remove evidence, version, source, scope, current-step, recovery, or convergence checks. Supersession grants no legislative authority or automatic overlap exemption.
+
+A verdict still comes from an independently authenticated evaluator distinct from execution. An executing coordinator cannot submit its own verdict or impersonate its evaluator. It uses the existing independent evaluator route without an operator challenge. Completion records the caller while validating the stored independent verdict; workers gain no completion authority.
+
+An engineering premise confirmation records the actual coordinator actor after investigation and acceptance deliverables pass. Decision-bearing confirmation retains the exact human question, choice, digest, and verified operator identity. For `ui_ux`, human premise confirmation records the operator's review and acceptance of the UI/UX change at the current contract version; contract approval alone does not satisfy that acceptance. Completion requires confirmation at the current contract version, with authority appropriate to that contract. D5 and D10's universal operator assertions are qualified by this paragraph for this policy only.
+
+The shared admission derivation owns class-dependent questions and next actions. Every removed consent gate retains an admitted, evidence-backed exit and terminal reachability. Independent evaluation is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
+
+At the negotiated operation surface, removal, cancellation, outside repair and both reconciliation modes, physical research-pack deletion, authority-expanding Product or client-policy changes, and explicit cross-Product mutations retain their operator approvals. Together with `merged_into` and `supersedes`, these points remain CD-0230 D5 gaps pending classification; this policy neither classifies nor reclassifies them. Governing-requirement scope cuts retain approval as product decisions. Destructive worktree destruction or forced occupancy release retains exact approval and remains subject to D5's verified-recovery precondition and stop. Explicit cross-Product mutations retain their capability checks. No approval grants otherwise absent authorization.
+
+Routine overlap answers are `depends_on`, `blocks`, and `compatible_with`, with both work versions and judged contract content pinned. `merged_into` and `supersedes` require approval because they abandon or replace a work identity. Ordinary acceptance-backed completion is not abandonment.
+
+Same-authorized-Product membership replacement, ordinary lifecycle completion, attributed delivery correction, and local canonical-note publication or proof-backed reconciliation are routine. Their existing state, evidence, exact-target, content, home, and durable-intent checks remain required. Clean, merged or unstarted worktree cleanup is routine only under its existing recoverability and occupancy proofs.
+
+Physical research-pack retirement retains exact operator approval for non-dry-run deletion as a listed gap, without a new class assignment. Eligibility and dry-run inspection grant no deletion authority. Host-controlled destructive commands, deployment, release, credential disclosure, and force-push do not become routine through workflow acceptance. Approval never waives CD-0230 D5's verified-recovery precondition or its stop for a destructive action without one.
+
+The typed approval summary shows decision domains, work identity, and proposed or active contract version on decision-bearing challenges. These facts bind to the canonical request and consumption checks. The host renders core facts; neither caller prose nor adapter inference supplies authority.
+
+New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; preserved old pins remain a declared compatibility obligation, not an implicit reclassification.
+
 `concord_work_transition.workflow_action` already exists in the agent manifest,
 capability map, consequence class, and envelope schema. Until this engine ships,
 `WorkflowActionAvailable()` returns `false` and the operation is refused
@@ -428,12 +473,11 @@ The workflow projections join the existing rebuild path, `RebuildFromLog(ctx, st
 in `internal/store/operation.go`. Every workflow projection table is added to the set
 that rebuild clears before replay, and every new event family gains a fold handler, so
 a rebuilt database matches the live write path byte-for-byte.
-`ReconstructSubjectAt(ctx, store, subject, asOfSeq, purpose)` in
-`internal/store/reconstruction.go` reconstructs one work item's workflow state at any
-past event sequence for diagnosis (CD-0008 D6).
+The core has no point-in-time reconstruction (CD-0238). A restored prefix of the
+retained log rebuilds through the same path.
 
 Active research remains the only state permitted to survive rebuild through byte-equal
-snapshot and restore rather than replay, because CD-0009 makes it direct-table working
+snapshot and restore rather than replay, because CD-0215 makes it direct-table working
 context rather than event authority. Workflow state takes no such exemption.
 
 ### D14. The seven families each bind to a concrete predicate form
@@ -530,8 +574,8 @@ The implementation acceptance suite must exercise:
 
 35. Rebuilding the workflow projections from the event log produces the same state
     byte-for-byte as the live write path.
-36. `ReconstructSubjectAt(work_id, sequence)` reconstructs a workflow's past
-    state for diagnosis.
+36. A restored prefix of the retained log, rebuilt, yields the workflow state
+    recorded at that sequence (CD-0238).
 
 ### Workflow_action surface
 
@@ -636,8 +680,6 @@ This decision extends:
 - CD-0006 D3 by fixing the engine's mechanical shape and definition authority;
 - CD-0008 D2, D4, D5, D6 by fixing workflow event families, evidence binding,
   external conditions, and reconstruction;
-- CD-0009 by aligning research ownership with the new outcome and projection
-  shapes;
 - CD-0012 by collapsing deferred items 1–4 into concrete predicate, actor, and
   event choices;
 - CD-0005 by keeping `workflow_action` reserved until the engine ships.
@@ -664,7 +706,6 @@ stays fail-closed until the latest approved predicates are healthy.
 |---|---|
 | `.concord/docs/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |
 | `.concord/docs/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and reconstruction. |
-| `.concord/docs/decisions/CD-0009-active-research-context.md` | Aligns research with the new outcome predicate form. |
 | `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, evaluator distinctness, and strengthening-only comparison. |
 | `.concord/docs/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
 | `.concord/docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |

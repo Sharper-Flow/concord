@@ -8,8 +8,6 @@
 // or occupancy change. The original Project claim survives both vacates, and
 // the same work ID then claims in a second Project.
 import { afterAll, afterEach, expect, test } from "bun:test"
-import { Database } from "bun:sqlite"
-import { createPrivateKey, createPublicKey } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -20,6 +18,7 @@ import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, MOVE_SESSION_ROUTE, SESSION_R
 import { configureHostLease } from "./host-lease"
 import { clearClaimedWorktree, pendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { dbRows, dbValue, fixturePublicKeyBase64, runProcess } from "./end-to-end.fixture"
 
 // The cycle drives the real core through its own runner, so argv[0] is
 // replaced there. Bind the nominal path the transport resolves instead of
@@ -35,16 +34,6 @@ const MESSAGE_ID = "reoccupy-message"
 const AGENT = "concord-implement"
 const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(9)
-const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
-
-function publicKeyBase64(): string {
-  const privateKey = createPrivateKey({ key: Buffer.concat([PRIVATE_KEY_PREFIX, Buffer.from(PRIVATE_SEED)]), format: "der", type: "pkcs8" })
-  return createPublicKey(privateKey).export({ format: "der", type: "spki" }).subarray(-32).toString("base64")
-}
-
-async function runProcess(argv: string[], input = "", cwd?: string, env: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, ...env } })
-}
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const result = await runProcess(["git", ...args], "", cwd)
@@ -86,24 +75,6 @@ async function repositoryFixture(root: string, name: string): Promise<{ repo: st
   return { repo }
 }
 
-function dbValue(dbPath: string, sql: string, ...params: string[]): any {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).get(...params)
-  } finally {
-    db.close()
-  }
-}
-
-function dbRows(dbPath: string, sql: string, ...params: string[]): any[] {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).all(...params)
-  } finally {
-    db.close()
-  }
-}
-
 function contextFor(directory: string): any {
   return {
     sessionID: SESSION_ID,
@@ -124,7 +95,7 @@ afterEach(async () => {
 afterAll(() => configureHostLease({ reset: true }))
 
 const connected =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 
@@ -134,16 +105,13 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     const repo2 = await repositoryFixture(root, "repo-2")
     await mkdir(repoCheckout, { recursive: true })
@@ -190,7 +158,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
       client_ref: "opencode",
       key_id: "reoccupy-key",
       principal_ref: "operator-1",
-      public_key: publicKeyBase64(),
+      public_key: fixturePublicKeyBase64(PRIVATE_SEED),
       capabilities: ["product_read", "work_define", "work_transition"],
       product_scope: [PRODUCT_ID],
       project_scope: [PROJECT_1, PROJECT_2],
@@ -411,16 +379,13 @@ connected("a readback outside every Project recovers through the remembered dest
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
   const outside = join(root, "outside")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
@@ -449,7 +414,7 @@ connected("a readback outside every Project recovers through the remembered dest
       client_ref: "opencode",
       key_id: "outside-key",
       principal_ref: "operator-1",
-      public_key: publicKeyBase64(),
+      public_key: fixturePublicKeyBase64(PRIVATE_SEED),
       capabilities: ["product_read", "work_define", "work_transition"],
       product_scope: [PRODUCT_ID],
       project_scope: [PROJECT_1],
@@ -586,16 +551,13 @@ connected("an unreadable ok answer recovers through the same-key replay from the
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
@@ -624,7 +586,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
       client_ref: "opencode",
       key_id: "unreadable-key",
       principal_ref: "operator-1",
-      public_key: publicKeyBase64(),
+      public_key: fixturePublicKeyBase64(PRIVATE_SEED),
       capabilities: ["product_read", "work_define", "work_transition"],
       product_scope: [PRODUCT_ID],
       project_scope: [PROJECT_1],
@@ -760,16 +722,13 @@ connected("a same-key replay after a later claim refuses without moving the host
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
   const repoCheckout = join(root, "checkout")
-  let binary = process.env.CONCORD_BIN ?? ""
+  const binary = join(binRoot, "concord-core")
   const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
   try {
-    if (!binary) {
-      await mkdir(binRoot, { recursive: true })
-      binary = join(binRoot, "concord-core")
-      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-    }
+    await mkdir(binRoot, { recursive: true })
+    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
     const repo1 = await repositoryFixture(root, "repo-1")
     await mkdir(repoCheckout, { recursive: true })
     await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
@@ -798,7 +757,7 @@ connected("a same-key replay after a later claim refuses without moving the host
       client_ref: "opencode",
       key_id: "later-claim-key",
       principal_ref: "operator-1",
-      public_key: publicKeyBase64(),
+      public_key: fixturePublicKeyBase64(PRIVATE_SEED),
       capabilities: ["product_read", "work_define", "work_transition"],
       product_scope: [PRODUCT_ID],
       project_scope: [PROJECT_1],

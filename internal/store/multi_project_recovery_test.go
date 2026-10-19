@@ -45,7 +45,7 @@ func multiProjectRecoveryFixtureForStore(t *testing.T, s *Store) multiProjectRec
 		if err := s.AddProjectLocator(ctx, project, ProjectLocator{ID: "path-" + project, Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
 			t.Fatal(err)
 		}
-		base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+		base := runTestGit(t, repo, "rev-parse", "HEAD")
 		if _, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 			OpID: "claim-" + project, WorkID: seed.workID, ProjectID: project, BaseSHA: base,
 			PrincipalRef: "principal/operator", RequestID: "claim-" + project,
@@ -142,8 +142,8 @@ func TestMultiProjectRecoveryAbandonsOnlyAttemptProject(t *testing.T) {
 				}
 				f.occupy(t, "project-sibling", liveSibling)
 				entry := f.entries["project"]
-				runBootstrapGit(t, entry.RepositoryID, "worktree", "remove", entry.Path)
-				runBootstrapGit(t, entry.RepositoryID, "branch", "-D", entry.Branch)
+				runTestGit(t, entry.RepositoryID, "worktree", "remove", entry.Path)
+				runTestGit(t, entry.RepositoryID, "branch", "-D", entry.Branch)
 				if err := f.abandon(attempt); err != nil {
 					t.Fatalf("lost primary attempt resolved to sibling occupancy: %v", err)
 				}
@@ -196,7 +196,7 @@ func TestMultiProjectRecoveryAbandonsMissingSymlinkedWorktree(t *testing.T) {
 	f.dispatch(t, "attempt-symlinked")
 	f.occupy(t, "project-sibling", true)
 	entry := f.entries["project"]
-	runBootstrapGit(t, entry.RepositoryID, "worktree", "remove", entry.Path)
+	runTestGit(t, entry.RepositoryID, "worktree", "remove", entry.Path)
 	if err := os.Remove(filepath.Dir(entry.Path)); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func (f multiProjectRecoveryFixture) assertSiblingUnchanged(t *testing.T) {
 	if got := worktreeOccupancyByEntry(t, f.store, entry.SetID, entry.ProjectID, entry.ClaimOpID); got != "session-project-sibling" {
 		t.Fatalf("sibling occupancy changed: %s", got)
 	}
-	if head := runBootstrapGit(t, entry.Path, "rev-parse", "HEAD"); head != entry.BaseSHA {
+	if head := runTestGit(t, entry.Path, "rev-parse", "HEAD"); head != entry.BaseSHA {
 		t.Fatalf("sibling head changed: %s", head)
 	}
 }

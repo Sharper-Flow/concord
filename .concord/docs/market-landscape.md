@@ -8,7 +8,7 @@
 > **Method:** Three parallel sourced research passes (2026-07-25) — competitor
 > landscape, Clay go-to-market (GTM), PostHog. Every material claim carries a source; items the
 > researchers could not verify from vendor sources are flagged.
-> **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](./research/R4-competitive-mechanism-hardening.md)
+> **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 > compares current agent/durable-execution mechanisms without adopting competitor
 > Product shapes and owns SQLite confirmation, the falsifier-only alternative-engine
 > trigger, and the worktree follow-up.
@@ -105,11 +105,12 @@ Developer-oriented product-data platform (analytics, replay, feature flags,
 experiments, error tracking, logs, surveys, CDP, warehouse, AI observability).
 Polyglot monorepo (~918k lines) — Django web/API + Rust event-capture services +
 Kafka bus + Celery/Temporal/Dagster workers + ClickHouse/Postgres/Redis/blob.
-PostHog-foss is the proprietary-purged mirror; `ee/` has a separate license.
+PostHog-foss is the proprietary-purged mirror;
+[PostHog's `ee/` directory](https://github.com/PostHog/posthog/tree/master/ee) has a separate license.
 Self-host is deliberately bounded (hobby-only, unsupported, scale-limited); cloud
 gets paid features. SDK/API + CDP + MCP server + agent-plugin path. Vertical
 product slices — `products/<product>` owns UI + backend + services + MCP + agent
-skills; top-level `services/` for cross-product.
+skills; [PostHog's top-level `services/`](https://github.com/PostHog/posthog/tree/master/services) for cross-product.
 
 **Concord relevance** (what to borrow vs avoid):
 - **Borrow** the distribution shape (public source, reproducible local install,
@@ -185,7 +186,7 @@ work across many specialized agents and external systems. That lane is empty.
   publicly verified; do not assume Temporal or any specific stack.
 - **Linear/ClickUp/Cursor/Factory/Devin implementation stacks** — not publicly
   verified ("proprietary").
-- **PostHog** — `ee/` differs from MIT core; do not call the whole repo "MIT."
+- **PostHog** — its enterprise directory differs from MIT core; do not call the whole repo "MIT."
   No verified public third-party front-end plugin marketplace.
 
 *This landscape is a 2026-07-25 snapshot. Re-run the research before any

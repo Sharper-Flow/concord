@@ -7,8 +7,7 @@
   lifetime
 - **Approval:** The operator approved the knowledge-ladder contract on
   2026-09-03 after shaping in Concord work-cec2c530525706b8574ce633.
-- **Related:** CD-0026, CD-0030, CD-0068, CD-0086, C8, C15, and issue #771
-- **Supersedes:** CD-0086 in full
+- **Related:** CD-0026, CD-0030, C8, C15, and issue #771
 - **Preserves:** Concord authority for Product law and formalized knowledge;
   the lgrep and vision lean under C8; the C15 managed-resource model
 
@@ -142,6 +141,5 @@ found it.
 - `vertical-integration.md` names lgrep and vision only and carries no
   promotion receiving contract.
 - `clarifications.md` R7 records the episode removal and cites this record.
-- The knowledge manifest registers this record as an accepted decision and
-  marks CD-0086 superseded with this record as successor.
+- The knowledge manifest registers this record as an accepted decision.
 - Repository document, knowledge-index, and link validators pass.

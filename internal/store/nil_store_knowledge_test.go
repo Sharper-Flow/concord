@@ -13,12 +13,9 @@ func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
 			_, err := s.KnowledgeIndexWatermark(ctx, "prod-1", "loc-1", "refs/heads/main")
 			return err
 		}},
-		{"QueryLawConflictsAtHome", func(s *Store) error {
-			_, err := s.QueryLawConflictsAtHome(ctx, "proj-1", "loc-1", []string{"law-1"})
+		{"EstablishKnowledgeSourceSetProof", func(s *Store) error {
+			_, err := s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
 			return err
-		}},
-		{"CheckMandatedLawsAtHome", func(s *Store) error {
-			return s.CheckMandatedLawsAtHome(ctx, "proj-1", "loc-1", []string{"law-1"}, nil, false)
 		}},
 		{"ResolveKnowledgeQueryHome", func(s *Store) error {
 			_, err := s.ResolveKnowledgeQueryHome(ctx, "", "", KnowledgeHome{}, "knowledge_home")

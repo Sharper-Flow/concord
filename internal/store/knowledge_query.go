@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -825,7 +826,7 @@ func encodeFederatedKnowledgeCursor(cursor federatedKnowledgeCursor) (string, er
 func decodeFederatedKnowledgeCursor(raw string, req Q9Request, kinds, tags []string, sourcesDigest string) (federatedKnowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
 	var cursor federatedKnowledgeCursor
-	if err != nil || decodeCursorFields(b, &cursor) != nil || cursor.Version != 3 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Domain != req.Domain || cursor.Text != req.Text || cursor.SourcesDigest != sourcesDigest || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 2 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" || cursor.HomeProjectID == "" || cursor.HomeLocatorID == "" {
+	if err != nil || decodeCursorFields(b, &cursor) != nil || cursor.Version != 3 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Domain != req.Domain || cursor.Text != req.Text || cursor.SourcesDigest != sourcesDigest || !slices.Equal(cursor.Kinds, kinds) || !slices.Equal(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 2 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" || cursor.HomeProjectID == "" || cursor.HomeLocatorID == "" {
 		return federatedKnowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query or the Product's current source set", false, "restart the query without the cursor, or use a cursor returned for the same source set")
 	}
 	return cursor, nil

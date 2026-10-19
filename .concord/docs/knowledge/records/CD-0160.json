@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-20T00:00:00Z",
   "doc_contract_profile": "legacy",
@@ -29,9 +27,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:773336480e6a2274a1cef252c4daa87f3d0099943f5b9d86ddcd16324891d315",
+  "sha256": "sha256:edfd6107b6c57dcd072c1d3a223a042ebc47d496411752f13a419f86426cef75",
   "status": "accepted",
-  "summary": "Moves the ci-wait wait into a store-free concord ci-wait CLI verb that polls, enforces the 1800-second deadline from durable state, classifies terminal outcomes from observed results, supersedes a changed pull request head, and reports gh failures as explicit errors. The utility allowance narrows to the verb and the model-maintained poll loop is removed.",
+  "summary": "Moves the ci-wait wait into a store-free concord ci-wait CLI verb that polls, enforces the 1800-second deadline from durable state, classifies terminal outcomes from observed results, judges only the commit a caller names for a pull request and supersedes a later head change, and reports gh failures as explicit errors. The utility allowance narrows to the verb and the model-maintained poll loop is removed.",
   "tags": [
     "agent-surface",
     "utilities",

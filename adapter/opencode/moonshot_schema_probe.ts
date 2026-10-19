@@ -1,4 +1,3 @@
-import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
 import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 // Live probe: submit every published Concord tool schema to the Moonshot-backed

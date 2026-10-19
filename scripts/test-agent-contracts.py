@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, io, json, os, re, subprocess, sys, tempfile, unittest, unittest.mock
+import copy, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, unittest, unittest.mock
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -21,6 +21,11 @@ _SCRIPTS_DIR = str(ROOT / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+# Preserve real tool boundaries while individual controls patch discovery
+# and reject Bun subprocesses.
+_REAL_SUBPROCESS_RUN = subprocess.run
+_REAL_WHICH = shutil.which
+
 
 def _load_cli_module(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / filename)
@@ -37,6 +42,29 @@ relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
 lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
+
+class LaneSelectabilityTests(unittest.TestCase):
+    def check_definition(self, mode, hidden=True):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "contracts").mkdir()
+            (root / ".opencode/agents").mkdir(parents=True)
+            (root / "contracts/agent-lanes.v1.json").write_text(json.dumps({"lanes": [{"id": "review"}]}))
+            definition = f"---\nmode: {mode}\n" + ("hidden: true\n" if hidden else "") + "---\n"
+            (root / ".opencode/agents/concord-review.md").write_text(definition)
+            with unittest.mock.patch.object(lane_checker, "ROOT", root):
+                return lane_checker._check_lane_agent_selectability()
+
+    def test_hidden_subagent_is_dispatchable(self):
+        self.assertEqual(self.check_definition("subagent"), [])
+
+    def test_primary_capable_lane_is_refused(self):
+        for mode in ("primary", "all"):
+            with self.subTest(mode=mode):
+                self.assertTrue(any("mode: subagent" in finding for finding in self.check_definition(mode)))
+
+    def test_visible_lane_is_refused(self):
+        self.assertTrue(any("hidden: true" in finding for finding in self.check_definition("subagent", hidden=False)))
 
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
@@ -63,6 +91,126 @@ class PublicationPinGenerationTests(unittest.TestCase):
             run.side_effect = subprocess.CalledProcessError(1, "bun")
             with self.assertRaises(subprocess.CalledProcessError):
                 generator.ts_publication_pin_projection()
+
+
+class GeneratorWithoutBunTests(unittest.TestCase):
+    """Run real deterministic projections while forbidding Bun and file writes.
+
+    Drift controls intercept generated-file reads, never edit generated files.
+    """
+
+    BUN_MISSING = FileNotFoundError(2, "No such file or directory", "bun")
+
+    @staticmethod
+    def _which_without_bun(name):
+        return None if name == "bun" else _REAL_WHICH(name)
+
+    @staticmethod
+    def _which_with_bun(name):
+        return "/fake/bun" if name == "bun" else _REAL_WHICH(name)
+
+    @staticmethod
+    def _refuse(action):
+        def guard(*args, **kwargs):
+            raise AssertionError(f"generator attempted {action} without Bun")
+        return guard
+
+    @staticmethod
+    def _guarded_run(attempts, bun_error):
+        def guarded(args, **kwargs):
+            if str(args[0]) == "bun":
+                attempts.append([str(argument) for argument in args])
+                raise bun_error
+            return _REAL_SUBPROCESS_RUN(args, **kwargs)
+        return guarded
+
+    @staticmethod
+    def _replace_pin(text, replacement):
+        head, separator, tail = text.rpartition("\nexport const PINNED_PUBLISHED_TOTAL_BYTES = ")
+        assert separator, "fixture lost the publication pin declaration"
+        return head + separator + replacement.replace("{n}", tail.split(";", 1)[0]) + "\n"
+
+    def _main(self, *, check=True, require_bun=False, bun_present=False, mutate_read=None):
+        attempts: list[list[str]] = []
+        real_read_text = Path.read_text
+        patches = [
+            unittest.mock.patch.object(
+                generator.subprocess, "run",
+                self._guarded_run(attempts, subprocess.CalledProcessError(1, "bun") if bun_present else self.BUN_MISSING),
+            ),
+            unittest.mock.patch("shutil.which", self._which_with_bun if bun_present else self._which_without_bun),
+            unittest.mock.patch.dict(os.environ, {"CONCORD_REQUIRE_BUN": "1"} if require_bun else {}),
+        ]
+        if mutate_read is not None:
+            def intercepted(path, *args, **kwargs):
+                text = real_read_text(path, *args, **kwargs)
+                return mutate_read(text) if path.name == "generated-contract-tests.ts" else text
+            patches.append(unittest.mock.patch.object(Path, "read_text", intercepted))
+        if not bun_present:
+            for target in ("pathlib.Path.write_text", "pathlib.Path.mkdir"):
+                patches.append(unittest.mock.patch(target, self._refuse(target.rsplit(".", 1)[1].replace("_", " "))))
+        out, err = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            if not require_bun:
+                os.environ.pop("CONCORD_REQUIRE_BUN", None)
+            with redirect_stdout(out), redirect_stderr(err):
+                with unittest.mock.patch.object(sys, "argv", ["generate-agent-contracts.py"] + (["--check"] if check else [])):
+                    code = generator.main()
+        return code, attempts, out.getvalue(), err.getvalue()
+
+    def _assert_no_bun_refusal(self, code, err):
+        # The refusal must be the generator's own decision naming the drifted
+        # file or the publication pin it refused, never a crash on the
+        # missing Bun binary.
+        self.assertEqual(code, 1)
+        self.assertTrue("generated-contract-tests.ts" in err or "PINNED_PUBLISHED_TOTAL_BYTES" in err, err)
+
+    def test_check_without_bun_validates_real_projections_and_skips_measurement(self):
+        code, attempts, out, err = self._main()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(attempts, [], "a no-Bun check must never spawn a Bun subprocess")
+        self.assertIn("NOT run", out + err)
+        self.assertIn("publication", (out + err).lower())
+
+    def test_check_without_bun_fails_when_the_validator_body_drifts(self):
+        def drift(text):
+            return text.replace("export function validateGeneratedPayload(", "export function validateGeneratedPayloadX(", 1)
+        code, _, _, err = self._main(mutate_read=drift)
+        self._assert_no_bun_refusal(code, err)
+
+    def test_check_without_bun_refuses_a_malformed_or_missing_publication_pin(self):
+        for name, mutate in (
+            ("zero", lambda text: self._replace_pin(text, "0;")),
+            ("not-an-integer", lambda text: self._replace_pin(text, '"116278";')),
+            ("missing", lambda text: text.rpartition("\nexport const PINNED_PUBLISHED_TOTAL_BYTES = ")[0] + "\n"),
+        ):
+            with self.subTest(pin=name):
+                code, _, _, err = self._main(mutate_read=mutate)
+                self._assert_no_bun_refusal(code, err)
+
+    def test_check_without_bun_accepts_no_content_after_the_pin(self):
+        code, _, _, err = self._main(mutate_read=lambda text: self._replace_pin(text, "{n};\n// content after the pin\n"))
+        self._assert_no_bun_refusal(code, err)
+
+    def test_check_without_bun_fails_closed_under_the_strict_environment(self):
+        code, attempts, _, err = self._main(require_bun=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(attempts, [], "the strict refusal must not reach a Bun subprocess")
+        self.assertIn("bun", err.lower())
+
+    def test_write_mode_without_bun_refuses_before_any_write(self):
+        code, attempts, _, err = self._main(check=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(attempts, [], "write mode must refuse on missing Bun, not crash mid-workload")
+        self.assertIn("bun", err.lower())
+
+    def test_with_bun_a_failed_measurement_still_fails_main(self):
+        code, attempts, _, err = self._main(bun_present=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(attempts), 1, "the publication measurement must still be attempted")
+        self.assertEqual(attempts[0][:2], ["bun", "-e"])
 
 
 class ManifestTamperTests(unittest.TestCase):
@@ -306,23 +454,6 @@ class Ts2BudgetTests(unittest.TestCase):
         self.assertEqual(len(manifest["tools"]), declared,
                          "manifest tool list disagrees with the TS2 budget")
 
-    def test_a_shrunk_document_budget_is_rejected(self):
-        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text().replace(
-            "always_visible_tools: 9", "always_visible_tools: 8")
-        with self.assertRaises(AssertionError):
-            matches = re.findall(r"always_visible_tools: (\d+)", document)
-            declared = int(matches[0])
-            self.assertEqual(manifest["surface"]["tool_count"], declared)
-
-    def test_a_manifest_tool_count_drift_is_rejected(self):
-        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        drifted = copy.deepcopy(manifest)
-        drifted["surface"]["tool_count"] = drifted["surface"]["tool_count"] - 1
-        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text()
-        matches = re.findall(r"always_visible_tools: (\d+)", document)
-        declared = int(matches[0])
-        self.assertNotEqual(drifted["surface"]["tool_count"], declared)
 
 class EvidenceObligationVocabularyTests(unittest.TestCase):
     """CD-0056 D2: the obligation vocabulary is one closed set across two contracts."""
@@ -686,7 +817,8 @@ class AdapterHostPinTests(unittest.TestCase):
             "typescript": "5.9.3",
             "compiler_options": {
                 "target": "es2022", "module": "esnext", "moduleResolution": "bundler",
-                "lib": ["es2022"], "types": ["runtime-types"], "strict": True, "noEmit": True,
+                "lib": ["es2022"], "types": ["runtime-types"], "strict": True,
+                "noUnusedLocals": True, "noUnusedParameters": True, "noEmit": True,
                 "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
                 "allowJs": True,
             },
@@ -751,6 +883,13 @@ class AdapterHostPinTests(unittest.TestCase):
         def mutate(value):
             value["compiler_options"]["strict"] = False
         self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_unused_code_checks_cannot_be_disabled(self):
+        for option in ("noUnusedLocals", "noUnusedParameters"):
+            with self.subTest(option=option):
+                def mutate(value, option=option):
+                    value["compiler_options"][option] = False
+                self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
 
     def test_allowance_states_match_the_contract_vocabulary(self):
         declared = set(self.schema["properties"]["allowances"]["items"]["properties"]["state"]["enum"])
@@ -1922,7 +2061,39 @@ class StrictFailureControls(unittest.TestCase):
     def test_missing_bun_stays_tolerable_on_a_contributor_laptop(self):
         code, out, _ = self._main(fake=_FakeSubprocess(), staging=lambda *a: None, require_bun=False, which=None)
         self.assertEqual(code, 0)
-        self.assertIn("generated-marker fallback only", out)
+        self.assertIn("non-Bun checks only", out)
+        self.assertIn("adapter build", out)
+        self.assertIn("host typecheck", out)
+        self.assertIn("NOT run", out)
+
+    def test_missing_bun_still_validates_the_host_pin(self):
+        finding = "adapter host pin unreadable: simulated"
+
+        def broken(findings):
+            findings.append(finding)
+            return None
+
+        with unittest.mock.patch.object(lane_checker, "load_host_pin", broken):
+            code, _, err = self._main(fake=_FakeSubprocess(), staging=lambda *a: None, require_bun=False, which=None)
+        self.assertEqual(code, 1)
+        self.assertIn(finding, err)
+
+    def test_the_no_bun_fallback_runs_the_real_generator_check(self):
+        # PATH must hide Bun from the actual generator subprocess, not only
+        # from the parent checker's patched discovery function.
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as tools, \
+                unittest.mock.patch.dict(os.environ):
+            os.environ.pop("CONCORD_REQUIRE_BUN", None)
+            for name in ("go", "gofmt", "git"):
+                executable = _REAL_WHICH(name)
+                self.assertIsNotNone(executable, f"{name} is required for the non-Bun generator checks")
+                (Path(tools) / name).symlink_to(executable)
+            os.environ["PATH"] = tools
+            with redirect_stdout(out), redirect_stderr(err):
+                code = lane_checker.main(["--contract-tests-external"])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("non-Bun checks only", out.getvalue())
 
     def test_an_unreachable_registry_fails_closed_under_the_strict_environment(self):
         error = "host declarations could not be installed: simulated registry unreachable"
@@ -2047,7 +2218,8 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
     generated checks, the lane validators, the Bun builds, the fixture probe,
     the expected-suite presence check, the host typecheck, and both strict
     failures — still runs and still propagates failure. A default invocation
-    runs the complete check with both suites.
+    runs the complete check with both suites. --skip-host-typecheck omits
+    host staging, installation, probes, and compilation, not other checks.
     """
 
     MINIMAL_PIN = {
@@ -2059,12 +2231,15 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         "runtime_probe": {},
     }
 
-    def _main(self, argv, fake=None, which="/fake/bun", staging=lambda *args: None, require_bun=False):
+    def _main(self, argv, fake=None, which="/fake/bun", staging=lambda *args: None, require_bun=False, pin_loader=None):
         fake = fake if fake is not None else _FakeSubprocess()
         patches = [
             unittest.mock.patch.object(lane_checker, "subprocess", fake),
             unittest.mock.patch.object(lane_checker, "stage_host_workspace", staging),
-            unittest.mock.patch.object(lane_checker, "load_host_pin", lambda findings: copy.deepcopy(self.MINIMAL_PIN)),
+            unittest.mock.patch.object(
+                lane_checker, "load_host_pin",
+                pin_loader if pin_loader is not None else lambda findings: copy.deepcopy(self.MINIMAL_PIN),
+            ),
             unittest.mock.patch("shutil.which", return_value=which),
         ]
         patches.append(unittest.mock.patch.dict(os.environ, {"CONCORD_REQUIRE_BUN": "1"} if require_bun else {}))
@@ -2184,6 +2359,72 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         self.assertIn(error, err)
+
+    def test_skip_host_typecheck_runs_no_staging_or_host_subprocess(self):
+        staging_calls = []
+        code, calls, _, _ = self._main(["--skip-host-typecheck"], staging=lambda *args: staging_calls.append(args))
+        self.assertEqual(code, 0)
+        self.assertEqual(staging_calls, [], "the host workspace must never be staged")
+        self.assertEqual(
+            [call for call in calls if len(call) > 1 and call[1] == "x"], [],
+            "the host TypeScript compiler must not run",
+        )
+        self.assertFalse(
+            any("host_schema_probe" in word for call in calls for word in call),
+            "the host schema probe must not run",
+        )
+        self.assertFalse(
+            any("--host-merge" in word for call in calls for word in call),
+            "the host permission-merge probe must not run",
+        )
+        self.assertTrue(any(len(call) > 1 and call[1] == "build" for call in calls), "the Bun builds must still run")
+        self.assertTrue(any(len(call) > 1 and call[1] == "run" for call in calls), "the fixture probe must still run")
+
+    def test_skip_host_typecheck_names_the_omitted_host_checks(self):
+        code, _, out, _ = self._main(["--skip-host-typecheck"])
+        self.assertEqual(code, 0)
+        self.assertIn("host typecheck NOT run", out)
+
+    def test_skip_host_typecheck_retains_external_suite_routing(self):
+        code, calls, _, _ = self._main(
+            ["--skip-host-typecheck", "--adapter-tests-external", "--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._selftest_calls(calls))
+        self.assertFalse(self._adapter_suite_calls(calls))
+        self.assertEqual(
+            len([call for call in calls if len(call) > 1 and call[1] == "build"]), 2,
+            "both Bun builds must still run",
+        )
+
+    def test_skip_host_typecheck_fails_closed_under_the_strict_environment(self):
+        # The refusal must come before the workload and every subprocess.
+        def unreachable():
+            raise AssertionError("the strict refusal must precede the contract workload")
+
+        staging_calls = []
+        with unittest.mock.patch.object(lane_checker, "check_workflow_contracts", unreachable):
+            code, calls, _, err = self._main(
+                ["--skip-host-typecheck"], require_bun=True, staging=lambda *args: staging_calls.append(args))
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [], "the strict refusal must precede every subprocess")
+        self.assertEqual(staging_calls, [])
+        self.assertTrue(err.strip())
+
+    def test_skip_host_typecheck_still_validates_the_host_pin(self):
+        finding = "adapter host pin unreadable: simulated"
+
+        def broken(findings):
+            findings.append(finding)
+            return None
+
+        code, _, _, err = self._main(["--skip-host-typecheck"], pin_loader=broken)
+        self.assertEqual(code, 1)
+        self.assertIn(finding, err)
+
+    def test_a_bun_build_failure_propagates_under_skip_host_typecheck(self):
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "build", _Completed(1))])
+        code, _, _, _ = self._main(["--skip-host-typecheck"], fake=fake)
+        self.assertEqual(code, 1)
 
 
 class WorkflowActionVariantCorpusTests(unittest.TestCase):

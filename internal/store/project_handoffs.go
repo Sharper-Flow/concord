@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -232,10 +231,6 @@ type ProjectHandoffResult struct {
 	HandoffID       string `json:"handoff_id"`
 	AlreadyRecorded bool   `json:"already_recorded"`
 }
-
-// artifactRefPattern admits sha256:<64 hex>:<relative path> immutable
-// artifact references.
-var artifactRefPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}:/.+$`)
 
 // projectHandoffEventOrder is the one definition of "newest handoff" every
 // selection read shares: the durable append sequence of the handoff's

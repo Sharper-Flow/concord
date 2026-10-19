@@ -2,11 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-15
-- **Scope:** CD-0041 D6 resolution staleness and the disposition of existing
+- **Scope:** CD-0222 D6 resolution staleness and the disposition of existing
   overlap-resolution rows
 - **Approval:** The operator approved this amendment on 2026-09-15.
-- **Related:** CD-0036, CD-0041 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
-- **Amends:** CD-0041 D6's rule for staleness after a contract revision
+- **Related:** CD-0036, CD-0222 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
+- **Amends:** CD-0222 D6's rule for staleness after a contract revision
 - **Preserves:** D6's closed resolution-kind set and operator approval;
   D7's seven action classes; CD-0036 breaking-law cutovers; and the
   execution-start claim boundary from PR 1084
@@ -65,10 +65,11 @@ for staleness.
 
 ### D4. Existing authority and resolution classes remain unchanged
 
-The five resolution kinds remain. Operator approval remains required for
-compatibility, blocking another item, merger, supersession, and scope-changing
-decisions. Pure `depends_on` only yields the declarer's place and does not require
-an operator signature. It grants no standing Domain compatibility waiver.
+The five resolution kinds remain. Merger and supersession require operator
+approval because they abandon or replace a work identity. Compatibility,
+blocking, and pure dependency answers require no consent. All answers retain
+both work versions, contract pins, and judged-content freshness. A dependency
+answer grants no standing Domain compatibility waiver.
 D7's seven consequential action classes remain unchanged. CD-0036 remains the
 authority for breaking law cutovers and its strict quiescence rule.
 

@@ -131,11 +131,7 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	t.Helper()
 	ctx := context.Background()
 	s, _, _, _ := researchSurfaceFixture(t)
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "human-1", Tool: "result-payload-population", OperationKind: "test", IdempotencyKey: key}
-	}
-	pack, err := store.CreateResearchPack(ctx, s, store.CreateResearchPackRequest{
-		Identity:    identity("create"),
+	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
 		OwnerWorkID: "work-1",
 		Freshness:   store.ResearchCurrent,
 		Revision: store.ResearchRevisionInput{
@@ -149,8 +145,8 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	if err != nil {
 		t.Fatalf("create research pack: %v", err)
 	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity("source"), PackID: pack.PackID, ExpectedVersion: 1,
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+		PackID: pack.PackID, ExpectedVersion: 1,
 		Source: store.ResearchSource{
 			SourceID: "source-1", Kind: store.SourceCode, Locator: "internal/store/research_types.go",
 			Title: "research types", PublisherOrAuthor: "concord", PublishedAt: "2026-01-01T00:00:00Z",
@@ -159,8 +155,8 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	}); err != nil {
 		t.Fatalf("add research source: %v", err)
 	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity("finding"), PackID: pack.PackID, ExpectedVersion: 2,
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		PackID: pack.PackID, ExpectedVersion: 2,
 		Finding: store.ResearchFinding{
 			FindingID: "finding-1", Kind: store.FindingObservation, Statement: "component scope is persisted",
 			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,

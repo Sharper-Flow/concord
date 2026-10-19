@@ -15,7 +15,7 @@ func TestResearchReadRefusesRevisionAndConsumerOverflow(t *testing.T) {
 			seedResearchWork(t, s, "read-owner", "read-c1", "read-c2")
 			p := createSimplePack(t, s, "read-bound", "read-owner")
 			if population == "revisions" {
-				if _, err := s.AppendResearchRevision(context.Background(), AppendResearchRevisionRequest{Identity: researchIdentity("read-append"), PackID: p.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
+				if _, err := appendResearchRevision(context.Background(), s, AppendResearchRevisionRequest{PackID: p.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -41,7 +41,7 @@ func TestResearchExactRevisionIgnoresUnrelatedOverflow(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "read-owner")
 	p := createSimplePack(t, s, "read-exact", "read-owner")
-	if _, err := s.AppendResearchRevision(context.Background(), AppendResearchRevisionRequest{Identity: researchIdentity("read-append"), PackID: p.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
+	if _, err := appendResearchRevision(context.Background(), s, AppendResearchRevisionRequest{PackID: p.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 1001; i++ {

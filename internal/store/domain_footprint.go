@@ -277,6 +277,10 @@ func (p preparedDomainFootprint) queryTx(ctx context.Context, q queryer, limit i
 	return queryDomainFootprintTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, limit)
 }
 
+func (p preparedDomainFootprint) completeTx(ctx context.Context, q queryer) (DomainFootprintResult, error) {
+	return footprintCompleteTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit)
+}
+
 // footprintBehaviorLaws runs Q9 over the designated home's indexed law kinds
 // and returns the matched law IDs and the watermark they were read at. It
 // takes the store, not a transaction, because Q9 probes git.
@@ -312,31 +316,94 @@ type footprintCandidate struct {
 	matched map[string]bool
 }
 
+// footprintSelection is the complete footprint before paging: every reached
+// path, Domain, package check, and ordered law, with no law checks loaded.
+type footprintSelection struct {
+	result  DomainFootprintResult
+	ordered []FootprintLaw
+	pair    []any
+}
+
 func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, limit int) (DomainFootprintResult, error) {
+	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit)
+	if err != nil {
+		return DomainFootprintResult{}, err
+	}
+	out := selection.result
+	offset, err := decodeFootprintCursor(req.Cursor, out.KnowledgeCommit, out.binding)
+	if err != nil {
+		return DomainFootprintResult{}, err
+	}
+	if offset > len(selection.ordered) {
+		return DomainFootprintResult{}, newFailure(KindInvalidCursor, footprintQueryID, "footprint cursor is past the result", false, "restart_query")
+	}
+	page := selection.ordered[offset:]
+	if len(page) > limit {
+		page = page[:limit]
+		next := encodeFootprintCursor(out.KnowledgeCommit, out.binding, offset+limit)
+		out.NextCursor = &next
+	}
+	if err := loadFootprintLawChecks(ctx, q, selection.pair, page); err != nil {
+		return DomainFootprintResult{}, err
+	}
+	out.Laws = page
+	out.offset = offset
+	return out, nil
+}
+
+// footprintCompleteTx reads the whole footprint in one snapshot: every law
+// the selection reaches, each with its checks. A size record keeps it.
+func footprintCompleteTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string) (DomainFootprintResult, error) {
+	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit)
+	if err != nil {
+		return DomainFootprintResult{}, err
+	}
+	if err := loadFootprintLawChecks(ctx, q, selection.pair, selection.ordered); err != nil {
+		return DomainFootprintResult{}, err
+	}
+	out := selection.result
+	out.Laws = selection.ordered
+	return out, nil
+}
+
+// loadFootprintLawChecks fills each law's checks. Domain-basis laws are
+// context and carry no checks.
+func loadFootprintLawChecks(ctx context.Context, q queryer, pair []any, laws []FootprintLaw) error {
+	for index := range laws {
+		laws[index].Checks = []FootprintCheck{}
+		if footprintBasisRank[laws[index].Basis] > footprintBasisRank[FootprintBehaviorMatch] {
+			continue
+		}
+		checks, err := footprintChecks(ctx, q, pair, laws[index].LawID)
+		if err != nil {
+			return err
+		}
+		laws[index].Checks = checks
+	}
+	return nil
+}
+
+func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string) (footprintSelection, error) {
 	var out DomainFootprintResult
+	var none footprintSelection
 	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
-		return out, err
+		return none, err
 	}
 	var commit string
 	if err := q.QueryRowContext(ctx, `SELECT scanned_commit_oid FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&commit); err == sql.ErrNoRows {
-		return out, newFailure(KindIndexDegraded, footprintQueryID, "the designated knowledge home has no index", true, "rebuild the git-derived knowledge index")
+		return none, newFailure(KindIndexDegraded, footprintQueryID, "the designated knowledge home has no index", true, "rebuild the git-derived knowledge index")
 	} else if err != nil {
-		return out, wrapFailure(KindUnavailable, footprintQueryID, "cannot read the knowledge watermark", true, "retry once the database is readable", err)
+		return none, wrapFailure(KindUnavailable, footprintQueryID, "cannot read the knowledge watermark", true, "retry once the database is readable", err)
 	}
 	if behaviorCommit != "" && behaviorCommit != commit {
-		return out, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved between the behavior match and the join", true, "retry the footprint read")
-	}
-	binding := footprintCursorBinding(req, paths)
-	offset, err := decodeFootprintCursor(req.Cursor, commit, binding)
-	if err != nil {
-		return out, err
+		return none, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved between the behavior match and the join", true, "retry the footprint read")
 	}
 	pair := []any{home.HomeProjectID, home.HomeLocatorID}
 
 	packages, mapHash, err := footprintPackages(ctx, q, pair)
 	if err != nil {
-		return out, err
+		return none, err
 	}
 	candidates := map[string]*footprintCandidate{}
 	propose := func(lawID, basis, matchedPath string) {
@@ -357,14 +424,14 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	for _, filePath := range paths {
 		documents, err := footprintStrings(ctx, q, `SELECT law_id FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND path=? AND status='accepted' ORDER BY law_id`, append(pair, filePath)...)
 		if err != nil {
-			return out, err
+			return none, err
 		}
 		for _, lawID := range documents {
 			propose(lawID, FootprintIsLawDocument, filePath)
 		}
 		named, err := footprintStrings(ctx, q, `SELECT e.law_id FROM law_evidence_paths e JOIN law_subjects s ON s.home_project_id=e.home_project_id AND s.home_locator_id=e.home_locator_id AND s.law_id=e.law_id WHERE e.home_project_id=? AND e.home_locator_id=? AND e.path=? AND s.status='accepted' ORDER BY e.law_id`, append(pair, filePath)...)
 		if err != nil {
-			return out, err
+			return none, err
 		}
 		for _, lawID := range named {
 			propose(lawID, FootprintNamesPath, filePath)
@@ -389,7 +456,7 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 
 	laws, err := footprintLawRows(ctx, q, pair, req.Product)
 	if err != nil {
-		return out, err
+		return none, err
 	}
 	// A law found through a path reaches its home Domain. A behavior match
 	// does not: it is a ranked text guess, and reaching its home would add
@@ -403,14 +470,14 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	for _, domainID := range reachedIDs {
 		homed, err := footprintStrings(ctx, q, `SELECT h.law_id FROM law_domain_homes h JOIN law_subjects s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id WHERE h.home_project_id=? AND h.home_locator_id=? AND h.product_id=? AND h.domain_id=? AND s.status='accepted'`, append(pair, req.Product, domainID)...)
 		if err != nil {
-			return out, err
+			return none, err
 		}
 		for _, lawID := range homed {
 			propose(lawID, FootprintHomedInDomain, "")
 		}
 		applies, err := footprintStrings(ctx, q, `SELECT a.law_id FROM law_domain_applicability a JOIN law_subjects s ON s.home_project_id=a.home_project_id AND s.home_locator_id=a.home_locator_id AND s.law_id=a.law_id WHERE a.home_project_id=? AND a.home_locator_id=? AND a.product_id=? AND a.domain_id=? AND s.status='accepted'`, append(pair, req.Product, domainID)...)
 		if err != nil {
-			return out, err
+			return none, err
 		}
 		for _, lawID := range applies {
 			propose(lawID, FootprintAppliesToDomain, "")
@@ -434,32 +501,12 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 		}
 		return a.LawID < b.LawID
 	})
-	if offset > len(ordered) {
-		return out, newFailure(KindInvalidCursor, footprintQueryID, "footprint cursor is past the result", false, "restart_query")
-	}
-	page := ordered[offset:]
-	if len(page) > limit {
-		page = page[:limit]
-		next := encodeFootprintCursor(commit, binding, offset+limit)
-		out.NextCursor = &next
-	}
-	for index := range page {
-		page[index].Checks = []FootprintCheck{}
-		if footprintBasisRank[page[index].Basis] > footprintBasisRank[FootprintBehaviorMatch] {
-			continue // Domain-basis laws are context and carry no checks
-		}
-		checks, err := footprintChecks(ctx, q, pair, page[index].LawID)
-		if err != nil {
-			return out, err
-		}
-		page[index].Checks = checks
-	}
 
 	out.Domains = make([]FootprintDomain, 0, len(reachedIDs))
 	for _, domainID := range reachedIDs {
 		domain := FootprintDomain{DomainID: domainID}
 		if err := q.QueryRowContext(ctx, `SELECT name,status FROM domains WHERE product_id=? AND domain_id=?`, req.Product, domainID).Scan(&domain.Name, &domain.Status); err != nil {
-			return out, wrapFailure(KindUnavailable, footprintQueryID, "cannot read a reached Domain", true, "rebuild the git-derived knowledge index", err)
+			return none, wrapFailure(KindUnavailable, footprintQueryID, "cannot read a reached Domain", true, "rebuild the git-derived knowledge index", err)
 		}
 		out.Domains = append(out.Domains, domain)
 	}
@@ -467,14 +514,12 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	for _, owner := range sortedKeys(packageChecks) {
 		out.PackageChecks = append(out.PackageChecks, FootprintPackageCheck{Package: owner, Kind: "go_package", Value: "./" + owner})
 	}
-	out.Laws = page
-	out.offset = offset
-	out.binding = binding
+	out.binding = footprintCursorBinding(req, paths)
 	out.KnowledgeCommit = commit
 	out.RegistryContentHash = registry.ContentHash
 	out.PackageMapContentHash = mapHash
-	out.ResultMeta = ResultMeta{QueryID: footprintQueryID, ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"basis", "law_id"}, NextCursor: out.NextCursor}
-	return out, nil
+	out.ResultMeta = ResultMeta{QueryID: footprintQueryID, ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"basis", "law_id"}}
+	return footprintSelection{result: out, ordered: ordered, pair: pair}, nil
 }
 
 // footprintOwningPackage resolves a path to the map entry with the longest

@@ -29,7 +29,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	env := mutationEnvelope(grant, scopeVersion)
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "aj4-history-"+actionID)
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "aj4-history-approve")
 	if approved.Outcome != OutcomeOK {

@@ -1,6 +1,6 @@
 # Concord Design Constraints
 
-> **Status:** Aligned v3 under CD-0006 and CD-0041. Companion to [`priorities.md`](./priorities.md).
+> **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`priorities.md`](./priorities.md).
 > **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. These constraints are derived from the ranked priorities and operating envelope in [`priorities.md`](./priorities.md); if a companion document or future decision contradicts this file, `priorities.md` is the authority.
 
 ---

@@ -38,7 +38,7 @@ type workObservationRecordedPayload struct {
 }
 
 // validateObservationBounds enforces the CD-0030 D1 statement, ref, and tag
-// bounds. CD-0068 D1 carries them over to the Domain anchor unchanged, so both
+// bounds. The Domain anchor carries them over unchanged, so both
 // folds read the same limits from here rather than restating them.
 func validateObservationBounds(statement string, refs, tags []string) error {
 	if len(statement) < 1 || len(statement) > 512 {

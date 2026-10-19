@@ -1,138 +1,62 @@
-# Concord Compaction Retention and Historical Index (PM7)
+# Concord Compaction Retention and Historical Index
 
-> **Status:** **Superseded.**
-> **Successor:** [compaction-retention-policy](compaction-retention-policy-successor.md).
-> **Accepted by operator:** 2026-08-06.
-> **Decision:** PM7; binding PM6 amendment.
-> **Binding inputs:** PM1 Q2/Q3/Q7–Q10, CD-0002 I1–I6, PM4 lifecycle,
-> PM5 membership, and PM6 canonical note/link proof.
-> **Operator choices:** pruned work IDs remain immutable; renewed need creates a new
-> linked work item. Pruning uses bounded lazy maintenance, not a fixed calendar sweep.
-> **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
-> requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
-> backup/restore, agent tools, or exact maintenance thresholds.
-> **Amended by CD-0066:** the projection-pruning mechanism (§2, §3, §4, §7's
-> `archived_work_linked` event/projection, §9.8's maintenance cursor) is deferred;
-> live projections are unbounded with a recorded revisit trigger; backup retention
-> stays out of scope. The authority guarantees in §1, §5, §6, §8 and §7.1 stand.
-> **Amended by CD-0041, CD-0042, and CD-0142:** historical scope uses `domain_ids` and
-> `archived_work_domains`; #197 replaces component scope directly on the
-> pre-go-live primary path without an upcaster or compatibility window.
-> CD-0142 defines a separate, operator-directed removal boundary for nonterminal
-> execution. It does not authorize terminal compaction or alter the historical
-> retention guarantees in this record.
+- **Law ID:** compaction-retention-policy
+- **Status:** Accepted
+- **Date:** 2026-10-09
+- **Approval:** Under operator delegation on 2026-10-09, without calendar expiration.
+- **Related:** [CD-0215](decisions/CD-0215-retained-research-context.md),
+  [CD-0216](decisions/CD-0216-research-surface-and-explicit-retirement.md),
+  [CD-0217](decisions/CD-0217-publication-and-retention-boundaries.md),
+  [CD-0142](decisions/CD-0142-operator-directed-execution-removal.md), PM1, PM3–PM6, and PM8–PM10
 
 ## Context
 
-Compaction linkage makes terminal work eligible to leave live typed
-projections. The binding inputs are PM1 Q2/Q3/Q7 through Q10, CD-0002
-invariants, PM4 lifecycle, PM5 membership, and PM6 note and link proof.
-This record fixes the retention split: what stays
-authoritative after pruning, the minimum git-rebuildable historical
-projection, query behavior across live and historical tiers, and the reopen
-boundary. CD-0066 defers the pruning mechanism itself with live projections
-unbounded and a recorded revisit trigger; the authority guarantees here
-stand.
+This complete successor preserves work-history authority, canonical note proof, historical scope, query populations, and deferred terminal projection pruning.
+Research retention changes at a separate explicit boundary.
+
 ## Contract
 
-The binding contract is sections 1, 5, 6, and 7.1: the retention decision
-splitting durable note, retained events, and disposable projections; the
-minimum historical front matter and its frozen scope; the query behavior for
-combined live/historical populations with composed authority; and the
-proof-gated active-research cleanup. CD-0066 defers sections 2 through 4 and
-the pruning projection of section 7; section 8 records the retained-versus-
-removed table those guarantees rest on.
-## 1. Proposed decision
+### 1. Authority and deferred projection pruning
 
-PM6 compaction linkage makes terminal work eligible to leave live typed projections.
-PM7 permits a bounded lazy maintenance operation to remove those disposable live
-projection rows while retaining the authoritative `domain_events` history in v1.
+The canonical Git note owns distilled knowledge.
+`domain_events` owns exact lifecycle, relation history, and deterministic replay; core events remain retained.
+`archived_work` and historical scope edges are disposable Git-derived read projections, not another authority for work.
+PM6 verifies canonical note identity and records compaction linkage before any future terminal-projection removal can become eligible.
+Publication does not itself remove live work projections or research.
 
-CD-0142 is a separate correctness operation. It removes a nonterminal execution
-identity only after a verified planning handoff and reconciled execution state.
-It does not make terminal work eligible for compaction and does not remove core
-event history.
+CD-0217 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
+Terminal work stays in live typed projections indefinitely.
+`work_projection_pruned` and `archived_work_linked` remain reserved; this record does not introduce those events or their projections.
+Reintroduction requires an accepted decision that supersedes the deferral and preserves the authority guarantees here.
+The three revisit triggers are measurable degradation of authoritative operations, deployment beyond one operator, or snapshot-size recovery risk.
 
-After projection pruning:
+CD-0142 separately governs nonterminal execution removal after verified planning handoff and reconciliation.
+It is not terminal compaction and does not remove core events.
+No work-removal or foreign-key cascade may serve as an alternate route to delete retained research.
+Removal must preserve the research authority or refuse before destructive effects.
 
-- the durable git note is authority for distilled knowledge;
-- `domain_events` remains authority for exact lifecycle/relation history and replay;
-- `archived_work` plus normalized historical-scope edges remain disposable,
-  git-rebuildable read projections;
-- the original work ID is immutable and cannot reopen;
-- renewed need creates a new work item linked to the archived one through §7's
-  cross-tier `archived_work_linked` event, not a PM4 live relation.
+### 2. Guarantees for any later pruning mechanism
 
-This preserves PM1 Q7 and CD-0002 I5 without inventing a fold checkpoint or treating
-the concise git note as a replacement for detailed operational history.
+Calendar age alone cannot create removal eligibility.
+Uncompacted or proof-degraded work cannot become terminal-prune-eligible.
+Before terminal projection removal, verified linkage must identify home IDs, note path, commit OID, content hash, and unique work ID.
+Historical front matter must carry the complete scope and terminal state.
+Superseded work must have its canonical successor recorded.
+An in-flight compaction or canonical-home mutation and unresolved recovery prevent destructive eligibility.
 
-## 2. Eligibility
+A future run must declare hard item or time bounds and return an explicit continuation.
+No unmeasured default pressure threshold or calendar sweep is accepted.
+Each work item must move atomically between live and historical projections, with replay returning the committed idempotent result.
+Core events remain available for history and replay.
+These guarantees constrain a future accepted mechanism; they do not activate the deferred one.
 
-A work item becomes `projection_prune_eligible` only when all are true:
+### 3. Minimum Git-rebuildable historical projection
 
-1. lifecycle is terminal (`completed`, `cancelled`, or `superseded`);
-2. PM6 compaction-link event and `archived_work` locator committed;
-3. git proof still verifies home IDs, path, commit OID, content hash, and unique work ID;
-4. no compaction, membership, or canonical-home mutation for that work is in flight;
-5. PM6 front matter contains every field required by §5;
-6. superseded work has its canonical successor recorded;
-7. no unresolved operator approval or recovery action exists for the compaction.
-
-Calendar age alone never creates eligibility. An uncompacted or proof-degraded item
-is never pruned.
-
-## 3. Trigger and bounded execution
-
-There is no daemon and no fixed 30-day sweep. A prune run begins only through:
-
-- explicit operator maintenance intent; or
-- a measured storage-pressure policy whose configured threshold was accepted from
-  implementation evidence.
-
-Every run must declare a hard item bound and/or elapsed-time bound before it starts.
-It selects eligible work deterministically (oldest compaction-link sequence, then
-stable work ID), processes one work item per SQLite transaction, and returns a typed
-cursor plus counts. A later call resumes; it never holds one unbounded transaction.
-
-A storage-pressure threshold is operational configuration, not architecture. No
-default is invented before representative-size evidence exists. Without such a
-threshold, pruning remains explicit-operator-only.
-
-## 4. Per-work projection prune transaction
-
-For one eligible work item, one SQLite transaction:
-
-1. revalidates terminal state, PM6 linkage/proof metadata, and eligibility version;
-2. appends `work_projection_pruned` to `domain_events`;
-3. removes the work item and every live membership/relation row referencing it as
-   either source or target from live typed projections;
-4. preserves/rebuilds historical projection rows from the verified git note metadata;
-5. commits all projection changes atomically.
-
-Crash before commit leaves the prior live projection intact. Crash after commit leaves
-the historical projection complete. No half-pruned state is representable. Repeating
-the same idempotency key returns the committed result without another event.
-
-The `work_projection_pruned` event is authoritative replay input: a full fold sees the
-terminal history, then excludes that ID from live projections. It does not make
-`archived_work` authoritative; the historical projection still rebuilds from git.
-Any still-live work edge formerly targeting the pruned ID leaves the foreign key (FK) enforced live
-`relations` projection and remains available through authoritative events or the
-typed cross-tier link projection in §7.
-
-## 5. Minimum git-rebuildable historical projection
-
-Accepted PM6 fields remain:
+The bounded PM6 front matter preserves:
 
 ```text
 id, type, title, completed_at, outcome_tag, lesson_tags,
 home_project_id, home_locator_id, note_path, commit_oid, content_hash
-```
-
-PM7 explicitly amends PM6's bounded front-matter schema with the minimum data needed
-by accepted post-prune queries:
-
-```text
 terminal_state            # completed | cancelled | superseded
 priority
 summary                   # bounded value/outcome summary
@@ -143,257 +67,156 @@ tag_ids[]
 successor_work_id?        # required when terminal_state=superseded
 ```
 
-These values live in bounded PM6 front matter and normalize into disposable
-`archived_work`, `archived_work_products`, `archived_work_projects`,
-`archived_work_domains`, and `archived_work_tags` projections. They describe the
-historical scope at compaction; later Product/Project membership moves do not rewrite
-the canonical note.
+These fields normalize into `archived_work`, `archived_work_products`, `archived_work_projects`, `archived_work_domains`, and `archived_work_tags`.
+They describe scope at compaction; later membership changes do not rewrite the canonical note or frozen historical associations.
+`completed_at` means the terminal timestamp for all three terminal states.
+PM1's `terminal_at` maps to that field for cancelled and superseded work too.
 
-`completed_at` is the inherited index/front-matter name for the terminal timestamp
-across all three terminal states; PM1 fixture `terminal_at` maps to it for cancelled
-and superseded work as well as completed work. A future schema may rename it to
-`terminal_at`, but its meaning is already uniform.
+An older note missing required fields needs bounded verified backfill before any future pruning eligibility.
+Historical edges carry no mutable blocker, readiness, evidence, lifecycle, or per-Project status.
+`successor_work_id` preserves canonical supersession resolution, not a second relation writer.
+CD-0222 and CD-0042 Domain scope and migration remain unchanged.
 
-Notes created before the PM7 fields exist are not projection-prune-eligible until a
-bounded backfill commits and verifies the amended canonical note.
+### 4. One query population across tiers
 
-No historical edge carries mutable lifecycle, blocker, readiness, evidence, or
-per-Project status. `successor_work_id` preserves PM1 Q8 canonical resolution; it is
-not a second live relation authority.
+Q2/Q3 union live terminal work and Git-derived historical work, then deduplicate by work ID before counting, ordering, or pagination.
+`COUNT(DISTINCT work_id)` uses that same population.
+Historical filters use frozen Product, Project, Domain, and tag associations.
+Historical state comes from `terminal_state`; terminal time comes from `completed_at`.
+Unpruned work retains current PM5 membership semantics.
 
-## 6. Query behavior after projection pruning
+An authoritative combined result requires current event/projection and applicable Git-index watermarks.
+Reachable but incomplete or lagging historical coverage returns degraded authority and bounded omissions.
+Unreachable Git authority returns unreachable authority.
+A stale historical index cannot produce authoritative counts.
 
-### Q2/Q3
+Q7 returns exact ordered history from retained events, not a process-exhaust receipt or the compact note.
+If a later prune marker is accepted, deterministic replay must preserve its lifecycle effect without removing exact history.
+Q8 resolves a superseded historical item's canonical successor from verified front matter and historical projection.
+Other relation history remains available from events.
+Q9/Q10 retain PM6 locator proof, canonical note identity, current Git authority, and typed outcomes.
 
-- Product/project terminal counts and listings union live terminal projections with
-  historical projections, deduplicated by work ID before count/order/pagination.
-- Historical filters use compacted Product/Project/Domain/tag associations.
-- Lifecycle state comes from `terminal_state`; terminal time from `completed_at`.
-- `COUNT(DISTINCT work_id)` remains mandatory across the combined population.
-- The combined answer is `authority=authoritative` only when the live event/projection
-  watermark and every applicable git-derived historical-index watermark are current.
-  If historical coverage is reachable but incomplete/lagging, return
-  `authority=degraded` with bounded `omissions`; unreachable git authority composes to
-  `authority=unreachable`. A stale historical index never yields authoritative counts.
-- Historical Product/Project scope is frozen at compaction; unpruned work follows
-  current PM5 membership. A later Project move intentionally does not reclassify
-  already compacted work.
+### 5. Identity and renewed work
 
-### Q7
+Before any accepted committed prune boundary, PM4 reopen rules remain available.
+A projection-pruned ID cannot reopen; renewed need uses a new canonical work identity linked to the old one.
+The old note, terminal state, and event history remain unchanged.
+Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
+It must not pretend that a removed projection is a live foreign-key endpoint.
+The cross-tier event and projection remain deferred under CD-0217.
 
-- Exact ordered history remains available from retained `domain_events`.
-- Current lifecycle is still the deterministic fold of those events, including the
-  projection-pruned marker.
-- PM9 confirms no separate audit receipt is needed; it does not replace authoritative
-  history.
+### 6. Protected research retirement
 
-### Q8
+CD-0215 research packs remain direct-table context, not retained Product-memory events or historical work projections.
+Nonterminal owners may author content; terminal owners retain read-only content available for authorized exact-revision reuse.
+Freshness and scope still govern reliance.
+Consumer pins protect content while their consuming work is nonterminal, whether required or optional.
+Consumer terminalization releases those pins transactionally.
 
-- Superseded archived work resolves `successor_work_id` from the historical
-  projection/front matter; other relation history remains queryable from events.
+PM6 publication verifies and links the ordinary durable note without deleting research or requiring consumers to stop.
+A research `no change` outcome does not change this separation.
+A note may retain selected reviewed reasoning through ordinary accepted durable forms.
+It never serializes or indexes the research corpus or promises recovery of a retired pack.
 
-### Q9/Q10
+Only explicit `research_retire` deletes a pack aggregate.
+The operation is authorized, bounded to 1–100 distinct candidates, version-fenced, idempotent, and transactional.
+Dry run reports selected identities and versions without writes.
+Execution rechecks terminal ownership and zero active pins before deletion.
+Compaction linkage is not required for research retirement.
+There is no deadline, timer, sweep, or age-derived eligibility.
+Reads, publication, unrelated refusals, rebuild, and restart never retire research.
 
-- Continue through PM6's git-derived index, locator proof, authority watermark, and
-  typed outcomes. Projection pruning does not alter canonical note identity.
+One destructive batch commits atomically; invalid or unauthorized input leaves all candidates unchanged.
+Deletion removes packs and dependent revisions, findings, sources, provenance, scopes, and bindings.
+Crash before commit retains the prior aggregate; replay after commit returns the committed result without repeating deletion.
+Authorized owner reopen before retirement removes eligibility without reconstructing a retired pack.
 
-## 7. Reopen and renewed work
+### 7. Retained and removed data
 
-Before projection pruning, PM4 reopen rules remain available. After a committed
-`work_projection_pruned` event, the original work ID is immutable and cannot reopen.
-
-If its outcome regresses or related work becomes necessary:
-
-1. create a new canonical work item with a new ID;
-2. append a typed `archived_work_linked` event (`source_work_id`,
-   `target_archived_work_id`, `kind=follow_up`) and project it into a separate
-   `archived_work_links` read model;
-3. preserve the old note, event history, and terminal state unchanged.
-
-This narrows PM4 reopen semantics only after PM7's explicit prune boundary. It avoids
-restoring deleted projections as if a concise knowledge note were a live checkpoint.
-The cross-tier link is not a PM4 live `relations` row and does not pretend an archived
-ID is a live FK endpoint. It has no blocking, hierarchy, supersession, or lifecycle
-effect; richer semantics require a later accepted relation decision.
-
-### 7.1 Active research cleanup
-
-CD-0009 active research packs are retention-bounded WIP context, not retained
-Product-memory events or historical projections. After the normal PM6 note is
-committed/verified and compaction linkage commits, archive deletes every pack owned by
-that work item plus its revisions, findings, sources, and consumer bindings in one
-local SQLite transaction. Failure before durable-note/linkage proof leaves all pack
-data intact. The compact note may retain selected reasoning, decisions, specs, or
-lessons through their ordinary durable forms; it never serializes or indexes the pack.
-
-## 8. Retained versus removed in v1
-
-| Data | PM7 v1 treatment | Authority |
+| Data | Treatment | Authority |
 |---|---|---|
-| canonical git note | retain | durable knowledge |
-| core `domain_events` (never includes research-pack content) | retain | live/history/replay authority |
-| PM6 compaction-link/prune events | retain | linkage/replay authority |
-| live typed work row | remove after eligibility | disposable projection |
-| live membership/relation rows for pruned ID | remove after eligibility | disposable projection |
-| historical index/scope edges | retain/rebuild | disposable git-derived projection |
-| external WIP logs, traces, screenshots, and binary output | producer-owned process exhaust | no Concord retention |
-| native oracle stdout/stderr | one raw `BLOB` per stream in its existing verify lease; remove with the lease/work | native producer observation, not knowledge or acceptance |
-| active research packs/revisions/findings/sources/bindings | delete after proof-backed owner archive | CD-0009 active-context authority only |
-| external reports/traces/process exhaust | producer-owned | PM9: no Concord receipt/retention |
-| backups/restore copies | PM10 recovery snapshots | accepted recovery policy |
+| canonical Git note | retain | distilled knowledge |
+| core `domain_events` without research bodies | retain | work history and replay |
+| PM6 compaction-link events | retain | linkage |
+| live terminal work and membership/relation rows | retain; pruning deferred | event-derived projections |
+| historical index and scope edges | retain or rebuild | verified Git-derived projections |
+| research packs and dependent content | retain until explicit eligible retirement | direct tables |
+| WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention |
+| reports and process exhaust | producer-owned | PM9; no separate receipt store |
+| backups and restore copies | PM10 recovery policy | recovery snapshots |
 
-Native oracle retention is bounded to 2 MiB per stream, at most 4 MiB per lease.
-Its plan and bounded metadata remain separate; green operations copy metadata
-only. Repeated leases increase SQLite and backup size. No separate byte store,
-file garbage collector, generic WIP import, or post-removal retention is added.
-Reclaiming a worktree does not delete its retained verification lease.
+Research retirement is not secure erasure of backups.
+Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specification adds no reclamation policy.
 
-Core event pruning is rejected for v1 because it would break PM1 Q7 and CD-0002 I5
-unless a later accepted decision introduces another authoritative replay source.
+### 8. Structural invariants and rejected alternatives
 
-CD-0142's `work.removed` event is not a prune event. It records removal of a
-nonterminal execution projection and retains the exact audit history required by
-PM1 Q7.
+- Verified linkage precedes any future terminal work pruning, not separate research retirement.
+- Projection removal never deletes authoritative event history.
+- A work item cannot be half-live and half-historical after a destructive transaction.
+- A committed prune boundary makes the old identity immutable.
+- Historical fields derive from one verified note or stable canonical-home context, never a copied live row.
+- Combined queries deduplicate one work population and compose its watermarks.
+- Calendar age never grants deletion authority.
+- Destructive maintenance is bounded, explicit, and replay-safe.
+- Proof degradation prevents work pruning rather than allowing inference.
+- Live relations reference live work; historical links cannot create live foreign-key endpoints.
+- Research retirement has one owner and every active pin protects content.
 
-## 9. Structural invariants
+A fixed calendar sweep is rejected because no measured window supports it.
+Immediate projection pruning during PM6 publication is rejected because it couples durable publication to destructive cleanup.
+Core-event pruning is rejected because it breaks exact history and from-scratch replay.
+Restoration of the same pruned work ID is rejected; a note is not an event snapshot.
+Copied historical status on membership edges is rejected because terminal state belongs once on the historical work projection.
 
-1. **Link before prune:** no verified PM6 linkage means no eligibility.
-2. **Events retained:** projection pruning never deletes authoritative domain history.
-3. **One atomic item transition:** each work ID is fully live or fully historical in
-   projections after a transaction; never half-pruned.
-4. **Immutable prune boundary:** a pruned work ID never reopens.
-5. **Git-rebuildable history:** every historical projection field derives from one
-   verified canonical note/front matter or stable home-walk context.
-6. **One query population:** combined live/historical counts deduplicate by work ID
-   and compose authority/watermark coverage across both tiers.
-7. **No calendar authority:** age alone never causes deletion.
-8. **Bounded maintenance:** every run has explicit work/time bounds and a cursor.
-9. **Typed uncertainty:** proof degradation blocks pruning rather than guessing.
-10. **FK-clean tiers:** live PM4 relations reference live work only; cross-tier
-    follow-up links use their own event-derived typed projection.
+### 9. Cutover and falsifiers
 
-## 10. Alternatives rejected
+This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative replay source.
+This offline edit provides no live consumer enumeration or completed re-contracting evidence.
 
-### Fixed 30-day sweep
-
-Rejected. The window is unmeasured, adds calendar maintenance, and confuses age with
-proof/eligibility. Real lookback evidence may later justify a measured trigger margin.
-
-### Immediate prune during PM6 linkage
-
-Rejected. It collapses approval/linkage and destructive projection cleanup into one
-cross-store recovery seam and leaves no bounded operational margin.
-
-### Prune core domain events
-
-Rejected for v1. It breaks exact Q7 history and deterministic from-scratch fold unless
-another authoritative checkpoint/receipt model is accepted.
-
-### Restore and reopen the same pruned ID
-
-Rejected by operator choice. It requires reconstructing live authority across stores
-and makes the durable note behave like an incomplete event snapshot.
-
-### Keep copied status in historical membership edges
-
-Rejected. It recreates PM5's duplicate-state anti-pattern; terminal state belongs once
-on the archived work projection.
-
-## 11. Scope deliberately deferred
-
-PM7 does not decide:
-
-- PM10 backup topology and clean-machine restore;
-- exact pressure threshold, item/time batch limits, SQL/index syntax, or command name;
-- agent-facing maintenance tools or authorization;
-- future core-event pruning (requires a new accepted authority/replay decision).
-
-## 12. Required implementation-acceptance scenarios
-
-In addition to PM1's corpus, acceptance must cover:
-
-1. Q2/Q3 with one live and one pruned terminal item in the same Product, proving one
-   population, deterministic order, and no duplicate count;
-2. the same query with a stale historical-index watermark, proving
-   `authority=degraded` plus bounded omissions;
-3. a live item formerly related to a now-pruned item, proving no dangling FK and
-   bounded event/cross-tier-link retrieval;
-4. Q8 canonical successor resolution for a superseded item pruned with its successor
-   already known;
-5. a post-prune regression creating a new ID plus `archived_work_linked`, while the
-   old ID remains immutable;
-6. Product/Project membership moving after compaction, proving historical scope stays
-   frozen and explicit.
-
-## 13. Falsifiers
-
-Reopen PM7 if:
-
-1. retained core events—not projections—are the measured SQLite growth problem;
-2. a real investigation needs projection-only data absent from git/events;
-3. creating linked successor work fails a repeated legitimate same-ID reopen job;
-4. combined live/historical Q2/Q3 queries cannot meet PM1's bounded P99 target;
-5. historical front matter becomes an unbounded state dump;
-6. explicit/lazy maintenance creates unacceptable operator burden;
-7. a measured pressure policy requires a time margin or different trigger;
-8. PM10 establishes a simpler authoritative checkpoint that preserves Q7/I5.
-
-## 14. Primary sources
-
-- Kurrent/EventStoreDB stream retention: https://docs.kurrent.io/server/v5/streams.html
-- Axon snapshots/retention: https://github.com/axoniq/reference-guide/blob/master/axon-framework/tuning/event-snapshots.md
-- Kafka event-sourcing retention warning: https://docs.conduktor.io/blog/event-sourcing-with-kafka
-- Linear archive/delete behavior: https://linear.app/docs/delete-archive-issues
-- Jira issue archiving: https://confluence.atlassian.com/adminjiraserver/archiving-an-issue-968669980.html
-- docir git-derived indexes: https://pypi.org/project/docir/
-
-External sources are comparison evidence. PM1–PM6, CD-0002, operator choices, and
-the falsifiers above remain controlling.
+Reconsider this policy if retained events drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
+Other falsifiers are unmet PM1 query targets, unbounded historical front matter, excessive explicit maintenance burden, or evidence for a different measured trigger.
+A simpler PM10 authority must preserve exact history before it can replace this split.
 
 ## Acceptance criteria
 
 - Given a published and verified compaction link
   When Q10 resolves the work item
-  Then the canonical locator answers with git-proof semantics and projection
-  pruning does not alter note identity.
+  Then canonical locator proof and note identity remain unchanged.
 
-- Given an archived-work population joined with a live population
-  When Q2/Q3 counts them
-  Then the combined answer deduplicates by work ID and composes authority
-  across both tiers.
+- Given historical and live work in one query population
+  When Q2/Q3 counts that population
+  Then the answer deduplicates by work ID and composes authority across both tiers.
 
-- Given terminal work with an unlinked active research pack
-  When cleanup runs
-  Then the pack deletion refuses until durable-note and linkage proof exist.
+- Given a pack owned by terminal work with no compaction link
+  When authorized research_retire rechecks its version and finds zero active pins
+  Then the explicit transaction may retire the pack without calendar or publication proof.
 
-- Given proof-backed archive of a pack-owning work item
-  When cleanup commits
-  Then revisions, findings, sources, and consumer bindings delete in one
-  transaction.
+- Given a pack with an active required or optional pin
+  When publication succeeds or research_retire evaluates the pack
+  Then publication preserves the pack and retirement reports protection without deleting it.
 
 - Given the historical projection of a compacted item
-  When it is rebuilt
-  Then every field derives from one verified canonical note or stable
-  home-walk context, never from a copied live row.
+  When the projection rebuilds
+  Then every field derives from one verified note or stable canonical-home context rather than a copied live row.
+
+- Given a bounded research retirement batch
+  When dry run evaluates its candidates
+  Then no pack, binding, version, or mutation receipt changes.
+
+- Given a committed research retirement batch
+  When the same authorized idempotency identity replays after restart
+  Then the operation returns its committed result without repeating deletion or reconstructing content.
 
 ## Verification
 
-No corpus scenario drives the historical-tier join or pack cleanup, so
-criteria carry typed exemptions naming the tests that prove the guarantees.
-`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
+- Criterion 1 retains the PM1 `Q10-not-compacted` corpus binding and canonical locator witnesses.
+- Criterion 2 retains `internal/store.TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead` for watermark evidence; the historical-tier join remains deferred, not proved by an executed prune mechanism.
+- Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
+- Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
+- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` and `internal/store.TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder` for historical derivation.
+- Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
+- Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 
-- Criterion 1 is proved by the bound `Q10-not-compacted` scenario of
-  `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
-- Criterion 2 is proved by `TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead`
-  (`internal/store/knowledge_index_test.go`), which fixes the git-head
-  watermark the composed authority depends on.
-- Criterion 3 is proved by `TestTerminalResearchCleanupRefusesRequiredCompaction`
-  (`internal/store/research_test.go`).
-- Criterion 4 is proved by `TestTerminalResearchCleanupDeletesUnblockedPack`
-  and `TestInterruptedTerminalCleanupFinishesAtNextPackMutation`
-  (`internal/store/research_test.go`).
-- Criterion 5 is proved by `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`
-  and `TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder`
-  (`internal/store/knowledge_index_test.go`). Section 13 records the
-  falsifiers for each guarantee.
+`python3 scripts/check-doc-contract.py` validates outline and criterion bindings, not runtime conformance.
+Publication, terminal, reopen, removal, migration, restore, and race boundaries still need integrated assessment.
+Source anchors do not establish execution or full coverage; the coverage shard remains unmeasured pending the parent's conformance evidence.

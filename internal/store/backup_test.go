@@ -354,10 +354,10 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	// context pin.
 	pack := createSimplePack(t, s, "evidence", "evidence-research-owner")
 	recordedSource := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/evidence-spec", Title: "Evidence specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-10-01T00:00:00Z"}
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("evidence-source"), PackID: pack.PackID, ExpectedVersion: 1, Revision: 1, Source: recordedSource}); err != nil {
+	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 1, Revision: 1, Source: recordedSource}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("evidence-finding"), PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
+	if _, err := recordResearchFinding(ctx, s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	pinResearch(t, s, "evidence-required-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
@@ -379,7 +379,7 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	// A second research revision: revision 1 stays the exact selection target
 	// while a newer revision 2 carries its own linked descriptor, so the
 	// preserved store must keep the selection reading its exact revision.
-	if _, err := s.AppendResearchRevision(ctx, AppendResearchRevisionRequest{Identity: researchIdentity("evidence-append"), PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
+	if _, err := appendResearchRevision(ctx, s, AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
 	execResearchFixture := func(tag, query string, args ...any) {
@@ -712,43 +712,6 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 	if gotView := readViewBytes("rebuilt", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
 		t.Fatalf("rebuilt view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
-
-	// As-of reads return the same history on the source and the rebuilt
-	// restored store: the full watermark folds the live subject identity,
-	// and a mid-log watermark folds the state as of the definition pin.
-	full, err := ReconstructSubjectAt(ctx, restored, VersionRef(SubjectWorkItem, workID), watermark, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceFull, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, workID), watermark, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if full.AsOfSeq != watermark || full.Work == nil || full.Work.ID != workID {
-		t.Fatalf("as-of snapshot = %+v, want the work subject at the full watermark", full)
-	}
-	if !reflect.DeepEqual(full.Work, sourceFull.Work) {
-		t.Fatalf("as-of work = %+v, want the source as-of work %+v", full.Work, sourceFull.Work)
-	}
-	var pinSeq int64
-	if err := restored.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE kind=? AND subject_id=? ORDER BY seq LIMIT 1`, WorkflowDefinitionSelected, workID).Scan(&pinSeq); err != nil {
-		t.Fatal(err)
-	}
-	early, err := ReconstructSubjectAt(ctx, restored, VersionRef(SubjectWorkItem, workID), pinSeq, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceEarly, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, workID), pinSeq, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if early.Work == nil || pinSeq >= watermark || early.Work.UpdatedAt == full.Work.UpdatedAt {
-		t.Fatalf("mid-log as-of work = %+v against full %+v, want a distinct earlier event frontier", early.Work, full.Work)
-	}
-	if !reflect.DeepEqual(early.Work, sourceEarly.Work) {
-		t.Fatalf("mid-log as-of work = %+v, want the source as-of work %+v", early.Work, sourceEarly.Work)
-	}
-	compareFingerprints("after as-of reads", restored.DatabaseForTesting())
 
 	// The preservation boundary: terminate every consumer legally, retire the
 	// pack through the explicit retirement route, and prove the retained

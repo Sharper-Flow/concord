@@ -28,6 +28,9 @@ pushed, not merged.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, the evidence-backed corrective return requires no operator consent. Delivery admission, the latest review and its settlement verdict, debt preservation, and the declared return target remain required. Historical pins retain their approval requirement; no unsigned action turns a no_ship review into settlement.
+
+
 ### D1. The delivery action carries an asserted artifact
 
 `record_delivery` requires `delivery_artifact` (a bounded reference, such as a

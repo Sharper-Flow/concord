@@ -47,6 +47,7 @@ const CI_WATCH_REDELIVERY_METADATA = "concord.ci_watch_redelivery"
 export type CiWatchArgs = {
   repo: string
   selector: { kind: "pr" | "sha" | "run"; value: string }
+  head_sha?: string
   mode?: "checks" | "merge"
   time_seconds_max?: number
 }
@@ -191,6 +192,7 @@ function projectCiObservation(watch: ActiveWatch, report: CiWaitReport, startedA
   if (sha === null) gaps.push("sha_unknown")
   if (report.head_sha !== undefined && head === null) gaps.push("invalid_head_sha")
   if (watch.args.selector.kind === "sha" && sha !== watch.args.selector.value) gaps.push("subject_mismatch")
+  if (watch.args.head_sha !== undefined && sha !== watch.args.head_sha) gaps.push("subject_mismatch")
   let checks: CiWatchCounts | null = null
   if (report.checks !== undefined) {
     const raw = report.checks as Record<string, unknown> | null
@@ -367,6 +369,7 @@ const ciWatchContract = hostToolSchemas.concord_ci_watch
 const ciWatchRepoSchema = ciWatchContract.properties.repo
 const ciWatchSelectorSchema = ciWatchContract.properties.selector
 const ciWatchModeSchema = ciWatchContract.properties.mode
+const headPattern = new RegExp(ciWatchContract.properties.head_sha.pattern)
 const ciWatchBudgetSchema = ciWatchContract.properties.time_seconds_max
 const repoPattern = new RegExp(ciWatchRepoSchema.pattern)
 
@@ -446,6 +449,10 @@ export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   if (matchedKind === "pr" && !/^[0-9]+$/.test(value)) return "a pr selector value must be a pull request number"
   if (matchedKind === "sha" && !/^[0-9a-f]{40}$/.test(value)) return "a sha selector value must be a 40-character commit SHA"
   if (matchedKind === "run" && !/^[0-9]+$/.test(value)) return "a run selector value must be a run id"
+  if (record.head_sha !== undefined) {
+    if (matchedKind !== "pr") return "head_sha applies only to a pr selector"
+    if (typeof record.head_sha !== "string" || !headPattern.test(record.head_sha)) return "head_sha must be a 40-character lowercase commit SHA"
+  }
   if (record.mode !== undefined && !ciWatchModeSchema.enum.some((candidate) => candidate === record.mode)) {
     return `mode must be ${ciWatchModeSchema.enum.join(" or ")}`
   }
@@ -458,6 +465,7 @@ export function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   return {
     repo: record.repo,
     selector: { kind: matchedKind, value },
+    ...(record.head_sha === undefined ? {} : { head_sha: record.head_sha as string }),
     ...(record.mode === undefined ? {} : { mode: record.mode as "checks" | "merge" }),
     ...(record.time_seconds_max === undefined ? {} : { time_seconds_max: record.time_seconds_max as number }),
   }
@@ -496,7 +504,7 @@ function cancelledCallerRefusal(): string {
 
 function watchKey(sessionID: string, args: CiWatchArgs): string {
   const selector = `${args.selector.kind}:${args.selector.value}`
-  return `${sessionID}|${args.repo}|${selector}|${args.mode ?? "checks"}`
+  return `${sessionID}|${args.repo}|${selector}|${args.head_sha ?? ""}|${args.mode ?? "checks"}`
 }
 
 function refusalResult(reason: string): { title: string; output: string } {
@@ -513,6 +521,7 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
       watch_id: watch.id,
       repo: watch.args.repo,
       selector: watch.args.selector,
+      ...(watch.args.head_sha === undefined ? {} : { head_sha: watch.args.head_sha }),
       mode: watch.args.mode ?? "checks",
       time_seconds_max: watch.args.time_seconds_max ?? 1800,
       state_file: watch.stateFile,
@@ -628,6 +637,7 @@ function verbRequestBody(watch: ActiveWatch): string {
   return JSON.stringify({
     repo: watch.args.repo,
     selector: watch.args.selector,
+    ...(watch.args.head_sha === undefined ? {} : { head_sha: watch.args.head_sha }),
     ...(watch.args.mode === undefined ? {} : { mode: watch.args.mode }),
     ...(watch.args.time_seconds_max === undefined ? {} : { time_seconds_max: watch.args.time_seconds_max }),
     state_file: watch.stateFile,

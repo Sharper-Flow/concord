@@ -93,11 +93,12 @@ P12. A serious law change needs the operator's approval of its exact text. At
 `crucial` size, every law change needs that approval (Appendix A2 row 3).
 
 The P12 test that a change affects more than one Domain counts the child
-Domains of the laws the change adds or modifies. Each such law contributes its
-home Domain and its `applies_to_domain_ids` (CD-0222 D3). The Product-root
-Domain is not counted: a root-homed law is Product-wide by placement, and its
-applicability names the child Domains it reaches. A reference record is not
-law and adds no Domain. The test holds when the count exceeds one.
+Domains of the laws the change adds, modifies, or removes. Each such law
+contributes its home Domain and its `applies_to_domain_ids` (CD-0222 D3), as
+recorded before and after the change. The Product-root Domain is not counted:
+a root-homed law is Product-wide by placement, and its applicability names the
+child Domains it reaches. A reference record is not law and adds no Domain.
+The test holds when the count exceeds one.
 
 The count reads recorded law homes and applicability, so it needs no
 declaration. It does not count the Domains of the code that ships with the law
@@ -218,7 +219,10 @@ Every change to `goals.md` moves its content hash, so the change that edits
   recorded reason is admitted without operator approval and records the
   `derived` tier, also for a D5 cohort record, that a change modifying laws
   homed in two child Domains requires approval, that a changed law's
-  `applies_to_domain_ids` count toward the test, that a change modifying laws
+  `applies_to_domain_ids` count toward the test, that a change removing or
+  superseding laws homed in two child Domains requires approval, that a law
+  whose `applies_to_domain_ids` the same change narrows still counts the
+  Domain it dropped, that a change modifying laws
   homed in one child Domain and in the root Domain, with code in
   `internal/agent` and `internal/store`, counts one Domain, that an amendment
   of one law homed in `agent-surface` that also edits `scripts/install.py`

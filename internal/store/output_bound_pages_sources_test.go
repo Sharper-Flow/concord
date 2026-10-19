@@ -327,7 +327,8 @@ func pkLenMeasurement(measurement string) (string, error) {
 // length sits below n, so the accumulator reaches exactly n items. The
 // function must carry exactly one such comparison and the guarded body must
 // append to the same accumulator; anything else fails closed.
-func pkCollectStopBound(file, function, measurement string, unit boundUnit) outputBoundSource {
+func pkCollectStopBound(file, function, measurement string) outputBoundSource {
+	const unit = boundItems
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		base, err := pkLenMeasurement(measurement)
 		if err != nil {
@@ -630,7 +631,8 @@ func pkProductBound(members ...outputBoundSource) outputBoundSource {
 // must upper-bound the measurement; every other conjunct must compare the
 // base value against "" or nil; any other comparison on the measurement fails
 // closed.
-func pkEmptyGuardedLenBound(file, function, measurement string, unit boundUnit) outputBoundSource {
+func pkEmptyGuardedLenBound(file, function, measurement string) outputBoundSource {
+	const unit = boundBytes
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		base, err := pkLenMeasurement(measurement)
 		if err != nil {
@@ -1169,20 +1171,20 @@ func init() {
 
 	registerOutputBound("/$defs/product_snapshot/properties/previews/maxItems", goInlineBound("internal/agent/runtime_read_handlers.go", "readProductSnapshot", "preview", boundItems))
 
-	registerOutputBound("/$defs/project_handoff_consume_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", "changed_refs", "mutationResultChangedRefs"))
+	registerOutputBound("/$defs/project_handoff_consume_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 	))
-	registerOutputBound("/$defs/project_handoff_consume_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", 2))
-	registerOutputBound("/$defs/project_handoff_record_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", "changed_refs", "mutationResultChangedRefs"))
+	registerOutputBound("/$defs/project_handoff_consume_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"))
+	registerOutputBound("/$defs/project_handoff_record_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/project_handoff_record_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 	))
-	registerOutputBound("/$defs/project_handoff_record_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", 2))
+	registerOutputBound("/$defs/project_handoff_record_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"))
 
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/items/maxLength", unboundedOutput("internal/store/project_handoffs.go:preservationBlocker embeds failure.Detail verbatim and the typed refusal pipeline never clamps detail text, so a preservation refusal naming a long source path can exceed the cap", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/maxItems", pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"))
@@ -1211,13 +1213,13 @@ func init() {
 	registerOutputBound("/$defs/resource_product_link/properties/environments/maxItems", goInlineBound("internal/store/managed_resources.go", "validateResourceEnvironments", "len(values)", boundItems))
 	registerOutputBound("/$defs/resource_product_link/properties/purpose/maxLength", goInlineBound("internal/store/managed_resources.go", "foldManagedResourceConsumerAdded", "len(p.Purpose)", boundBytes))
 
-	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "changed_refs", "mutationResultChangedRefs"))
+	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/session_vacate_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 	))
-	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", 2))
+	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"))
 
 	// The timeline fold copies the payload's evidence_refs verbatim and no
 	// store fold guards the count; the workflow action input admission bounds
@@ -1249,10 +1251,10 @@ func init() {
 	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_product_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "product scope", 4, boundItems))
 	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_project_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "project scope", 4, boundItems))
 
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/affected_work_ids/maxItems", pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)", boundItems))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd", "changed"))
+	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/affected_work_ids/maxItems", pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"))
+	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"))
 	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/event_ids/maxItems", pkSubsetChainItemsBound(
-		pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd", "Events"),
+		pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"),
 		pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"},
 	))
 	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
@@ -1276,8 +1278,8 @@ func init() {
 	// guard, so the tag list is byte-ceiling only and the cap is redundant.
 	registerOutputBound("/$defs/work_summary/properties/tags/maxItems", unboundedOutput("internal/store/lifecycle.go:foldWorkCreated and foldWorkIntentRevised copy the payload Tags into the stored intent verbatim with no count guard, so any tag count projects into the summary", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/task/maxLength", maxBound(
-		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)", boundBytes),
-		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkIntentRevised", "len(*payload.Task)", boundBytes),
+		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
+		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkIntentRevised", "len(*payload.Task)"),
 	))
 	registerOutputBound("/$defs/work_summary/properties/terminal_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "updateWorkLifecycle", "time.RFC3339Nano"))
 
@@ -1316,7 +1318,7 @@ func init() {
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/detail/maxLength", unboundedOutput("internal/store/worktrees.go:WorktreeAuditReclaim stores failure.Detail verbatim in row.Detail and the report compactor drops detail only wholesale under envelope byte pressure, never at the field cap", "internal/agent/mutations.go:mutationResult"))
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/path/maxLength", unboundedOutput("reclaim rows copy the drift row path, the stored claim path derived from the unguarded store directory; no writer bounds its length", "internal/agent/mutations.go:mutationResult"))
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/refusal_kind/maxLength", pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"))
-	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/items/properties/reason/maxLength", pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef", "Reason"))
+	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/items/properties/reason/maxLength", pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"))
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/items/properties/tip/maxLength", unboundedOutput("retained tips are observeWorktreeLiveHead or resolveBranchRef git output stored verbatim with no length guard; the writer chain carries no code bound", "internal/agent/mutations.go:mutationResult"))
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/rows/items/properties/retained_refs/maxItems", pkAppendSitesItemsBound("internal/store/worktrees.go", "planStoredRefDeletion", "retained"))
 	// planStoredRefDeletion appends one retained ref per single-fire site
@@ -1328,14 +1330,14 @@ func init() {
 	// when the pass admission bound replaces that truncation.
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/work_pins/maxItems", goConstantBound("internal/agent/envelope.go", "MaxChangedRefs", boundItems))
 
-	registerOutputBound("/$defs/worktree_claim_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim", "changed"))
+	registerOutputBound("/$defs/worktree_claim_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"))
 	registerOutputBound("/$defs/worktree_claim_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 	))
 	registerOutputBound("/$defs/worktree_claim_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
-		pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim", "changed"),
+		pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"},
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"},
 	))
@@ -1372,7 +1374,8 @@ func pkAppendTarget(arg ast.Expr) string {
 // key/value entry named field must be such a call and the capacity is zero
 // items; zero entries, a populated argument, or any other write of the field
 // fails closed.
-func pkCallEmptyLiteralItemsBound(file, function, field, callee string) outputBoundSource {
+func pkCallEmptyLiteralItemsBound(file, function, callee string) outputBoundSource {
+	const field = "changed_refs"
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
 		if err != nil {
@@ -1422,7 +1425,8 @@ func pkCallEmptyLiteralItemsBound(file, function, field, callee string) outputBo
 // changed := []ChangedRef{{...}}: a projection copies such a slice 1:1 into
 // the published member. Zero or several assignments, or a non-literal value,
 // fails closed.
-func pkLiteralSliceItemsBound(file, function, variable string) outputBoundSource {
+func pkLiteralSliceItemsBound(file, function string) outputBoundSource {
+	const variable = "changed"
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
 		if err != nil {
@@ -1469,7 +1473,8 @@ func pkLiteralSliceItemsBound(file, function, variable string) outputBoundSource
 // field inside a composite construction in function, as in
 // Operation{Events: []Event{...}}. Exactly one such entry must exist;
 // anything else fails closed.
-func pkCompositeFieldItemsBound(file, function, field string) outputBoundSource {
+func pkCompositeFieldItemsBound(file, function string) outputBoundSource {
+	const field = "Events"
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
 		if err != nil {
@@ -1818,7 +1823,8 @@ func pkPlanEffectLiteral(fn *ast.FuncDecl) (*ast.FuncLit, error) {
 // closure, every return statement carrying the mutationEffect arity returns
 // an empty or nil slice at the changed ordinal. A populated literal, a
 // variable, or an append fails closed; the produced capacity is zero items.
-func pkEffectReturnsEmptySliceItemsBound(file, function string, resultOrdinal int) outputBoundSource {
+func pkEffectReturnsEmptySliceItemsBound(file, function string) outputBoundSource {
+	const resultOrdinal = 2
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
 		if err != nil {
@@ -1896,8 +1902,7 @@ func pkPlanEffectWorkPinsBound(file string) outputBoundSource {
 			return evaluatedBound{}, err
 		}
 		largest, effects := int64(0), 0
-		var inspectEffect func(lit *ast.FuncLit) error
-		inspectEffect = func(lit *ast.FuncLit) error {
+		inspectEffect := func(lit *ast.FuncLit) error {
 			width, appended := int64(0), int64(0)
 			changedAssigned := false
 			var loops []ast.Node
@@ -1916,8 +1921,7 @@ func pkPlanEffectWorkPinsBound(file string) outputBoundSource {
 				}
 				return false
 			}
-			var visit func(node ast.Node) error
-			visit = func(node ast.Node) error {
+			visit := func(node ast.Node) error {
 				switch inner := node.(type) {
 				case *ast.AssignStmt:
 					for i, lhs := range inner.Lhs {
@@ -2305,7 +2309,8 @@ func pkTypedConstVocabularyLongestBound(typeName string, files ...string) output
 // must be an addition chain of string literals and identifiers whose own
 // in-function assignments are string literals; the capacity is the longest
 // branch total in characters. Any other leaf fails closed.
-func pkFieldTextBound(file, function, structName, field string) outputBoundSource {
+func pkFieldTextBound(file, function, structName string) outputBoundSource {
+	const field = "Reason"
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
 		if err != nil {
@@ -2483,21 +2488,21 @@ func TestPkDerivations(t *testing.T) {
 	_, err = evaluate("pk_empty2.go", preamble+"func site() {\n\t_ = map[string]any{\"nodes\": []any{\"x\"}}\n}\n", pkEmptyLiteralItemsBound("pk_empty2.go", "site", "nodes"))
 	wantFailure("empty literal mutation", err, "empty-array entries")
 
-	evaluated, err = evaluate("pk_callempty.go", preamble+"type ref struct{ ID string }\n\nfunc project(rs []ref) []ref { return rs }\n\nfunc site() {\n\t_ = map[string]any{\"changed_refs\": project([]ref{})}\n}\n", pkCallEmptyLiteralItemsBound("pk_callempty.go", "site", "changed_refs", "project"))
+	evaluated, err = evaluate("pk_callempty.go", preamble+"type ref struct{ ID string }\n\nfunc project(rs []ref) []ref { return rs }\n\nfunc site() {\n\t_ = map[string]any{\"changed_refs\": project([]ref{})}\n}\n", pkCallEmptyLiteralItemsBound("pk_callempty.go", "site", "project"))
 	firstValue("call empty literal", evaluated, err, 0)
-	_, err = evaluate("pk_callempty2.go", preamble+"type ref struct{ ID string }\n\nfunc project(rs []ref) []ref { return rs }\n\nfunc site() {\n\t_ = map[string]any{\"changed_refs\": project([]ref{{ID: \"a\"}})}\n}\n", pkCallEmptyLiteralItemsBound("pk_callempty2.go", "site", "changed_refs", "project"))
+	_, err = evaluate("pk_callempty2.go", preamble+"type ref struct{ ID string }\n\nfunc project(rs []ref) []ref { return rs }\n\nfunc site() {\n\t_ = map[string]any{\"changed_refs\": project([]ref{{ID: \"a\"}})}\n}\n", pkCallEmptyLiteralItemsBound("pk_callempty2.go", "site", "project"))
 	wantFailure("call empty literal mutation", err, "other writes")
 
-	evaluated, err = evaluate("pk_slice.go", preamble+"type ref struct{ ID string }\n\nfunc site() {\n\tchanged := []ref{{ID: \"a\"}}\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice.go", "site", "changed"))
+	evaluated, err = evaluate("pk_slice.go", preamble+"type ref struct{ ID string }\n\nfunc site() {\n\tchanged := []ref{{ID: \"a\"}}\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice.go", "site"))
 	firstValue("literal slice", evaluated, err, 1)
-	evaluated, err = evaluate("pk_slice2.go", preamble+"type ref struct{ ID string }\n\nfunc site() {\n\tchanged := []ref{{ID: \"a\"}, {ID: \"b\"}}\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice2.go", "site", "changed"))
+	evaluated, err = evaluate("pk_slice2.go", preamble+"type ref struct{ ID string }\n\nfunc site() {\n\tchanged := []ref{{ID: \"a\"}, {ID: \"b\"}}\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice2.go", "site"))
 	firstValue("literal slice follows the count", evaluated, err, 2)
-	_, err = evaluate("pk_slice3.go", preamble+"type ref struct{ ID string }\n\nfunc site(other []ref) {\n\tchanged := other\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice3.go", "site", "changed"))
+	_, err = evaluate("pk_slice3.go", preamble+"type ref struct{ ID string }\n\nfunc site(other []ref) {\n\tchanged := other\n\t_ = changed\n}\n", pkLiteralSliceItemsBound("pk_slice3.go", "site"))
 	wantFailure("literal slice non-literal", err, "absent or ambiguous")
 
-	evaluated, err = evaluate("pk_field.go", preamble+"type event struct{ ID string }\n\ntype operation struct{ Events []event }\n\nfunc site() operation {\n\treturn operation{Events: []event{{ID: \"e\"}}}\n}\n", pkCompositeFieldItemsBound("pk_field.go", "site", "Events"))
+	evaluated, err = evaluate("pk_field.go", preamble+"type event struct{ ID string }\n\ntype operation struct{ Events []event }\n\nfunc site() operation {\n\treturn operation{Events: []event{{ID: \"e\"}}}\n}\n", pkCompositeFieldItemsBound("pk_field.go", "site"))
 	firstValue("composite field", evaluated, err, 1)
-	_, err = evaluate("pk_field2.go", preamble+"type event struct{ ID string }\n\ntype operation struct{ Events []event }\n\nfunc site() operation {\n\treturn operation{}\n}\n", pkCompositeFieldItemsBound("pk_field2.go", "site", "Events"))
+	_, err = evaluate("pk_field2.go", preamble+"type event struct{ ID string }\n\ntype operation struct{ Events []event }\n\nfunc site() operation {\n\treturn operation{}\n}\n", pkCompositeFieldItemsBound("pk_field2.go", "site"))
 	wantFailure("composite field absent", err, "absent or ambiguous")
 
 	evaluated, err = evaluate("pk_appends.go", preamble+"func site(flag bool) []string {\n\tvar out []string\n\tif flag {\n\t\tout = append(out, \"a\")\n\t}\n\tout = append(out, \"b\")\n\treturn out\n}\n", pkAppendSitesItemsBound("pk_appends.go", "site", "out"))
@@ -2526,12 +2531,12 @@ func TestPkDerivations(t *testing.T) {
 	effectFixture := func(body string) string {
 		return preamble + "type effect func() (int, []string, []string, error)\ntype plan struct{ effect effect }\nfunc site() plan {\nvar p plan\np.effect = func() (int, []string, []string, error) {\n" + body + "\n}\nreturn p\n}\n"
 	}
-	er, err := evaluate("pk_ret.go", effectFixture("if true { return 0, nil, nil, nil }; return 1, nil, []string{}, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret.go", "site", 2))
+	er, err := evaluate("pk_ret.go", effectFixture("if true { return 0, nil, nil, nil }; return 1, nil, []string{}, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret.go", "site"))
 	firstValue("effect empty returns", er, err, 0)
-	_, err = evaluate("pk_ret2.go", effectFixture("return 0, nil, []string{\"x\"}, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret2.go", "site", 2))
+	_, err = evaluate("pk_ret2.go", effectFixture("return 0, nil, []string{\"x\"}, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret2.go", "site"))
 	wantFailure("effect populated mutation", err, "actual returns produce elements")
 	// A changed variable assigned from a call is not construction-fixed.
-	_, err = evaluate("pk_ret4.go", effectFixture("changed := build(); return 0, nil, changed, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret4.go", "site", 2))
+	_, err = evaluate("pk_ret4.go", effectFixture("changed := build(); return 0, nil, changed, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret4.go", "site"))
 	wantFailure("effect call-derived mutation", err, "actual returns produce elements")
 	// The aggregate over construction-fixed plan.effect routes: the widest
 	// literal changed list bounds every enriched route's pins.
@@ -2547,7 +2552,7 @@ func TestPkDerivations(t *testing.T) {
 	firstValue("plan effect bounded self-append", agg4, err, 2)
 	_, err = evaluate("pk_agg5.go", preamble+"type effect func() (int, []string, []string, error)\n\ntype plan struct{ effect effect }\n\nfunc siteA(p *plan, extra []string) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := []string{{\"a\"}}\n\t\tfor _, e := range extra {\n\t\t\tchanged = append(changed, e)\n\t\t}\n\t\treturn 0, nil, changed, nil\n\t}\n}\n", pkPlanEffectWorkPinsBound("pk_agg5.go"))
 	wantFailure("plan effect loop self-append", err, "grown by an append")
-	_, err = evaluate("pk_ret_arity.go", effectFixture("return 0, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret_arity.go", "site", 2))
+	_, err = evaluate("pk_ret_arity.go", effectFixture("return 0, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret_arity.go", "site"))
 	wantFailure("empty returns arity filter", err, "actual returns produce elements")
 
 	evaluated, err = evaluate("pk_never.go", preamble+"func site() {\n\t_ = map[string]any{\"items\": 1}\n}\n", pkFieldNeverWrittenBound("delivery", boundCharacters, "pk_never.go"))
@@ -2565,11 +2570,11 @@ func TestPkDerivations(t *testing.T) {
 	_, err = evaluate("pk_vocab2.go", preamble+"type kind string\n\nconst KindC kind = 7\n", pkTypedConstVocabularyLongestBound("kind", "pk_vocab2.go"))
 	wantFailure("typed vocabulary mutation", err, "not a string literal")
 
-	evaluated, err = evaluate("pk_text.go", preamble+"type retained struct{ Reason string }\n\nfunc site(cond bool) retained {\n\tif cond {\n\t\treturn retained{Reason: \"stored claim content is not proven durable; the ref was retained\"}\n\t}\n\treturn retained{Reason: \"the default ref is never deleted\"}\n}\n", pkFieldTextBound("pk_text.go", "site", "retained", "Reason"))
+	evaluated, err = evaluate("pk_text.go", preamble+"type retained struct{ Reason string }\n\nfunc site(cond bool) retained {\n\tif cond {\n\t\treturn retained{Reason: \"stored claim content is not proven durable; the ref was retained\"}\n\t}\n\treturn retained{Reason: \"the default ref is never deleted\"}\n}\n", pkFieldTextBound("pk_text.go", "site", "retained"))
 	oneConstraint("field text", evaluated, err, boundCharacters, 64)
-	_, err = evaluate("pk_text2.go", preamble+"type retained struct{ Reason string }\n\nfunc site(via string) retained {\n\treturn retained{Reason: \"durable: \" + via}\n}\n", pkFieldTextBound("pk_text2.go", "site", "retained", "Reason"))
+	_, err = evaluate("pk_text2.go", preamble+"type retained struct{ Reason string }\n\nfunc site(via string) retained {\n\treturn retained{Reason: \"durable: \" + via}\n}\n", pkFieldTextBound("pk_text2.go", "site", "retained"))
 	wantFailure("field text ident mutation", err, "no in-function literal assignment")
-	_, err = evaluate("pk_text3.go", preamble+"type retained struct{ Reason string }\n\nfunc site(n int) retained {\n\treturn retained{Reason: \"durable\" + \"x\" + 3}\n}\n", pkFieldTextBound("pk_text3.go", "site", "retained", "Reason"))
+	_, err = evaluate("pk_text3.go", preamble+"type retained struct{ Reason string }\n\nfunc site(n int) retained {\n\treturn retained{Reason: \"durable\" + \"x\" + 3}\n}\n", pkFieldTextBound("pk_text3.go", "site", "retained"))
 	wantFailure("field text non-string", err, "carries a INT literal")
 
 	evaluated, err = evaluate("pk_time.go", preamble+"import \"time\"\n\nfunc site(now time.Time) string {\n\treturn now.Format(time.RFC3339Nano)\n}\n", pkTimeLayoutWidthBound("pk_time.go", "site", "time.RFC3339Nano"))
@@ -2581,11 +2586,11 @@ func TestPkDerivations(t *testing.T) {
 	_, err = evaluate("pk_time3.go", preamble+"import \"time\"\n\nfunc site(now time.Time) string {\n\treturn now.Format(time.RFC3339Nano) + now.Format(time.RFC3339)\n}\n", pkTimeLayoutWidthBound("pk_time3.go", "site", "time.RFC3339Nano"))
 	wantFailure("time layout mix", err, "absent or mixed")
 
-	evaluated, err = evaluate("pk_stop.go", preamble+"func site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < 100 {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop.go", "site", "len(kept)", boundItems))
+	evaluated, err = evaluate("pk_stop.go", preamble+"func site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < 100 {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop.go", "site", "len(kept)"))
 	firstValue("collect stop", evaluated, err, 100)
-	evaluated, err = evaluate("pk_stop2.go", preamble+"func site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < 101 {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop2.go", "site", "len(kept)", boundItems))
+	evaluated, err = evaluate("pk_stop2.go", preamble+"func site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < 101 {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop2.go", "site", "len(kept)"))
 	firstValue("collect stop follows the operand", evaluated, err, 101)
-	_, err = evaluate("pk_stop3.go", preamble+"func site(ids []string, want int) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < want {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop3.go", "site", "len(kept)", boundItems))
+	_, err = evaluate("pk_stop3.go", preamble+"func site(ids []string, want int) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < want {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop3.go", "site", "len(kept)"))
 	wantFailure("collect stop variable operand", err, "unresolved constant")
 
 	evaluated, err = evaluate("pk_len.go", preamble+"func site(value string) bool {\n\tif len(value) != 40 && len(value) != 64 {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkLengthSetBound("pk_len.go", "site", "len(value)"))
@@ -2598,9 +2603,9 @@ func TestPkDerivations(t *testing.T) {
 	evaluated, err = evaluate("pk_guard2.go", preamble+"func bounded(value string, lower, upper int) bool {\n\treturn len(value) >= lower && len(value) <= upper\n}\n\nfunc site(a, b string) bool {\n\treturn bounded(a, 1, 8) && bounded(b, 1, 16)\n}\n", pkGuardArgBound("pk_guard2.go", "site", "bounded", "a", 2, boundBytes))
 	firstValue("guard argument selects by value", evaluated, err, 8)
 
-	evaluated, err = evaluate("pk_emptyguard.go", preamble+"func site(task string) bool {\n\tif task != \"\" && (len(task) > 8192 || task == \"x\") {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkEmptyGuardedLenBound("pk_emptyguard.go", "site", "len(task)", boundBytes))
+	evaluated, err = evaluate("pk_emptyguard.go", preamble+"func site(task string) bool {\n\tif task != \"\" && (len(task) > 8192 || task == \"x\") {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkEmptyGuardedLenBound("pk_emptyguard.go", "site", "len(task)"))
 	firstValue("emptiness guard", evaluated, err, 8192)
-	_, err = evaluate("pk_emptyguard2.go", preamble+"func site(task string, flag bool) bool {\n\tif flag && len(task) > 4 {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkEmptyGuardedLenBound("pk_emptyguard2.go", "site", "len(task)", boundBytes))
+	_, err = evaluate("pk_emptyguard2.go", preamble+"func site(task string, flag bool) bool {\n\tif flag && len(task) > 4 {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkEmptyGuardedLenBound("pk_emptyguard2.go", "site", "len(task)"))
 	wantFailure("emptiness guard unconjunct mutation", err, "absent or ambiguous")
 
 	evaluated, err = evaluate("pk_product.go", preamble+"const pkDomains = 64\n\nconst pkRelations = 64\n", pkProductBound(
@@ -2668,28 +2673,28 @@ func TestPkDerivations(t *testing.T) {
 		"pull URL":      pkOutsideRepairURLBound("pull"),
 		"commit oid":    pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"),
 		"git sha":       pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"),
-		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)", boundItems),
+		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
 		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-		"pin subset":    pkSubsetChainItemsBound(pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim", "changed"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
-		"vacate effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", 2),
-		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", 2), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
-		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", 2),
+		"pin subset":    pkSubsetChainItemsBound(pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
+		"vacate effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"),
+		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
+		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
 		"retained refs":  pkAppendSitesItemsBound("internal/store/worktrees.go", "planStoredRefDeletion", "retained"),
 		"registry hash":  pkHexDigestConstructionBound("internal/store/knowledge_manifest.go", "domainRegistryContentHash"),
 		"map hash":       pkHexDigestConstructionBound("internal/store/knowledge_architecture.go", "knowledgePackageMapContentHash"),
 		"body guard":     goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes),
 		"domain name":    goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters),
 		"manifest id":    goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
-		"event subset":   pkSubsetChainItemsBound(pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd", "Events"), pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"}),
+		"event subset":   pkSubsetChainItemsBound(pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"), pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"}),
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
-		"reasons":        pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef", "Reason"),
+		"reasons":        pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"),
 		"delivery":       pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"),
 		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
 		"retire struct":  pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"),
-		"empty refs":     pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "changed_refs", "mutationResultChangedRefs"),
-		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim", "changed"),
-		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)", boundBytes),
+		"empty refs":     pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "mutationResultChangedRefs"),
+		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
+		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),
 		"event time":     pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
 		"claim intents":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
@@ -2743,10 +2748,10 @@ func TestPkDerivationMutations(t *testing.T) {
 	stop := func(comparison string) string {
 		return "package store\n\nfunc site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) " + comparison + " {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n"
 	}
-	if got, err := evaluate("s1.go", stop("< 7"), pkCollectStopBound("s1.go", "site", "len(kept)", boundItems)); err != nil || got != 7 {
+	if got, err := evaluate("s1.go", stop("< 7"), pkCollectStopBound("s1.go", "site", "len(kept)")); err != nil || got != 7 {
 		t.Fatalf("collect stop baseline = (%d, %v), want (7, nil)", got, err)
 	}
-	if _, err := evaluate("s2.go", stop("<= 7"), pkCollectStopBound("s2.go", "site", "len(kept)", boundItems)); err == nil {
+	if _, err := evaluate("s2.go", stop("<= 7"), pkCollectStopBound("s2.go", "site", "len(kept)")); err == nil {
 		t.Fatal("a changed comparison operator must leave the collect-stop shape")
 	}
 }

@@ -484,11 +484,11 @@ func ledgerParentPattern(pattern string) string {
 // ---------------------------------------------------------------------------
 
 func escapePointerToken(token string) string {
-	return strings.Replace(strings.Replace(token, "~", "~0", -1), "/", "~1", -1)
+	return strings.ReplaceAll(strings.ReplaceAll(token, "~", "~0"), "/", "~1")
 }
 
 func unescapePointerToken(token string) string {
-	return strings.Replace(strings.Replace(token, "~1", "/", -1), "~0", "~", -1)
+	return strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~")
 }
 
 func joinPointerToken(pointer, escapedToken string) string {
@@ -782,7 +782,7 @@ func (rt *ledgerRuntime) evalNumeric(goS *goSource, scope *ast.FuncDecl, expr as
 	return ledgerEvalConst(consts, expr, 0, 0)
 }
 
-func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iota, depth int) (int64, error) {
+func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iotaValue, depth int) (int64, error) {
 	if depth > 32 {
 		return 0, fmt.Errorf("constant expression nesting or cycle exceeds the ledger limit")
 	}
@@ -793,10 +793,10 @@ func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iota, dept
 		}
 		return ledgerConstInt(constant.MakeFromLiteral(e.Value, e.Kind, 0))
 	case *ast.ParenExpr:
-		return ledgerEvalConst(consts, e.X, iota, depth+1)
+		return ledgerEvalConst(consts, e.X, iotaValue, depth+1)
 	case *ast.Ident:
 		if e.Name == "iota" {
-			return int64(iota), nil
+			return int64(iotaValue), nil
 		}
 		def, ok := consts[e.Name]
 		if !ok {
@@ -804,7 +804,7 @@ func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iota, dept
 		}
 		return ledgerEvalConst(consts, def.expr, def.iota, depth+1)
 	case *ast.UnaryExpr:
-		inner, err := ledgerEvalConst(consts, e.X, iota, depth+1)
+		inner, err := ledgerEvalConst(consts, e.X, iotaValue, depth+1)
 		if err != nil {
 			return 0, err
 		}
@@ -817,11 +817,11 @@ func ledgerEvalConst(consts map[string]ledgerConstDef, expr ast.Expr, iota, dept
 			return 0, fmt.Errorf("unsupported unary operator %s in a bound source", e.Op)
 		}
 	case *ast.BinaryExpr:
-		left, err := ledgerEvalConst(consts, e.X, iota, depth+1)
+		left, err := ledgerEvalConst(consts, e.X, iotaValue, depth+1)
 		if err != nil {
 			return 0, err
 		}
-		right, err := ledgerEvalConst(consts, e.Y, iota, depth+1)
+		right, err := ledgerEvalConst(consts, e.Y, iotaValue, depth+1)
 		if err != nil {
 			return 0, err
 		}

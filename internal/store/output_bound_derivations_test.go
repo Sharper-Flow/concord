@@ -124,7 +124,7 @@ func goInlineBound(file, function, measurement string, unit boundUnit) outputBou
 			return evaluatedBound{}, fmt.Errorf("inline guard: %s:%s has no body", file, function)
 		}
 		scan := &inlineGuardScan{measured: ledgerExprText(measured)}
-		scan.stmt(fn.Body, deriveModeOther)
+		scan.stmt(fn.Body)
 		scan.audit(fn.Body)
 		if len(scan.unsupported) > 0 {
 			return evaluatedBound{}, fmt.Errorf("inline guard %s:%s: %s", file, function, scan.unsupported[0])
@@ -201,36 +201,36 @@ func (w *inlineGuardScan) fail(message string) {
 	w.unsupported = append(w.unsupported, message)
 }
 
-func (w *inlineGuardScan) stmt(s ast.Stmt, mode derivationScanMode) {
+func (w *inlineGuardScan) stmt(s ast.Stmt) {
 	switch node := s.(type) {
 	case *ast.BlockStmt:
 		for _, inner := range node.List {
-			w.stmt(inner, deriveModeOther)
+			w.stmt(inner)
 		}
 	case *ast.IfStmt:
 		if node.Init != nil {
-			w.stmt(node.Init, deriveModeOther)
+			w.stmt(node.Init)
 		}
 		before := len(w.upper)
 		w.expr(node.Cond, deriveModeRefuse)
 		for i := before; i < len(w.upper); i++ {
 			w.upper[i].body = node.Body
 		}
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Body)
 		if node.Else != nil {
-			w.stmt(node.Else, deriveModeOther)
+			w.stmt(node.Else)
 		}
 	case *ast.ForStmt:
 		if node.Init != nil {
-			w.stmt(node.Init, deriveModeOther)
+			w.stmt(node.Init)
 		}
 		if node.Cond != nil {
 			w.expr(node.Cond, deriveModeOther)
 		}
 		if node.Post != nil {
-			w.stmt(node.Post, deriveModeOther)
+			w.stmt(node.Post)
 		}
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Body)
 	case *ast.RangeStmt:
 		if node.Key != nil {
 			w.expr(node.Key, deriveModeOther)
@@ -238,43 +238,43 @@ func (w *inlineGuardScan) stmt(s ast.Stmt, mode derivationScanMode) {
 		if node.Value != nil {
 			w.expr(node.Value, deriveModeOther)
 		}
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Body)
 	case *ast.SwitchStmt:
 		if node.Init != nil {
-			w.stmt(node.Init, deriveModeOther)
+			w.stmt(node.Init)
 		}
 		if node.Tag != nil {
 			w.expr(node.Tag, deriveModeOther)
 		}
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Body)
 	case *ast.TypeSwitchStmt:
 		if node.Init != nil {
-			w.stmt(node.Init, deriveModeOther)
+			w.stmt(node.Init)
 		}
-		w.stmt(node.Assign, deriveModeOther)
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Assign)
+		w.stmt(node.Body)
 	case *ast.CaseClause:
 		for _, e := range node.List {
 			w.expr(e, deriveModeOther)
 		}
 		for _, inner := range node.Body {
-			w.stmt(inner, deriveModeOther)
+			w.stmt(inner)
 		}
 	case *ast.SelectStmt:
-		w.stmt(node.Body, deriveModeOther)
+		w.stmt(node.Body)
 	case *ast.CommClause:
 		if node.Comm != nil {
-			w.stmt(node.Comm, deriveModeOther)
+			w.stmt(node.Comm)
 		}
 		for _, inner := range node.Body {
-			w.stmt(inner, deriveModeOther)
+			w.stmt(inner)
 		}
 	case *ast.ReturnStmt:
 		for _, result := range node.Results {
 			w.expr(result, deriveModeAdmit)
 		}
 	case *ast.LabeledStmt:
-		w.stmt(node.Stmt, deriveModeOther)
+		w.stmt(node.Stmt)
 	case *ast.GoStmt:
 		w.expr(node.Call, deriveModeOther)
 	case *ast.DeferStmt:

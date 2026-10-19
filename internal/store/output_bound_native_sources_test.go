@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp/syntax"
 	"runtime"
@@ -1189,9 +1190,13 @@ func nativePathSuccessfulSyscallWidth(rt *ledgerRuntime) (int64, error) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return 0, fmt.Errorf("native bound: the syscall.PathMax derivation applies only on the linux/amd64 release platform")
 	}
-	goRoot := runtime.GOROOT()
+	out, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		return 0, fmt.Errorf("native bound: cannot resolve GOROOT from the go toolchain on PATH: %w", err)
+	}
+	goRoot := strings.TrimSpace(string(out))
 	if goRoot == "" {
-		return 0, fmt.Errorf("native bound: the running toolchain exposes no GOROOT")
+		return 0, fmt.Errorf("native bound: the go toolchain on PATH reports no GOROOT")
 	}
 	ztypes := filepath.Join("src", "syscall", "ztypes_linux_amd64.go")
 	raw, err := os.ReadFile(filepath.Join(goRoot, filepath.FromSlash(ztypes)))
@@ -1658,7 +1663,7 @@ func nativeFixedShapeDerived(what string) outputBoundSource {
 			return evaluatedBound{}, err
 		}
 		count, found := int64(0), false
-		projections := []string(nil)
+		var projections []string
 		switch what {
 		case "changed_refs":
 			calls := nativeCalls(mint, "mutationResultChangedRefs")

@@ -232,7 +232,8 @@ func buildClassifiedReadFixture(t *testing.T, blockingCount, idWidth, warningCou
 // dispatchUnboundedHistory runs the real concord_work_trace.history
 // dispatch. A non-nil error means the boundary refused outside the typed
 // envelope, which the callers report as the failure mode it is.
-func dispatchUnboundedHistory(t *testing.T, fixture classifiedReadFixture, input string) (Envelope, error) {
+func dispatchUnboundedHistory(t *testing.T, fixture classifiedReadFixture) (Envelope, error) {
+	const input = `{"work_id":"work-1","limit":1}`
 	t.Helper()
 	scopeVersion, _, err := fixture.store.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -311,7 +312,7 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if projection.Ready || len(projection.BlockingConditions) != 100 {
 			t.Fatalf("store producer = ready %v with %d blocking conditions, want not-ready with all 100", projection.Ready, len(projection.BlockingConditions))
 		}
-		envelope, err := dispatchUnboundedHistory(t, fixture, `{"work_id":"work-1","limit":1}`)
+		envelope, err := dispatchUnboundedHistory(t, fixture)
 		if err != nil {
 			t.Fatalf("at-cap history read failed outside the typed envelope: %v", err)
 		}
@@ -350,7 +351,7 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if projection.Ready || len(projection.BlockingConditions) != 101 || !slices.Equal(projection.UnreadableConditions, []string{fixture.unknown}) || len(projection.CompletionWarnings) != 33 {
 			t.Fatalf("store producer incomplete: ready %v blocking %d unreadable %v warnings %d", projection.Ready, len(projection.BlockingConditions), projection.UnreadableConditions, len(projection.CompletionWarnings))
 		}
-		envelope, err := dispatchUnboundedHistory(t, fixture, `{"work_id":"work-1","limit":1}`)
+		envelope, err := dispatchUnboundedHistory(t, fixture)
 		if err != nil {
 			t.Fatalf("beyond-cap history read failed outside the typed envelope (a redundant output cap refusing the whole result): %v", err)
 		}
@@ -395,7 +396,7 @@ func TestWorkflowReadClassifiesUnknownAuthorityWithoutRewritingIt(t *testing.T) 
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	envelope, err := dispatchUnboundedHistory(t, fixture, `{"work_id":"work-1","limit":1}`)
+	envelope, err := dispatchUnboundedHistory(t, fixture)
 	if err != nil {
 		t.Fatalf("unknown-authority history read failed outside the typed envelope: %v", err)
 	}
@@ -436,7 +437,7 @@ func TestWorkflowReadLargeFixedProjectionRefusesTypedBytesNotFieldSchema(t *test
 	if len(projection.BlockingConditions) != unboundedWitnessBlocking {
 		t.Fatalf("store producer holds %d blocking conditions, want %d", len(projection.BlockingConditions), unboundedWitnessBlocking)
 	}
-	envelope, err := dispatchUnboundedHistory(t, fixture, `{"work_id":"work-1","limit":1}`)
+	envelope, err := dispatchUnboundedHistory(t, fixture)
 	if err != nil {
 		t.Fatalf("oversized fixed projection must refuse as a typed envelope, not a transport fault: %v", err)
 	}

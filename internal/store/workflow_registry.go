@@ -2072,10 +2072,10 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 
 // workflowDecisionFactPayloadFields selects the copied consequence_v1 fact
 // declarations onto one contract payload: a consequence_v1 definition copies
-// the supplied fields, replaces a declared decision_domains field with the
-// one canonical fact at its position or appends it, and appends each
-// CD-0230 D4 law-change field it does not already declare, so the selection
-// never duplicates a field; a legacy definition keeps the supplied fields
+// the supplied fields, appends each CD-0230 D4 law-change field it does not
+// already declare, and replaces a declared decision_domains field with the
+// one canonical fact at its position or appends the fact last, so the
+// selection never duplicates a field; a legacy definition keeps the supplied fields
 // byte-identical. The copy leaves every builtin policy slice, pinned
 // declaration, and released field list unmutated.
 func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
@@ -2083,7 +2083,7 @@ func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []W
 		return fields
 	}
 	lawChange := workflowLawChangeFields()
-	selected := make([]WorkflowPayloadField, len(fields), len(fields)+1+len(lawChange))
+	selected := make([]WorkflowPayloadField, len(fields), len(fields)+len(lawChange)+1)
 	copy(selected, fields)
 	declared := false
 	for index := range selected {
@@ -2092,13 +2092,13 @@ func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []W
 			declared = true
 		}
 	}
-	if !declared {
-		selected = append(selected, workflowDecisionFactField())
-	}
 	for _, field := range lawChange {
 		if !slices.ContainsFunc(fields, func(existing WorkflowPayloadField) bool { return existing.Name == field.Name }) {
 			selected = append(selected, field)
 		}
+	}
+	if !declared {
+		selected = append(selected, workflowDecisionFactField())
 	}
 	return selected
 }

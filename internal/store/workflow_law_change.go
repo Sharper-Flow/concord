@@ -33,8 +33,8 @@ const (
 
 // workflowLawChangeFields declares the consequence_v1 law-change inputs a
 // contract or successor payload may carry. They are optional at the payload
-// level: the constructor requires the reason exactly when the contract
-// changes law.
+// level: the constructor requires the reason and both P12 declarations
+// exactly when the contract changes law.
 func workflowLawChangeFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionStringField(workflowLawChangeReasonField, false, workflowLawChangeReasonMaxBytes),
@@ -69,8 +69,14 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 		return nil, nil
 	}
 	reason, _ := workflowFieldString(fields, workflowLawChangeReasonField)
-	if strings.TrimSpace(reason) == "" {
+	if strings.TrimSpace(reason) == "" || len(reason) > workflowLawChangeReasonMaxBytes {
 		return nil, newFailure(KindInvalidPayload, "workflow_law_change", "a contract that changes law must record why (CD-0230 D4)", false, "supply law_change_reason")
+	}
+	for _, name := range []string{workflowLawChangeBehaviorField, workflowLawChangeSecurityField} {
+		raw := strings.TrimSpace(string(fields[name]))
+		if raw != "true" && raw != "false" {
+			return nil, newFailure(KindInvalidPayload, "workflow_law_change", "a law change requires an explicit boolean declaration for "+name, false, "declare each P12 test as true or false")
+		}
 	}
 	change := &WorkflowLawChange{
 		Reason:                     reason,
@@ -106,9 +112,9 @@ func workflowLawChangeSerious(change *WorkflowLawChange, decisionDomains []strin
 // workflowLawChangeDomainsTx counts the child Domains of a law change from
 // recorded state (CD-0230 D4): each changed law's home and applicability, each
 // added law's declared home, each modified registry Domain, both ends of each
-// modified relation, and the Domains already recorded in prior. The
-// Product-root Domain is not counted. A reference record is not law and is
-// never in law_subjects, so it adds nothing.
+// modified relation, and the Domains already recorded in prior. The registry's
+// root Domain is not counted. A reference record is not law and is never in
+// law_subjects, so it adds nothing.
 func workflowLawChangeDomainsTx(ctx context.Context, q queryer, workID string, laws []string, binding *WorkflowArchitectureBinding, prior []string) ([]string, error) {
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
 	if err != nil {
@@ -118,29 +124,18 @@ func workflowLawChangeDomainsTx(ctx context.Context, q queryer, workID string, l
 	if err != nil {
 		return nil, err
 	}
-	declared := slices.Clone(prior)
+	var root string
+	if err := q.QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id=?`, productID).Scan(&root); err != nil && err != sql.ErrNoRows {
+		return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the Domain registry root", true, "retry once the Domain registry is readable", err)
+	}
+	domains := slices.Clone(prior)
 	if binding != nil {
 		for _, addition := range binding.LawAdditions {
-			declared = append(declared, addition.HomeDomainID)
+			domains = append(domains, addition.HomeDomainID)
 		}
-		declared = append(declared, binding.DomainModifies...)
+		domains = append(domains, binding.DomainModifies...)
 		for _, relation := range binding.DomainRelationModifies {
-			declared = append(declared, relation.SourceDomainID, relation.TargetDomainID)
-		}
-	}
-	set := map[string]struct{}{}
-	for _, domainID := range declared {
-		var child bool
-		err := q.QueryRowContext(ctx, `SELECT parent_domain_id IS NOT NULL FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&child)
-		if err == sql.ErrNoRows {
-			// A Domain the change adds is not in the registry yet; it is a
-			// child, since a Product has one root.
-			child = true
-		} else if err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the Domain registry", true, "retry once the Domain registry is readable", err)
-		}
-		if child {
-			set[domainID] = struct{}{}
+			domains = append(domains, relation.SourceDomainID, relation.TargetDomainID)
 		}
 	}
 	resolutions, err := resolveWorkflowChangedLawsTx(ctx, q, homeProjectID, homeLocatorID, laws)
@@ -148,10 +143,8 @@ func workflowLawChangeDomainsTx(ctx context.Context, q queryer, workID string, l
 		return nil, err
 	}
 	for _, resolution := range resolutions {
-		rows, err := q.QueryContext(ctx, `SELECT h.domain_id FROM law_domain_homes h JOIN domains d ON d.product_id=h.product_id AND d.domain_id=h.domain_id
-WHERE h.home_project_id=? AND h.home_locator_id=? AND h.law_id=? AND d.parent_domain_id IS NOT NULL
-UNION SELECT a.domain_id FROM law_domain_applicability a JOIN domains d ON d.product_id=a.product_id AND d.domain_id=a.domain_id
-WHERE a.home_project_id=? AND a.home_locator_id=? AND a.law_id=? AND d.parent_domain_id IS NOT NULL`,
+		rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?
+UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
 			resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID,
 			resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID)
 		if err != nil {
@@ -163,18 +156,19 @@ WHERE a.home_project_id=? AND a.home_locator_id=? AND a.law_id=? AND d.parent_do
 				_ = rows.Close()
 				return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot decode the changed law's Domains", true, "retry once the law projection is readable", err)
 			}
-			set[domainID] = struct{}{}
+			domains = append(domains, domainID)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot finish reading the changed law's Domains", true, "retry once the law projection is readable", err)
 		}
 		if err := rows.Close(); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the changed law's Domains", true, "retry once the law projection is readable", err)
 		}
 	}
-	domains := make([]string, 0, len(set))
-	for domainID := range set {
-		domains = append(domains, domainID)
-	}
+	domains = slices.DeleteFunc(domains, func(domainID string) bool { return domainID == root })
 	slices.Sort(domains)
-	return domains, nil
+	return append([]string{}, slices.Compact(domains)...), nil
 }
 
 // resolveWorkflowChangedLawsTx resolves changed law references through the
@@ -199,7 +193,7 @@ func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID,
 // validateWorkflowLawChangeShape holds a recorded fact to its closed form. It
 // reads nothing, so replay folds recorded bytes under it.
 func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains []string) error {
-	if change.Reason == "" || len(change.Reason) > workflowLawChangeReasonMaxBytes {
+	if strings.TrimSpace(change.Reason) == "" || len(change.Reason) > workflowLawChangeReasonMaxBytes {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change reason must be 1 to 1024 bytes", false, "record why the law changes")
 	}
 	if change.DomainIDs == nil || !slices.IsSorted(change.DomainIDs) || len(slices.Compact(slices.Clone(change.DomainIDs))) != len(change.DomainIDs) {
@@ -242,11 +236,18 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, definition
 // checkWorkflowLawChangeEnactmentTx is the completion half of CD-0230 D4 for a
 // law change the operator did not approve. The child Domains the changed laws
 // hold now, joined with those recorded at approval, must still number at most
-// one, and each changed law that is accepted law must carry the derived tier,
+// one, and each changed law revision must carry the derived tier,
 // whatever tier it held before, including a D5 cohort default.
 func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID string, change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding) error {
-	if change == nil || change.Serious || len(decisionDomains) != 0 {
+	if change == nil || change.Serious {
 		return nil
+	}
+	crucial, err := workflowWorkIsCrucial(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if crucial {
+		return newFailure(KindApprovalRequired, "complete_workflow", "every law change at crucial size requires the operator's approval of its exact text (CD-0230 D4)", false, "supersede the contract with the operator's approval of the exact text")
 	}
 	changed := slices.Clone(lawModifies)
 	if binding != nil {
@@ -270,8 +271,11 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		return err
 	}
 	for _, reference := range changed {
-		// A removed law is superseded, no longer law, and keeps its tier.
-		if resolution, ok := resolutions[reference]; ok && resolution.status == "accepted" && resolution.tier != "derived" {
+		resolution, ok := resolutions[reference]
+		if !ok {
+			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision")
+		}
+		if resolution.tier != "derived" {
 			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s changed without the operator's approval must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")
 		}
 	}
@@ -285,4 +289,32 @@ func productBinding(productChanging bool, binding *WorkflowArchitectureBinding) 
 		return nil
 	}
 	return binding
+}
+
+// workflowProposedLawChangeSeriousTx answers the consent boundary's law-change
+// fact for one approve_contract or supersede_contract payload: whether the
+// contract the constructor would build makes a serious law change. It derives
+// the same fact the constructor records, from the same fields.
+func workflowProposedLawChangeSeriousTx(ctx context.Context, q queryer, definition WorkflowDefinition, workID, role string, fields map[string]json.RawMessage) (bool, error) {
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return false, nil
+	}
+	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
+	var binding *WorkflowArchitectureBinding
+	if productChanging {
+		parsed, err := parseWorkflowArchitectureBinding(fields["architecture_binding"])
+		if err != nil {
+			return false, err
+		}
+		binding = parsed
+	}
+	decisionDomains, err := workflowSubmittedDecisionDomains(definition, role, fields)
+	if err != nil {
+		return false, err
+	}
+	change, err := deriveWorkflowLawChangeTx(ctx, q, definition, workID, fields, workflowFieldStrings(fields, "law_modifies"), binding, decisionDomains)
+	if err != nil {
+		return false, err
+	}
+	return change != nil && change.Serious, nil
 }

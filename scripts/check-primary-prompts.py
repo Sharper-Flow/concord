@@ -120,6 +120,8 @@ PLANNER_BASH_PROBES = (
     ("make deploy", "ask"),
     ("python3 scripts/install.py", "ask"),
     ("go test ./...", "ask"),
+    ("git grep -O'git push origin HEAD #' -e x", "ask"),
+    ("go list -export -toolexec=sh ./...", "ask"),
 )
 PLANNER_TASK_PROBES = (
     ("concord-explore", "allow"),

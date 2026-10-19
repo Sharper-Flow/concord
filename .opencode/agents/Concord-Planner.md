@@ -19,7 +19,6 @@ permission:
     "git diff *": allow
     "git show *": allow
     "git blame *": allow
-    "git grep *": allow
     "git ls-files *": allow
     "git rev-parse *": allow
     "gh issue view *": allow
@@ -29,7 +28,6 @@ permission:
     "ls *": allow
     "wc *": allow
     "du *": allow
-    "go list *": allow
     "git commit *": deny
     "git push *": deny
     "git merge *": deny

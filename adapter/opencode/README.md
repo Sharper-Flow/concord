@@ -92,7 +92,7 @@ operation too.
 Use the same database selection and data home as the affected adapter. Inspect
 the current policy, add the needed names with the operator CLI, then inspect
 the result. This example uses the default client `opencode` and authorizes
-both available primary profiles; replace the client reference when the host
+`Concord` and `Concord-RTE`; replace the client reference when the host
 uses another client. A client that will run only Concord needs only `Concord`.
 A client that will run the optional `Concord-Planner` adds that exact name the
 same way.
@@ -109,7 +109,7 @@ concord client-show <<'JSON'
 JSON
 ```
 
-Do not activate the release or select either profile until the final read
+Do not activate the release or select a profile until the final read
 reports an active client whose `agent_scope` includes each intended exact name.
 Verify that the principal, capabilities, Product scope, Project scope, and all
 previous agent names survive unchanged. Retain the before and after policy

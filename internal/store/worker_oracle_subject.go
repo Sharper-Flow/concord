@@ -37,7 +37,9 @@ func oracleVerifySubject(before, after oracleGitSubjectSnapshot, changed bool) s
 // oracleVerifyReceiptSQL joins the existing lease outcome to its green durable
 // producer. Receipt text, claim git_facts, and model reports cannot supply this
 // subject. Both existing records must retain the same bounded native result.
-const oracleVerifyReceiptSQL = `SELECT l.result_json FROM worktree_verify_leases l
+const oracleVerifyReceiptSQL = `SELECT l.result_json` + oracleVerifyReceiptJoinSQL
+
+const oracleVerifyReceiptJoinSQL = ` FROM worktree_verify_leases l
 	JOIN durable_operations d ON d.work_id=l.work_id AND d.op_id=(
 		CASE WHEN instr(l.lease_id,':worktree-verify:')>0
 		THEN 'worktree_verify:' || substr(l.lease_id,1,instr(l.lease_id,':worktree-verify:')-1)

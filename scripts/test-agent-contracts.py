@@ -42,6 +42,32 @@ relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
 lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
+adapter_oracle_generator = _load_cli_module("adapter_oracle_generator", "generate-adapter-oracle.py")
+
+
+class AdapterOracleGenerationTests(unittest.TestCase):
+    def test_committed_outputs_match_sources(self):
+        for path, expected in adapter_oracle_generator.render().items():
+            with self.subTest(path=path):
+                self.assertEqual(path.read_text(), expected)
+
+    def test_checks_and_helpers_are_pinned_existing_files(self):
+        recipe = json.loads(adapter_oracle_generator.render()[adapter_oracle_generator.OUTPUT])
+        harness = recipe["harness_files"]
+        self.assertLessEqual(len(harness), 16)
+        for name in harness:
+            self.assertTrue((ROOT / name).is_file(), name)
+        for check in recipe["checks"]:
+            for name in check["argv"][1:]:
+                self.assertIn(f"adapter/opencode/{name}", harness)
+
+    def test_a_dependency_change_cannot_regenerate_an_empty_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "package.json"
+            package.write_text(json.dumps({"name": "adapter", "private": True, "dependencies": {"unexpected": "1.0.0"}}))
+            with unittest.mock.patch.object(adapter_oracle_generator, "PACKAGE", package):
+                with self.assertRaisesRegex(SystemExit, "must remain dependency-free"):
+                    adapter_oracle_generator.render()
 
 class LaneSelectabilityTests(unittest.TestCase):
     def check_definition(self, mode, hidden=True):

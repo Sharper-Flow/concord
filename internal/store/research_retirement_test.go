@@ -114,10 +114,10 @@ func TestResearchRetirementCascadesContent(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	pack := createSimplePack(t, s, "retirement-content", "owner")
-	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retirement-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
+	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 1, Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retirement-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"source"}, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
+	if _, err := recordResearchFinding(ctx, s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"source"}, Scopes: ResearchScopes{Mode: "explicit", ProductIDs: []string{"product"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	tables := []string{"active_research_packs", "active_research_revisions", "active_research_findings", "active_research_sources", "active_research_finding_sources", "active_research_finding_scopes"}

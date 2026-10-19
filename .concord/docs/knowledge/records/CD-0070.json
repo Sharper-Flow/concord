@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9a1a586eb11e3f3d344e8bb5aa5858f8a719c006a2eb1fe1db58ec3ebca6b67c",
+  "sha256": "sha256:0a2246483bc71d1d931ad38f81627ff13a6b9a19cbd7253edc81622a394439e8",
   "status": "accepted",
-  "summary": "D1 emits hidden: true in generated lane frontmatter, so a worker lane is not selectable as an operator session agent; D2 preserves CD-0064 D1 mode: all unchanged, because hidden governs operator-facing listing only and run-mode dispatch plus the CD-0064 D2 executor readback are unaffected; D3 records that the registry digest covers the manifest rather than the projected lane body, so no digest and no schema version moves. The exposure was that CD-0017 Invariant 4 governs what a worker does while nothing governed who may become one.",
+  "summary": "Generated lanes declare hidden: true and mode: subagent, excluding primary session selection and ordinary discovery while retaining exact-name native Task dispatch. Dispatch still requires a typed packet, authorized attempt, nesting denial and capability fences. Executor readback remains required. Registry digests cover the manifest rather than projected frontmatter, so this mode change alters no digest or schema version.",
   "tags": [
     "lanes",
     "agent-identity",

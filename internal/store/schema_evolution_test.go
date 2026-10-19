@@ -57,7 +57,7 @@ func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
 			t.Fatalf("upcast result changed on repeat:\n got %#v\nwant %#v", got, first)
 		}
 	}
-	if first.PayloadVersion != 3 || string(first.Payload) != `{"work_kind":"task","title":"migrate","priority":2}` {
+	if first.PayloadVersion != workCreatedCurrentVersion() || string(first.Payload) != `{"work_kind":"task","title":"migrate","priority":2}` {
 		t.Fatalf("upcast result = version %d payload %s", first.PayloadVersion, first.Payload)
 	}
 	if string(event.Payload) != `{"kind":"task","title":"migrate","priority":2}` || event.PayloadVersion != 1 {
@@ -126,8 +126,8 @@ func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
 func TestApplyRejectsNewerPayloadBeforeMutation(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	event := workCreatedEvent("work-v4", "event-v4")
-	event.PayloadVersion = 4
+	event := workCreatedEvent("work-newer", "event-newer")
+	event.PayloadVersion = workCreatedCurrentVersion() + 1
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	assertFailureKind(t, err, KindUnsupportedPayloadVersion)
 	assertTableCount(t, s, "domain_events", 0)
@@ -195,7 +195,7 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	before := projectionSnapshot(t, s)
 	beforeWorkAndRelations := fullPM4Snapshot(t, s)
 	poison := workCreatedEvent("work-poison", "event-poison")
-	poison.PayloadVersion = 4
+	poison.PayloadVersion = workCreatedCurrentVersion() + 1
 	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
 		INSERT INTO domain_events
 			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
@@ -214,12 +214,12 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 	if !errors.As(err, &failure) {
 		t.Fatalf("RebuildFromLog() error = %v, want *Failure", err)
 	}
-	if failure.Kind != KindUnsupportedPayloadVersion || failure.EventID != poison.EventID || failure.EventKind != poison.Kind || failure.PayloadVersion != 4 || failure.SubjectType != poison.SubjectType || failure.SubjectID != poison.SubjectID || failure.Sequence != poisonSeq || failure.Stage != "upcast" {
+	if failure.Kind != KindUnsupportedPayloadVersion || failure.EventID != poison.EventID || failure.EventKind != poison.Kind || failure.PayloadVersion != poison.PayloadVersion || failure.SubjectType != poison.SubjectType || failure.SubjectID != poison.SubjectID || failure.Sequence != poisonSeq || failure.Stage != "upcast" {
 		t.Fatalf("failure context = %+v", failure)
 	}
 	for _, field := range []string{
 		fmt.Sprintf("event_id=%q", poison.EventID), fmt.Sprintf("sequence=%d", poisonSeq),
-		fmt.Sprintf("event_kind=%q", poison.Kind), "payload_version=4",
+		fmt.Sprintf("event_kind=%q", poison.Kind), fmt.Sprintf("payload_version=%d", poison.PayloadVersion),
 		fmt.Sprintf("subject_type=%q", poison.SubjectType), fmt.Sprintf("subject_id=%q", poison.SubjectID), `stage="upcast"`,
 	} {
 		if !strings.Contains(err.Error(), field) {
@@ -456,89 +456,6 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 	}
 	if rebuilt != stored {
 		t.Fatalf("intent replay changed shape: before=%s after=%s", stored, rebuilt)
-	}
-}
-
-func TestReconstructSubjectAtAcceptsOnlyAuditAndDiagnosis(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	if err := ApplyOperation(context.Background(), s, Operation{
-		Events: []Event{
-			productCreatedEvent("product-reconstruct", "product-reconstruct"),
-			projectCreatedEvent("project-reconstruct", "project-reconstruct"),
-			operationEvent("membership-reconstruct", "product_project.added", SubjectProduct, "product-reconstruct", map[string]any{
-				"product_id": "product-reconstruct", "project_id": "project-reconstruct", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-reconstruct"): 0, VersionRef(SubjectProject, "project-reconstruct"): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	event := workCreatedEvent("work-reconstruct", "event-reconstruct")
-	event.PayloadVersion = 1
-	event.Payload = []byte(`{"kind":"task","title":"legacy reconstruction","priority":2}`)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		event,
-		operationEvent("work-membership-reconstruct", "work_project.added", SubjectWorkItem, "work-reconstruct", map[string]any{
-			"work_id": "work-reconstruct", "project_id": "project-reconstruct", "role": "secondary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-reconstruct"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, purpose := range []ReconstructionPurpose{PurposeAudit, PurposeDiagnosis} {
-		snapshot, err := ReconstructSubjectAt(context.Background(), s, VersionRef(SubjectWorkItem, event.SubjectID), 5, purpose)
-		if err != nil {
-			t.Fatalf("ReconstructSubjectAt(%q) error = %v", purpose, err)
-		}
-		if snapshot.Work == nil || snapshot.Work.ID != event.SubjectID || snapshot.Work.Kind != "task" || snapshot.Work.Title != "legacy reconstruction" || snapshot.Work.Priority != 2 || snapshot.AsOfSeq != 5 {
-			t.Fatalf("snapshot = %+v", snapshot)
-		}
-	}
-	_, err := ReconstructSubjectAt(context.Background(), s, VersionRef(SubjectWorkItem, event.SubjectID), 5, ReconstructionPurpose("other"))
-	assertFailureKind(t, err, KindInvalidOperation)
-}
-
-func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	if err := ApplyOperation(context.Background(), s, Operation{
-		Events: []Event{
-			productCreatedEvent("product-reconstruct", "product-reconstruct"),
-			projectCreatedEvent("project-reconstruct", "project-reconstruct"),
-			operationEvent("membership-reconstruct", "product_project.added", SubjectProduct, "product-reconstruct", map[string]any{
-				"product_id": "product-reconstruct", "project_id": "project-reconstruct", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-reconstruct"): 0, VersionRef(SubjectProject, "project-reconstruct"): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	event := workCreatedEvent("work-reconstruct", "event-reconstruct")
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		event,
-		operationEvent("work-membership-reconstruct", "work_project.added", SubjectWorkItem, "work-reconstruct", map[string]any{
-			"work_id": "work-reconstruct", "project_id": "project-reconstruct", "role": "secondary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-reconstruct"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	before := projectionSnapshot(t, s)
-	var guardBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardBefore); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReconstructSubjectAt(context.Background(), s, VersionRef(SubjectWorkItem, event.SubjectID), 5, PurposeDiagnosis); err != nil {
-		t.Fatal(err)
-	}
-	if got := projectionSnapshot(t, s); got != before {
-		t.Fatalf("live projection changed:\n%s\nwant\n%s", got, before)
-	}
-	var guardAfter int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guardAfter); err != nil {
-		t.Fatal(err)
-	}
-	if guardAfter != guardBefore {
-		t.Fatalf("fold guard = %d, want %d", guardAfter, guardBefore)
 	}
 }
 

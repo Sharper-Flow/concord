@@ -42,7 +42,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	claimed, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 		OpID: "close-git-claim", WorkID: workID, ProjectID: "project", BaseSHA: base,
 		PrincipalRef: "principal/operator", RequestID: "request:close-git-claim",
-		ExpectedVersion: verdictItemVersion(t, s, workID), Now: time.Unix(10, 0).UTC(),
+		ExpectedVersion: readWorkVersion(t, s, workID), Now: time.Unix(10, 0).UTC(),
 	})
 	if err != nil {
 		t.Fatalf("claim real context worktree: %v", err)
@@ -138,9 +138,9 @@ func TestWorkContextCloseGit(t *testing.T) {
 		"evaluation_evidence": []string{"evidence:close-git-verification"},
 	})
 	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowPremiseConfirmed, map[string]any{
-		"contract_version": 1, "confirming_actor_ref": reviewerRef,
+		"contract_version": 1, "confirming_actor_ref": reviewerRef, "confirmation_authority": "operator",
 	})
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, reviewerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
 		"final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true, "evidence_count": len(seen),
@@ -205,7 +205,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 func closeGitWorkflowEvent(t *testing.T, s *Store, actor, kind string, fields map[string]any) {
 	t.Helper()
 	const workID = "context-close-git"
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	fields["work_id"], fields["expected_version"], fields["resulting_version"] = workID, version, version+1
 	event := workflowEventWithActor(fmt.Sprintf("close-git-%s-%d", kind, version), kind, workID, actor, fields)
 	registration, ok := registeredEventKind(kind)

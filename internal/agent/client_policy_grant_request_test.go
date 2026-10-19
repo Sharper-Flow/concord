@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,14 +162,14 @@ func TestApprovedGrantRequestAppliesExactUnion(t *testing.T) {
 	// Every prior grant survives, and the union holds exactly the requested
 	// additions — the grants a dependent cross-Product worktree claim needs.
 	for _, capability := range []string{"work_relate", "cross_scope"} {
-		if !contains(stored.Capabilities, capability) {
+		if !slices.Contains(stored.Capabilities, capability) {
 			t.Fatalf("stored capabilities %v lack %q", stored.Capabilities, capability)
 		}
 	}
-	if !contains(stored.Products, "product-1") || !contains(stored.Products, "product-2") || len(stored.Products) != 2 {
+	if !slices.Contains(stored.Products, "product-1") || !slices.Contains(stored.Products, "product-2") || len(stored.Products) != 2 {
 		t.Fatalf("stored Product scope = %v", stored.Products)
 	}
-	if !contains(stored.Projects, "project-1") || !contains(stored.Agents, "agent-1") {
+	if !slices.Contains(stored.Projects, "project-1") || !slices.Contains(stored.Agents, "agent-1") {
 		t.Fatalf("stored scopes = %+v", stored)
 	}
 	client, _, err := s.TrustedClientWithKey(context.Background(), "client-1")
@@ -204,7 +205,7 @@ func TestAlteredArgumentsRefuseAndLeaveAuthorityUnchanged(t *testing.T) {
 		t.Fatal("the refused attempt consumed the challenge")
 	}
 	stored := readStoredPolicy(t, s, "client-1")
-	if contains(stored.Capabilities, "work_transition") || contains(stored.Capabilities, "cross_scope") {
+	if slices.Contains(stored.Capabilities, "work_transition") || slices.Contains(stored.Capabilities, "cross_scope") {
 		t.Fatalf("refusal widened the stored policy: %+v", stored)
 	}
 }
@@ -256,10 +257,10 @@ func TestStalePolicyRefusesApproval(t *testing.T) {
 	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
 	assertStalePolicyVersionConflict(t, s, response)
 	stored := readStoredPolicy(t, s, "client-1")
-	if contains(stored.Capabilities, "cross_scope") || contains(stored.Products, "product-2") {
+	if slices.Contains(stored.Capabilities, "cross_scope") || slices.Contains(stored.Products, "product-2") {
 		t.Fatalf("stale approval widened the stored policy: %+v", stored)
 	}
-	if !contains(stored.Agents, "agent-extra") {
+	if !slices.Contains(stored.Agents, "agent-extra") {
 		t.Fatalf("operator expansion was lost: %+v", stored)
 	}
 }
@@ -292,16 +293,16 @@ func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 	// The exact additions: the stored arrays hold every prior grant, the one
 	// requested addition, and nothing else.
 	for _, capability := range before.Capabilities {
-		if !contains(stored.Capabilities, capability) {
+		if !slices.Contains(stored.Capabilities, capability) {
 			t.Fatalf("late approval dropped prior capability %q: %v", capability, stored.Capabilities)
 		}
 	}
 	for _, product := range before.Products {
-		if !contains(stored.Products, product) {
+		if !slices.Contains(stored.Products, product) {
 			t.Fatalf("late approval dropped prior Product %q: %v", product, stored.Products)
 		}
 	}
-	if len(stored.Capabilities) != len(before.Capabilities)+1 || !contains(stored.Capabilities, "cross_scope") || len(stored.Products) != len(before.Products)+1 || !contains(stored.Products, "product-2") {
+	if len(stored.Capabilities) != len(before.Capabilities)+1 || !slices.Contains(stored.Capabilities, "cross_scope") || len(stored.Products) != len(before.Products)+1 || !slices.Contains(stored.Products, "product-2") {
 		t.Fatalf("late approval stored capabilities=%v products=%v, want exactly the requested additions over %v/%v", stored.Capabilities, stored.Products, before.Capabilities, before.Products)
 	}
 	if stored.PrincipalRef != before.PrincipalRef || !reflect.DeepEqual(stored.Projects, before.Projects) || !reflect.DeepEqual(stored.Agents, before.Agents) {
@@ -376,7 +377,7 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 		t.Fatal("a refused request minted a challenge")
 	}
 	stored := readStoredPolicy(t, s, "client-1")
-	if contains(stored.Capabilities, "worker_dispatch") {
+	if slices.Contains(stored.Capabilities, "worker_dispatch") {
 		t.Fatalf("refusal widened the stored policy: %+v", stored)
 	}
 	// The derivation carries the same closed vocabulary, so a request that
@@ -466,7 +467,7 @@ func TestRestoredPolicyRefusesApprovalMintedBeforeRestore(t *testing.T) {
 	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
 	assertStalePolicyVersionConflict(t, s, response)
 	stored := readStoredPolicy(t, s, "client-1")
-	if contains(stored.Capabilities, "cross_scope") || contains(stored.Products, "product-2") || contains(stored.Agents, "agent-extra") {
+	if slices.Contains(stored.Capabilities, "cross_scope") || slices.Contains(stored.Products, "product-2") || slices.Contains(stored.Agents, "agent-extra") {
 		t.Fatalf("the refused approval changed the stored policy: %+v", stored)
 	}
 }
@@ -648,7 +649,7 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	}
 	assertDurableCommit(t, s, before)
 	stored := readStoredPolicy(t, s, "client-1")
-	if !contains(stored.Capabilities, "cross_scope") || !contains(stored.Products, "product-2") {
+	if !slices.Contains(stored.Capabilities, "cross_scope") || !slices.Contains(stored.Products, "product-2") {
 		t.Fatalf("the acknowledged grant was not applied: %+v", stored)
 	}
 

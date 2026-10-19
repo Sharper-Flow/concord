@@ -88,24 +88,21 @@ func researchScopeFixture(t *testing.T, capabilities []Capability, products []st
 func seedResearchScopePack(t *testing.T, s *store.Store, packID, owner, question, finding string) {
 	t.Helper()
 	ctx := context.Background()
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-scope-test", OperationKind: key, IdempotencyKey: packID + "-" + key}
-	}
-	pack, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{
-		Identity: identity("create"), PackID: packID, OwnerWorkID: owner, Freshness: store.ResearchCurrent,
+	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
+		PackID: packID, OwnerWorkID: owner, Freshness: store.ResearchCurrent,
 		Revision: store.ResearchRevisionInput{Question: question, Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
 	})
 	if err != nil {
 		t.Fatalf("seed pack %s: %v", packID, err)
 	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity("source"), PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
 		Source: store.ResearchSource{SourceID: "src-" + packID, Kind: store.SourceCode, Locator: "internal/agent/research_scope_authorization_test.go", Title: "research scope fixture", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
 	}); err != nil {
 		t.Fatalf("seed source %s: %v", packID, err)
 	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity("finding"), PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		PackID: packID, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
 		Finding: store.ResearchFinding{FindingID: "f-" + packID, Kind: store.FindingObservation, Statement: finding, Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}},
 	}); err != nil {
 		t.Fatalf("seed finding %s: %v", packID, err)
@@ -506,9 +503,8 @@ func TestResearchScopeBindingRefusesForeignPack(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f := researchScopeFixture(t, test.capabilities, []string{"product-a"})
 			if test.stale {
-				if err := f.store.SetResearchFreshness(context.Background(), store.SetResearchFreshnessRequest{
-					Identity: store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-scope-test", OperationKind: "stale", IdempotencyKey: "stale-b"},
-					PackID:   researchScopePackB, Revision: 1, ExpectedVersion: researchScopePackVersion(t, f.store, researchScopePackB), Freshness: store.ResearchStale,
+				if err := setResearchFreshness(context.Background(), f.store, store.SetResearchFreshnessRequest{
+					PackID: researchScopePackB, Revision: 1, ExpectedVersion: researchScopePackVersion(t, f.store, researchScopePackB), Freshness: store.ResearchStale,
 				}); err != nil {
 					t.Fatal(err)
 				}

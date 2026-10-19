@@ -18,7 +18,6 @@
   amendment in-session on 2026-10-17 for [CON-1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
 - **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
   the review-fix amendment in-session.
-- **Supersedes:** [CD-0196](CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md).
 
 ## Context
 

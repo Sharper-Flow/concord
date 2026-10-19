@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -17,15 +18,32 @@ const WorkSized = "work.sized"
 // WorkSizeFootprint is the footprint snapshot the model read
 // (DomainFootprintResult): the knowledge commit and hashes it was read at,
 // each named path as the read resolved it, every Domain the read reached, and
-// the behavior phrase with the laws it matched.
+// the behavior phrase with the laws it matched. A record with ChecksComplete
+// also keeps every law the read reached, each with its checks, and every
+// package check; a record without it predates that and says nothing about
+// them.
 type WorkSizeFootprint struct {
-	KnowledgeCommit       string          `json:"knowledge_commit"`
-	RegistryContentHash   string          `json:"registry_content_hash"`
-	PackageMapContentHash *string         `json:"package_map_content_hash"`
-	Paths                 []FootprintPath `json:"paths"`
-	DomainIDs             []string        `json:"domain_ids"`
-	Behavior              string          `json:"behavior,omitempty"`
-	BehaviorLawIDs        []string        `json:"behavior_law_ids"`
+	KnowledgeCommit       string                  `json:"knowledge_commit"`
+	RegistryContentHash   string                  `json:"registry_content_hash"`
+	PackageMapContentHash *string                 `json:"package_map_content_hash"`
+	Paths                 []FootprintPath         `json:"paths"`
+	DomainIDs             []string                `json:"domain_ids"`
+	Behavior              string                  `json:"behavior,omitempty"`
+	BehaviorLawIDs        []string                `json:"behavior_law_ids"`
+	Laws                  []FootprintLaw          `json:"laws,omitempty"`
+	PackageChecks         []FootprintPackageCheck `json:"package_checks,omitempty"`
+	ChecksComplete        bool                    `json:"checks_complete,omitempty"`
+}
+
+// workSizedPayloadMaxBytes bounds one size record. A complete footprint that
+// does not fit refuses whole; it is never truncated.
+const workSizedPayloadMaxBytes = 256 * 1024
+
+// upcastWorkSizedV1 reads a first-release record unchanged: it carries no
+// complete law and check set, and ChecksComplete stays false.
+func upcastWorkSizedV1(event Event) (Event, error) {
+	event.PayloadVersion = 2
+	return event, nil
 }
 
 type workSizedPayload struct {
@@ -33,6 +51,8 @@ type workSizedPayload struct {
 	Size         WorkSize          `json:"size"`
 	Inputs       WorkSizeInputs    `json:"inputs"`
 	Footprint    WorkSizeFootprint `json:"footprint"`
+	// ReviewBasis names the proof events (CD-0229 D5) the size rests on.
+	ReviewBasis []string `json:"review_basis,omitempty"`
 }
 
 // WorkSizeRecord is one recorded size decision. The current size of a work
@@ -55,7 +75,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	decided, err := DecideWorkSize(p.ModelVersion, p.Inputs)
+	decided, err := DecideWorkSize(p.ModelVersion, p.Inputs, p.ReviewBasis)
 	if err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) {
@@ -68,6 +88,15 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := checkWorkSizeFootprint(p.Inputs, p.Footprint); err != nil {
 		return err
+	}
+	if p.ModelVersion >= 2 {
+		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID, event.Seq)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(basis, sliceOrEmpty(p.ReviewBasis)) {
+			return newFailure(KindInvariantViolation, "fold_event", "the review basis is not every proof derived now and recorded earlier on the lineage", false, "record the review basis the store derives")
+		}
 	}
 	var kind, lifecycle string
 	if err := tx.QueryRowContext(ctx, `SELECT kind, lifecycle FROM work_items WHERE id=?`, event.SubjectID).Scan(&kind, &lifecycle); err == sql.ErrNoRows {
@@ -124,6 +153,14 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 		}
 	}
 	packages, unmapped := footprintPathCounts(f.Paths)
+	if !f.ChecksComplete && (f.Laws != nil || f.PackageChecks != nil) {
+		return mismatch("a footprint snapshot without checks_complete lists laws or package checks")
+	}
+	if f.ChecksComplete {
+		if err := checkWorkSizeFootprintChecks(f); err != nil {
+			return err
+		}
+	}
 	switch {
 	case in.PathCount != len(f.Paths):
 		return mismatch("size inputs count a different number of paths than the footprint names")
@@ -133,6 +170,33 @@ func checkWorkSizeFootprint(in WorkSizeInputs, f WorkSizeFootprint) error {
 		return mismatch("size inputs count a different number of packages than the footprint resolves")
 	case in.UnmappedPathCount != unmapped:
 		return mismatch("size inputs count a different number of unmapped paths than the footprint shows")
+	}
+	return nil
+}
+
+// checkWorkSizeFootprintChecks holds a complete snapshot's laws and package
+// checks to the paths and Domains it names.
+func checkWorkSizeFootprintChecks(f WorkSizeFootprint) error {
+	mismatch := func(message string) error {
+		return newFailure(KindInvariantViolation, "fold_event", message, false, "record the complete footprint the model read")
+	}
+	laws := map[string]struct{}{}
+	for _, law := range f.Laws {
+		if _, seen := laws[law.LawID]; seen || law.LawID == "" {
+			return mismatch("the footprint snapshot lists a law twice or without an ID")
+		}
+		laws[law.LawID] = struct{}{}
+	}
+	named := map[string]struct{}{}
+	for _, path := range f.Paths {
+		if path.Package != "" {
+			named[path.Package] = struct{}{}
+		}
+	}
+	for _, check := range f.PackageChecks {
+		if _, ok := named[check.Package]; !ok {
+			return mismatch("a footprint package check names a package no footprint path resolves to")
+		}
 	}
 	return nil
 }

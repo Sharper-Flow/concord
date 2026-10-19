@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +228,51 @@ func TestNativeOracleExecuteMissingCandidateBindingNeverLaunches(t *testing.T) {
 func TestNativeOracleExecuteRecordedOlderSubjectNeverLaunches(t *testing.T) {
 	f := newNativeOracleFixture(t, strings.Repeat("a", 40))
 	f.refusal(t, "older-subject", f.a)
+}
+
+// An editing attempt commits a candidate over its dispatch subject. Execution
+// under that attempt still refuses, but the genuine binding names the route
+// that grades the candidate, whether or not the core has pinned it yet. A
+// forged binding on the same HEAD keeps the bare refusal.
+func TestNativeOracleExecuteEditedCandidateNamesTheEvaluatorRoute(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	gitRunStore(t, f.repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "--allow-empty", "-m", "edited candidate")
+	out, err := (ExecGitRunner{}).Run(context.Background(), f.repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := strings.TrimSpace(string(out))
+	wantRoute := []string{"worktree_verify", "record_worker_job", "dispatch_worker"}
+	check := func(id string, o NativeOracleRequest, routed bool) {
+		t.Helper()
+		_, err := f.s.VerifyWorktree(context.Background(), f.request(id, &o))
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
+			t.Fatalf("%s: refusal=%v, want unauthorized_dispatch", id, err)
+		}
+		if !routed {
+			if failure.RecoveryAction == RecoveryUseDeclaredRoute {
+				t.Errorf("%s: a forged binding named the evaluator route: %+v", id, failure)
+			}
+		} else if failure.RecoveryAction != RecoveryUseDeclaredRoute || !slices.Equal(failure.RecoveryRefs, wantRoute) || !strings.Contains(failure.Detail, f.head) || !strings.Contains(failure.Detail, candidate) {
+			t.Errorf("%s: refusal recovery=%q refs=%v detail=%q, want the evaluator route naming %s and %s", id, failure.RecoveryAction, failure.RecoveryRefs, failure.Detail, f.head, candidate)
+		}
+		f.assertNoLaunch(t)
+	}
+	check("candidate-unpinned", f.a, true)
+	forged := f.a
+	forged.WorkerPacketDigest = f.b.WorkerPacketDigest
+	check("candidate-forged", forged, false)
+	foreignPreparation := f.a
+	foreignPreparation.PreparationRunRef = "worktree_verify:invented-preparation"
+	check("candidate-foreign-preparation", foreignPreparation, false)
+	foreignControl := f.a
+	foreignControl.ControlID = "control:invented"
+	check("candidate-foreign-control", foreignControl, false)
+	if _, err := f.s.VerifyWorktree(context.Background(), f.request("candidate-subject", nil)); err != nil {
+		t.Fatal(err)
+	}
+	check("candidate-pinned", f.a, true)
 }
 
 func TestNativeOracleExecuteCoreDisagreementNeverLaunches(t *testing.T) {

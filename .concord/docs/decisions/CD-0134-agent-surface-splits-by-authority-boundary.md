@@ -4,7 +4,7 @@
 - **Date:** 2026-09-12
 - **Scope:** Agent-surface Domain granularity, TS1–TS9 law homing, and the registry migration
 - **Approval:** The operator approved this bounded decision objective in Concord work-2e8afff1f907a403561806e5; this record states the resulting decision.
-- **Related:** CD-0005, CD-0041 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0017, CD-0082, and TS1–TS9
+- **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0017, CD-0082, and TS1–TS9
 - **Amends:** Nothing. The later registry delta enacts this decision without changing the accepted TS contracts.
 - **Preserves:** One-home law, non-empty Domains, Git registry authority, the static generated agent surface, and demand-driven migration
 
@@ -42,7 +42,7 @@ The registry adds these current children under `agent-surface`:
 
 | Domain | Boundary | Primary law records |
 |---|---|---|
-| `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0025, CD-0035, CD-0038, CD-0069, CD-0113 |
+| `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0216, CD-0035, CD-0038, CD-0069, CD-0113 |
 | `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0023, CD-0027, CD-0037, CD-0071, CD-0080, CD-0132 |
 | `agent-adapter` | OpenCode registration, host context, permission bridge, and CLI transport | TS6, CD-0084, CD-0085, CD-0087, CD-0088, CD-0090 |
 | `worker-lanes` | Typed lane contracts, dispatch identity, worker evidence, lane visibility, and host-owned worker execution | CD-0017, CD-0034, CD-0043, CD-0044, CD-0054, CD-0056, CD-0058, CD-0063, CD-0064, CD-0067, CD-0070, CD-0081 |

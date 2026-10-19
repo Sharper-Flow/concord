@@ -115,16 +115,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
 				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
 			}
-			var seq int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&seq); err != nil {
-				t.Fatal(err)
-			}
-			snapshot, err := ReconstructSubjectAt(ctx, s, SubjectRef{Type: SubjectWorkItem, ID: workID}, seq, PurposeDiagnosis)
-			if err != nil {
-				t.Errorf("reconstruct admitted successor: %v", err)
-			} else if snapshot.Work == nil || snapshot.Work.ID != workID {
-				t.Errorf("wrong reconstructed subject: %+v", snapshot)
-			}
 			if err := RebuildFromLog(ctx, s); err != nil {
 				t.Fatalf("rebuild admitted successor: %v", err)
 			}

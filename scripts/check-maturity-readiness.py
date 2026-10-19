@@ -64,7 +64,7 @@ def safe_repository_path(value: object) -> bool:
     )
 
 
-def validate_source(source: object, expect_prefix: str, findings: list[str]) -> None:
+def validate_source(source: object, findings: list[str]) -> None:
     if not isinstance(source, dict) or set(source) - ALLOWED_SOURCE:
         findings.append("manifest.source: must carry only path and section")
         return
@@ -241,7 +241,7 @@ def validate(data: object) -> tuple[list[str], dict[str, int], dict[str, list[st
         prefix_letter = ""
     else:
         prefix_letter = RUNGS[rung]
-    validate_source(data["source"], prefix_letter, findings)
+    validate_source(data["source"], findings)
     declared = validate_conditions(data["conditions"], prefix_letter, findings)
     tally = validate_items(data["items"], declared, findings)
     blockers = validate_beta_coverage(data, declared, findings) if rung == "beta" and not findings else None

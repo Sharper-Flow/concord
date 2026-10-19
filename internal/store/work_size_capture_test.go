@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -237,5 +238,34 @@ func TestCreateBootstrapWorkRefusesSizeInputsWithoutAPlan(t *testing.T) {
 	var failure *Failure
 	if !errors.As(err, &failure) || !failure.RetrySafe {
 		t.Fatalf("refusal = %+v, want retry-safe", failure)
+	}
+}
+
+// A size record keeps the complete footprint the model read: every law the
+// read reaches, with its checks, and every package check, beyond any page.
+func TestRecordWorkSizeKeepsTheCompleteFootprint(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := sizedBootstrapStore(t, true)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-complete-footprint"
+	req.SizeInputs = workSizeCaptureFixture()
+	result, err := s.BootstrapWorktree(ctx, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, ok, err := readWorkSize(ctx, s.DatabaseForTesting(), result.WorkID)
+	if err != nil || !ok {
+		t.Fatalf("size: ok=%v err=%v", ok, err)
+	}
+	read, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: "product-bootstrap", Paths: req.SizeInputs.Paths, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.NextCursor != nil || len(read.Laws) == 0 {
+		t.Fatalf("fixture footprint must fit one page and reach a law: %d laws, cursor %v", len(read.Laws), read.NextCursor)
+	}
+	if !record.Footprint.ChecksComplete || !reflect.DeepEqual(record.Footprint.Laws, read.Laws) || !reflect.DeepEqual(record.Footprint.PackageChecks, read.PackageChecks) {
+		t.Fatalf("recorded laws %+v and package checks %+v (complete=%v), want %+v and %+v", record.Footprint.Laws, record.Footprint.PackageChecks, record.Footprint.ChecksComplete, read.Laws, read.PackageChecks)
 	}
 }

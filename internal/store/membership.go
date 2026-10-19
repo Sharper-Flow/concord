@@ -418,29 +418,6 @@ func projectsForProduct(ctx context.Context, q queryer, productID string) ([]Pro
 	return memberships, rows.Err()
 }
 
-func productsForProject(ctx context.Context, q queryer, projectID string) ([]ProductMembership, error) {
-	rows, err := q.QueryContext(ctx, `
-		SELECT products.id, products.display_name, product_projects.role
-		FROM product_projects JOIN products ON products.id = product_projects.product_id
-		WHERE product_projects.project_id = ?
-		ORDER BY products.id`, projectID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "products_for_project", "cannot read Project memberships", true,
-			"retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var memberships []ProductMembership
-	for rows.Next() {
-		var item ProductMembership
-		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Role); err != nil {
-			return nil, wrapFailure(KindUnavailable, "products_for_project", "cannot decode Project memberships", true,
-				"retry once the database is readable", err)
-		}
-		memberships = append(memberships, item)
-	}
-	return memberships, rows.Err()
-}
-
 func (s *Store) ProjectsForWork(ctx context.Context, workID string) ([]ProjectMembership, error) {
 	return projectsForWork(ctx, s.db, workID)
 }

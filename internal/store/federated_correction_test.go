@@ -84,7 +84,7 @@ func TestCrossSourceSupersedesRefusesBareLocalSuccessorCapture(t *testing.T) {
 	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
 		t.Fatalf("cross-source supersedes rebuild error = %v, want the fail-closed refusal", err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err == nil {
 		t.Fatal("the mandated-law boundary answered for a law whose manifest declares a refused cross-source supersedes edge")
 	}
 }
@@ -189,7 +189,7 @@ func TestRebuildRefusesCrossSourceRelationOverStalePeer(t *testing.T) {
 	manifest.Records = nil
 	writeSourceManifest(t, source.RepoPath, manifest)
 	commitKnowledgeRepo(t, source.RepoPath, "remove source law without rebuilding")
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("stale setup unexpectedly authoritative")
 	}
 	shards, err = readKnowledgeShardsWorkingTree(home.RepoPath)
@@ -238,7 +238,7 @@ func TestSourceSetProofRefusesLocatorMove(t *testing.T) {
 	}
 	// The public entry sees the new canonical authority, proving the move
 	// really took effect.
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("new canonical authority unexpectedly contains old projected law")
 	}
 	tx, err := s.db.BeginTx(verified, nil)

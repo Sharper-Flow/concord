@@ -12,10 +12,10 @@ import { join } from "node:path"
 import { runOwnedSuite } from "./owned-suite"
 
 // Same availability gate the case file holds: a clean checkout has no
-// `concord` binary on PATH, so without CONCORD_BIN or a Go toolchain the
+// `concord` binary on PATH, so without a Go toolchain the
 // suite reports a skip, never a silent pass.
 const connected =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? test
     : test.skip
 

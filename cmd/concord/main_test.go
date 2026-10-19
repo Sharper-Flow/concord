@@ -157,34 +157,6 @@ func durableCounts(t *testing.T, s *store.Store) map[string]int {
 	return counts
 }
 
-// eventLogState serializes every column of every event in log order. It reads
-// the raw handle outside any transaction, so it never contends with the store's
-// single pooled connection.
-func eventLogState(t *testing.T, s *store.Store) string {
-	t.Helper()
-	rows, err := s.DatabaseForTesting().QueryContext(context.Background(),
-		`SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
-	if err != nil {
-		t.Fatalf("read event log: %v", err)
-	}
-	defer rows.Close()
-	var log strings.Builder
-	for rows.Next() {
-		var seq int64
-		var payloadVersion int
-		var eventID, kind, subjectType, subjectID, actor, occurredAt, payload string
-		if err := rows.Scan(&seq, &eventID, &kind, &subjectType, &subjectID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
-			t.Fatalf("scan event log: %v", err)
-		}
-		fmt.Fprintf(&log, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
-			seq, eventID, kind, subjectType, subjectID, actor, occurredAt, payloadVersion, payload)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate event log: %v", err)
-	}
-	return log.String()
-}
-
 func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
@@ -1629,10 +1601,10 @@ func TestPredecessorImportHappyPath(t *testing.T) {
 	if report.ProductsCreated != 1 || report.ProjectsCreated != 2 || report.WorkImported != 2 || report.AlreadyImported != 0 {
 		t.Fatalf("happy report counts = products:%d projects:%d work:%d already:%d, want 1/2/2/0", report.ProductsCreated, report.ProjectsCreated, report.WorkImported, report.AlreadyImported)
 	}
-	if !containsString(report.ImportedProducts, "synth-product") {
+	if !slices.Contains(report.ImportedProducts, "synth-product") {
 		t.Fatalf("imported_products = %v, want synth-product present", report.ImportedProducts)
 	}
-	if !containsString(report.ImportedProjects, "synth-project-alpha") || !containsString(report.ImportedProjects, "synth-project-beta") {
+	if !slices.Contains(report.ImportedProjects, "synth-project-alpha") || !slices.Contains(report.ImportedProjects, "synth-project-beta") {
 		t.Fatalf("imported_projects = %v, want both concord project ids present", report.ImportedProjects)
 	}
 	if len(report.Work) != 2 {
@@ -1918,15 +1890,6 @@ func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("import under a pinned reader exit=%d, want 0; stderr=%q", code, diag)
 	}
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 // TestPredecessorImportSurfacesRefusals pins CD-0097's surface contract at the

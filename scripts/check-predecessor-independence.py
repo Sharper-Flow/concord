@@ -48,12 +48,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-AGENT_SURFACES = [
-    ROOT / ".opencode" / "agents",
-    ROOT / "contracts",
-    ROOT / "scripts" / "generate-agent-lanes.py",
-]
-ADAPTER_DIR = ROOT / "adapter" / "opencode"
 
 ADV_TOOL = re.compile(r"\badv_[a-z][a-z0-9_]*\b")
 ADV_STATE_PATH = re.compile(

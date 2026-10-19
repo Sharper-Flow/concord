@@ -226,6 +226,7 @@ func workflowImpactBoundary(actionID string, consequence ActionConsequence) bool
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (RegisteredDefinition, error) {
+	ctx = withWorkflowDispatchHost(ctx, request.ActionID, request.Actor.SessionRef, request.SessionWorktree)
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return RegisteredDefinition{}, err
@@ -280,7 +281,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, fieldsErr
 		}
 		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
-		declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+		declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
 		if declaresRoute && !atCompleteStep {
 			return RegisteredDefinition{}, newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 		}
@@ -363,7 +364,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			}
 		}
 	}
-	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
+	// The selection core consumes the folded admission's confirmation
+	// answer: one classification, no second fact read.
+	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority, factFailure: admission.ConfirmationFactFailure}); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -493,6 +496,16 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 			break
 		}
 	}
+	// A consequence_v1 pin validates its found initial contract approval
+	// against the selected decision-fact declaration; the typed refusal
+	// propagates.
+	if found && actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		selected, err := workflowDecisionFactInitialActionDefinition(definition)
+		if err != nil {
+			return err
+		}
+		payloadDefinition = selected.Payload
+	}
 	if !found {
 		if actionID == "record_worker_failure" {
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
@@ -569,6 +582,10 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 		}
 	}
 	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
+		return err
+	}
+	if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
 		return err
 	}
 	// The proposal document rule is cross-field, so it runs only for a pinned
@@ -902,10 +919,10 @@ func validateWorkflowPayloadValueWithReference(document map[string]any, field Wo
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
 			return false
 		}
-		if field.NonBlank && strings.TrimSpace(text) == "" || containsString(field.Forbidden, text) {
+		if field.NonBlank && strings.TrimSpace(text) == "" || slices.Contains(field.Forbidden, text) {
 			return false
 		}
-		if len(field.Enum) != 0 && !containsString(field.Enum, text) {
+		if len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
 			return false
 		}
 		// String bounds count UTF-8 bytes, not runes: every enforcing
@@ -930,7 +947,7 @@ func validateWorkflowPayloadValueWithReference(document map[string]any, field Wo
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !validWorkflowPayloadListItemWithReference(document, field.ItemRef, text, validReference) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
+			if !ok || !validWorkflowPayloadListItemWithReference(document, field.ItemRef, text, validReference) || len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {
@@ -1006,7 +1023,7 @@ func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string
 	}
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
-			return containsString(step.Actions, actionID)
+			return slices.Contains(step.Actions, actionID)
 		}
 	}
 	return false
@@ -1023,7 +1040,7 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
-func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest) error {
+func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, req ClaimRequest) error {
 	if err := refuseRemovedWorkTx(ctx, tx, req.WorkID, "workflow_preflight"); err != nil {
 		return err
 	}
@@ -1034,7 +1051,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	if workflowExists == 0 {
 		return nil
 	}
-	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), req.WorkID)
+	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, registry, req.WorkID)
 	if err != nil {
 		return err
 	}
@@ -1068,7 +1085,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	return nil
 }
 
-func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) error {
+func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, opID string) error {
 	var workID, workflowRef, stepID string
 	var workflowVersion int
 	err := tx.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_version,step_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowVersion, &stepID)
@@ -1084,7 +1101,7 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) 
 	if !strings.HasPrefix(workflowRef, "workflow.") {
 		return nil
 	}
-	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	entry, err := verifyWorkflowDefinitionPinTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}

@@ -55,6 +55,12 @@ func defectIntakeJSON(shape string, related []string, rootCause string) map[stri
 // admission owner, so the whole operation refuses or commits as one unit.
 func captureDefectWork(t *testing.T, s *Store, workID, kind string, intake map[string]any, projectIDs ...string) error {
 	t.Helper()
+	return captureDefectWorkAt(t, s, 4, workID, kind, intake, projectIDs...)
+}
+
+// captureDefectWorkAt appends the capture at one work.created payload version.
+func captureDefectWorkAt(t *testing.T, s *Store, payloadVersion int, workID, kind string, intake map[string]any, projectIDs ...string) error {
+	t.Helper()
 	if len(projectIDs) == 0 {
 		projectIDs = []string{"project-a"}
 	}
@@ -76,7 +82,7 @@ func captureDefectWork(t *testing.T, s *Store, workID, kind string, intake map[s
 	}
 	now := time.Unix(2, 0).UTC()
 	op := Operation{Events: []Event{
-		{EventID: workID + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 3, Payload: payload},
+		{EventID: workID + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: payloadVersion, Payload: payload},
 		{EventID: workID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}
 	err = ApplyOperation(context.Background(), s, op)
@@ -227,15 +233,6 @@ func failureText(err error) string {
 	return err.Error()
 }
 
-func workRowCount(t *testing.T, s *Store, workID string) int {
-	t.Helper()
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id=?`, workID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
 // A new public bug capture that carries no defect_intake record refuses at the
 // fold, naming the missing record, and leaves no work item behind.
 func TestFirstBugCannotAssertMissingRootCause(t *testing.T) {
@@ -245,7 +242,7 @@ func TestFirstBugCannotAssertMissingRootCause(t *testing.T) {
 	if err == nil {
 		t.Fatal("first bug asserted a nonexistent root cause work item")
 	}
-	if count := workRowCount(t, s, "work-bug-phantom-rca"); count != 0 {
+	if count := bootstrapWorkItems(t, s, "work-bug-phantom-rca"); count != 0 {
 		t.Fatalf("refused capture left %d work rows", count)
 	}
 }
@@ -270,7 +267,7 @@ func TestNativeBugCaptureRequiresDefectIntake(t *testing.T) {
 	if !strings.Contains(text, "defect_intake") {
 		t.Fatalf("refusal %q does not name defect_intake", text)
 	}
-	if count := workRowCount(t, s, "work-bug-unclassified"); count != 0 {
+	if count := bootstrapWorkItems(t, s, "work-bug-unclassified"); count != 0 {
 		t.Fatalf("refused capture left %d work rows", count)
 	}
 }
@@ -321,7 +318,7 @@ func TestRecurrentBugCaptureRefusesNamingSiblingAndRoute(t *testing.T) {
 	if len(failure.CandidateIDs) == 0 || failure.CandidateIDs[0] != "work-bug-one" {
 		t.Fatalf("recurrence refusal candidates=%v, want the sibling cluster", failure.CandidateIDs)
 	}
-	if count := workRowCount(t, s, "work-bug-two"); count != 0 {
+	if count := bootstrapWorkItems(t, s, "work-bug-two"); count != 0 {
 		t.Fatalf("refused recurrent capture left %d work rows", count)
 	}
 }
@@ -376,6 +373,10 @@ func TestOtherKindsRefuseDefectIntake(t *testing.T) {
 			t.Fatalf("%s refusal %q does not name defect_intake", kind, failureText(err))
 		}
 	}
+	// A v3 capture carried the same record, so it upcasts without escaping the rules.
+	if err := captureDefectWorkAt(t, s, 3, "work-task-intake-v3", "task", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err == nil {
+		t.Fatal("v3 task capture with defect_intake was admitted")
+	}
 	if err := captureDefectWork(t, s, "work-research-plain", "research", nil); err != nil {
 		t.Fatalf("research capture without intake refused: %v", err)
 	}
@@ -413,7 +414,7 @@ func TestExplicitRelatedDefectValidation(t *testing.T) {
 		} else if !strings.Contains(failureText(err), tc.needle) {
 			t.Fatalf("%s: refusal %q does not name %q", tc.name, failureText(err), tc.needle)
 		}
-		if count := workRowCount(t, s, tc.workID); count != 0 {
+		if count := bootstrapWorkItems(t, s, tc.workID); count != 0 {
 			t.Fatalf("%s: refused capture left %d work rows", tc.name, count)
 		}
 	}

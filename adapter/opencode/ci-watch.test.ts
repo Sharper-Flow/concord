@@ -158,19 +158,11 @@ function result(result: { title: string; output: string }): Record<string, unkno
   return JSON.parse(result.output) as Record<string, unknown>
 }
 
-const context = { sessionID: SESSION, agent: "concord-operator", abort: new AbortController().signal }
+const context = { sessionID: SESSION, agent: "Concord", abort: new AbortController().signal }
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
-const pendingSlice = (stateFile: string) => ({
-  stdout: JSON.stringify({ status: "pending", state_file: stateFile, iterations: 1 }),
-})
-
-const successSlice = {
-  stdout: JSON.stringify({ status: "success", checks: { total: 3, passing: 2, failing: 0, skipped: 1, pending: 0 }, iterations: 2 }),
-}
-
-async function startWatch(fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
+async function startWatch(_fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
   const started = await concord_ci_watch.execute(args, context)
   return result(started)
 }
@@ -1668,7 +1660,7 @@ test("the snapshot shows simultaneous watches, keeps the epoch stable on dedup, 
   expect(activeRecord(afterDedup, prId)!.watch_epoch).toBe(prRecord.watch_epoch)
 
   // Another session's watches do not leak across session-filtered snapshots.
-  const otherContext = { sessionID: "watch-session-b", agent: "concord-operator", abort: new AbortController().signal }
+  const otherContext = { sessionID: "watch-session-b", agent: "Concord", abort: new AbortController().signal }
   const other = result(await concord_ci_watch.execute({ repo: "owner/name", selector: { kind: "sha", value: SHA_BASE } }, otherContext))
   expect(other.status).toBe("started")
   const otherId = String(other.watch_id)

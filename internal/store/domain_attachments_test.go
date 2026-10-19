@@ -102,27 +102,6 @@ func TestDomainResourceAttachmentSchemaRequiresSameProductMembership(t *testing.
 	}
 }
 
-func TestProductReconstructionExcludesDomainAndResourceProjectionEvents(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	setupProductWithProject(t, s, "reconstruct-product", "reconstruct-project")
-	if _, err := CreateManagedResource(ctx, s, ManagedResourceCreateRequest{EventID: "reconstruct-resource", ResourceID: "reconstruct-resource", ProductID: "reconstruct-product", DisplayName: "Queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches work", StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"}, MetadataSchemaVersion: "1", Metadata: []byte(`{}`), ExpectedProductVersion: 2, Actor: "operator", OccurredAt: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)}); err != nil {
-		t.Fatal(err)
-	}
-	seedCurrentDomain(t, s, "reconstruct-product", "reconstruct-domain")
-	if err := ReplaceDomainResourceAttachments(ctx, s, DomainResourceAttachmentsRequest{EventID: "reconstruct-attachment", ProductID: "reconstruct-product", DomainID: "reconstruct-domain", ExpectedVersion: 0, Attachments: []DomainResourceAttachment{{ResourceID: "reconstruct-resource", Purpose: "uses queue", Environments: []string{"production"}}}, Actor: "operator", OccurredAt: time.Date(2026, 8, 18, 12, 1, 0, 0, time.UTC)}); err != nil {
-		t.Fatal(err)
-	}
-	var asOf int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectProduct, "reconstruct-product").Scan(&asOf); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectProduct, "reconstruct-product"), asOf, PurposeAudit); err != nil {
-		t.Fatalf("Product reconstruction with unrelated Domain/C15 events failed: %v", err)
-	}
-}
-
 func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()

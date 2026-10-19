@@ -15,7 +15,7 @@ func historicalReviewAcceptor(t *testing.T, s *Store, workID string) WorkflowAct
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("historical-acceptor", WorkflowActorRecorded, workID, acceptorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"actor_ref": acceptorRef, "principal_ref": acceptor.PrincipalRef, "client_ref": acceptor.ClientRef,
@@ -216,8 +216,12 @@ func TestAcceptedNoShipReviewCorrectionCounting(t *testing.T) {
 	// fourth correction arms the wall: no retry approval binding exists
 	// there, because only a store-derived convergence basis admits a
 	// dispatch and an operator approval has no effect (CON-885).
-	binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID)
-	if err != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("escalated retry binding = %#v, error %v, want none behind the convergence wall", binding, err)
 	}
 	registered, _ := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)

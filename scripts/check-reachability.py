@@ -17,11 +17,9 @@ method plus tx-scoped-core pairs — an exported `func (s *Store) X` delegating
 to `func X(ctx, s, req)` — so grepping for `.X(` misses every call through the
 core and reports live code as dead. deadcode resolves the callgraph properly.
 
-Not every unreachable function is a defect. CD-0008 permits read-only
-point-in-time reconstruction for audit and diagnosis, and no operator verb is
-owed for it before the floor, so its unreachability is accepted law working as
-intended. The manifest is how the two categories are
-told apart, and declaring an exception is a deliberate act with a reason
+Not every unreachable function is a defect. Test support and registry
+assertions are reached only from tests by design. The manifest is how the two
+categories are told apart, and declaring an exception is a deliberate act with a reason
 attached rather than an absence nobody noticed.
 
 Package exceptions retain test support, not unused packages. Tests of a

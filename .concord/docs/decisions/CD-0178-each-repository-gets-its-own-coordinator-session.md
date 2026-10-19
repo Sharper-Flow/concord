@@ -12,7 +12,12 @@
   native subagents started by the host `task` tool. The operator accepted
   this decision on 2026-09-25 in the Concord (CON) work item CON-450.
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
-  CD-0154, CD-0155, CD-0176
+  CD-0154, CD-0176, CD-0213
+- **Amendment reason:** Concord needs no release train engineer; a user may
+  choose one to sequence independent work-item sessions.
+- **Revision choice:** In-place amendment under CD-0036. Repository-local
+  execution, native dispatch, handoffs, and worktree occupancy stay unchanged.
+- **P12:** Serious: the named primary agent and its permission boundary change.
 - **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
   CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
@@ -20,7 +25,8 @@
 - **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
   session count, through CON-850. Concord (CON) issue CON-910 settles this
   record's Verification citation of the removed launch surface; the decision
-  sections are unchanged.
+  sections are unchanged. [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
+  D3 amends the replacement-host landing rule of D3.
 
 ## Context
 
@@ -99,8 +105,7 @@ retryable, and its remedy names the route in this rule. The refusal carries
 a typed `session_placement` detail with the work identifier, target Project
 identifier, and target Project's registered canonical checkout directory.
 The directory never comes from the caller or the Git common directory.
-The host coordinator reuses a receiving session before it opens one. The
-receiving session resumes the work through `concord_work_start` in its own
+The receiving session resumes the work through `concord_work_start` in its own
 repository. Concord does not treat a placement answer as a verified landing.
 
 The adapter reads the message of every host move refusal and returns it
@@ -109,12 +114,15 @@ refusal, so the remaining move refusals keep their existing classification.
 
 Within one repository, the move route of CD-0098 and CD-0103 stays as it is.
 
-A central `concord-coordinator` may supervise local operators across authorized
-Projects through the host. It never moves across repository boundaries,
-claims their worktrees, or dispatches their lanes from its own instance.
-Repository-local `concord-operator` sessions hold the execution authority
-described by this clause. The central coordinator conveys references and
-attention, not substitute workflow or handoff evidence.
+Repository-local `Concord` sessions own their item decisions and hold the
+execution authority described by this clause. They need no release train
+engineer (RTE) to complete their work. The user may choose to start `Concord-RTE`
+for concurrent Product or Project work. That optional session sequences the
+independent work-item sessions across authorized Projects. The RTE does not
+claim their worktrees, dispatch their lanes, accept their work, or publish for
+them. Its tool permissions do not transfer their authority. It conveys facts
+and references, not substitute workflow or handoff evidence. Session placement
+and control procedures belong to the host's instructions, not the RTE profile.
 
 ### D3. Occupancy is one row per session, and it ends with its host process
 
@@ -129,6 +137,11 @@ Each row records the session reference and the host process identity: the
 process id and process start time of the OpenCode process whose adapter
 recorded it. The host lease of CD-0111 reads the same identity through
 `internal/hostlease`.
+
+A same-session landing with a different core-checked process identity, or
+with a legacy row lacking process identity, appends a new landing event and
+refreshes that row (CD-0239 D3). The session-to-process association remains
+caller-supplied. A replay from the same recorded process remains idempotent.
 
 A row is released by `session_vacate`, by a verified landing of the same
 session in another worktree of the same work item, or by the end of its host
@@ -193,26 +206,6 @@ hold many sessions, for example under `opencode serve`. A row whose session
 ended in a live process stays until `session_vacate`, a landing elsewhere, or
 the end of that process. That cost keeps a worktree longer, and it never
 removes a live one.
-
-The linked open work takes these dispositions:
-
-| Item | Disposition |
-|---|---|
-| [#1358](https://github.com/Sharper-Flow/concord/issues/1358) cross-repository claim move | Fixed by D2 |
-| [#1322](https://github.com/Sharper-Flow/concord/issues/1322) reported move that did not land | Independent; CD-0103 governs |
-| [#1125](https://github.com/Sharper-Flow/concord/issues/1125) lane writes outside the worktree | Independent; D1 keeps the existing guards |
-| work-e2c0dffe24416cf6d106a626 next-turn move cost | Independent; D2 does not add moves |
-| work-02e898db3f441e2007af334a reclaim under live sessions | Fixed by D3 |
-| work-30598c83e9f676093ad3ac1c audit blind to other processes | Fixed by D3 |
-| work-61736f7c24cde1c94844c167 audit removes a live worktree | Fixed by D3 |
-| work-b8f69d65034a1207dd2b40cf vacate clears occupancy early | Independent |
-| work-0228c078b9fa01a5e485727e resume records no occupant | Fixed by D3 |
-| work-1d0676d0ea6fa1e14b2b7592 worktree has no enforced owner | Fixed by D3 |
-| work-a164c308215037315f6ade79 recreated worktree keeps occupancy | Superseded by D3 |
-| work-d1627ad522600bea9c87c417 content-reachability policy | Independent; D4 |
-| work-57165c6c0285632642ed14f5 handoff matches the session directory | Independent; D1 |
-| work-5604d254ec27df800c0d055a removal strands non-session processes | Independent; D3 covers host sessions only |
-| work-751acb4faaaeeaa76758dd15 route to another Product's work item | Independent; CD-0155 governs Products |
 
 ## Verification
 

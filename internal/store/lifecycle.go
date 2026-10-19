@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,16 +27,18 @@ type workCreatedPayload struct {
 	ExternalRef      string        `json:"external_ref,omitempty"`
 	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
 	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
+	// ResizeOf names the predecessor a resize successor replaces (v4).
+	ResizeOf string `json:"resize_of,omitempty"`
 }
 
 // validateWorkCreatedPayload holds the payload-version-local semantics of
 // work.created. A payload recorded at the current version must satisfy the
 // defect intake kind rules: a bug classifies, a research capture may carry the
-// record as its cluster identity, every other kind refuses it. Payloads
-// upcast from v1 or v2 are historical captures that predate the record and
-// stay unclassified by design.
+// record as its cluster identity, every other kind refuses it, and so does a
+// v3 payload, which carried the same record. Payloads upcast from v1 or v2 are
+// historical captures that predate the record and stay unclassified by design.
 func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
-	if event.replaySourcePayloadVersion != 0 {
+	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 3 {
 		return nil
 	}
 	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)
@@ -76,6 +79,12 @@ func upcastWorkCreatedV1(event Event) (Event, error) {
 // optional defect_intake member, and a historical capture holds none.
 func upcastWorkCreatedV2(event Event) (Event, error) {
 	event.PayloadVersion = 3
+	return event, nil
+}
+
+// upcastWorkCreatedV3 reads an ordinary capture: it names no predecessor.
+func upcastWorkCreatedV3(event Event) (Event, error) {
+	event.PayloadVersion = 4
 	return event, nil
 }
 
@@ -259,9 +268,19 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	// work_items rows mid-replay are the log's own prefix, and events recorded
 	// before this check existed hold external references history resolved
 	// later, so the log's ordering is the replay's only authority.
+	var resizedIntent string
+	if payload.ResizeOf != "" {
+		intent, err := checkResizeOriginCreatedTx(ctx, tx, event, payload)
+		if err != nil {
+			return err
+		}
+		resizedIntent = intent
+	}
+	// A resize successor takes the reference over from the predecessor the
+	// same resize supersedes, so the predecessor is no rival owner.
 	if payload.ExternalRef != "" && !isWorkflowReplay(ctx) {
 		var existingWorkID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL AND id<>? LIMIT 1`, payload.ExternalRef, payload.ResizeOf).Scan(&existingWorkID)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
 				"retry once the database is readable", err)
@@ -295,6 +314,9 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	})
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
+	}
+	if resizedIntent != "" {
+		intent = []byte(resizedIntent)
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
@@ -459,9 +481,16 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	// capture paths share where Product scope is known, so the defect intake
 	// admission owner runs here, inside the capture's own transaction: a
 	// refusal rolls the capture back before any durable or native effect.
+	// A resize successor keeps its predecessor's admitted classification.
 	if payload.ExpectedVersion == 1 {
-		if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
+		origin, err := workResizeOriginTx(ctx, tx, event.SubjectID)
+		if err != nil {
 			return err
+		}
+		if origin == "" {
+			if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
+				return err
+			}
 		}
 	}
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
@@ -470,7 +499,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -502,7 +531,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 	}
 	if payload.To == "completed" {
-		if err := refuseUnreconciledDelivery(ctx, tx, event.SubjectID); err != nil {
+		if err := refuseUnreconciledDelivery(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
 		// CD-0183 D4: the live path refuses a completed target while the
@@ -517,18 +546,17 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 				return err
 			}
 		}
-		var definitionRef string
-		var definitionVersion int64
+		var pin WorkflowDefinitionPin
 		var instanceState string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionRef, &definitionVersion, &instanceState)
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &instanceState)
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
 		var definition WorkflowDefinition
 		if definitionErr == nil {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
-			if !ok {
-				return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+			registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), pin)
+			if err != nil {
+				return err
 			}
 			definition = registered.Definition
 		}
@@ -583,25 +611,24 @@ func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string
 	if err != nil {
 		return workflowProjectionError(err, "cannot read workflow decision record")
 	}
-	if !containsString(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
+	if !slices.Contains(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
 		return newFailure(KindDecisionRecordRequired, "fold_event", "decision record token "+decision+" is outside the approved outcome set", false, "record a decision the pinned definition allows")
 	}
 	return nil
 }
 
-func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, workID string) error {
-	var definitionRef string
-	var definitionVersion int64
+func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
+	var pin WorkflowDefinitionPin
 	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion, &currentStep); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &currentStep); err != nil {
 		if err == sql.ErrNoRows {
 			return nil
 		}
 		return workflowProjectionError(err, "cannot read workflow delivery state")
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
-	if !ok {
-		return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+	registered, err := verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+	if err != nil {
+		return err
 	}
 	step := workflowStep(registered.Definition, currentStep)
 	if !workflowStepIsDeliveryGate(step) {
@@ -610,8 +637,21 @@ func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, workID string) 
 	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record the delivery with record_delivery, then complete the workflow with the workflow_action complete action")
 }
 
+// refuseResizeLineageReopenTx keeps a resize's supersession final: no
+// operation reopens work, and stored reopen events predate the lineage.
+func refuseResizeLineageReopenTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	member, err := workInResizeLineageTx(ctx, tx, workID)
+	if err != nil || !member {
+		return err
+	}
+	return newFailure(KindInvalidTransition, "fold_event", "a resized work item or its successor is never reopened", false, "revise the size of the current successor")
+}
+
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	var payload workReopenedPayload
@@ -724,6 +764,9 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 
 func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	var payload workReopenedFromSupersededPayload

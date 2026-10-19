@@ -62,10 +62,6 @@
   "kind": "spec",
   "law_relations": [
     {
-      "kind": "supersedes",
-      "target_id": "development-authority"
-    },
-    {
       "kind": "subordinate_to",
       "target_id": "CD-0122"
     },
@@ -82,7 +78,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:04e7cb8ef325e5d0518394e70364466f4cd9c7f1b730f7e35b0e37773e91c14b",
+  "sha256": "sha256:6310220bcda0727e36c1f69739ed8b9cb7cf6a80e4697f1c849608837e59542e",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

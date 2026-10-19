@@ -339,14 +339,6 @@ func fixtureOracleSubjectFor(t *testing.T, s *store.Store, workID string) string
 	return pin.WorkContext.SubjectCommit
 }
 
-// seedOracleVerifySubjectFixture qualifies the fixture subject once: a green
-// worktree-verify receipt and its completed producer operation, joined the
-// way the store's current-subject read joins them. Later calls reuse it.
-func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) {
-	t.Helper()
-	seedOracleVerifySubjectForWork(t, s, oracleFixtureWork)
-}
-
 // seedOracleVerifySubjectForWork qualifies one work item's fixture subject
 // the same way, so a captured work item's recorded oracle binds its own
 // current subject rather than the shared fixture work's.
@@ -382,17 +374,6 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 		"worktree_verify:"+leaseID, workID, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
 	}
-}
-
-// seedOraclePreparationReceiptFixture records one exact native preparation
-// receipt for the control's bundle: the immutable prepare plan and the ready
-// result the producer writes, keyed by contract version, bundle digest, and
-// subject. The receipt carries the same completeness inventory the recording
-// authority joins, so the readiness reference it returns is a qualified
-// ledger fixture. It exercises the authority joins, not native execution.
-func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractVersion int64, subject string, control store.OracleControl, bundle store.NativeOracleControlBundle, bundleDigest string) string {
-	t.Helper()
-	return seedOraclePreparationReceiptForWork(t, s, oracleFixtureWork, contractVersion, subject, control, bundle, bundleDigest)
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation
@@ -740,17 +721,6 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 	if result.Outcome != OutcomeOK {
 		t.Fatalf("record the ready retry job: %+v", result.Error)
 	}
-}
-
-// retryWorkVersion reads work-1's current version, the expected version a
-// dispatch takes after the fixture records its ready worker job.
-func retryWorkVersion(t *testing.T, s *store.Store) int64 {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return version
 }
 
 // recordedWorkQuestion reads the question the store binds a read-only packet

@@ -2887,12 +2887,33 @@ def test_current_citation_selects_all_accepted_law_kinds_without_outline_exempti
         assert "law-reference-path:" in output, output
 
 
-def test_current_citation_skips_published_and_superseded_records() -> None:
-    for status in ("published", "superseded"):
-        root, manifest = citation_fixture("The owner is `retired/owner.go`.")
-        manifest["records"][0]["status"] = status
+def test_current_citation_skips_superseded_records() -> None:
+    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+    manifest["records"][0]["status"] = "superseded"
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
+
+
+def test_published_knowledge_citations_resolve_current_targets() -> None:
+    for kind in ("lesson", "reference", "research"):
+        for target, expected in (("retired/owner.go", 1), ("internal/store/citation_fixture_test.go", 0)):
+            root, manifest = citation_fixture(f"The owner is `{target}`.")
+            manifest["records"][0].update(kind=kind, status="published")
+            manifest["doc_contract"][kind] = {"required_sections": [], "ac_required": False}
+            code, output, error = run_checker(root, manifest)
+            assert code == expected, (kind, target, code, output, error)
+            if expected:
+                assert "missing candidate target: " + target in output, output
+
+
+def test_shipped_instruction_citations_resolve_current_targets() -> None:
+    for target, expected in (("retired/owner.go", 1), ("internal/store/citation_fixture_test.go", 0)):
+        root, manifest = citation_fixture("The current contract stays valid.")
+        write_spec(root, ".concord/instructions/change.md", f"The owner is `{target}`.\n")
         code, output, error = run_checker(root, manifest)
-        assert code == 0, (status, code, output, error)
+        assert code == expected, (target, code, output, error)
+        if expected:
+            assert "law-reference-path: .concord/instructions/change.md:1" in output, output
 
 
 def test_current_citation_preserves_report_mode() -> None:

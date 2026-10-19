@@ -11,9 +11,8 @@
 // the host-observed check exit status against the exact selected witness. No
 // model runs: the Task host readback is the controlled mock the dispatch-route
 // case established, and every core effect stays on the real binary.
-import { expect, test } from "bun:test"
-import { Database } from "bun:sqlite"
-import { createHash, createPrivateKey, createPublicKey, verify as verifySignature } from "node:crypto"
+import { expect } from "bun:test"
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -24,9 +23,9 @@ import { dispatchLaneWorker } from "./lane_dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import { agentLanes } from "./generated-agent-lanes"
-import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { dbRows, dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
 
@@ -43,7 +42,6 @@ const SESSION_ID = "e2e-session"
 const MESSAGE_ID = "e2e-message"
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 const PRIVATE_SEED = new Uint8Array(32).fill(7)
-const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
 // The closed target_runner_v1 recipe identities of this fixture. The root is
 // the nested contained directory `checkkit`: the shared work-context
 // repository-path validator refuses a bare "." root, and the parent owns that
@@ -59,53 +57,8 @@ const JOB_ID = "job:native-e2e-check"
 const APPROVED_OBJECTIVE = "Check the synthetic checkkit production value with the pinned target_runner_v1 check."
 let sharedCoreBinary: Promise<string> | undefined
 
-type JSONRecord = Record<string, any>
-
-function privateKeyObject() {
-  return createPrivateKey({ key: Buffer.concat([PRIVATE_KEY_PREFIX, Buffer.from(PRIVATE_SEED)]), format: "der", type: "pkcs8" })
-}
-
-function publicKeyBase64(): string {
-  return createPublicKey(privateKeyObject()).export({ format: "der", type: "spki" }).subarray(-32).toString("base64")
-}
-
 function logicalArgvDigest(argv: string[]): string {
   return "sha256:" + createHash("sha256").update(JSON.stringify(argv)).digest("hex")
-}
-
-async function runProcess(argv: string[], input = "", cwd?: string, env: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, ...env } })
-}
-
-async function runJSON(binary: string, dbPath: string, command: string, value: JSONRecord, cwd?: string): Promise<JSONRecord> {
-  const result = await runProcess([binary, command], JSON.stringify(value), cwd, { CONCORD_DB_PATH: dbPath })
-  expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
-  const lines = result.stdout.trim().split("\n").filter(Boolean)
-  expect(lines).toHaveLength(1)
-  return JSON.parse(lines[0]) as JSONRecord
-}
-
-async function git(cwd: string, ...args: string[]): Promise<void> {
-  const result = await runProcess(["git", ...args], "", cwd)
-  expect(result.exitCode, `git ${args.join(" ")}: ${result.stderr}`).toBe(0)
-}
-
-function dbValue(dbPath: string, sql: string): any {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).get()
-  } finally {
-    db.close()
-  }
-}
-
-function dbRows(dbPath: string, sql: string): any[] {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).all()
-  } finally {
-    db.close()
-  }
 }
 
 function contextFor(directory: string, sessionID = SESSION_ID) {
@@ -119,10 +72,6 @@ function contextFor(directory: string, sessionID = SESSION_ID) {
     metadata() {},
     ask: async () => {},
   } as any
-}
-
-function reportText(report: JSONRecord): string {
-  return `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
 }
 
 function taskResult(report: JSONRecord, workerSessionID = "worker-session"): string {
@@ -146,27 +95,6 @@ function exportedSession(opening: JSONRecord | null = null, workerAgent = "conco
       { info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent: workerAgent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
     ],
   })
-}
-
-function requiredFields(value: JSONRecord, fields: string[]): void {
-  for (const field of fields) expect(value[field], `missing ${field}`).toBeDefined()
-}
-
-// The route test drives the real `concord` binary against a real store. A
-// clean checkout has no binary on PATH; declare the test skipped when neither
-// CONCORD_BIN nor a Go toolchain can produce one, so a suite run without the
-// toolchain reports a skip, never a silent pass.
-const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
-    ? test
-    : test.skip
-
-function routeDeclaration(name: string, body: () => Promise<void>, timeout: number) {
-  const selected = process.env.TEST_CONCORD_ROUTE_CASE
-  return (selected && !new RegExp(selected).test(name) ? test.skip : routeTest)(name, async () => {
-    await body()
-    console.log(`[pass] ${name}`)
-  }, timeout)
 }
 
 interface NativeTargetFixture {
@@ -195,18 +123,15 @@ async function bootNativeTargetFixture(root: string): Promise<NativeTargetFixtur
   const toolchainBin = join(toolchain.stdout.trim(), "bin")
   const searchPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== toolchainBin)
   process.env.PATH = [toolchainBin, ...searchPath].join(delimiter)
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    sharedCoreBinary ??= (async () => {
-      const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
-      await mkdir(binRoot, { recursive: true })
-      const path = join(binRoot, "concord")
-      const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-      return path
-    })()
-    binary = await sharedCoreBinary
-  }
+  sharedCoreBinary ??= (async () => {
+    const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
+    await mkdir(binRoot, { recursive: true })
+    const path = join(binRoot, "concord")
+    const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    return path
+  })()
+  const binary = await sharedCoreBinary
   // The exact bash version pin comes from the installed interpreter, computed
   // the way the core's own lead-version reader computes it: first line of
   // `bash --version`, first `version <digits and dots>` match.
@@ -324,7 +249,7 @@ async function bootNativeTargetFixture(root: string): Promise<NativeTargetFixtur
     client_ref: CLIENT_REF,
     key_id: "native-e2e-key",
     principal_ref: "operator-1",
-    public_key: publicKeyBase64(),
+    public_key: fixturePublicKeyBase64(PRIVATE_SEED),
     capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "research", "worker_evidence", "worker_dispatch"],
     product_scope: [PRODUCT_ID],
     project_scope: [PROJECT_ID],
@@ -358,7 +283,6 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
 // parameters so the subject commit stays the fixture's real HEAD. It returns
 // the dispatch-ready work version and the actual preparation reference.
 async function driveToReadyJob(
-  dbPath: string,
   workID: string,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
   context: any,
@@ -406,7 +330,6 @@ async function driveToReadyJob(
     expected_result: "pass",
     required_evidence_role: "reported",
   }
-  const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
   const transition = (expected: number, actionID: string, idempotencyKey: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: expected, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   // CD-0198 D2: one typed record_diagnosis carries the reproduction,
   // alignment-search, and root-cause sections the route case records.
@@ -504,13 +427,6 @@ async function driveToReadyJob(
   return { dispatchVersion, preparationRef, control }
 }
 
-// reportWorkerJob copies the packet's worker-job binding onto the report
-// claim, as a lane worker does (CD-0205).
-function reportWorkerJob(packet: JSONRecord): JSONRecord {
-  const job = (packet.inputs as JSONRecord).worker_job as JSONRecord
-  return { job_id: job.job_id, revision: job.revision, digest: job.digest }
-}
-
 function nativeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord, subjectCommit: string, predicateID: string): JSONRecord {
   return {
     schema_version: packet.schema_version,
@@ -545,7 +461,6 @@ async function dispatchNativeTask(
   callID: string,
   context: any,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
-  runner: DispatchRunner,
   setReadback: (packet: JSONRecord, agent: string) => void,
 ): Promise<NativeTaskDispatch> {
   const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: expectedVersion, action_id: "dispatch_worker", idempotency_key: idempotencyKey, fields: { lane_id: lane.id } } })
@@ -628,7 +543,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
     const transition = (actionID: string, idempotencyKey: string, fields: JSONRecord) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
-    const { dispatchVersion, preparationRef, control } = await driveToReadyJob(dbPath, workID, invoke, context, subjectCommit, bashPin)
+    const { dispatchVersion, preparationRef, control } = await driveToReadyJob(workID, invoke, context, subjectCommit, bashPin)
     // The core's work-context projection carries the real selected
     // preparation: the store joined the ready job's readiness reference to its
     // retained receipt before the adapter ever reads it.
@@ -653,7 +568,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     // readiness authorization, persisted dispatch, and the single-use window.
     // The worker child keeps the route's default "worker-session" identity,
     // the same identity the readback mock serves.
-    const task = await dispatchNativeTask(lane, workID, worktree, dispatchVersion, "native-e2e-dispatch", "native-e2e-task-call", context, invoke, runner, (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
+    const task = await dispatchNativeTask(lane, workID, worktree, dispatchVersion, "native-e2e-dispatch", "native-e2e-task-call", context, invoke, (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
     const packet = task.packet
     expect(packet.work_id).toBe(workID)
     expect(packet.step_id).toBe("repair")
@@ -765,7 +680,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(assertion.session_ref).not.toBe(context.sessionID)
     expect(assertion.packet_digest).toBe(packetDigest)
     expect(assertion.control_id).toBe(CONTROL_ID)
-    expect(verifySignature(null, Buffer.from(canonicalWorkerControl(assertion)), createPublicKey(privateKeyObject()), Buffer.from(assertion.signature, "base64"))).toBe(true)
+    expect(verifySignature(null, Buffer.from(canonicalWorkerControl(assertion)), createPublicKey(fixturePrivateKey(PRIVATE_SEED)), Buffer.from(assertion.signature, "base64"))).toBe(true)
     expect(calls.filter((call) => call.argv[1] === "worker-dispatch")).toHaveLength(0)
     expect(dbValue(dbPath, `SELECT lifecycle_state FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`).lifecycle_state).toBe("in_flight")
 

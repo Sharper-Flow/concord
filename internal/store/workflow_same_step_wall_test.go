@@ -317,7 +317,7 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 	if !errors.As(dispatchErr, &failure) || failure.Kind != KindMissingEvidence {
 		t.Fatalf("fourth correction dispatch failure=%v, want missing_evidence", dispatchErr)
 	}
-	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair)" {
+	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair). Host recovery applies only to an eligible recorded host execution failure and an unused host basis in this nonprogress window: repair the fault, restart the host more than one minute after the failure, resume the item, then retry once" {
 		t.Fatalf("correction wall detail = %q, want the convergence refusal", failure.Detail)
 	}
 }
@@ -352,7 +352,12 @@ func TestHalfMaterializedDispatchConsumesTheConvergenceBasis(t *testing.T) {
 	}); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("approved interrupted retry = %v, want the missing-basis refusal", err)
 	}
-	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if bindingErr := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); bindingErr != nil || binding != nil {
 		t.Fatalf("retry binding at the wall = %+v, %v, want none", binding, bindingErr)
 	}
 

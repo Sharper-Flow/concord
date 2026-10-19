@@ -38,8 +38,12 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, failedID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
-	binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID)
-	if err != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != epoch || binding.ContractVersion != 0 {
@@ -59,8 +63,13 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":same:4", worker, true, nil); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("approved dispatch at the armed wall = %v, want the missing-basis refusal", err)
 	}
-	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID); bindingErr != nil || binding != nil {
-		t.Fatalf("retry binding at the armed wall = %+v, %v, want none", binding, bindingErr)
+	var wallBinding *WorkflowRetryApprovalBinding
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		wallBinding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil || wallBinding != nil {
+		t.Fatalf("retry binding at the armed wall = %+v, %v, want none", wallBinding, err)
 	}
 
 	// A contract supersession recorded after the latest dispatch is the one
@@ -110,8 +119,11 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	if !strings.Contains(refusal.Detail, "3 non-progress attempts since the last accepted productive result") {
 		t.Fatalf("refusal does not name the counted population: %q", refusal.Detail)
 	}
-	binding, err = WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID)
-	if err != nil {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
+		return txErr
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if binding != nil {

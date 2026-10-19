@@ -26,20 +26,6 @@ func observationFixture(t *testing.T) *Store {
 	return s
 }
 
-func recordObservation(t *testing.T, s *Store, event Event) error {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx)); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
 func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
@@ -48,7 +34,7 @@ func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 		"observation_id": "obs:" + strings.Repeat("1", 16), "statement": "Five sibling provider services carry the same misalignment.",
 		"refs": []string{"service:cards-a", "service:cards-b"}, "tags": []string{"systemic"},
 	})
-	if err := recordObservation(t, s, Event{EventID: "w99-obs-1", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err != nil {
+	if err := foldTestEvent(t, s, Event{EventID: "w99-obs-1", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(context.Background(), s); err != nil {
@@ -63,7 +49,7 @@ func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 		t.Fatalf("observation=%+v", observations[0])
 	}
 	// Duplicate id refuses.
-	if err := recordObservation(t, s, Event{EventID: "w99-obs-2", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := foldTestEvent(t, s, Event{EventID: "w99-obs-2", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate observation id must refuse: %v", err)
 	}
 }
@@ -74,7 +60,7 @@ func TestObservationRefusesTerminalWorkAndBadShapes(t *testing.T) {
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	// Oversized statement.
 	long, _ := json.Marshal(map[string]any{"observation_id": "obs:" + strings.Repeat("2", 16), "statement": strings.Repeat("x", 513)})
-	if err := recordObservation(t, s, Event{EventID: "w99-obs-long", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: long}); err == nil || !strings.Contains(err.Error(), "bounded") {
+	if err := foldTestEvent(t, s, Event{EventID: "w99-obs-long", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: long}); err == nil || !strings.Contains(err.Error(), "bounded") {
 		t.Fatalf("oversized statement must refuse: %v", err)
 	}
 	// Terminal work stops recording.
@@ -82,7 +68,7 @@ func TestObservationRefusesTerminalWorkAndBadShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]any{"observation_id": "obs:" + strings.Repeat("3", 16), "statement": "post-terminal"})
-	if err := recordObservation(t, s, Event{EventID: "w99-obs-terminal", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err == nil || !strings.Contains(err.Error(), "terminal") {
+	if err := foldTestEvent(t, s, Event{EventID: "w99-obs-terminal", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Fatalf("terminal work must refuse observations: %v", err)
 	}
 }

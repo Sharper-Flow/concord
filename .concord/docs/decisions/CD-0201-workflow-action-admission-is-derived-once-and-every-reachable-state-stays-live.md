@@ -18,7 +18,9 @@
   CD-0209 D5, the artifact-staleness fold and its admission halves;
   CD-0209 D6, the work-pin sequence that names the next step;
   CD-0209 D7, the liveness and conformance replay that read the
-  artifact-staleness bit
+  artifact-staleness bit;
+  [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
+  D3, equal answers require equal history and equal host observations
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no definition version
   changes
@@ -89,6 +91,9 @@ record and does not change this record's law.
 
 ### D2. The liveness law
 
+For CD-0013 D11's consequence policy, the same derivation folds the policy pin, decision-domain class, confirmation authority, and evaluator prerequisites. Engineering states retain contract and confirmation actions without an operator question. Independent evaluator actions must be genuinely admitted before the model counts their exit. Removed consent never supplies evidence or clears a recovery wall. Both liveness checks and real conformance witnesses cover engineering, decision-bearing, and historical pins.
+
+
 For every registered definition version:
 
 - Every well-formed nonterminal abstract state admits at least one action
@@ -157,7 +162,8 @@ the corrected admission on release.
 ## Consequences
 
 Every admission site that folds one of these conditions answers identically
-for the same history. A change that strands a reachable state fails the
+for the same history and host observations (CD-0239 D3). A change that strands
+a reachable state fails the
 liveness checks with a witness before merge. A no_ship review can no longer
 carry an unreviewed result to delivery, and a parked gate keeps its typed
 corrective return.

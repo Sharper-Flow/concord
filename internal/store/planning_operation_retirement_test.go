@@ -176,20 +176,15 @@ func TestOverlapTerminalResolutionRejectsCycle(t *testing.T) {
 		{name: "merged_into", kind: ResolutionMergedInto},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
 			s, actor := seedOverlapProjection(t, "cycle-source", "cycle-target", false)
 			seedOverlapGuardRelation(t, s, "cycle-target", "cycle-source", tc.kind)
-			err := s.Transact(ctx, func(tx *Transaction) error {
-				_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
-					EventID:             "overlap-cycle-" + tc.kind,
-					FromWorkID:          "cycle-source",
-					ToWorkID:            "cycle-target",
-					FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-					ResolutionKind: tc.kind, Reason: "operator approved terminal resolution",
-					ApprovalRef: "approval:overlap-cycle", Actor: actor,
-				})
-				return err
-			})
+			// Historical source-v1 effect control: the cycle guard was first
+			// reached under the v1 rules, whose only approval mandate was the
+			// plan layer's bare reference. The explicit v1 event keeps the
+			// guard assertions against their original source shape; the live
+			// v2 destructive class is covered by the consumed-approval
+			// boundary elsewhere.
+			err := historicalSourceV1OverlapResolution(t, s, "overlap-cycle-"+tc.kind, "cycle-source", "cycle-target", 2, 2, tc.kind, "operator approved terminal resolution", "approval:overlap-cycle", actor)
 			failure := requireOverlapOwnerRefusal(t, err, KindCycleDetected, "overlap resolution would create a relation cycle")
 			if len(failure.Violations) != 1 || failure.Violations[0] != tc.kind+":cycle-source->cycle-target" {
 				t.Fatalf("cycle violations = %v, want [%s:cycle-source->cycle-target]", failure.Violations, tc.kind)
@@ -222,21 +217,16 @@ func TestOverlapTerminalResolutionRejectsSecondSuccessor(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
 			s, actor := seedOverlapProjection(t, tc.pairFrom, tc.pairTo, false)
 			seedWork(t, s, tc.extraWork)
 			seedOverlapGuardRelation(t, s, tc.guardFrom, tc.guardTo, tc.kind)
-			err := s.Transact(ctx, func(tx *Transaction) error {
-				_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
-					EventID:             "overlap-second-" + tc.kind,
-					FromWorkID:          tc.pairFrom,
-					ToWorkID:            tc.pairTo,
-					FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-					ResolutionKind: tc.kind, Reason: "operator approved terminal resolution",
-					ApprovalRef: "approval:overlap-second", Actor: actor,
-				})
-				return err
-			})
+			// Historical source-v1 effect control: the second-successor
+			// guards were first reached under the v1 rules, whose only
+			// approval mandate was the plan layer's bare reference. The
+			// explicit v1 event keeps the guard assertions against their
+			// original source shape; the live v2 destructive class is covered
+			// by the consumed-approval boundary elsewhere.
+			err := historicalSourceV1OverlapResolution(t, s, "overlap-second-"+tc.kind, tc.pairFrom, tc.pairTo, 2, 2, tc.kind, "operator approved terminal resolution", "approval:overlap-second", actor)
 			_ = requireOverlapOwnerRefusal(t, err, tc.wantKind, tc.wantDetail)
 			assertOverlapResolutionRefusalWroteNothing(t, s, "overlap-second-"+tc.kind)
 		})
@@ -255,7 +245,7 @@ func TestOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 			EventID: "ready-blocks", FromWorkID: "ready-blocker", ToWorkID: "ready-blocked",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
 			ResolutionKind: ResolutionBlocks, Reason: "operator sequenced the pair",
-			ApprovalRef: "approval:ready-blocks", Actor: actor,
+			Actor: actor,
 		})
 		return err
 	}); err != nil {

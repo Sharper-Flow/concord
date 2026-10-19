@@ -244,7 +244,7 @@ func supersedeRecoveryPayload(t *testing.T, workID string, successor int64, bind
 // work actor alone.
 func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -270,7 +270,7 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 func runSupersedeDuplicateRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:approval-duplicate-recovery", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -412,7 +412,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 					EventID: "d7-resolve-" + testCase.actionID, FromWorkID: workID, ToWorkID: otherID,
 					FromExpectedVersion: version, ToExpectedVersion: otherVersion, FromContractVersion: 1, ToContractVersion: 1,
 					ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved concurrent change",
-					ApprovalRef: "approval:d7-" + testCase.actionID, Actor: actorRef,
+					Actor:      actorRef,
 					OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC),
 				})
 				return resolveErr

@@ -250,7 +250,6 @@ class SelectionTest(unittest.TestCase):
             )
 
     def test_every_selected_invocation_is_a_ci_suite_command(self) -> None:
-        ci_text = CI_FIXTURE
         ci_commands = {
             "python3 scripts/test-alpha.py",
             "python3 scripts/test-beta.py",
@@ -348,29 +347,6 @@ class RunnerExecutionTest(unittest.TestCase):
             self.assertEqual(result.calls, [])
             self.assertIn("tooling battery", result.stderr.lower())
 
-
-# Fixture scenario data for the poisoned-environment cases below: which
-# variables a simulated hook sets, and where each points inside the scratch
-# outer repository. The sanitization authority is never this list; it is
-# scripts/git_environment.py, which discovers the namespace from Git itself.
-LOCAL_GIT_ENVIRONMENT_VARS = (
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_GRAFT_FILE",
-    "GIT_INDEX_FILE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_PREFIX",
-    "GIT_SHALLOW_FILE",
-    "GIT_COMMON_DIR",
-    "GIT_QUARANTINE_PATH",
-)
 
 # The fixture CI battery selects exactly one synthetic suite.
 SCRATCH_COMMIT_CI_FIXTURE = """name: CI

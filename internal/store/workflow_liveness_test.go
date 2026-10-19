@@ -11,9 +11,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -598,6 +598,17 @@ func livenessActionActor(actionID string) WorkflowActor {
 	}
 }
 
+// readOperatorQuestionFromWorkPinForTest reads the open operator question
+// through its production owner, ReadWorkPin, so a behavioral probe sees the
+// exact question the engine serves.
+func readOperatorQuestionFromWorkPinForTest(ctx context.Context, s *Store, workID string) (*WorkflowOperatorQuestion, error) {
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		return nil, err
+	}
+	return pin.PendingOperatorDecision, nil
+}
+
 // livenessApply runs one action against the store and commits it, so the
 // explorer's moves land the state the next move reads.
 func livenessApply(ctx context.Context, s *Store, workID string, move livenessMove, sequence int) error {
@@ -618,7 +629,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		operator = &operatorActor
 	}
 	if move.action == "confirm_premise" {
-		question, questionErr := ReadWorkflowOperatorQuestion(ctx, s, workID)
+		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 		if questionErr != nil {
 			return questionErr
 		}
@@ -975,16 +986,6 @@ func livenessCompletion(ctx context.Context, s *Store, workID string) (string, i
 	return state, completions, err
 }
 
-// livenessFailureKind names the typed class of a refusal so a payload defect in
-// this harness is never reported as a liveness finding.
-func livenessFailureKind(err error) string {
-	var failure *Failure
-	if errors.As(err, &failure) {
-		return string(failure.Kind)
-	}
-	return "untyped"
-}
-
 // livenessReplay commits the ordered path into an independently seeded store.
 func livenessReplay(t *testing.T, definition WorkflowDefinition, path []livenessMove) (*Store, string) {
 	t.Helper()
@@ -1115,7 +1116,7 @@ func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []str
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
 			for _, action := range step.Actions {
-				if !containsString(actions, action) {
+				if !slices.Contains(actions, action) {
 					actions = append(actions, action)
 				}
 			}

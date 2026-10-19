@@ -54,6 +54,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -119,16 +120,15 @@ var approvalInventoryAliases = map[string]string{
 	"internal/agent/authority.go\x00ApprovalCheck\x00ApprovalCheck":                                                                                    "identity/receipt-integrity input declaration; the consume boundary at its caller is the point",
 	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed operator approval":         "layered recheck of one already consumed receipt; no new decision",
 	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed one-use operator approval": "layered recheck of one already consumed receipt; no new decision",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00RequireOperatorIdentity":                                                           "identity/receipt-integrity parameter of the consume call anchored to workflow-action-registry-approval-demand",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00runtime.mutateWorkflowAction":                                                      "evaluation-authority read at the branch whose demand is anchored to workflow-action-operator-evaluation-demand",
+	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00RequireOperatorIdentity":                                                           "identity/receipt-integrity parameter of the consume call anchored to workflow-action-consent-demand",
 	"internal/store/workflow_outcome.go\x00validateDecisionRecord\x00question":                                                                         "audited operator-evidence consumer of the decision record (CD-0175); not independently minted consent",
 	"internal/store/workflow.go\x00validateWorkflowContractApprovalLaw\x00validateDerivedLawModification":                                              "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/workflow.go\x00foldWorkflowContractApproved\x00validateWorkflowContractApprovalLaw":                                                "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/workflow.go\x00foldWorkflowContractSuperseded\x00validateDerivedLawModification":                                                   "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/law_boundary.go\x00validateDerivedLawModification\x00refuseNonDerivedLawModification":                                              "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/law_boundary.go\x00validateDerivedLawModificationAcrossSources\x00refuseNonDerivedLawModification":                                 "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00CreateApprovalChallengeTx":                                                         "challenge half of the workflow-action consent anchored to workflow-action-registry-approval-demand",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00consumeApprovalTx":                                                                 "receipt half of the workflow-action consent anchored to workflow-action-registry-approval-demand",
+	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00CreateApprovalChallengeTx":                                                         "challenge half of the workflow-action consent anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00consumeApprovalTx":                                                                 "receipt half of the workflow-action consent anchored to workflow-action-consent-demand",
 	"internal/agent/mutations.go\x00runtime.mutateResearchRetire\x00approvalChallengeEnvelopeTx":                                                       "challenge half of cross-Product retirement consent anchored to research-retire-consume",
 	"internal/agent/mutations.go\x00runtime.mutateProductProjectAdd\x00CreateApprovalChallengeTx":                                                      "challenge half anchored to manifest:concord_work_relate.product_project_add",
 	"internal/agent/mutations.go\x00runtime.mutateProductProjectAdd\x00consumeApprovalTx":                                                              "receipt half anchored to manifest:concord_work_relate.product_project_add",
@@ -144,8 +144,11 @@ var approvalInventoryAliases = map[string]string{
 	"internal/agent/authority.go\x00Service.ValidateAndConsumeApprovalTx\x00ConsumeApprovalTx":                                                         "one-use consumption before the event exists; integrity layer of the exchange decision at runtime.executeMutation",
 	"internal/store/outside_repair.go\x00applyOutsideRepairMutationTx\x00workflowOperatorFromConsumedApprovalTx":                                       "live admission half anchored to outside-repair-demand",
 	"internal/store/outside_repair.go\x00validateOutsideRepairFold\x00authorizeWorkflowOperatorApprovalTx":                                             "fold recheck anchored to outside-repair-demand",
-	"internal/store/workflow.go\x00validateWorkflowContractSupersessionPredecessors\x00authorizeWorkflowOperatorApprovalTx":                            "fold recheck anchored to registry-supersede-contract",
-	"internal/store/workflow_delivery_correction.go\x00workflowDeliveryCorrectionOperatorFromApprovalTx\x00workflowOperatorFromConsumedApprovalTx":     "live admission half anchored to delivery-correction-demand",
+	"internal/store/workflow.go\x00requireWorkflowDuplicateRecoveryApprovalTx\x00authorizeWorkflowOperatorApprovalTx":                                  "fold recheck anchored to registry-supersede-contract",
+	"internal/store/workflow_domain_overlap.go\x00ResolveWorkflowDomainOverlapTx\x00workflowOperatorFromConsumedApprovalTx":                            "live admission half anchored to resolve-overlap-destructive-demand",
+	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                             "live admission half anchored to revise-intent-operator-size-demand",
+	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                            "fold recheck anchored to revise-intent-operator-size-demand",
+	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":           "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
 	"internal/store/workflow_delivery_correction.go\x00foldWorkflowDeliveryCorrected\x00authorizeWorkflowOperatorApprovalTx":                           "fold recheck anchored to delivery-correction-demand",
 }
 
@@ -1183,7 +1186,7 @@ func TestOperatorApprovalInventoryCallerRegisteredWitness(t *testing.T) {
 	}
 	stripped := make([]approvalInventoryPointRow, 0, len(rows))
 	for _, row := range rows {
-		if row.Owner.Branch == "confirm_premise" && containsString(row.Reachability, "caller_registered") {
+		if row.Owner.Branch == "confirm_premise" && slices.Contains(row.Reachability, "caller_registered") {
 			reach := make([]string, 0, len(row.Reachability))
 			for _, class := range row.Reachability {
 				if class != "caller_registered" {
@@ -1485,7 +1488,7 @@ func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryT
 			continue
 		}
 		for _, triple := range triples {
-			if triple.Action != row.Owner.Branch || !containsString(row.Reachability, tripleClass(triple)) {
+			if triple.Action != row.Owner.Branch || !slices.Contains(row.Reachability, tripleClass(triple)) {
 				continue
 			}
 			covered[triple.key()] = true

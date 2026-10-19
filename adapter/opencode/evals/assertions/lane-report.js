@@ -1,8 +1,8 @@
 // Shared structural and behavioural assertion for the CD-0017 D7 lane
 // behavioural evals.
 //
-// The provider is `exec: opencode run ... --format json`, so `output` is the
-// host event stream rather than a bare report. This assertion locates the
+// The native provider projects the child session's persisted parts as a host
+// event stream rather than a bare report. This assertion locates the
 // agent-lane-report.v1 document inside that stream and admits it under the
 // same rules, in the same order, as the adapter's admission boundary
 // (admitWorkerReport in dispatch.ts).

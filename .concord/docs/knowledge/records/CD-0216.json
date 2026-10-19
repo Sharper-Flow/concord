@@ -15,12 +15,6 @@
   "home_domain_id": "agent-surface",
   "id": "CD-0216",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "supersedes",
-      "target_id": "CD-0025"
-    }
-  ],
   "path": ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md",
   "scopes": {
     "domain_ids": [],
@@ -29,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8e556ecd70bfb09b95208438304cb844ce295f7ab2de8708d496abce4efa5b62",
+  "sha256": "sha256:f3b3571276c7f6dc22ab05d61255b64f17ab1a62b94a70c552be1fc284902836",
   "status": "accepted",
   "summary": "Retains authoring, one research read route, the research capability, and transactional engine-bound reliance. Adds explicit authorized research_retire with dry run, 1-100 versioned candidates, atomic effects and idempotency. Terminal-owner revisions remain reusable, every active pin protects content, and neither publication nor reads retire packs. No Concord legislative contract or live consumer recovery is asserted.",
   "tags": [

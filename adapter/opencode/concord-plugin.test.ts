@@ -260,7 +260,7 @@ const packet = {
 }
 
 describe("plugin entry registers the dispatch window hook", () => {
-  test("binds the recorded packet onto the next task call", async () => {
+  test("binds the recorded packet onto the next matching lane task call", async () => {
     // The factory directory is the execution instance directory the bind
     // compares against the window's claim, so the fixture host instance runs
     // in the same directory the window recorded.
@@ -276,7 +276,7 @@ describe("plugin entry registers the dispatch window hook", () => {
       post: async () => { throw new Error("Task admission cannot write host state") },
     })
     dispatchWindows().open("session-plugin", packet, "", process.cwd())
-    const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
+    const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-plugin", callID: "call-1" }, output)
 
     expect(output.args.subagent_type).toBe("concord-implement")
@@ -285,7 +285,7 @@ describe("plugin entry registers the dispatch window hook", () => {
     expect(dispatchWindows().has("session-plugin")).toBe(false)
   })
 
-  test("refuses an unauthorized managed task call and leaves other tools untouched", async () => {
+  test("refuses an unauthorized lane task call and leaves other tools untouched", async () => {
     const plugin = (await ConcordAdapterPlugin()) as {
       "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
     }
@@ -293,10 +293,10 @@ describe("plugin entry registers the dispatch window hook", () => {
       get: async () => ({ data: { id: "session-none", metadata: { "concord.task_scope": "managed" } }, response: new Response(null, { status: 200 }) }),
       post: async () => { throw new Error("Task admission cannot write host state") },
     })
-    const output = { args: { subagent_type: "general", prompt: "unbound" } }
+    const output = { args: { subagent_type: "concord-implement", prompt: "unbound" } }
     await expect(
       plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-none", callID: "call-2" }, output),
-    ).rejects.toThrow(/no authorized dispatch/i)
+    ).rejects.toThrow(/dispatch_worker/i)
 
     const other = { args: { filePath: "/x" } }
     await plugin["tool.execute.before"]({ tool: "read", sessionID: "session-none", callID: "call-3" }, other)
@@ -339,7 +339,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
       expect(dispatchWindows().has(sessionID)).toBe(true)
 
-      const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
+      const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
       const callerArgs = { ...output.args }
       let refusal: unknown
       try {
@@ -383,7 +383,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
       get: async () => ({ data: { id: sessionID, directory: claimedWorktree }, response: new Response(null, { status: 200 }) }),
       post: async () => { throw new Error("Task admission cannot write host state") },
     }
-    const callerArgs = () => ({ subagent_type: "general", prompt: "whatever I like", task_id: "old" })
+    const callerArgs = () => ({ subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" })
     try {
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
       const first = (await ConcordAdapterPlugin({ directory: trunk, worktree: trunk, client: { _client: raw } as never })) as {
@@ -443,7 +443,7 @@ describe("plugin entry refuses a dispatch whose worker would execute in the laun
         "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
       }
       dispatchWindows().open(sessionID, packet, "", claimedWorktree)
-      const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
+      const output = { args: { subagent_type: "concord-implement", prompt: "whatever I like", task_id: "old" } }
       await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-claimed-instance" }, output)
       expect(output.args.subagent_type).toBe("concord-implement")
       expect(JSON.parse(output.args.prompt).attempt_id).toBe(packet.attempt_id)
@@ -610,7 +610,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "Concord", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     expect(started.status).toBe("started")
@@ -707,7 +707,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "Concord", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     try {
@@ -740,7 +740,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "Concord", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     try {
@@ -782,7 +782,7 @@ describe("plugin entry isolates the ci-watch notice from chat.message", () => {
     const started = JSON.parse(
       (await plugin.tool.concord_ci_watch.execute!(
         { repo: "owner/name", selector: { kind: "pr", value: "12" } },
-        { sessionID: NOTICE_SESSION, agent: "concord-operator", abort: new AbortController().signal },
+        { sessionID: NOTICE_SESSION, agent: "Concord", abort: new AbortController().signal },
       )).output,
     ) as Record<string, unknown>
     try {

@@ -697,7 +697,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// beside a check outcome_payload — refuses on both boundaries without
 	// durable effect: the pair left canonical authoring (CD-0218 D1/D2),
 	// and no synthetic outcome fallback is authorable.
-	pairValid := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, verdictItemVersion(t, s, workID), map[string]any{
+	pairValid := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, readWorkVersion(t, s, workID), map[string]any{
 		"contract_version":     3,
 		"required_evidence":    *pin.Obligations,
 		"spec_mandate":         []string{"spec:one", "law:successor"},
@@ -721,7 +721,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// form used to: a matching-kind outcome_predicates item records the
 	// contract version 3 successor on the first submission assembled from
 	// the published variant.
-	second := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, verdictItemVersion(t, s, workID), map[string]any{
+	second := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, readWorkVersion(t, s, workID), map[string]any{
 		"contract_version": 3,
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "check",

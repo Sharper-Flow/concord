@@ -498,7 +498,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 
 	// A report tying pB — a predicate the job revision does not own —
 	// refuses and names pB.
-	tiedEvidence := workerEvidenceForLane(lane)
+	tiedEvidence := laneCoveringEvidence(lane)
 	tiedEvidence[0].PredicateIDs = []string{"predicate:pB-tie"}
 	completion := jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
 	var payload WorkerCompletedPayload
@@ -521,7 +521,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 	if err := json.Unmarshal(valid.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	payload.Evidence = workerEvidenceForLane(lane)
+	payload.Evidence = laneCoveringEvidence(lane)
 	payload.Evidence[0].PredicateIDs = []string{jobPredicate}
 	valid.Payload = mustJSONValue(payload)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{valid}}); err != nil {
@@ -595,7 +595,7 @@ func TestWorkerPredicateTiesParentListPreservedOnReleasedPins(t *testing.T) {
 	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	payload.Evidence = workerEvidenceForLane(lane)
+	payload.Evidence = laneCoveringEvidence(lane)
 	payload.Evidence[0].PredicateIDs = []string{"predicate:return-route", "predicate:pB-tie"}
 	completion.Payload = mustJSONValue(payload)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
@@ -617,21 +617,6 @@ func attributionIntegrationObservation(t *testing.T, s *Store, leaseID string) *
 		Sources:   []WorkerFailureSource{{Kind: WorkerFailureSourceNativeRun, Locator: leaseID, Digest: digest}},
 		Diagnosis: "the combined run failed its compatibility check",
 	}
-}
-
-// attributionCorrectionPayload builds one request_correction payload with
-// the classic correction fields plus extra members.
-func attributionCorrectionPayload(extra map[string]any) json.RawMessage {
-	fields := map[string]any{
-		"diagnosis":     "the combined run failed its compatibility check",
-		"strategy":      "repair the contributing job and rerun the combined verification",
-		"predicate_ids": []string{"predicate:return-route"},
-		"evidence_refs": []string{"evidence:return-route-verification"},
-	}
-	for name, value := range extra {
-		fields[name] = value
-	}
-	return mustJSONValue(fields)
 }
 
 // TestWorkerFailureAttributionCoordinatorIntegrationCorrection composes the
@@ -703,9 +688,9 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorrection(t *testing.T) 
 		"correction_evidence_refs": []string{"evidence:return-route-verification"},
 		"failure_attribution":      block,
 		"result_evidence_refs":     []string{"evidence:return-route-verification"},
-		"changed_refs":             []string{workID}, "actor_ref": s2ActorRef(t, fixture.owner),
+		"changed_refs":             []string{workID}, "actor_ref": mustActorRef(t, fixture.owner),
 	}
-	event := workflowTypedEvent("attribution-rejection-correction", WorkflowActionCompleted, workID, s2ActorRef(t, fixture.owner), time.Unix(40, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
+	event := workflowTypedEvent("attribution-rejection-correction", WorkflowActionCompleted, workID, mustActorRef(t, fixture.owner), time.Unix(40, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatalf("the rejection completion with the derived block refused: %v", err)
 	}
@@ -805,9 +790,9 @@ func TestWorkerFailureAttributionCoordinatorIntegrationUnavailablePopulation(t *
 		"correction_evidence_refs": []string{"evidence:return-route-verification"},
 		"failure_attribution":      block,
 		"result_evidence_refs":     []string{"evidence:return-route-verification"},
-		"changed_refs":             []string{workID}, "actor_ref": s2ActorRef(t, fixture.owner),
+		"changed_refs":             []string{workID}, "actor_ref": mustActorRef(t, fixture.owner),
 	}
-	event := workflowTypedEvent("attribution-unavailable-rejection", WorkflowActionCompleted, workID, s2ActorRef(t, fixture.owner), time.Unix(40, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
+	event := workflowTypedEvent("attribution-unavailable-rejection", WorkflowActionCompleted, workID, mustActorRef(t, fixture.owner), time.Unix(40, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatalf("the rejection completion with the unavailable population refused: %v", err)
 	}
@@ -871,9 +856,9 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(
 		"correction_evidence_refs": []string{"evidence:return-route-verification"},
 		"failure_attribution":      block,
 		"result_evidence_refs":     []string{"evidence:return-route-verification"},
-		"changed_refs":             []string{workID}, "actor_ref": s2ActorRef(t, fixture.owner),
+		"changed_refs":             []string{workID}, "actor_ref": mustActorRef(t, fixture.owner),
 	}
-	event := workflowTypedEvent("attribution-corrupt-rejection", WorkflowActionCompleted, workID, s2ActorRef(t, fixture.owner), time.Unix(42, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
+	event := workflowTypedEvent("attribution-corrupt-rejection", WorkflowActionCompleted, workID, mustActorRef(t, fixture.owner), time.Unix(42, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err == nil {
 		t.Fatal("the live fold admitted an integration population the cited run's watermark excludes")
 	}
@@ -972,9 +957,9 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 		"correction_evidence_refs": []string{"evidence:return-route-verification"},
 		"failure_attribution":      block,
 		"result_evidence_refs":     []string{"evidence:return-route-verification"},
-		"changed_refs":             []string{workID}, "actor_ref": s2ActorRef(t, fixture.owner),
+		"changed_refs":             []string{workID}, "actor_ref": mustActorRef(t, fixture.owner),
 	}
-	event := workflowTypedEvent("attribution-review-rejection", WorkflowActionCompleted, workID, s2ActorRef(t, fixture.owner), time.Unix(41, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
+	event := workflowTypedEvent("attribution-review-rejection", WorkflowActionCompleted, workID, mustActorRef(t, fixture.owner), time.Unix(41, 0).UTC(), readWorkVersion(t, s, workID), completionValues)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatalf("the rejection completion with the review block refused: %v", err)
 	}
@@ -1330,9 +1315,9 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 		"correction_evidence_refs": []string{"evidence:return-route-verification"},
 		"failure_attribution":      block,
 		"result_evidence_refs":     []string{"evidence:return-route-verification"},
-		"changed_refs":             []string{workID}, "actor_ref": s2ActorRef(t, fixture.owner),
+		"changed_refs":             []string{workID}, "actor_ref": mustActorRef(t, fixture.owner),
 	}
-	rejection := workflowTypedEvent("attribution-source-joins-rejection", WorkflowActionCompleted, workID, s2ActorRef(t, fixture.owner), time.Unix(41, 0).UTC(), readWorkVersion(t, s, workID), rejectionValues)
+	rejection := workflowTypedEvent("attribution-source-joins-rejection", WorkflowActionCompleted, workID, mustActorRef(t, fixture.owner), time.Unix(41, 0).UTC(), readWorkVersion(t, s, workID), rejectionValues)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{rejection}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatalf("the rejection with the real citation refused: %v", err)
 	}

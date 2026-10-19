@@ -92,7 +92,7 @@ def test_adapter_spawning_predecessor_fails() -> None:
 def test_generator_input_with_tool_prefix_fails() -> None:
     root = sandbox()
     generator = root / "scripts" / "generate-agent-lanes.py"
-    generator.write_text(generator.read_text().replace("mode: all", "mode: all\n  adv_task_update: true", 1))
+    generator.write_text(generator.read_text().replace("mode: subagent", "mode: subagent\n  adv_task_update: true", 1))
     code, out = run_check_with_root(root)
     assert code == 1, out
     assert "generate-agent-lanes.py" in out

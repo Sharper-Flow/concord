@@ -54,7 +54,7 @@ func (s *Service) verifyWorkerControlAssertionTx(ctx context.Context, tx *store.
 			return Authority{}, authorityRefusal("worker control assertion has an invalid identity")
 		}
 	}
-	if !bounded(a.Directory, 1, 4096) || !bounded(a.Worktree, 1, 4096) || !validWorkerEvidenceObservationDigest(a.PacketDigest) || !validWorkerEvidenceObservationDigest(a.WorktreeIdentity) || len(a.Nonce) < 16 || len(a.Nonce) > 256 || len(a.Signature) != ed25519.SignatureSize {
+	if !bounded(a.Directory, 1, 4096) || !bounded(a.Worktree, 1, 4096) || !validWorkerEvidenceObservationDigest(a.PacketDigest) || !validWorkerEvidenceObservationDigest(a.WorktreeIdentity) || !validWorkerNonce(a.Nonce) || len(a.Signature) != ed25519.SignatureSize {
 		return Authority{}, authorityRefusal("worker control assertion is malformed")
 	}
 	issued, err := time.Parse(time.RFC3339Nano, a.IssuedAt)
@@ -62,7 +62,10 @@ func (s *Service) verifyWorkerControlAssertionTx(ctx context.Context, tx *store.
 		return Authority{}, authorityRefusal("worker control assertion timestamp invalid")
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, a.ClientRef)
-	if err != nil || client.Status != "active" || key.Status != "active" || key.KeyID == "" || !ed25519.Verify(ed25519.PublicKey(key.PublicKey), CanonicalWorkerControlAssertion(a), a.Signature) {
+	if err != nil {
+		return Authority{}, trustedClientRefusalFor(err, authorityRefusal("worker control assertion signature or client invalid"))
+	}
+	if client.Status != "active" || key.Status != "active" || key.KeyID == "" || !ed25519.Verify(ed25519.PublicKey(key.PublicKey), CanonicalWorkerControlAssertion(a), a.Signature) {
 		return Authority{}, authorityRefusal("worker control assertion signature or client invalid")
 	}
 	// Reuse the execution policy owner and the actual presented agent. The

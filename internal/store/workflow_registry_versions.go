@@ -1,6 +1,8 @@
 package store
 
-import "slices"
+import (
+	"slices"
+)
 
 // Version-1 workflow definitions, frozen for the instances that pin them
 // (issue #861). CD-0112 replaced this content in place at version 1, which
@@ -1129,7 +1131,7 @@ func withWorkerJobs(definition WorkflowDefinition) WorkflowDefinition {
 	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
 	for i := range definition.StepGraph.Steps {
 		actions := definition.StepGraph.Steps[i].Actions
-		if containsString(actions, "dispatch_worker") && containsString(actions, "accept_worker_result") && containsString(actions, "record_delivery") {
+		if slices.Contains(actions, "dispatch_worker") && slices.Contains(actions, "accept_worker_result") && slices.Contains(actions, "record_delivery") {
 			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, record.ID)
 		}
 	}
@@ -1469,7 +1471,7 @@ func withDiagnosisStep(definition WorkflowDefinition) WorkflowDefinition {
 			if offStep[actionID] {
 				continue
 			}
-			if !containsString(mergedActions, actionID) {
+			if !slices.Contains(mergedActions, actionID) {
 				mergedActions = append(mergedActions, actionID)
 			}
 		}

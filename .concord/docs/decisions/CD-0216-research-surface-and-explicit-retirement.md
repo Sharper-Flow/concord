@@ -4,7 +4,6 @@
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
-- **Supersedes:** [CD-0025](CD-0025-research-surface.md)
 - **Related:** [CD-0215](CD-0215-retained-research-context.md),
   [CD-0036](CD-0036-breaking-law-cutovers.md), PM1 Q11, and PM3
 
@@ -15,6 +14,9 @@ The same surface must permit reuse of retained terminal-owner content without al
 Destruction needs its own explicit authorized operation rather than an archive or read side effect.
 
 ## Decision
+
+Explicit retirement follows CD-0013 D11: non-dry-run physical deletion always requires exact operator approval; dry-run does not. Candidate identity, version, Product authorization, terminal-owner and active-consumer protections remain mandatory. Neither eligibility nor ordinary research-edit authority grants deletion consent.
+
 
 ### D1. One research capability and mutation surface
 
@@ -72,13 +74,11 @@ The shared context reader does not reauthorize retained selections against the o
 
 ## Consequences
 
-Direct callers use the sole pack-operation idempotency boundary; agent envelopes compose its transaction-scoped cores with envelope-owned idempotency.
+Agent envelopes own research idempotency; they compose the transaction-scoped pack-operation cores, and no second idempotency boundary exists.
 Trusted-client policy and grant capability allowlists continue to admit `research`.
 All terminal routes release consumer pins; terminalization does not delete owned packs.
 The parent integrates schemas, surface versioning, implementation, and migration without a parallel legacy cleanup route.
 
-Before deployment, CD-0036 requires active CD-0025 consumers to recover onto CD-0216, or cancel or supersede their work.
-This offline edit provides no live consumer enumeration, re-contracting receipt, or release activation evidence.
 The manifest records no fabricated Concord workflow contract.
 
 ## Verification

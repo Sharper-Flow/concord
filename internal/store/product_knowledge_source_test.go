@@ -407,7 +407,7 @@ func TestQualifiedAndAmbiguousLawIdentity(t *testing.T) {
 	if q10.Status != "ambiguous" {
 		t.Fatalf("ambiguous bare ID = %#v, want ambiguous", q10)
 	}
-	mandateErr := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false)
+	mandateErr := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"SRC-LAW"}, nil, false)
 	var mandateFailure *Failure
 	if !errors.As(mandateErr, &mandateFailure) || mandateFailure.Kind != KindKnowledgeAmbiguous {
 		t.Fatalf("ambiguous mandate error = %v, want %v", mandateErr, KindKnowledgeAmbiguous)
@@ -501,10 +501,10 @@ func TestMandatedLawsResolveAcrossSources(t *testing.T) {
 	source := KnowledgeHome{HomeProjectID: "man-src", HomeLocatorID: "man-src-loc", HeadRef: "HEAD"}
 	s, _ := seedFederatedProduct(t, "man-product", home, source,
 		"SRC-LAW", ".concord/docs/decisions/CD-0910-src-law.md", "Mandated source law")
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err != nil {
 		t.Fatalf("cross-source mandate refused: %v", err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"MISSING-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"MISSING-LAW"}, nil, false); err == nil {
 		t.Fatal("unknown mandate accepted")
 	}
 }
@@ -542,10 +542,10 @@ func TestQualifiedMandatedLawResolvesThroughNamedSource(t *testing.T) {
 	source := KnowledgeHome{HomeProjectID: "qmd-src", HomeLocatorID: "qmd-src-loc", HeadRef: "HEAD"}
 	s, _ := seedFederatedProduct(t, "qmd-product", home, source,
 		"SRC-LAW", ".concord/docs/decisions/CD-0912-qualified-law.md", "Qualified source law")
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/SRC-LAW"}, nil, false); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/SRC-LAW"}, nil, false); err != nil {
 		t.Fatalf("qualified mandated law refused: %v", err)
 	}
-	err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/a/b"}, nil, false)
+	err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/a/b"}, nil, false)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidFilter {
 		t.Fatalf("malformed qualified mandate error = %v, want %v", err, KindInvalidFilter)
@@ -645,7 +645,7 @@ func TestConsequentialMandateCheckRefusesStaleSource(t *testing.T) {
 	// The refused rebuild left the source stale. The consequential boundary
 	// verifies the registered source set's freshness before it trusts any
 	// projection rows, so the stale source refuses instead of passing.
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("consequential mandate check accepted stale source rows after a cross-source conflict")
 	}
 }

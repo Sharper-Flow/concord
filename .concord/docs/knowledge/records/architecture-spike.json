@@ -16,9 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dd6857ea9297ceeda8dea543b6aac377a7a073c9fd5fa5c9fd857ca505d80db8",
+  "sha256": "sha256:6bb5279465bc2b0c7b2cd59662e377c920db1396dda1d3f274d167ba0d4fd813",
   "status": "published",
-  "summary": "Shaped architecture-spike workflow type with open questions deferred. Not accepted, so it carries no law-bearing kind.",
+  "summary": "Historical shaped model of the architecture-spike family retired for new execution by CD-0218. Not accepted law; CD-0215 D2's separate reviewed and accepted decision obligation remains with the cutover owner's approved successor set.",
   "tags": [
     "workflows",
     "spike",

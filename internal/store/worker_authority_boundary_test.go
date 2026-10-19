@@ -1312,11 +1312,6 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 	assertRejectedWorkerAction(t, s, workID, owner, expectedVersion, payload, wantKind, wantVersion, "accept_worker_result", "e", "reject:", "acceptance")
 }
 
-func assertRejectedWorkerFailureRecord(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, payload map[string]any, wantKind FailureKind, wantVersion int64) {
-	t.Helper()
-	assertRejectedWorkerAction(t, s, workID, owner, expectedVersion, payload, wantKind, wantVersion, "record_worker_failure", "r", "reject-failure:", "failure record")
-}
-
 // assertRejectedWorkerAction proves the named worker action refuses inside
 // its transaction: no completed event persists, the step stays execution,
 // and the version stays put.
@@ -1391,11 +1386,6 @@ func applyRecordWorkerFailureForTest(t *testing.T, s *Store, workID string, owne
 func applyStartForTest(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, operationID string) WorkflowActionExecutionResult {
 	t.Helper()
 	return applyWorkflowActionForTest(t, s, workID, owner, expectedVersion, "start_execution", "s", operationID, time.Unix(4, 0).UTC())
-}
-
-func applyDeliveryForTest(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, operationID string) WorkflowActionExecutionResult {
-	t.Helper()
-	return applyWorkflowActionForTest(t, s, workID, owner, expectedVersion, "record_delivery", "d", operationID, time.Unix(5, 0).UTC())
 }
 
 // applyWorkflowActionForTest commits one raw workflow action for a test.

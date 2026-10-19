@@ -7,58 +7,43 @@
 - **Approval:** Operator accepted the fix direction as filed in
   [issue #466](https://github.com/Sharper-Flow/concord/issues/466) on 2026-08-24
 - **Related:** CD-0017 (Invariant 4, worker authority boundary), CD-0064 (D1
-  emits `mode: all`), CD-0043 (host-owned lane methodology)
-- **Preserves:** CD-0064 D1, D2, and D3 in full; the closed lane registry and its
+  emits `mode: subagent`), CD-0043 (host-owned lane methodology)
+- **Preserves:** CD-0064 D2 and D3 in full; the closed lane registry and its
   digests; `agent-lane-packet.v1` and `agent-lane-report.v1`
 - **Supersedes:** nothing
+- **Amendment reason:** Native Task dispatch resolves hidden subagent-only
+  lanes without making them primary-capable.
+- **Revision choice:** In-place amendment under CD-0036. D1's hidden field
+  remains, D2 follows CD-0064 D1's subagent mode, and D3's digest rule is unchanged.
+- **P12:** Serious: generated lanes cease to be primary-capable agents.
 
 ## Context
 
-CD-0064 D1 emits `mode: all` for every generated lane agent, because run mode
-refuses a subagent-mode target. That premise still holds. Measured against
-opencode 1.18.22, `opencode run --agent` answers a `mode: subagent` name with a
-stderr warning, substitutes the default agent, and exits zero.
-
-`mode: all` is both subagent-capable and primary-capable. The host cycles every
-primary-capable agent through one keybind, so the four lanes became selectable
-as the operator's session agent in any project carrying the generated
-definitions.
-
-A lane selected that way holds no packet, no attempt window, no bound
+An operator session selected as a worker lane holds no packet, no attempt window, no bound
 host-instruction provenance, and no evidence obligations, while its body directs
 it to return a lane report for a packet that does not exist.
 
-The exposure is not the confusing session. CD-0017 Invariant 4 states that
+CD-0017 Invariant 4 states that
 worker runs never record workflow step transitions, verdicts, or completion.
-That invariant governs what a worker does. Nothing governed who may become one,
-so the separation rested on the operator not pressing a key.
-
-### The host mechanism was present and was misread
-
-The host builds its cycle list from `agent.mode !== "subagent" && !agent.hidden`.
-The `hidden` term is evaluated for every mode, and it is the only mechanism that
-excludes the host's own `compaction`, `title`, and `summary` agents, each of
-which is declared primary.
-
-The published host documentation states that `hidden` applies only to subagent
-mode. That statement is wrong for the cycle, and it is why the property read as
-unreachable on first inspection. The inaccuracy is reported upstream. Concord
-does not depend on that report, because the shipped behavior already supports
-the exclusion.
+That invariant governs worker actions. CD-0064 D1's subagent mode separates the
+entry path; hiding the definition also removes it from ordinary discovery.
+Neither property replaces the native dispatch authorization window.
 
 ## Decision
 
 ### D1. A generated lane definition declares `hidden: true`
 
-The generator emits `hidden: true` beside `mode: all`. The property becomes
+The generator emits `hidden: true` beside `mode: subagent`. The property is
 structural in the generated artifact rather than a convention an operator
 observes, and it regenerates with every lane.
 
-### D2. Run-mode selectability is unchanged
+### D2. Hidden lanes remain native Task targets, not primary agents
 
-`mode: all` stays. CD-0064 D1 is preserved, not amended. `hidden` governs
-operator-facing listing only, so the dispatch transport resolves the lane exactly
-as before and the CD-0064 D2 executor readback continues to assert identity.
+CD-0064 D1 supplies `mode: subagent` for every execution lane. The native Task
+route resolves the exact hidden lane name, and CD-0064 D2's executor readback
+continues to assert identity. Hiding a definition is not a dispatch permission;
+the typed packet, authorized attempt, nesting denial, and capability fences
+remain required under CD-0178 D1.
 
 ### D3. The lane registry digest does not move
 
@@ -69,17 +54,15 @@ no digest and no schema version.
 ## Invariants
 
 1. A generated lane definition is not selectable as an operator session agent.
-2. A generated lane definition stays resolvable by run mode and spawnable
-   through the host task surface.
+2. A generated lane definition is subagent-only and remains spawnable through
+   the authorized native Task surface by its exact name.
 3. Lane frontmatter continues to deny task dispatch.
 
 ## Consequences
 
-- An operator cycling primary agents in a Concord project reaches orchestrator
-  identities only.
-- The property depends on host behavior Concord does not own. A host that stops
-  honoring `hidden` for primary-capable agents reopens the exposure, and the
-  repository check below detects only frontmatter drift, never a host change.
+- Execution lanes do not appear as selectable primary session agents.
+- Frontmatter validation detects definition drift. The native host check
+  separately verifies that hidden subagent names still resolve and execute.
 - Lane definitions leave the host mention menu as well as the cycle. No Concord
   path uses that menu, and typed dispatch is unaffected.
 - The generated body changes, so every consuming project regenerates its lane
@@ -92,7 +75,7 @@ no digest and no schema version.
   omits it.
 - Applying the host cycle predicate to the resolved host configuration in a
   project carrying the generated definitions returns no lane.
-- `opencode run --agent concord-<lane>` resolves that lane, with no fallback
-  warning and no executor substitution.
-- A hidden primary-capable agent stays spawnable through the host task surface.
+- `adapter/opencode/evals/native-lane.native.case.ts` completes each of the five
+  hidden subagent identities through the native Task executor on OpenCode
+  1.18.35, with exact child assistant-agent readback and a fixture model.
 - `contracts/agent-lanes.digest` is byte-identical before and after the change.

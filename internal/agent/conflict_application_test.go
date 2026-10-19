@@ -46,7 +46,7 @@ func conflictSizedWorkEvent(t *testing.T, eventID, workID string) store.Event {
 		DomainIDs:           []string{"storage"},
 		BehaviorLawIDs:      []string{},
 	}
-	size, err := store.DecideWorkSize(store.WorkSizeModelVersion, inputs)
+	size, err := store.DecideWorkSize(store.WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatalf("decide the fixture size: %v", err)
 	}
@@ -463,7 +463,7 @@ func conflictLaterAssessment(t *testing.T, s *store.Store, workID string) {
 		DomainIDs:           []string{"storage"},
 		BehaviorLawIDs:      []string{},
 	}
-	size, err := store.DecideWorkSize(store.WorkSizeModelVersion, inputs)
+	size, err := store.DecideWorkSize(store.WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatalf("decide the later assessment size: %v", err)
 	}

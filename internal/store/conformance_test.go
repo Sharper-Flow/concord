@@ -41,7 +41,7 @@ const (
 )
 
 // productionLikePaceInterval paces each long-profile worker at a constant rate
-// calibrated to the measured production envelope in .concord/docs/research/R4 (below 0.1
+// calibrated to the measured production envelope CD-0011 records (below 0.1
 // writes/second system-wide). 100 ms per worker is 10 writes/second per worker
 // and 100 writes/second system-wide: 1000x the measured envelope with the
 // interval equal to the P99 target, so lock-hold regressions still trip the
@@ -527,10 +527,10 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	results = run("payload_compatibility")
 	addPayloadProfiles(&report, results)
 	if countOutcome(results, outcomeAccepted) != 7 || countOutcome(results, outcomeUnsupportedPayload) != 3 {
-		t.Fatalf("payload compatibility = %+v, want seven accepted v1/v2/v3 and three rejected v4; results=%+v", report.Scenarios["payload_compatibility"], results)
+		t.Fatalf("payload compatibility = %+v, want seven accepted legacy and current and three rejected newer; results=%+v", report.Scenarios["payload_compatibility"], results)
 	}
 	for _, result := range results {
-		if result.Profile == "newer_v4" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
+		if result.Profile == "newer" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
 			t.Fatalf("newer payload worker %d mutated the event log", result.Worker)
 		}
 	}
@@ -852,8 +852,9 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		retry.ExpectedVersions = nil
 		_, err = applyOperationObserved(ctx, s, retry, nil, observer)
 	case "payload_compatibility":
-		version := 3
-		result.Profile = "current_v3"
+		current := workCreatedCurrentVersion()
+		version := current
+		result.Profile = "current"
 		switch {
 		case worker < 3:
 			version = 1
@@ -862,8 +863,8 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 			version = 2
 			result.Profile = "legacy_v2"
 		case worker >= 7:
-			version = 4
-			result.Profile = "newer_v4"
+			version = current + 1
+			result.Profile = "newer"
 		}
 		op := compatibilityOperation(worker, version)
 		var applied ApplyOperationResult
@@ -970,8 +971,7 @@ func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) er
 		return fmt.Errorf("durable_mixed probe claim: %w", err)
 	}
 	seedResearchWork(t, s, durableMixedResearchOwner)
-	if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
-		Identity:    researchIdentity("conformance-durable-mixed-pack-create"),
+	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 		PackID:      durableMixedResearchPackID,
 		OwnerWorkID: durableMixedResearchOwner,
 		Revision:    ResearchRevisionInput{Question: "conformance", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"},
@@ -1704,3 +1704,13 @@ func durationMS(value time.Duration) int64 {
 	return int64((value + time.Millisecond - 1) / time.Millisecond)
 }
 func mustJSON(value any) string { data, _ := json.Marshal(value); return string(data) }
+
+// workCreatedCurrentVersion is the registered current work.created payload
+// version; the payload profiles derive from it.
+func workCreatedCurrentVersion() int {
+	registration, ok := registeredEventKind("work.created")
+	if !ok {
+		panic("work.created is not registered")
+	}
+	return registration.CurrentVersion
+}

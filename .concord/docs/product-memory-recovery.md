@@ -4,7 +4,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM10; Product-memory recovery amendment.
 > **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
-> PM6 git notes, PM7 projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
+> PM6 git notes, compaction-retention-policy projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, C15, TS1–TS9, or a new blob store.
 
@@ -12,7 +12,7 @@
 
 One global SQLite authority and canonical git notes need one backup and
 restore law. The binding inputs are PM1 through PM9, CD-0002 invariants,
-PM6 git notes, PM7 retention, and the PM8 and PM9 exclusion boundaries.
+PM6 git notes, compaction-retention-policy retention, and the PM8 and PM9 exclusion boundaries.
 This record fixes recovery: exactly two backup authorities, the Online
 Backup API with triple verification, the forward-only restore protocol, and
 reclamation that never deletes retained authority.
@@ -86,8 +86,8 @@ backup required by the configured retention policy. In-place `VACUUM` is stopped
 online reclaim uses a fresh verified snapshot rather than a live-file copy. Git GC is
 never concurrent with compaction writes and retains Git's configured grace window.
 
-CD-0009 active research cleanup is governed by its proof-backed archive operation and
-PM7, not PM10 reclamation. Active pack tables are included in backups while present;
+CD-0215 research retirement is governed by its explicit retirement operation,
+not PM10 reclamation. Active pack tables are included in backups while present;
 live deletion does not retroactively alter verified backups, which age out under the
 ordinary retention policy.
 
@@ -100,8 +100,8 @@ ordinary retention policy.
    projection as complete.
 4. Rebuilds are deterministic folds, not `.recover` output.
 5. PM10 reclamation never deletes retained SQLite/git authority or asserts recovery
-   for PM8/PM9-excluded data; CD-0009 archive separately deletes temporary active-
-   research authority after durable-output proof.
+   for PM8/PM9-excluded data; CD-0215 explicit retirement separately deletes
+   research authority.
 
 ## 5. Migration and acceptance proof
 

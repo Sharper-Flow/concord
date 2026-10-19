@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 )
 
 // reviewDeliveryAnchor retains the immutable acceptance, completion, and
@@ -98,7 +99,7 @@ func newerEditingDispatch(ctx context.Context, q queryer, workID string, afterSe
 		if err != nil {
 			return false, err
 		}
-		if containsString(lane.Capabilities, "edit_scoped_files") {
+		if slices.Contains(lane.Capabilities, "edit_scoped_files") {
 			return true, nil
 		}
 	}

@@ -48,6 +48,11 @@ type WorkflowReadContract struct {
 	ApprovedBy          string                       `json:"approved_by,omitempty"`
 	SupersededBy        *int64                       `json:"superseded_by,omitempty"`
 	DefinitionPin       WorkflowContractPinRead      `json:"definition_pin,omitzero"`
+	// DecisionDomains carries the contract's declared classification fact.
+	// nil is historical absence (a NULL projection column), never engineering;
+	// an explicit engineering contract reads as the empty set. omitzero drops
+	// only the nil fact from the encoding.
+	DecisionDomains []string `json:"decision_domains,omitzero"`
 }
 
 // WorkflowContractDefinitionPin is the workflow definition a contract version
@@ -78,8 +83,9 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
 	var supersededBy sql.NullInt64
+	var decisionDomains sql.NullString
 	var pin WorkflowContractDefinitionPin
-	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,approved_at,approved_by,superseded_by,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Version, &pin.Digest)
+	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains,approved_at,approved_by,superseded_by,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Version, &pin.Digest)
 	if err == sql.ErrNoRows {
 		return contract, err
 	}
@@ -93,6 +99,13 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 	contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 	contract.LawModifies = nonNilStrings(contract.LawModifies)
+	// NULL is historical absence and stays nil; a recorded array decodes
+	// as the declared set, where [] reads as engineering.
+	if decisionDomains.Valid {
+		if json.Unmarshal([]byte(decisionDomains.String), &contract.DecisionDomains) != nil {
+			return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains a malformed decision domain set", false, "rebuild projections from the event log")
+		}
+	}
 	if supersededBy.Valid {
 		contract.SupersededBy = &supersededBy.Int64
 	}

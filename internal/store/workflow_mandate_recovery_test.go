@@ -88,7 +88,6 @@ func wantMandateRefusal(t *testing.T, err error) *Failure {
 // bind_evidence only when the branch adds the id, otherwise supersede_contract.
 func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	s := openTemp(t)
 	workID := "mandate-recovery-unseen"
 	seedWork(t, s, workID)
@@ -160,7 +159,6 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 // reopens.
 func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	workID := "mandate-recovery-reject"
 	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
 	seedMandateContract(t, s, workID)
@@ -183,7 +181,6 @@ func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
 // actions: the refusal names record_worker_failure, then the supersession.
 func TestMandateRecoveryNamesFailureRecordFirstWhenRejectionIsUnavailable(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	workID := "mandate-recovery-failure"
 	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
 	failAbandonedWorkerAttempt(t, s, workID, attemptID)
@@ -202,7 +199,6 @@ func TestMandateRecoveryNamesFailureRecordFirstWhenRejectionIsUnavailable(t *tes
 
 func TestMandateRecoveryNamesDeclaredFailureRecordForAFailedAttempt(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	workID := "mandate-recovery-declared-failure"
 	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
 	failAbandonedWorkerAttempt(t, s, workID, attemptID)
@@ -228,7 +224,6 @@ func TestMandateRecoveryNamesDeclaredFailureRecordForAFailedAttempt(t *testing.T
 // admit.
 func TestMandateRecoveryNamesNoCorrectionRouteWhileAWorkerIsLive(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	workID := "mandate-recovery-live"
 	s, _ := seedDispatchedWorkerAtExecution(t, workID)
 	seedMandateContract(t, s, workID)
@@ -249,7 +244,6 @@ func TestMandateRecoveryNamesNoCorrectionRouteWhileAWorkerIsLive(t *testing.T) {
 // guidance and the correction route the checkpoint step admits.
 func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	s := openTemp(t)
 	workID := "mandate-recovery-complete"
 	seedWork(t, s, workID)
@@ -270,7 +264,6 @@ func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 // instruction.
 func TestMandateRecoveryPropagatesQueryFailures(t *testing.T) {
 	t.Parallel()
-	const lawID = "CD-0189"
 	s := openTemp(t)
 	workID := "mandate-recovery-query"
 	seedWork(t, s, workID)

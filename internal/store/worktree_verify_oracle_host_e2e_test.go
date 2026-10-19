@@ -47,24 +47,23 @@ func assertNativeTargetReceipt(t *testing.T, r WorktreeVerifyResult, materialize
 // Project repository with no Go module, one pinned axis recipe, and the
 // seeded workflow authority the native producer shares with the Go family.
 type nativeTargetFixture struct {
-	s                *Store
-	work, repo       string
-	head             string
-	dispatchSubject  string
-	bundle           NativeOracleControlBundle
-	prepare          WorktreeVerifyResult
-	a, b             NativeOracleRequest
-	actor            WorkflowActor
-	launches         int
-	materializer     string
-	runner           string
-	uvCache          string
-	lockVersions     map[string]string
-	recipePath       string
-	manifestJSON     string
-	controlArgv      []string
-	root             string
-	extraManifestPin map[string]string
+	s               *Store
+	work, repo      string
+	head            string
+	dispatchSubject string
+	bundle          NativeOracleControlBundle
+	prepare         WorktreeVerifyResult
+	a, b            NativeOracleRequest
+	actor           WorkflowActor
+	launches        int
+	materializer    string
+	runner          string
+	uvCache         string
+	lockVersions    map[string]string
+	recipePath      string
+	manifestJSON    string
+	controlArgv     []string
+	root            string
 }
 
 func TestNativeTargetAxisNoGoModule(t *testing.T) {

@@ -43,6 +43,29 @@ durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
 lane_step_dispatch_generator = _load_cli_module("cli_safety_lane_step_dispatch", "generate-lane-step-dispatch.py")
 
+class LaneSelectabilityTests(unittest.TestCase):
+    def check_definition(self, mode, hidden=True):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "contracts").mkdir()
+            (root / ".opencode/agents").mkdir(parents=True)
+            (root / "contracts/agent-lanes.v1.json").write_text(json.dumps({"lanes": [{"id": "review"}]}))
+            definition = f"---\nmode: {mode}\n" + ("hidden: true\n" if hidden else "") + "---\n"
+            (root / ".opencode/agents/concord-review.md").write_text(definition)
+            with unittest.mock.patch.object(lane_checker, "ROOT", root):
+                return lane_checker._check_lane_agent_selectability()
+
+    def test_hidden_subagent_is_dispatchable(self):
+        self.assertEqual(self.check_definition("subagent"), [])
+
+    def test_primary_capable_lane_is_refused(self):
+        for mode in ("primary", "all"):
+            with self.subTest(mode=mode):
+                self.assertTrue(any("mode: subagent" in finding for finding in self.check_definition(mode)))
+
+    def test_visible_lane_is_refused(self):
+        self.assertTrue(any("hidden: true" in finding for finding in self.check_definition("subagent", hidden=False)))
+
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
         with unittest.mock.patch.object(generator.subprocess, "run") as run:
@@ -431,23 +454,6 @@ class Ts2BudgetTests(unittest.TestCase):
         self.assertEqual(len(manifest["tools"]), declared,
                          "manifest tool list disagrees with the TS2 budget")
 
-    def test_a_shrunk_document_budget_is_rejected(self):
-        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text().replace(
-            "always_visible_tools: 9", "always_visible_tools: 8")
-        with self.assertRaises(AssertionError):
-            matches = re.findall(r"always_visible_tools: (\d+)", document)
-            declared = int(matches[0])
-            self.assertEqual(manifest["surface"]["tool_count"], declared)
-
-    def test_a_manifest_tool_count_drift_is_rejected(self):
-        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        drifted = copy.deepcopy(manifest)
-        drifted["surface"]["tool_count"] = drifted["surface"]["tool_count"] - 1
-        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text()
-        matches = re.findall(r"always_visible_tools: (\d+)", document)
-        declared = int(matches[0])
-        self.assertNotEqual(drifted["surface"]["tool_count"], declared)
 
 class EvidenceObligationVocabularyTests(unittest.TestCase):
     """CD-0056 D2: the obligation vocabulary is one closed set across two contracts."""
@@ -811,7 +817,8 @@ class AdapterHostPinTests(unittest.TestCase):
             "typescript": "5.9.3",
             "compiler_options": {
                 "target": "es2022", "module": "esnext", "moduleResolution": "bundler",
-                "lib": ["es2022"], "types": ["runtime-types"], "strict": True, "noEmit": True,
+                "lib": ["es2022"], "types": ["runtime-types"], "strict": True,
+                "noUnusedLocals": True, "noUnusedParameters": True, "noEmit": True,
                 "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
                 "allowJs": True,
             },
@@ -876,6 +883,13 @@ class AdapterHostPinTests(unittest.TestCase):
         def mutate(value):
             value["compiler_options"]["strict"] = False
         self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
+
+    def test_unused_code_checks_cannot_be_disabled(self):
+        for option in ("noUnusedLocals", "noUnusedParameters"):
+            with self.subTest(option=option):
+                def mutate(value, option=option):
+                    value["compiler_options"][option] = False
+                self.assertTrue(any("does not satisfy its contract" in f for f in self.findings(mutate)))
 
     def test_allowance_states_match_the_contract_vocabulary(self):
         declared = set(self.schema["properties"]["allowances"]["items"]["properties"]["state"]["enum"])

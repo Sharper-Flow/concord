@@ -49,7 +49,7 @@ func seedSizedWork(t *testing.T, s *Store, id string) WorkSize {
 	t.Helper()
 	seedWork(t, s, id)
 	inputs := workSizeInputsFixture()
-	size, err := DecideWorkSize(WorkSizeModelVersion, inputs)
+	size, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
 	if err != nil {
 		t.Fatalf("decide the fixture size: %v", err)
 	}

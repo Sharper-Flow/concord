@@ -82,7 +82,7 @@ not a core.
 - Static binaries with simple cross-compilation for Linux, macOS, and Windows.
 - Native concurrency model (goroutines) suited to per-entity serializers and
   non-blocking read paths.
-- Pure-Go SQLite binding (`modernc.org/sqlite`) for the sole-authority store;
+- Pure-Go SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)) for the sole-authority store;
   no CGO, single static binary, trivial cross-compilation.
 - Strong typing with minimal runtime overhead; compile-time correctness for
   state transitions, contract enforcement, and terminal-state invariants.
@@ -128,7 +128,7 @@ is stated once; companion documents reference this section rather than restating
 
 A Go core topology must satisfy all twelve invariants. The first eleven are derived
 from the public predecessor postmortem's failure classes; they are not aspirational,
-they are evidence-backed. CD-0041 adds the twelfth from Concord's defining
+they are evidence-backed. CD-0222 adds the twelfth from Concord's defining
 many-agent Product-concordance requirement.
 
 ---
@@ -143,7 +143,7 @@ This table records accepted architecture decisions that previously remained open
 | **Minimal agent tool surface** | **Resolved by CD-0005 and amended by CD-0042:** generated current tools, hidden verified context, `concord.ts` adapter, strict envelope, exact manifest digest, and deterministic pre-go-live evidence. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
-| **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, point-in-time reconstruction, and falsifier-driven snapshots. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
+| **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, and falsifier-driven snapshots; CD-0238 moves point-in-time reconstruction out of the core. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
 | **Product architecture and concurrent-law coordination** | **Resolved by CD-0222:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
 All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
@@ -178,13 +178,11 @@ details; this table does not duplicate them.
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, and overlap revalidation while preserving SQLite. |
-| [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
-| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
+| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
-| [`workflows.md`](./workflows.md) | Workflow types | Plurality of purpose-built types; storage assumptions per CD-0002. |
+| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), composed from shared parts at the size the decision model sets (§7). |
 | [`feature-inventory.md`](./feature-inventory.md) | Capability inventory | Compilation decision updated to reference this document. |
 
 ---

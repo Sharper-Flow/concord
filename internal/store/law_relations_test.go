@@ -199,24 +199,24 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"missing"}, nil, true); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"missing"}, nil, true); err == nil {
 		t.Fatal("unknown mandated law accepted")
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, nil, true); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, nil, true); err == nil {
 		t.Fatal("unresolved conflict accepted without amendment endpoint")
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
 		t.Fatalf("explicit amendment path rejected: %v", err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
 		t.Fatal("completion-style check accepted unresolved conflict")
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", []string{"a"}, []string{"b"}, true); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a"}, []string{"b"}, true); err == nil {
 		t.Fatal("undeclared law modification accepted")
 	}
 }
 
-func TestLawConflictQueriesFailClosedOnOverflow(t *testing.T) {
+func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -243,12 +243,7 @@ func TestLawConflictQueriesFailClosedOnOverflow(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.QueryLawConflictsAtHome(ctx, "p", "l", ids); err == nil {
-		t.Fatal("conflict query silently truncated an overflow")
-	} else {
-		assertFailureKind(t, err, KindInvalidPayload)
-	}
-	if err := s.CheckMandatedLawsAtHome(ctx, "p", "l", ids, ids, true); err == nil {
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", ids, ids, true); err == nil {
 		t.Fatal("amendment check silently accepted an overflow")
 	} else {
 		assertFailureKind(t, err, KindInvalidPayload)

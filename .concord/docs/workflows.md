@@ -1,34 +1,35 @@
-# Concord Workflows: A Plurality of Purpose-Built Types
+# Concord Workflows
 
-> **Status:** Aligned v5 with CD-0006/CD-0007/CD-0041. Companion to [`README.md`](./README.md),
+> **Status:** Reconciled with
+> [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
+> and
+> [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
+> Companion to [`README.md`](./README.md),
 > [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
-> **Purpose:** Concord supports **multiple workflow types** — not just the one
-> singular 7-gate implementation change Advance has today. Different work shapes
-> get one of seven required workflow families: implementation, break-fix/RCA,
-> research/investigation, architecture spike, ops runbook, static analysis, or
-> generic one-off. Database/configuration/infrastructure map to implementation or
-> ops until a distinct recurring lifecycle proves another type necessary.
+> **Purpose:** New execution selects one of three retained workflow families
+> (CD-0218 D1); §4 lists them. A workflow definition is composed from shared
+> parts, and a decision model sets each work item's size (§7; CD-0229).
 > **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
 > panel or web UI is optional and secondary.
-> **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
 
-Advance has **one** workflow: the spec-driven 7-gate implementation change. It's
-excellent — for spec-driven implementation. But forcing operations, database
-work, break-fix, configuration, infrastructure, research, RCA, and static
-analysis through that one shape is wrong. Concord introduces a **full workflow
-coordination engine** with code-defined, versioned purpose-built types plus one
-generic type for true one-offs. Each type is shaped for its work kind.
+The live workflow catalog retains three execution families for new work
+(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
+programmed decision model sets each work item's size (§7; CD-0229). Every
+released definition stays exact frozen history, and live supersession or
+release activation happens only at the operator-owned cutover boundary
+(CD-0218 D4, D5).
+
 The primary operator interacts through host-started agent sessions: the
 operator starts each session, and agents enter managed work through
 `concord_work_start`. Optional grid/table views are projections, not the
 primary interface.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
-follows them without restating the ranked list.
+follows them without restating them.
 
 ---
 
@@ -54,43 +55,41 @@ follows them without restating the ranked list.
 
 ## 1. The shift: from one workflow to a plurality
 
-Concord owns durable progression, branching, retries, evidence, and recovery across
-all workflow types. Native systems still execute git, CI, cloud, database, and other
-external effects. Repeated generic patterns graduate into purpose-built built-ins;
-arbitrary inline workflow languages are out of scope.
+Concord owns durable progression, branching, retries, evidence, and recovery
+across its workflow families. Native systems still execute git, CI, cloud,
+database, and other external effects. Arbitrary inline workflow languages are
+out of scope.
 
-- **Today (Advance):** one workflow — proposal → discovery → design → planning →
-  execution → acceptance → release. Everything is a "change."
-- **Problem:** implementation, operations, database work, break-fix, configuration,
-  infrastructure, options research, evidence research, RCA, and static analysis
-  do not fit the 7-gate shape. They are either forced into it or remain outside
-  the tracked lifecycle.
-- **Concord:** a **plurality of workflow types**. Each work shape maps to a
-  purpose-built workflow with the right steps, artifacts, and completion criteria.
-  Some are gateless; some are lightweight; the 7-gate remains the heaviest, for
-  spec-driven implementation.
+- **Families:** new execution selects one of three retained families; a
+  retired ref refuses before any capture or contract write (CD-0218 D1).
+  §4 lists them.
+- **Frozen history:** every released definition keeps its original ref,
+  version, digest, graph, action payloads, and recovery data. No upcaster
+  converts a family, and lookup of a historical pin does not make it eligible
+  for new capture or dispatch (CD-0218 D4).
 
 ---
 
 ## 2. The workflow-type model
 
-A **workflow type** is a purpose-built definition:
+A **workflow family** is a code-defined execution type in the registry. Its
+definitions are compositions of shared parts (§7; CD-0229 D2), and the live
+catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 
 | Aspect | Meaning |
 |---|---|
-| **Steps** | The sequence/phases (gated or gateless). |
-| **Artifacts** | What it produces (a spec delta? a report? a runbook record? nothing durable?). |
+| **Steps** | The steps the composition includes; the item's size selects among the family's compositions (CD-0229 D5). |
+| **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
-| **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
-| **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
-| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0222's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
+| **Outcome contract** | The premise, required end-state, and candidate set the family requires at approval. See §2.1a. |
+| **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
-Workflow types are **registered** (not hardcoded as one-off skills). New types can
-be added as Concord evolves — this is the "different types of workflows" the
-operator named.
+Families and their parts are Go values in the registry; a new size, family, or
+kind is a new composition of existing parts and adds no step code (CD-0229
+D2).
 
 ### 2.1 Value statement invariant
 
@@ -126,9 +125,11 @@ approved one, never weaker. Work discovered mid-execution that lies outside the
 approved end-state forward-links as successor work under CD-0006 R1; it never
 substitutes.
 
-Every workflow type carries an outcome contract; only the verb differs by type.
-Research concluding `no change` and a spike concluding `insufficient evidence`
-both satisfy their required end-state. Binding form and per-type verbs:
+Every workflow carries an outcome contract. Research may record `no_change`
+when its approved outcome predicate allows it. The retained families' outcome
+tokens and predicate forms are fixed in
+[CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md).
+Binding form and per-type verbs:
 [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 ### 2.2 Factored lifecycle truth
@@ -176,67 +177,60 @@ changes or external planning groups.
 ## 3. Complete work-kind taxonomy
 
 Concord covers the full spectrum of work a Product accumulates:
+implementation, operations, database work, break-fix, configuration,
+infrastructure, options research, evidence research, architectural decisions,
+RCA, and static-analysis runs. These are business work categories, not the
+operator-kind vocabulary.
 
-| Work kind | Typical workflow type | Notes |
-|---|---|---|
-| **Implementation** | 7-gate implementation change | Spec-driven code work; the heaviest type. |
-| **Operations** | Ops runbook | Plan/approval/execute/health/rollback/cleanup; evidence at each step. |
-| **Database work** | Ops runbook or implementation change | Schema/data migrations; often coupled with rollback. |
-| **Break-fix** | Lightweight defect workflow | RCA → fix → verify; may be GitHub-issue-driven. |
-| **Configuration** | Lightweight change or ops runbook | Infra/tooling config; must be reproducible/auditable. |
-| **Infrastructure** | Ops runbook | Azure jobs, crons, deployed services; signal-aware. |
-| **Options research** | Research / investigation | Compare alternatives; may resolve to "no change." |
-| **Evidence research** | Research / investigation | Gather source evidence for a decision. |
-| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent work. See [`architecture-spike.md`](./architecture-spike.md). |
-| **RCA (root-cause analysis)** | Investigation / static-analysis variant | Defect-driven; produces durable findings. |
-| **Static-analysis variants** | Purpose-built analysis workflows | Architecture-inconsistency, AI-slop, spec/impl drift, etc. |
+Operator kinds (task, bug, research, decision, other) and workflow families
+are two closed vocabularies, kept separate (CD-0077 D1). The capture defaults
+map operator kinds to families: tasks → `workflow.implementation`, bugs →
+`workflow.break_fix`, research → `workflow.research`; decision and other
+operator kinds require an explicit retained family (CD-0218 D1). Definitions
+are compositions of shared parts sized by the decision model (§7; CD-0229 D2,
+D4) — not one complete purpose-built definition per kind.
 
-Each kind gets a registered workflow type with the appropriate steps, artifacts,
-and completion criteria. A single workflow can spawn another: research may
-surface a defect, which matures into a break-fix workflow, which may become an
-implementation change.
+A single workflow can spawn another: research may surface a defect, which
+matures into a break-fix workflow, which may become an implementation change.
 
 ---
 
 ## 4. Example workflow types
 
-| Type | Work kind | Shape | Replaces / relates |
-|---|---|---|---|
-| **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
-| **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
-| **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
-| **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
-| **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |
-| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; Linear owns the defect record | [Managed development authority](managed-development-authority.md). |
-| **Database workflow** | Schema/data migration | Ops-runbook shape with migration-specific rollback | Reuses ops runbook primitives. |
-| **Configuration workflow** | Infra/tooling config | Lightweight change or ops-runbook shape | Reproducible, auditable. |
+| Family | Captures | Shape |
+|---|---|---|
+| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5). The outcome contract, independent acceptance, and closure hold at every size. |
+| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0218 D2; CD-0138 D1). |
+| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](./decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
-Static analysis supports purpose-built variants, such as architecture-
-inconsistency detection, AI-slop detection, and spec/implementation drift audit.
-The host selects and runs an external tool. Concord records the declared scope,
-report, evidence, and verdict.
+The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
+`generic_one_off` — select no new execution, and no alias maps a retired
+family to a retained one (CD-0218 D1).
+[CD-0215 D2](./decisions/CD-0215-retained-research-context.md) still requires
+an architecture spike to resolve through a separate reviewed and accepted
+decision; CD-0218 leaves that obligation to the cutover owner's approved
+successor set. Research reports do not enact legislation (CD-0218 D1).
 
-Implementation version 8 and break-fix version 7 insert a mandatory `refine` pass
-between the producing step and the verdict step. The pass records an artifact
-from the external analysis authority. Concord does not implement the scanner.
-
-Implementation version 18 and break-fix version 16 prove the pass ran on the
-change. Leaving `refine` through `record_delivery` requires, in the current
-refine epoch, a bound verification evidence naming a green `worktree_verify`
-run whose lease completed after the refine start. When the Project's default
-ref declares a tooling manifest, the run's command must equal one declared
-tool's invocation; a Project that declares none passes on any green run. The
-rule is [CD-0192](./decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
-which amends [CD-0138 D3](./decisions/CD-0138-mandatory-refinement-pass.md).
+External analysis covers architecture-inconsistency detection, AI-slop
+detection, and spec/implementation drift audit, among others. The host
+selects and runs the external tool; a retained family's tracked work records
+the declared scope, report, and evidence (§5).
 
 ---
 
 ## 5. Coordinating external analysis tools
 
-Analysis tooling is an external native authority. Concord does not implement or
-ship scanners. The `static_analysis` workflow commissions the external run and
-records its scope, report, evidence, and verdict. Host-owned methodology selects
-the tool and analysis procedure. This boundary follows
+Analysis tooling is an external native authority. Concord does not implement
+or ship scanners. Tracked analysis work runs in a retained family and records
+the external run's scope, report, and evidence in the steps its composition
+declares; that output is advisory input, not a verdict (CD-0138 D3).
+Break-fix keeps the mandatory `refine` step (CD-0138 D1), and implementation
+includes it at the sizes CD-0229 D5 names. The refine proof rule is
+[CD-0192](./decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
+which amends
+[CD-0138 D3](./decisions/CD-0138-mandatory-refinement-pass.md).
+Host-owned methodology selects the tool and analysis procedure. This boundary
+follows
 [`predecessor-operational-coverage.md` §3](./predecessor-operational-coverage.md#3-implementation-changes),
 [CD-0043 D1](./decisions/CD-0043-host-owned-lane-methodology.md#d1-lane-methodology-is-never-concord-durable-state),
 and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
@@ -245,24 +239,32 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 
 ## 6. Relationship to work-type taxonomy
 
-- **Work types** (inventory §3.11: ideas / bugs / optimization) describe *what
-  kind of work* something is.
-- **Workflow types** (this doc) describe *how that work is executed*.
-- Mapping is many-to-many: a bug might use the break-fix workflow or the
-  implementation-change workflow; an idea might start as research then mature
-  into implementation. The taxonomy tags the work; the workflow type shapes the
-  execution.
+- **Business work categories** (inventory §3.11: ideas / bugs / optimization;
+  the taxonomy in §3) describe *what the work is*.
+- **Workflow families** describe *how that work executes*; §3 maps operator kinds to families.
 
 ---
 
-## 7. Composition and remaining implementation design
+## 7. Composition and size
 
-1. **Composition model — resolved:** forward-link the successor workflow/work item,
-   then let the current workflow finish. Each retains independent authority and
-   recovery. No nested child execution or parent waiting (CD-0006 R1).
-2. **Per-type shape** — each code-defined type declares its own steps/evidence under
-   the shared coordination constitution and CD-0007 conformance floor. Concrete
-   step shapes remain implementation decisions, not one universal gate palette.
+[CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+is accepted law. This section states its model, not the current implementation
+status.
+
+1. **Composition across work items — resolved:** forward-link the successor
+   workflow/work item, then let the current workflow finish. Each retains
+   independent authority and recovery. No nested child execution or parent
+   waiting (CD-0006 R1).
+2. **Composition inside a definition:** a definition is a declared composition
+   of shared parts at pinned part versions; each step is defined in exactly
+   one part, and a variant need is a part parameter, never a copy. A change to
+   a part is a new part version, and a released composition keeps compiling to
+   its released bytes and digest (CD-0229 D1–D3).
+3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
+   or `crucial` from the recorded inputs; only the model and the operator
+   change a size; the size selects the composition and its least proof
+   (CD-0229 D4–D6). A sized workflow records its define start and its
+   merge-queue entry (CD-0229 D7).
 
 ---
 
@@ -271,13 +273,15 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 | Doc | Link |
 |---|---|
 | `feature-inventory.md` §3.13 | The capability entry. |
-| [`architecture-spike.md`](./architecture-spike.md) | Full model for the architecture-spike type (§3 taxonomy, §4 example table). |
+| [`architecture-spike.md`](./architecture-spike.md) | Historical model of the retired `architecture_spike` family; retained pins stay exact frozen history (CD-0218 D4). |
 | `product-data-model.md` §6 | Product → Domain navigation. |
-| [`workflows.md`](./workflows.md) §1 | The 7-gate implementation change (Transfer) — one workflow type among many. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
-| `design-constraints.md` §3 | Workflow evolution without migration — now applies to a *plurality* of types. |
+| `design-constraints.md` §3 | Workflow evolution constraints; composition changes release through new part and definition versions (§7; CD-0229 D3). |
+| [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families, frozen-history guarantees, and the cutover boundary. |
+| [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
 
 ---
 
-*One workflow was a start. A plurality of purpose-built workflows is the goal —
-each work kind gets the shape it deserves, entered through the session entry.*
+*New execution runs in one of the three retained families (§4), composed from
+shared parts at the size the decision model sets (§7); released history stays
+exact (CD-0218 D4).*

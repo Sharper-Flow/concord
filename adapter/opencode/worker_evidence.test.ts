@@ -7,8 +7,6 @@ import { hostControlPlane, type SessionReader } from "./move-session"
 import workerEvidenceVector from "./worker-evidence-vector.json"
 import workerCLIRequiredFields from "./worker-cli-required-fields.json"
 
-const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
-
 const lane = agentLanes[0]
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 // CD-0067 D6: the completion options carry packetDigest so the adapter

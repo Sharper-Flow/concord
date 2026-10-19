@@ -13,10 +13,6 @@ const (
 	WorkflowWorkerEvaluator      WorkflowEvaluationAuthority = "worker"
 )
 
-func (s *Store) WorkflowEvaluationAuthority(ctx context.Context, workID, actorRef string) (WorkflowEvaluationAuthority, error) {
-	return workflowEvaluationAuthority(ctx, s.db, workID, actorRef)
-}
-
 func workflowEvaluationAuthority(ctx context.Context, q queryer, workID, actorRef string) (WorkflowEvaluationAuthority, error) {
 	var worker, executed bool
 	err := q.QueryRowContext(ctx, `SELECT

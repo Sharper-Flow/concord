@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(verdicts) != 1 || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || !contains(verdicts[0].EvaluationEvidence, "evidence:return-route-verification") {
+	if len(verdicts) != 1 || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || !slices.Contains(verdicts[0].EvaluationEvidence, "evidence:return-route-verification") {
 		t.Fatalf("latest verdicts after the correction = %+v, want the bound mismatch verdict with its evidence", verdicts)
 	}
 }
@@ -566,7 +567,7 @@ func checkpointCorrectionRequestOpen(t *testing.T, s *Store, workID string) int6
 // what the failed-review return does without one and with the wrong one.
 func runCheckpointOperatorAction(t *testing.T, s *Store, workID, key string, payload json.RawMessage, owner WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	operationID := "request_correction" + "-" + workID + "-" + key + "-" + fmt.Sprint(version)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {

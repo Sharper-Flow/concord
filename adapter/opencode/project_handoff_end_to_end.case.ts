@@ -1,6 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { createPrivateKey, createPublicKey } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -19,6 +18,7 @@ import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -27,11 +27,10 @@ import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
 // real session_vacate mutation with its readback-verified landing
 // (CD-0190), and the real project_retirement read deriving
 // READY_TO_CLOSE_OR_REPLACE. A clean checkout has no binary on PATH; declare
-// the test skipped when neither CONCORD_BIN nor a Go toolchain can produce
-// one, so a suite run without the toolchain reports a skip, never a silent
-// pass.
+// the test skipped when no Go toolchain can build one, so a suite run without
+// the toolchain reports a skip, never a silent pass.
 const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
+  Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
     : (name: string, fn: () => Promise<void>) => test.skip(name, fn, { timeout: 300000 })
 
@@ -52,7 +51,6 @@ const RECEIVE_SESSION_B = "session-handoff-receive-b"
 const AGENT = "concord-implement"
 const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(11)
-const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
 const HANDOFF_PREDICATE = {
   predicate_id: "predicate:handoff-e2e-consume",
   ordinal: 0,
@@ -65,20 +63,11 @@ const HANDOFF_PREDICATE = {
   },
 }
 
-type JSONRecord = Record<string, any>
 
 interface HandoffHost {
   sessions: Record<string, { directory: string; metadata: JSONRecord; messages: JSONRecord[]; parentID?: string }>
   taskCalls: number
   lostConsumeAcknowledgement?: boolean
-}
-
-function privateKeyObject() {
-  return createPrivateKey({ key: Buffer.concat([PRIVATE_KEY_PREFIX, Buffer.from(PRIVATE_SEED)]), format: "der", type: "pkcs8" })
-}
-
-function publicKeyBase64(): string {
-  return createPublicKey(privateKeyObject()).export({ format: "der", type: "spki" }).subarray(-32).toString("base64")
 }
 
 async function runProcess(argv: string[], input = "", cwd?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -88,15 +77,6 @@ async function runProcess(argv: string[], input = "", cwd?: string): Promise<{ e
 async function git(cwd: string, ...args: string[]): Promise<void> {
   const result = await runProcess(["git", ...args], "", cwd)
   expect(result.exitCode, `git ${args.join(" ")}: ${result.stderr}`).toBe(0)
-}
-
-function dbValue(dbPath: string, sql: string): any {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).get()
-  } finally {
-    db.close()
-  }
 }
 
 // realCoreRunner spawns the real core binary against the real store for
@@ -227,14 +207,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     expect(toolchain.exitCode, toolchain.stderr).toBe(0)
     childEnv.PATH = `${binRoot}:${join(toolchain.stdout.trim(), "bin")}:${process.env.PATH ?? ""}`
   }
-  let binBuildRoot = ""
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    binBuildRoot = binRoot
-    binary = join(binRoot, "concord")
-    const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-  }
+  const binary = join(binRoot, "concord")
+  const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+  expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
   process.env.CONCORD_DB_PATH = join(root, "concord.db")
   const dbPath = process.env.CONCORD_DB_PATH
   const repoSource = join(root, "repo-source")
@@ -307,7 +282,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     client_ref: CLIENT_REF,
     key_id: "handoff-e2e-key",
     principal_ref: "operator-1",
-    public_key: publicKeyBase64(),
+    public_key: fixturePublicKeyBase64(PRIVATE_SEED),
     capabilities: ["product_read", "work_transition", "work_relate", "worker_dispatch", "worker_evidence"],
     product_scope: [PRODUCT_ID],
     project_scope: [SOURCE_PROJECT, RECEIVE_PROJECT],
@@ -779,7 +754,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")
-    const args: JSONRecord = {}
+    const args: JSONRecord = { subagent_type: "concord-implement" }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task" }, { args })
     host.taskCalls++
     const packet = JSON.parse(args.prompt)

@@ -26,8 +26,6 @@ import { DispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-w
 import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import type { CredentialStore } from "./credentials"
 
-const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
-
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
   const directory = await fs.promises.mkdtemp(prefix)
@@ -155,8 +153,6 @@ const workerBody = (carried: unknown = report()) =>
 // Completion reads one bounded session body for the packet and model
 // readback, and the session index for live-session evidence. The dispatch
 // window supplies the worker directory.
-const sessionIndex = (directory = "/claimed/worktree") => JSON.stringify([{ id: "session-1", directory }])
-
 const okRoute = (data: unknown, link?: string): RouteResult => ({
   data,
   response: new Response(JSON.stringify(data), { status: 200, headers: link ? { link } : undefined }),
@@ -1134,7 +1130,7 @@ test("a refused readback retains session diagnostics on the recorded failed atte
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
@@ -1174,7 +1170,7 @@ test("a refused readback preserves the completed work it would have carried", as
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
@@ -1195,7 +1191,7 @@ test("the retained worker result prefix stays inside the failure detail bound", 
       async get() { return okRoute({ id: "session-9" }) },
       async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
     },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(_argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   // The envelope carries the whole body; the store record retains the prefix.

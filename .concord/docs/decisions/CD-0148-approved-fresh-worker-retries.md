@@ -5,6 +5,8 @@
 - **Scope:** Worker lane dispatch and workflow correction
 - **Amends:** CD-0017, CD-0027
 - **Related:** CD-0013, CD-0059, CD-0102
+- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
+  (the third basis family, `host_changed`)
 
 ## Context
 
@@ -14,6 +16,9 @@ Approval that names only the work item does not prove which failed attempt the
 operator reviewed. A retry also needs a durable bound to the approved contract.
 
 ## Decision
+
+The exact-approval prerequisite and approval scenarios below govern historical pins. For `approval_policy=consequence_v1`, retries require no operator consent. The store revalidates the exact failed attempt and epoch, current contract/job, and unchanged convergence rules before a fresh fenced attempt. Failure history remains immutable; a changed binding refuses without effect rather than inheriting stale authority.
+
 
 After a worker attempt fails below the escalation wall, the agent mutation
 boundary must challenge for an exact operator decision. The challenge binds
@@ -49,7 +54,10 @@ derived ranked-finding set; predicate IDs do not substitute for finding IDs.
 A latest failure supplies no findings
 basis, because a failure carries no findings. A contract supersession after
 the latest dispatch at any step is a changed approach, and a changed
-approach is a basis.
+approach is a basis. A recorded claim for a live leased process that started
+after the latest host execution failure supplies `host_changed` under CD-0239
+D1. This bounded recovery allowance proves neither host repair nor
+authenticated host identity.
 
 Oracle finding IDs resolve through terminal event sequence and ordinal
 (CD-0197). Comparability retains the approved contract, job identity, owner
@@ -63,14 +71,16 @@ An oracle-defect closure supplies no `findings_shrinking` basis. A changed or
 re-pinned required recipe invalidates comparison and cannot mint shrink credit;
 escalation then requires the existing explicit contract-supersession
 `approach_changed` basis. Accepted `no_ship` findings remain debt, not productive
-acceptance or a third basis family. Historical pins retain their comparison.
+acceptance or a basis family. Historical pins retain their comparison.
 
 Each basis admits exactly one fresh fenced attempt, and the admitted
 dispatch consumes its basis. Findings convergence compares records at one
 step, so a step change yields no reusable findings basis. Dispatch
-completion durably records the derived basis token (`findings_shrinking` or
-`approach_changed`) and the sequence references of the events the basis was
-derived from. A convergence dispatch opens no new window: the correction
+completion durably records the derived basis token (`findings_shrinking`,
+`approach_changed`, or `host_changed`) and the sequence references of the
+events the basis was derived from. A `host_changed` token also records the
+host process identity it was derived from. A convergence dispatch opens no new
+window: the correction
 stays escalated until a productive acceptance resets the nonprogress budget
 (CD-0164 D2). Below the
 limit nothing changes: a failed disposition keeps the approval-gated retry,

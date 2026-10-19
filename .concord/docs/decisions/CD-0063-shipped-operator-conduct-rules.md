@@ -9,11 +9,14 @@
   the public record is
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
 - **Related:** CD-0034, CD-0043 (D1, D2, D3),
-  [`../development-authority.md`](../development-authority.md)
+  [`../managed-development-authority.md`](../managed-development-authority.md)
 - **Preserves:** CD-0043 D1 and D2; the reserved `skills/` boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
   and `agent-lane-report.v1`
 - **Supersedes:** nothing
+- **Amended:** 2026-10-18: Clarify manifest-scoped agent ownership and native
+  user customization. Amendment preserves the central installation and
+  provenance rules; no replacement or compatibility path is needed.
 
 ## Context
 
@@ -80,10 +83,12 @@ keeps an always-on corpus out of unrelated projects.
 
 Agents have no path key. They are discovered from fixed directories or
 redirected wholesale by environment, so no per-project pointer exists. The
-installer therefore owns the central OpenCode agents directory, which is the
-location `computeHostPromptProvenance` already prefers over the project copy. An
-agent definition is inert until invoked by name, so central visibility carries
-none of the always-on leakage that governs instructions.
+installer places generated definitions in the central OpenCode agents directory,
+which `computeHostPromptProvenance` prefers over the project copy. Ownership
+covers only the files recorded in the installer manifest, not that directory
+or every Concord-named file. An agent definition is inert until
+invoked by name, so central visibility carries none of the always-on leakage
+that governs instructions.
 
 `skills/` stays reserved and empty under CD-0043 D3. This decision changes where
 Concord's own definitions live, not whether Concord ships a skill.
@@ -113,6 +118,39 @@ but the record omits would reproduce the defect this decision exists to close,
 and would weaken the CD-0034 guarantee that a silent injection change is
 visible in dispatch evidence.
 
+### D6. User customization stays outside shipped definitions
+
+Concord replaces its generated agent definitions from the verified release on
+upgrade. User model choices, tool configuration, permission additions, and
+instructions belong in host-owned OpenCode configuration and instruction files,
+not in edits to those definitions. Install, upgrade, repair, and uninstall
+preserve those user configuration keys and instruction-file bytes. Only Concord's
+own registrations are added or removed from a shared configuration file.
+
+The host's native merge rules determine the effective agent. Global JSON agent
+settings supply fields omitted by the shipped definition, such as model routing.
+The markdown body replaces a same-name global JSON prompt, and its permission
+rules can override global permission settings. Machine-wide agent overrides
+live in the host's home-level `~/.opencode/opencode.json[c]`, which the host loads
+after the generated markdown and project configuration. A release that adds a
+competing model, tool setting, or permission value cannot replace the user's
+same-key machine value. That file holds agent settings only; extra instructions
+stay in files listed in the global configuration's `instructions[]`, and no
+agent markdown is copied into the home-level directory.
+
+Project `.opencode/opencode.json[c]` agent settings provide a project-only layer
+after the global definitions and before the machine overrides. `instructions[]`
+composes user instruction files alongside the shipped prompt rather than
+replacing it. Concord adds no separate overlay store or merge algorithm, and
+never writes or removes anything under `~/.opencode/` unless the operator links
+the home directory itself as a project.
+
+The installer never adopts, rewrites, or prunes an unmanaged agent file. If a
+release introduces a name already used by a host-owned file, installation
+refuses without changing that file. Modified managed definitions likewise
+refuse rather than silently discarding edits; the operator moves additions to
+the user layer and restores the shipped definition before retrying.
+
 ## Consequences
 
 - A Concord project receives the corpus by reference. Upgrading the installation
@@ -125,10 +163,11 @@ visible in dispatch evidence.
   break every project on release, so the installer owns a stable path and
   repairs it. `install.py` rejects a redirected skills path today, and that
   guard must be revisited rather than removed.
-- The installer gains managed state in two further locations: the central agents
-  directory and each consuming project's configuration. Uninstall reverses both,
-  and a project that outlives the installation degrades to no conduct rather
-  than to a dangling reference.
+- The installer manages its manifest-listed central agent files and its
+  registrations in each consuming project's configuration. Uninstall reverses
+  those changes, not user agent settings or user instructions, and a project
+  that outlives the installation degrades to no conduct rather than a dangling
+  reference.
 - Operator instruction that contradicts the corpus still loads, because the
   configuration can only add instruction and never remove it. The corpus
   competes on clarity, not authority, and this decision does not claim
@@ -172,6 +211,10 @@ private predecessor history and host tool coupling into a public release.
   new version without editing that project.
 - A test proves a project without the pointer receives no corpus instruction.
 - A test proves the dispatch provenance digest moves when a corpus file changes.
+- A test installs, adds user agent configuration and instructions, upgrades,
+  repairs, and uninstalls while preserving the user layer and unrelated agents.
+  An opt-in real-host probe checks the resolved model, tool setting, permissions,
+  and instruction registration before and after an upgrade adds competing defaults.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
   `python3 scripts/check-public-content.py`, and
   `python3 scripts/check-cd-allocation.py` pass.

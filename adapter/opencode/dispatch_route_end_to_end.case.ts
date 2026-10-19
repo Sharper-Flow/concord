@@ -1,6 +1,5 @@
-import { expect, test } from "bun:test"
+import { expect } from "bun:test"
 import { Database } from "bun:sqlite"
-import { createPrivateKey, createPublicKey } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -22,6 +21,7 @@ import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
+import { dbRows, dbValue, fixturePublicKeyBase64, git, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -30,7 +30,6 @@ const SESSION_ID = "e2e-session"
 const MESSAGE_ID = "e2e-message"
 const READBACK_MODEL = "openai/gpt-5.6-luna"
 const PRIVATE_SEED = new Uint8Array(32).fill(7)
-const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
 const WORKFLOW_PREDICATE = {
   predicate_id: "predicate:route-e2e-passes",
   ordinal: 0,
@@ -48,51 +47,6 @@ const WORKFLOW_PREDICATE = {
 // so the packet must carry both and keep them distinct.
 const APPROVED_OBJECTIVE = "Add the session marker .concord/docs/dispatch-marker.txt describing the shipped route."
 let sharedCoreBinary: Promise<string> | undefined
-
-type JSONRecord = Record<string, any>
-
-function privateKeyObject() {
-  return createPrivateKey({ key: Buffer.concat([PRIVATE_KEY_PREFIX, Buffer.from(PRIVATE_SEED)]), format: "der", type: "pkcs8" })
-}
-
-function publicKeyBase64(): string {
-  return createPublicKey(privateKeyObject()).export({ format: "der", type: "spki" }).subarray(-32).toString("base64")
-}
-
-async function runProcess(argv: string[], input = "", cwd?: string, env: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, ...env } })
-}
-
-async function runJSON(binary: string, dbPath: string, command: string, value: JSONRecord, cwd?: string): Promise<JSONRecord> {
-  const result = await runProcess([binary, command], JSON.stringify(value), cwd, { CONCORD_DB_PATH: dbPath })
-  expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
-  const lines = result.stdout.trim().split("\n").filter(Boolean)
-  expect(lines).toHaveLength(1)
-  return JSON.parse(lines[0]) as JSONRecord
-}
-
-async function git(cwd: string, ...args: string[]): Promise<void> {
-  const result = await runProcess(["git", ...args], "", cwd)
-  expect(result.exitCode, `git ${args.join(" ")}: ${result.stderr}`).toBe(0)
-}
-
-function dbValue(dbPath: string, sql: string): any {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).get()
-  } finally {
-    db.close()
-  }
-}
-
-function dbRows(dbPath: string, sql: string): any[] {
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    return db.query(sql).all()
-  } finally {
-    db.close()
-  }
-}
 
 // dbExec writes one statement on a dedicated connection, for the
 // distinguished direct corpus controls the route injects and restores. No
@@ -140,10 +94,6 @@ function contextFor(directory: string, sessionID = SESSION_ID) {
   } as any
 }
 
-function reportText(report: JSONRecord): string {
-  return `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
-}
-
 function taskResultRaw(reportTextValue: string, workerSessionID = "worker-session"): string {
   return [
     `<task id="${workerSessionID}" state="completed">`,
@@ -172,27 +122,6 @@ function exportedSession(opening: JSONRecord | null = null, bulkTextBytes = 0, w
   })
 }
 
-function requiredFields(value: JSONRecord, fields: string[]): void {
-  for (const field of fields) expect(value[field], `missing ${field}`).toBeDefined()
-}
-
-// The route test drives the real `concord` binary against a real store. A
-// clean checkout has no binary on PATH; declare the test skipped when neither
-// CONCORD_BIN nor a Go toolchain can produce one, so a suite run without the
-// toolchain reports a skip, never a silent pass.
-const routeTest =
-  process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"], { env: { ...process.env } }).exitCode === 0
-    ? test
-    : test.skip
-
-function routeDeclaration(name: string, body: () => Promise<void>, timeout: number) {
-  const selected = process.env.TEST_CONCORD_ROUTE_CASE
-  return (selected && !new RegExp(selected).test(name) ? test.skip : routeTest)(name, async () => {
-    await body()
-    console.log(`[pass] ${name}`)
-  }, timeout)
-}
-
 interface RouteFixture {
   binary: string
   repo: string
@@ -217,18 +146,15 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   const toolchainBin = join(toolchain.stdout.trim(), "bin")
   const searchPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== toolchainBin)
   process.env.PATH = [toolchainBin, ...searchPath].join(delimiter)
-  let binary = process.env.CONCORD_BIN ?? ""
-  if (!binary) {
-    sharedCoreBinary ??= (async () => {
-      const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
-      await mkdir(binRoot, { recursive: true })
-      const path = join(binRoot, "concord")
-      const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
-      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
-      return path
-    })()
-    binary = await sharedCoreBinary
-  }
+  sharedCoreBinary ??= (async () => {
+    const binRoot = join(ownedFixtureRunRoot(), "shared-core-bin")
+    await mkdir(binRoot, { recursive: true })
+    const path = join(binRoot, "concord")
+    const build = await runProcess(["go", "build", "-o", path, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+    expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    return path
+  })()
+  const binary = await sharedCoreBinary
   const repo = join(root, "repo")
   const dbPath = join(root, "concord.db")
   const configPath = join(repo, "opencode.jsonc")
@@ -310,7 +236,7 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
     client_ref: CLIENT_REF,
     key_id: "dispatch-e2e-key",
     principal_ref: "operator-1",
-    public_key: publicKeyBase64(),
+    public_key: fixturePublicKeyBase64(PRIVATE_SEED),
     capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "research", "worker_evidence", "worker_dispatch"],
     product_scope: [PRODUCT_ID],
     project_scope: [PROJECT_ID],
@@ -450,13 +376,6 @@ async function driveWorkflowToContract(
 
 const ROUTE_WORKER_JOB_ID = "job:route-e2e-repair"
 
-// reportWorkerJob copies the packet's worker-job binding onto the report
-// claim, as a lane worker does (CD-0205).
-function reportWorkerJob(packet: JSONRecord): JSONRecord {
-  const job = (packet.inputs as JSONRecord).worker_job as JSONRecord
-  return { job_id: job.job_id, revision: job.revision, digest: job.digest }
-}
-
 function routeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord, subjectCommit: string, review?: JSONRecord): JSONRecord {
   return {
     schema_version: packet.schema_version,
@@ -497,7 +416,6 @@ async function dispatchRouteTask(
   callID: string,
   context: any,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
-  runner: DispatchRunner,
   setReadback: (packet: JSONRecord, agent: string) => void,
 ): Promise<RouteTaskDispatch> {
   const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: expectedVersion, action_id: "dispatch_worker", idempotency_key: idempotencyKey, fields: { lane_id: lane.id } } })
@@ -617,7 +535,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     const dispatch = async (context: any, laneID: string, key: string) => {
       const typedLane = agentLanes.find((item) => item.id === laneID)!
       context.workerSessionID = `${key}-worker`
-      return dispatchRouteTask(typedLane, workID, worktree, version(), key, `${key}-task`, context, invoke, runner, (packet, agent) => host.opening(context, packet, agent))
+      return dispatchRouteTask(typedLane, workID, worktree, version(), key, `${key}-task`, context, invoke, (packet, agent) => host.opening(context, packet, agent))
     }
     const epoch = (task: RouteTaskDispatch) => dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.worker_attempt_id')='${task.packet.attempt_id}' AND json_extract(payload,'$.action_id')='dispatch_worker'`).n
     const accept = (context: any, task: RouteTaskDispatch, key: string, name = "accept_worker_result") => action(context, name, key, { attempt_id: task.packet.attempt_id, attempt_epoch: epoch(task) })
@@ -862,7 +780,7 @@ routeDeclaration("composes implementation and independent review through one ord
 
     let response: JSONRecord
     for (const reportFailure of ["missing", "malformed"] as const) {
-      const failedDispatch = await dispatchRouteTask(lane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, `e2e-${reportFailure}-report-dispatch`, `e2e-${reportFailure}-report-call`, context, invoke, realRunner,
+      const failedDispatch = await dispatchRouteTask(lane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, `e2e-${reportFailure}-report-dispatch`, `e2e-${reportFailure}-report-call`, context, invoke,
         (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
       let report: JSONRecord | string
       report = reportFailure === "missing"
@@ -887,9 +805,8 @@ routeDeclaration("composes implementation and independent review through one ord
         if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
         return result
       },
-      realRunner,
       (packet, agent) => { boundPacket = packet; activeWorkerAgent = agent })
-    const { dispatchResult, windows, windowWasOpen, taskArgs, packet } = implementation
+    const { dispatchResult, windowWasOpen, taskArgs, packet } = implementation
     expect(dispatchResult.outcome).toBe("ok")
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
     expect(await hostControlPlane().taskScope(SESSION_ID)).toBe("managed")
@@ -1012,7 +929,7 @@ routeDeclaration("composes implementation and independent review through one ord
       acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke, realRunner,
+    const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const failedReviewReport = { ...routeWorkerReport(reviewLane, failedReviewDispatch.packet, subjectCommit, { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "The synthetic review report records a worker failure." }] }), status: "failed" }
     const failedReviewReceipt = await completeRouteTask(failedReviewDispatch, failedReviewReport, realRunner, binary)
@@ -1022,7 +939,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(failedReviewAttempt.failure_kind).toBe("worker_error")
     expect(failedReviewAttempt.failure_detail).toContain("worker reported failure")
     const noShipDispatchVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const noShipReview = await dispatchRouteTask(reviewLane, workID, worktree, noShipDispatchVersion, "e2e-no-ship-review-dispatch", "e2e-no-ship-review-call", context, invoke, realRunner,
+    const noShipReview = await dispatchRouteTask(reviewLane, workID, worktree, noShipDispatchVersion, "e2e-no-ship-review-dispatch", "e2e-no-ship-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const noShipReceipt = await completeRouteTask(noShipReview, routeWorkerReport(reviewLane, noShipReview.packet, subjectCommit, {
       verdict: "no_ship",
@@ -1073,7 +990,7 @@ routeDeclaration("composes implementation and independent review through one ord
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const settlingReviewVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const settlingReview = await dispatchRouteTask(reviewLane, workID, worktree, settlingReviewVersion, "e2e-settling-review-dispatch", "e2e-settling-review-call", context, invoke, realRunner,
+    const settlingReview = await dispatchRouteTask(reviewLane, workID, worktree, settlingReviewVersion, "e2e-settling-review-dispatch", "e2e-settling-review-call", context, invoke,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const settlingJob = settlingReview.packet.inputs.worker_job
     const settlingControl = settlingJob.acceptance_oracle.controls[0]
@@ -1393,7 +1310,7 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     expect(overRefused.error.effect_state).toBe("none")
     expect(snapshot()).toEqual(beforeOverBound)
     b.workerSessionID = "g07-implement-worker"
-    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, runner, (packet, agent) => host.opening(b, packet, agent))
+    const worker = await dispatchRouteTask(lane, workID, worktree, workVersion(), "g07-dispatch", "g07-task", b, invoke, (packet, agent) => host.opening(b, packet, agent))
     expect(worker.taskArgs.subagent_type).toBe("concord-implement")
     expect(worker.packet.work_id).toBe(workID)
     // The selected research rides the shared work context the packet copies

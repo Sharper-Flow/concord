@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,13 +44,13 @@ func unstampedWindows(t *testing.T) []unstampedWindow {
 	return []unstampedWindow{{name: "breaking pending", applied: mixed}, tail}
 }
 
-// assertUnstampedCarrier checks that the refusal reports the manifest it read
-// against this binary's migrations, without the caller parsing Detail.
-func assertUnstampedCarrier(t *testing.T, err error, applied int) *Failure {
+// assertUnstampedFacts checks that the refusal reports the manifest it read
+// against this binary's migrations: the applied head and the pending tail.
+func assertUnstampedFacts(t *testing.T, err error, lead string, applied int) {
 	t.Helper()
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.UnstampedMigration == nil {
-		t.Fatalf("error = %v, want an unstamped migration refusal carrying its manifest facts", err)
+	if !errors.As(err, &failure) {
+		t.Fatalf("error = %v, want an unstamped migration refusal", err)
 	}
 	breaking := 0
 	for _, m := range migrations[applied:] {
@@ -58,22 +59,16 @@ func assertUnstampedCarrier(t *testing.T, err error, applied int) *Failure {
 		}
 	}
 	head, next := migrations[applied-1], migrations[applied]
-	want := UnstampedMigrationRefusal{SchemaVersion: head.Version, HeadName: head.Name,
-		FirstPending: next.Version, FirstPendingName: next.Name, Pending: len(migrations) - applied, PendingBreaking: breaking}
-	if *failure.UnstampedMigration != want {
-		t.Fatalf("refusal carrier = %+v, want %+v", *failure.UnstampedMigration, want)
+	want := fmt.Sprintf("%s at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		lead, head.Version, head.Name, len(migrations)-applied, next.Version, next.Name, breaking)
+	if failure.Detail != want {
+		t.Fatalf("refusal detail = %q, want %q", failure.Detail, want)
 	}
-	return failure
 }
 
-// assertUnstampedRefusal adds the Detail clause that states what the store
-// cannot say: no manifest row names the release that applied it.
 func assertUnstampedRefusal(t *testing.T, err error, applied int) {
 	t.Helper()
-	failure := assertUnstampedCarrier(t, err, applied)
-	if !strings.Contains(failure.Detail, "the store does not record which release applied its migrations") {
-		t.Fatalf("refusal detail = %q, want the absent writer provenance stated", failure.Detail)
-	}
+	assertUnstampedFacts(t, err, "unstamped development build refuses schema migration for an existing store", applied)
 }
 
 // An unstamped development build must not migrate a store that already
@@ -172,10 +167,7 @@ func preColumnStore(t *testing.T, path string, applied int) {
 
 func assertPreColumnRefusal(t *testing.T, err error, path string, applied int) {
 	t.Helper()
-	failure := assertUnstampedCarrier(t, err, applied)
-	if !strings.Contains(failure.Detail, "refuses to repair an existing store's schema manifest") {
-		t.Fatalf("refusal detail = %q, want the manifest repair refusal", failure.Detail)
-	}
+	assertUnstampedFacts(t, err, "unstamped development build refuses to repair an existing store's schema manifest", applied)
 	present, err := columnPresent(context.Background(), openRawDatabase(t, path), "schema_migrations", "breaking")
 	if err != nil || present {
 		t.Fatalf("breaking column present = %v, %v after the refusal; an unstamped build must repair nothing", present, err)

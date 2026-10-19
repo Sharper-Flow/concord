@@ -6,7 +6,7 @@
 **Type:** Development-authority decision.
 
 **Current applicability:** CD-0089 supersedes the self-hosting prohibition.
-[CD-0121](CD-0121-product-scoped-planning-authority.md) amends planning authority
+[CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) amends planning authority
 and issue linkage. Other authority boundaries remain in force.
 
 ## Decision

@@ -27,8 +27,8 @@ func researchSelectionEntry(pack string, revision int64, finding, domain string)
 func seedResearchOwnerWork(t *testing.T, s *Store, id string) {
 	t.Helper()
 	events := []Event{
-		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
-		{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+		{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0}}); err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func seedResearchContextPack(t *testing.T, f workContextFixture, key string) Res
 	for _, link := range [][2]string{{"f1", "s1"}, {"f1", "s2"}, {"f2", "s1"}, {"f2", "s3"}} {
 		exec("link "+link[0]+"-"+link[1], `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,1,?,?)`, pack.PackID, link[0], link[1])
 	}
-	if _, err := s.AppendResearchRevision(context.Background(), AppendResearchRevisionRequest{Identity: researchIdentity(key + "-append"), PackID: pack.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
+	if _, err := appendResearchRevision(context.Background(), s, AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: 1, Revision: simpleResearchRevision()}); err != nil {
 		t.Fatal(err)
 	}
 	exec("s4", `INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at) VALUES(?,2,'s4','issue','https://example.com/newer','Newer','Example','2026-10-02T00:00:00Z')`, pack.PackID)
@@ -696,7 +696,7 @@ func TestWorkContextResearchDrift(t *testing.T) {
 		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&expected); err != nil {
 			t.Fatal(err)
 		}
-		if err := SetResearchFreshness(context.Background(), fixture.store, SetResearchFreshnessRequest{Identity: researchIdentity("stale-rev-set"), PackID: pack.PackID, ExpectedVersion: expected, Freshness: ResearchStale, Revision: 1}); err != nil {
+		if err := setResearchFreshness(context.Background(), fixture.store, SetResearchFreshnessRequest{PackID: pack.PackID, ExpectedVersion: expected, Freshness: ResearchStale, Revision: 1}); err != nil {
 			t.Fatal(err)
 		}
 		document, raw := researchViewDocument(t, fixture)
@@ -796,7 +796,7 @@ func TestWorkContextResearchDrift(t *testing.T) {
 				if err := f.store.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&expected); err != nil {
 					t.Fatal(err)
 				}
-				if err := SetResearchFreshness(context.Background(), f.store, SetResearchFreshnessRequest{Identity: researchIdentity("absent-stale"), PackID: pack.PackID, ExpectedVersion: expected, Freshness: ResearchStale, Revision: 1}); err != nil {
+				if err := setResearchFreshness(context.Background(), f.store, SetResearchFreshnessRequest{PackID: pack.PackID, ExpectedVersion: expected, Freshness: ResearchStale, Revision: 1}); err != nil {
 					t.Fatal(err)
 				}
 			}},

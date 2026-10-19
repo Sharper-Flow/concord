@@ -147,7 +147,7 @@ under [`.concord/docs/knowledge/records/`](./knowledge/records/).
 |---|---|---|
 | `constitution` | file basename without the `.md` suffix | the `constitution` records in the live manifest |
 | `decision` | `CD-` followed by four digits | every decision record in the live manifest |
-| `spec` | a predecessor catalogue code such as PM1, PM3, PM6, PM7, TS3, or TS7; otherwise the file basename | both forms appear in the live manifest |
+| `spec` | a predecessor catalogue code such as PM1, PM3, PM6, TS3, or TS7; otherwise the file basename | both forms appear in the live manifest |
 | `lesson` | file basename without the `.md` suffix | the single `lesson` record in the live manifest |
 | `reference` | file basename without the `.md` suffix | the `reference` record in the live manifest |
 | `research` | file basename without the `.md` suffix | the `research` record in the live manifest |
@@ -163,8 +163,9 @@ It is not the date its body last changed.
 
 Two path constraints bind authorship directly.
 
-A `research` record cannot live under `.concord/docs/research/`. That directory is
-excluded from the closure walk and is ineligible as a record path. A research
+A `research` record cannot live in the `research` directory under `.concord/docs/`.
+The manifest excludes that directory from the closure walk, and it is ineligible as
+a record path. A research
 document that must hold a record has to live elsewhere under `.concord/docs/`.
 
 A `decision` record's path is bound to the decisions directory and the

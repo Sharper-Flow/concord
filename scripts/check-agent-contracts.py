@@ -292,7 +292,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "takeover_attempt": {"payload", "operation_id", "current_claim"},
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
-        "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},
+        "rebuild": {"payload", "event_stream"},
         "start_execution": {"payload"}, "workflow_action": {"payload"}, "record_delivery": {"payload"},
         "concurrent_reads_and_writes": {"payload"}, "repair_and_rebuild": {"payload", "event_stream"},
         "replay": {"payload", "event_stream"},
@@ -564,8 +564,8 @@ def check_workflow_contracts() -> list[str]:
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         # Numbers run 1..57; a retired number is never reused. 3 and 52 were
-        # retired with CD-0236.
-        retired_numbers = {3, 52}
+        # retired with CD-0236, 36 with CD-0238.
+        retired_numbers = {3, 36, 52}
         expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
         if len(scenarios) != len(expected_numbers):
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected {len(expected_numbers)} scenarios, got {len(scenarios)}")
@@ -668,11 +668,9 @@ def _check_evidence_obligation_vocabulary() -> list[str]:
 def _check_lane_agent_selectability() -> list[str]:
     """Prove a lane definition is dispatchable but not operator-selectable (CD-0070).
 
-    Two frontmatter keys carry this and they pull in opposite directions. Run
-    mode refuses a subagent-mode target and silently substitutes the default
-    agent, so CD-0064 D1 requires a primary-capable mode. The host then cycles
-    every primary-capable agent whose hidden flag is unset, which is how a
-    worker lane became selectable as the operator's session agent.
+    Subagent mode keeps lanes out of primary sessions. The hidden flag keeps
+    them out of ordinary discovery; authorized native Task dispatch still
+    resolves their exact names.
 
     The generator's own `--check` proves the definitions match the generator,
     which is self-consistency rather than proof: a change to both sides passes
@@ -690,8 +688,8 @@ def _check_lane_agent_selectability() -> list[str]:
             continue
         if "\nhidden: true\n" not in f"\n{frontmatter}":
             findings.append(f"{relative}: lane definition must declare `hidden: true` (CD-0070 D1)")
-        if "\nmode: all\n" not in f"\n{frontmatter}":
-            findings.append(f"{relative}: lane definition must declare `mode: all` (CD-0064 D1)")
+        if "\nmode: subagent\n" not in f"\n{frontmatter}":
+            findings.append(f"{relative}: lane definition must declare `mode: subagent` (CD-0064 D1)")
     return findings
 
 def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:

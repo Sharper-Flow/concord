@@ -361,6 +361,7 @@ func TestUpcasterConfinement(t *testing.T) {
 		"another holder first":        {[]mutation{body("\tother := Event{}\n\tother.Kind, event.PayloadVersion = \"thing.b\", 2\n\t_ = other\n\treturn event, nil")}, "other.Kind, event.PayloadVersion = \"thing.b\", 2", false},
 		"named result":                {[]mutation{{store, upcastA1, "func upcastA1(event Event) (out Event, err error) {\n\tdefer func() { sink(out) }()\n\tevent.PayloadVersion = 2\n\treturn event, nil\n}"}, declare("func sink(Event) {}")}, "", false},
 		"goto back over the site":     {[]mutation{body("\tn := 0\nagain:\n\tif n == 1 {\n\t\tsink(event)\n\t\treturn event, nil\n\t}\n\tevent.PayloadVersion = 2\n\tn = 1\n\tgoto again"), declare("func sink(Event) {}")}, "", false},
+		"site in a closure":           {[]mutation{body("\tfunc() { event.PayloadVersion = 2 }()\n\treturn event, nil")}, "", false},
 		"three-clause loop":           {[]mutation{body("\tfor i := 0; i < 1; i++ {\n\t\tevent.PayloadVersion = 2\n\t}\n\treturn event, nil")}, "", false},
 		"method value after the site": {[]mutation{body("\tevent.PayloadVersion = 2\n\tf := event.Copy\n\t_ = f\n\treturn event, nil"), declare("func (e Event) Copy() Event { return e }")}, "", false},
 		"parameter replaced":          {[]mutation{body("\tevent = Event{Payload: event.Payload}\n\tevent.PayloadVersion = 2\n\treturn event, nil")}, "", false},
@@ -391,6 +392,23 @@ func TestUpcasterConfinement(t *testing.T) {
 				t.Fatalf("confinement %q; dispatcher %+v; open %+v", got, analysis.Dispatcher, analysis.Open)
 			}
 		})
+	}
+}
+
+// A function that calls the dispatcher once with a lookup and once with its
+// own registration parameter forwards it: its callers are dispatcher callers.
+func TestDispatcherCallersFollowEveryForwardingCall(t *testing.T) {
+	twice := "func twice(event Event, registration EventKindRegistration) (Event, error) {\n\tif _, err := upcastEventWithRegistration(event, eventKindRegistry[event.Kind]); err != nil {\n\t\treturn Event{}, err\n\t}\n\treturn upcastEventWithRegistration(event, registration)\n}\n\nfunc Stray(event Event) (Event, error) { return twice(event, eventKindRegistry[\"thing.b\"]) }"
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "func ReadEvent(", twice + "\n\nfunc ReadEvent("})
+	if analysis.Dispatcher == nil {
+		t.Fatal("no dispatcher")
+	}
+	var callers []string
+	for _, c := range analysis.Dispatcher.Callers {
+		callers = append(callers, strings.TrimPrefix(c.Function, storePkg+"."))
+	}
+	if !slices.Equal(callers, []string{"Stray", "prepareEventWithRegistration", "prepareRecordedEvent", "twice"}) {
+		t.Fatalf("dispatcher callers %q", callers)
 	}
 }
 

@@ -77,7 +77,7 @@ type writerSite struct {
 	// Confinement is "upcaster" on an assignment, outside any loop or
 	// closure, of fields of the site function's own Event parameter, when
 	// the function is reachable only as an Upcaster value through the one
-	// dispatcher and names no result, the parameter's Kind and whole value
+	// dispatcher, names no result, and has no label, the parameter's Kind and whole value
 	// are never assigned, it is never captured or addressed, and after the
 	// site it is only returned or the base of a field selector.
 	Confinement string `json:"confinement,omitempty"`
@@ -1039,19 +1039,13 @@ func (a *analyzer) indexUpcaster(p *checkedPackage, n ast.Node, stack []ast.Node
 	if tv, typed := p.info.Types[expr]; !ok || !typed || tv.IsType() || !a.isNamed(tv.Type, "Upcaster") {
 		return
 	}
-	if binary, ok := stack[len(stack)-1].(*ast.BinaryExpr); ok && (binary.Op == token.EQL || binary.Op == token.NEQ) && (isNil(p, binary.X) || isNil(p, binary.Y)) {
+	if binary, ok := stack[len(stack)-1].(*ast.BinaryExpr); ok && (binary.Op == token.EQL || binary.Op == token.NEQ) && (p.info.Types[binary.X].IsNil() || p.info.Types[binary.Y].IsNil()) {
 		return
 	}
 	a.upcasterExprs[decl] = p
 	if call, ok := stack[len(stack)-1].(*ast.CallExpr); ok && call.Fun == expr {
 		a.upcasterCalls[decl] = p
 	}
-}
-
-func isNil(p *checkedPackage, expr ast.Expr) bool {
-	id, ok := ast.Unparen(expr).(*ast.Ident)
-	_, isNil := p.info.Uses[id].(*types.Nil)
-	return ok && isNil
 }
 
 // handsOnUpcaster reports a node that moves an Upcaster value where no
@@ -1118,7 +1112,7 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 // static call, or a call sits in a closure or outside any function.
 func (a *analyzer) dispatchCallers(dispatcher *function) ([]namedHash, bool) {
 	var callers []namedHash
-	seen := map[*function]bool{}
+	seen, queued := map[*function]bool{}, map[*function]bool{dispatcher: true}
 	for queue := []*function{dispatcher}; len(queue) > 0; queue = queue[1:] {
 		fn := queue[0]
 		if fn == nil || fn.value || fn.upcaster {
@@ -1128,15 +1122,15 @@ func (a *analyzer) dispatchCallers(dispatcher *function) ([]namedHash, bool) {
 			if call.caller == nil || call.caller.decl == nil {
 				return nil, false
 			}
-			if seen[call.caller] {
-				continue
+			if !seen[call.caller] {
+				seen[call.caller] = true
+				name, body := a.declName(call.caller.pkg, call.caller.decl)
+				callers = append(callers, namedHash{name, body})
 			}
-			seen[call.caller] = true
-			name, body := a.declName(call.caller.pkg, call.caller.decl)
-			callers = append(callers, namedHash{name, body})
 			for _, arg := range call.call.Args {
 				id, isIdent := ast.Unparen(arg).(*ast.Ident)
-				if param, ok := a.formals[call.pkg.info.Uses[id]]; isIdent && ok && a.funcs[param.function] == call.caller && a.isNamed(call.pkg.info.Types[arg].Type, "EventKindRegistration") {
+				if param, ok := a.formals[call.pkg.info.Uses[id]]; isIdent && ok && !queued[call.caller] && a.funcs[param.function] == call.caller && a.isNamed(call.pkg.info.Types[arg].Type, "EventKindRegistration") {
+					queued[call.caller] = true
 					queue = append(queue, call.caller)
 					break
 				}

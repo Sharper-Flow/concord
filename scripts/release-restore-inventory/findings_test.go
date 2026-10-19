@@ -128,9 +128,11 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 		"dispatcher renamed": func(a *writerAnalysis) { a.Dispatcher.Function = "store.other" },
 		"guard dropped":      func(a *writerAnalysis) { a.Dispatcher.Guards = a.Dispatcher.Guards[:1] },
 		"caller changed":     func(a *writerAnalysis) { a.Dispatcher.Callers = []namedHash{{"store.prepare", "sha256:9999"}} },
-		"caller added":       func(a *writerAnalysis) { a.Dispatcher.Callers = append(a.Dispatcher.Callers, namedHash{"store.other", "sha256:4444"}) },
-		"no dispatcher":      func(a *writerAnalysis) { a.Dispatcher = nil },
-		"confinement lost":   func(a *writerAnalysis) { a.Open[1].Confinement = "" },
+		"caller added": func(a *writerAnalysis) {
+			a.Dispatcher.Callers = append(a.Dispatcher.Callers, namedHash{"store.other", "sha256:4444"})
+		},
+		"no dispatcher":    func(a *writerAnalysis) { a.Dispatcher = nil },
+		"confinement lost": func(a *writerAnalysis) { a.Open[1].Confinement = "" },
 	} {
 		a := analysis()
 		drift(&a)
@@ -183,9 +185,9 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 		"closing after":                `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
 		"repeated key":                 `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
 		"upcast without guard":         `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","check":"c"}]}`,
-		"upcast with a site key":       `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","function":"f","check":"c"}]}`,
+		"upcast with a site key":       `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"function":"f","check":"c"}]}`,
 		"read-back with a dispatcher":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"dispatcher":"d","check":"c"`, 1) + `]}`,
-		"repeated upcast key":          `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","check":"c"},{"id":"v","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","check":"c"}]}`,
+		"repeated upcast key":          `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"},{"id":"v","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"}]}`,
 		"site key in two classes":      `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.TrimSuffix(strings.Replace(strings.Replace(entry, "read_back", "replay_decoder", 1), `"x"`, `"y"`, 1), "}") + `,"check_subject_digest":"s"}]}`,
 		"replay without check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, "read_back", "replay_decoder", 1) + `]}`,
 		"read-back with check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"check_subject_digest":"s","check":"c"`, 1) + `]}`,

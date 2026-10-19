@@ -173,30 +173,26 @@ class PrimaryPromptCheckTests(unittest.TestCase):
                 phrase,
             )
 
-    def test_rte_coordination_pass_and_idle_gate_are_required(self) -> None:
+    def test_rte_coordination_and_planning_obligations_are_required(self) -> None:
         for phrase in (
             "On every activation, run a coordination pass across the assigned streams",
             "Handling a notice does not finish the pass",
             "Respect operator pauses",
             "Before going idle, confirm all of the following",
             "No incoming notice or permitted RTE-owned action remains",
-            "No eligible assignment remains without an owner or a recorded reason it cannot proceed",
+            "No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed",
             "Planning reflects the observed state",
             "Every unfinished stream has an owner and next action",
             "After acting, recheck only the affected streams",
             "Do not repeatedly scan unchanged state or prompt workers already doing permitted work",
             "Wait for worker notices, CI results, or operator input",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)
-
-    def test_rte_planning_and_host_responsibilities_are_required(self) -> None:
-        for phrase in (
             "Follow host instructions for session launch, reuse, and lifecycle",
             "Reconcile assigned Linear issues during each pass",
             "Keep status, execution owner, blockers, next actions, and evidence links current",
-            "An idle pane, finished turn, or merged PR alone does not prove the item is Done",
+            "An idle session, finished turn, or merged PR alone does not prove the item is Done",
+            "When acceptance remains but no session or PR is active, use the team's nonterminal waiting or unstarted state",
             "Keep unmerged, merged, released, and installed states distinct",
+            "Do not keep a second planning backlog in a repository or host journal",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, check_primary_prompts.RTE_REQUIRED_PHRASES)

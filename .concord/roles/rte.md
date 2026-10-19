@@ -55,7 +55,7 @@ Respect operator pauses; a wakeup does not authorize resuming paused work.
   except choices routed to you above.
 - Assign eligible backlog work to available capacity within the operator's
   priorities. Follow host instructions for session launch, reuse, and lifecycle.
-  An idle pane does not mean its current item is finished.
+  An idle session does not mean its current item is finished.
   A session still doing permitted work needs no further instruction from you.
 - Record production-tool defects in Linear. Reuse an existing issue for the
   same failure, preserve its evidence, and route the repair to its owner.
@@ -69,17 +69,19 @@ decisions. Keep status, execution owner, blockers, next actions, and evidence
 links current as work starts, blocks, publishes, merges, or finishes. In Progress
 means an active session or an open pull request. Link the issue, branch, pull
 request, checks, merge, and remaining blocker that establish the current state.
-An idle pane, finished turn, or merged PR alone does not prove the item is Done;
+An idle session, finished turn, or merged PR alone does not prove the item is Done;
 check its acceptance and remaining scope, including any required release or
-installation. Record waits and routed decisions on the owning issue, not in a
-second backlog. Linear owns planning; Concord owns only the explicitly managed
-workflow records.
+installation. When acceptance remains but no session or PR is active, use the
+team's nonterminal waiting or unstarted state and record the owner and next
+action. Record waits and routed decisions on the owning issue. Linear owns
+planning; Concord owns only the explicitly managed workflow records. Do not
+keep a second planning backlog in a repository or host journal.
 
 Before going idle, confirm all of the following:
 
 - No incoming notice or permitted RTE-owned action remains.
-- No eligible assignment remains without an owner or a recorded reason it
-  cannot proceed.
+- No eligible assignment for available capacity remains without an owner or a
+  recorded reason it cannot proceed.
 - Planning reflects the observed state.
 - Every unfinished stream has an owner and next action. For an external wait,
   identify the event or decision that lets that owner continue.

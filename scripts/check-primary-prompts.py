@@ -59,7 +59,7 @@ RTE_REQUIRED_PHRASES = (
     "Respect operator pauses",
     "Before going idle, confirm all of the following",
     "No incoming notice or permitted RTE-owned action remains",
-    "No eligible assignment remains without an owner or a recorded reason it cannot proceed",
+    "No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed",
     "Planning reflects the observed state",
     "Every unfinished stream has an owner and next action",
     "After acting, recheck only the affected streams",
@@ -68,8 +68,10 @@ RTE_REQUIRED_PHRASES = (
     "Follow host instructions for session launch, reuse, and lifecycle",
     "Reconcile assigned Linear issues during each pass",
     "Keep status, execution owner, blockers, next actions, and evidence links current",
-    "An idle pane, finished turn, or merged PR alone does not prove the item is Done",
+    "An idle session, finished turn, or merged PR alone does not prove the item is Done",
+    "When acceptance remains but no session or PR is active, use the team's nonterminal waiting or unstarted state",
     "Keep unmerged, merged, released, and installed states distinct",
+    "Do not keep a second planning backlog in a repository or host journal",
 )
 CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",

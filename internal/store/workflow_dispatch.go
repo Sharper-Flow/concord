@@ -373,7 +373,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		// events for a tuple first seen on this action (a host restart mints
 		// a new session identity). Complete is the one action that does not
 		// consume the assembly's events, so they travel as a prefix here;
-		// dropping them left a restarted session unable to complete.
+		// without them a restarted session cannot complete.
 		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
@@ -701,8 +701,8 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 // refs an action derives from its own payload, and returns that merge as a set.
 // An evidence array may legally name one locator twice, once per evidence kind
 // — a pull request is both the commit and the review evidence — and the stored
-// result_evidence_refs records each subject once. Every derived ref below is
-// appended through a contains guard, so normalizing the request's own refs here
+// result_evidence_refs records each subject once. Every derived ref below
+// merges through dedupeWorkflowRefs, so normalizing the request's own refs here
 // makes the whole merged list a set.
 func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload json.RawMessage) ([]string, bool, error) {
 	request.EvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)

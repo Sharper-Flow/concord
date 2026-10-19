@@ -22,12 +22,11 @@ import (
 const MaxEnvelopeBytes = 65536
 
 // MaxRequestBytes is the request transport limit for the whole invoke
-// request — the plugin request envelope and the CLI stdin body. It is the
-// next power of two above the composed declared maxima of a dispatch request:
-// the whole-action packet budget plus the operation input fields and the
-// call envelope's host-owned identities. It never bounds a response; the
-// response caps stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
-const MaxRequestBytes = 64 * 1024 * 1024
+// request — the plugin request envelope and the CLI stdin body. It aliases
+// the store's shared action payload ceiling, which the widest-shape
+// derivation in internal/agent pins. It never bounds a response, whose caps
+// stay MaxEnvelopeBytes and MaxResultEnvelopeBytes.
+const MaxRequestBytes = store.MaxWorkflowActionPayloadBytes
 
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200

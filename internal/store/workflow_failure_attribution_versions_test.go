@@ -380,8 +380,9 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	}
 	// The dispatch walk resolves the worker packet through its context
 	// aggregate bound, exactly as the request derivation does, so the
-	// dispatch input stays the widest composition the budgets' roundings
-	// rest on.
+	// dispatch and correction shapes keep one shared construction; the
+	// ceilings' exact rounding derives from the widest admitted action
+	// shape in the agent package's widest-shape test.
 	packetOpt := schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
@@ -465,7 +466,7 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		if composed >= dispatch {
-			t.Fatalf("the %s composed maxima %d bytes reach the dispatch composition %d bytes; the dispatch input must stay the widest derivation the request rounding rests on", name, composed, dispatch)
+			t.Fatalf("the %s composed maxima %d bytes reach the dispatch composition %d bytes; the correction attribution input must stay narrower than the dispatch composition this check pins", name, composed, dispatch)
 		}
 	}
 }

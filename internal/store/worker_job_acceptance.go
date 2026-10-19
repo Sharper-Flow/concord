@@ -374,7 +374,7 @@ func workerJobForeignAcceptedPathsTx(ctx context.Context, tx *sql.Tx, workID, jo
 			if measured {
 				return nil, newFailure(KindInvalidOperation, "workflow_action",
 					"accept_worker_result: job "+record.owner+"'s accepted change to "+path+" entered worker job "+jobID+"'s measured paths, which a correction serializes",
-					false, "split worker job "+jobID+" through record_worker_job so each successor measures from a base that separates the accepted change")
+					false, "reject the completed attempt with reject_worker_result, then split worker job "+jobID+" through record_worker_job without replaced_attempt so each successor measures from a base that separates the accepted change")
 			}
 			foreign[path] = true
 		}

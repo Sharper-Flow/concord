@@ -463,7 +463,7 @@ func dispatchSubjectProbeFailure(what string, probeCtx context.Context, err erro
 	if probeCtx.Err() != nil {
 		return wrapFailure(KindTimeout, workerDispatchFreshnessOp, "the dispatch subject observation exceeded its fixed probe deadline while reading "+what, true, "retry the dispatch once the worktree answers", err)
 	}
-	return wrapFailure(KindGitUnreachable, workerDispatchFreshnessOp, "cannot observe the claimed worktree's "+what, true, "retry the dispatch once the worktree is reachable", err)
+	return wrapFailure(KindGitUnreachable, workerDispatchFreshnessOp, "cannot observe the claimed worktree's "+what, true, "restore the referenced objects or repair repository access, then prepare the dispatch again", err)
 }
 
 // admitWorkerDispatchSubjectFreshness is the transactional half of the one

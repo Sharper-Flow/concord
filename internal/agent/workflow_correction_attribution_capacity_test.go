@@ -47,80 +47,17 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 			correction = composed
 		}
 	}
-	// The dispatch variant stays the widest composition the request budget's
-	// rounding rests on, so the correction attribution input rides inside the
-	// derived budget the dispatch derivation already proves.
-	packetOpt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet2/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": store.OracleCombinedMaxBytes,
-			"worker_packet2/inputs/design_record/workflow_design_record/recorded_at":      32,
-			"worker_packet2/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet2/inputs/work_context": true,
-			"worker_packet2/inputs/checkpoint":   true,
-			"worker_packet2/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", packetOpt)
-	if err != nil {
-		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
-	}
-	// The research-context packet3 identity rides the same
-	// composition: its research closure sits inside the excluded work_context
-	// member, so the promoted heads' dispatch identity derives identically
-	// and the retained packet2 evidence stays.
-	packet3Opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet3/inputs/worker_job/worker_packet_worker_job/acceptance_oracle": store.OracleCombinedMaxBytes,
-			"worker_packet3/inputs/design_record/workflow_design_record/recorded_at":      32,
-			"worker_packet3/inputs/proposal_record/workflow_proposal_record/recorded_at":  32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet3/inputs/work_context": true,
-			"worker_packet3/inputs/checkpoint":   true,
-			"worker_packet3/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
-	if err != nil {
-		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
-	}
-	// The size-capable packet4 identity adds the recorded size members and
-	// the caller exclusions inside worker_job; it derives its own part.
-	packet4Opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/acceptance_oracle":                                                                                                                                                 store.OracleCombinedMaxBytes,
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/measurement_basis/worker_job_measurement_basis/base_commit":                                                                                                        71,
-			"worker_packet4/inputs/worker_job/worker_packet4_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
-			"worker_packet4/inputs/design_record/workflow_design_record/recorded_at":                                                                                                                                                       32,
-			"worker_packet4/inputs/proposal_record/workflow_proposal_record/recorded_at":                                                                                                                                                   32,
-		},
-		Excludes: map[string]bool{
-			"worker_packet4/inputs/work_context": true,
-			"worker_packet4/inputs/checkpoint":   true,
-			"worker_packet4/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
-	if err != nil {
-		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
-	}
-	if packet3Parts != packetParts {
-		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
-	}
+	// The dispatch variant stays narrower than the widest admitted action
+	// shape the shared ceilings' rounding derives from; this structural
+	// check keeps the correction attribution input inside the dispatch
+	// composition that the per-shape request proof carries.
+	packet2, packet3, packet4 := derivedPacketFigures(t, defs, findingRefMax)
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
-			"worker_packet2": packetParts + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet3": packet3Parts + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet4": packet4Parts + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet2": packet2 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet3": packet3 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet4": packet4 + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: findingRefMax,
 	}

@@ -27,7 +27,7 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
-- **Amended:** 2026-10-19, pending the operator's approval of the exact text
+- **Amended:** 2026-10-19, approved by the operator as exact text
   for [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
   D4's P12 Domain test counts the child Domains of the laws a change adds,
   modifies, or removes, not its footprint record. The change is serious under

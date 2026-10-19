@@ -75,6 +75,8 @@ if MODE == "grow":
 if MODE == "deaf":
     import time
     time.sleep(30)
+if MODE == "refuse-invoke" and sys.argv[1] == "invoke":
+    sys.exit(2)
 request = json.load(sys.stdin)
 db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
@@ -254,6 +256,12 @@ class CaseTests(unittest.TestCase):
         self.assertNotIn("product-knowledge-source-register", verbs("v11.58.9"))
         self.assertEqual(len(verbs("v11.59.0")), len(gate.RECIPE))
         self.assertNotEqual(gate.recipe_sha256(gate.recipe_for("v4.3.0")), gate.recipe_sha256(gate.recipe_for("v4.7.0")))
+
+    def test_an_invoke_refusal_is_a_named_invoke_failure(self) -> None:
+        row = self.case(self.fixture.publish("v1.0.0", mode="refuse-invoke"), self.fixture.candidate())
+        self.assertCase(row, "unknown", "invoke-invoke")
+        self.assertEqual(row["witnesses"], [])
+        self.assertIn("exited 2", row["detail"])
 
     def test_a_missing_versioned_subject_is_a_named_recipe_failure(self) -> None:
         store = self.fixture.root / "empty.db"

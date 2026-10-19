@@ -268,13 +268,18 @@ def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadlin
                 os.killpg(child.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            # The supervisor stays unreaped until it leaves the registry, so an
+            # interrupt never signals a reused process-group ID.
+            settle = time.monotonic() + SUPERVISOR_SECONDS
+            while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None and time.monotonic() < settle:
+                time.sleep(POLL_SECONDS)
             try:
-                child.wait(timeout=SUPERVISOR_SECONDS)
-            except subprocess.TimeoutExpired:
                 os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
+            except ProcessLookupError:
+                pass
             with ACTIVE_LOCK:
                 ACTIVE.discard(child.pid)
+            child.wait()
     if out_path.stat().st_size + err_path.stat().st_size > limit:
         raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
     return child.returncode, "" if stdout_path else out_path.read_text(errors="replace")

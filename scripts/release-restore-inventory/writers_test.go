@@ -262,15 +262,15 @@ const (
 	mainPkg  = fixtureModule + "/cmd/concord"
 )
 
-func site(t *testing.T, analysis writerAnalysis, function, expression string) writerSite {
+// site requires an open site of function with that expression.
+func site(t *testing.T, analysis writerAnalysis, function, expression string) {
 	t.Helper()
 	for _, s := range analysis.Open {
 		if s.Function == function && s.Expression == expression {
-			return s
+			return
 		}
 	}
 	t.Fatalf("no open site %s %q in %+v", function, expression, analysis.Open)
-	return writerSite{}
 }
 
 func TestFixtureAnalysisListsEachSite(t *testing.T) {
@@ -312,6 +312,87 @@ func TestEachWriteFormIsASite(t *testing.T) {
 func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.PayloadVersion = pair()`},
 		"positional literal":     {`func Positional() Event { return Event{"thing.a", SubjectProduct, 1, nil} }`, "Positional", `Event{"thing.a", SubjectProduct, 1, nil}`},
 		"literal eliding &Event": {`func Elided() []*Event { return []*Event{{Kind: "thing.a", PayloadVersion: 1}} }`, "Elided", `{Kind: "thing.a", PayloadVersion: 1}`},
+		"conversion into an Event": {`type raw struct {
+	Kind           string
+	SubjectType    SubjectType
+	PayloadVersion int
+	Payload        []byte
+}
+
+func Convert(r raw) Event { return Event(r) }`, "Convert", "Event(r)"},
+		"holder handed to an interface": {`func Decode(data []byte, event *Event) error { return json.Unmarshal(data, event) }`, "Decode", "json.Unmarshal(data, event)"},
+		"holder assigned to an interface": {`func Hold(event *Event) any {
+	var held any
+	held = event
+	return held
+}`, "Hold", "held"},
+		"holder returned as an interface": {`func Expose(event *Event) any { return event }`, "Expose", "return event"},
+		"holder in an interface field": {`type box struct{ value any }
+
+func Box(event *Event) box { return box{value: event} }`, "Box", "event"},
+		"update statement": {`func Rewrite(db *sql.DB) error {
+	_, err := db.Exec("UPDATE domain_events SET payload_version = 1")
+	return err
+}`, "Rewrite", `"UPDATE domain_events SET payload_version = 1"`},
+		"insert of other values": {`func Forge(db *sql.DB, event Event) error {
+	_, err := db.Exec("INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, 1, ?)", event.Kind, event.Payload)
+	return err
+}`, "Forge", `"INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, 1, ?)"`},
+		"insert of two Events' fields": {`func Mix(db *sql.DB, a, b Event) error {
+	_, err := db.Exec("INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, ?, ?)", a.Kind, b.PayloadVersion, a.Payload)
+	return err
+}`, "Mix", `"INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, ?, ?)"`},
+		"pointer conversion into an Event": {`type raw struct {
+	Kind           string
+	SubjectType    SubjectType
+	PayloadVersion int
+	Payload        []byte
+}
+
+func Cast(r *raw) *Event { return (*Event)(r) }`, "Cast", "(*Event)(r)"},
+		"holder as an interface map key":              {`func Key(event *Event) map[any]bool { return map[any]bool{event: true} }`, "Key", "event"},
+		"holder indexing an interface-keyed map":      {`func Index(seen map[any]bool, event *Event) { seen[event] = true }`, "Index", "seen[event]"},
+		"map with holder keys handed to an interface": {`func Keys(events map[*Event]bool) ([]byte, error) { return json.Marshal(events) }`, "Keys", "json.Marshal(events)"},
+		"channel of holders handed to an interface":   {`func Chan(events chan *Event) ([]byte, error) { return json.Marshal(events) }`, "Chan", "json.Marshal(events)"},
+		"holder sent on an interface channel":         {`func Send(events chan any, event *Event) { events <- event }`, "Send", "events <- event"},
+		"holder declared as an interface": {`func Declare(event *Event) any {
+	var held any = event
+	return held
+}`, "Declare", "held"},
+		"holder spread into interface variables": {`func Unpack(event *Event) (any, error) {
+	var held any
+	var err error
+	held, err = hold(event)
+	return held, err
+}
+
+func hold(event *Event) (*Event, error) { return event, nil }`, "Unpack", "held"},
+		"holder spread into a call": {`func Show(event *Event) { show(hold(event)) }
+
+func hold(event *Event) (*Event, error) { return event, nil }
+
+func show(values ...any) {}`, "Show", "show(hold(event))"},
+		"holder spread into interface results": {`func Spread(event *Event) (any, error) { return hold(event) }
+
+func hold(event *Event) (*Event, error) { return event, nil }`, "Spread", "return hold(event)"},
+		"holder returned from a function literal": {`func Later(event *Event) func() any { return func() any { return event } }`, "Later", "return event"},
+		"constant concatenation": {`func Concat(db *sql.DB) error {
+	const rewrite = "UPDATE " + "domain_events SET kind = 'thing.b'"
+	_, err := db.Exec(rewrite)
+	return err
+}`, "Concat", `"UPDATE " + "domain_events SET kind = 'thing.b'"`},
+		"quoted, schema-qualified table": {`func Quoted(db *sql.DB) error {
+	_, err := db.Exec("UPDATE \"main\".\"domain_events\" SET kind = 'thing.b'")
+	return err
+}`, "Quoted", `"UPDATE \"main\".\"domain_events\" SET kind = 'thing.b'"`},
+		"insert or replace": {`func Upsert(db *sql.DB, event Event) error {
+	_, err := db.Exec("INSERT OR REPLACE INTO domain_events (kind, payload_version) VALUES (?, ?)", event.Kind, event.PayloadVersion)
+	return err
+}`, "Upsert", `"INSERT OR REPLACE INTO domain_events (kind, payload_version) VALUES (?, ?)"`},
+		"insert naming kind twice": {`func Twice(db *sql.DB, event Event) error {
+	_, err := db.Exec("INSERT INTO domain_events (KIND, kind, payload_version) VALUES (?, ?, ?)", "thing.b", event.Kind, event.PayloadVersion)
+	return err
+}`, "Twice", `"INSERT INTO domain_events (KIND, kind, payload_version) VALUES (?, ?, ?)"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
@@ -326,6 +407,74 @@ func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.P
 			}
 		})
 	}
+}
+
+// A holder reaches an interface or unsafe pointer through a variadic
+// argument, a slice of holders, or a pointer conversion.
+func TestHolderEscapesAreSites(t *testing.T) {
+	const anchor = "func ReadEvent("
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "import (", "import (\n\t\"fmt\"\n\t\"unsafe\""},
+		mutation{"internal/store/store.go", anchor, `func Print(event *Event) string { return fmt.Sprint("event", event) }
+
+func Batch(events []*Event) string { return fmt.Sprint(events) }
+
+func Raw(event *Event) unsafe.Pointer { return unsafe.Pointer(event) }
+
+` + anchor})
+	site(t, analysis, storePkg+".Print", `fmt.Sprint("event", event)`)
+	site(t, analysis, storePkg+".Batch", "fmt.Sprint(events)")
+	site(t, analysis, storePkg+".Raw", "unsafe.Pointer(event)")
+}
+
+// A type parameter holds an Event only through an instantiation the binary
+// makes, including one through another generic.
+func TestTypeParameterHoldsWhatItIsInstantiatedWith(t *testing.T) {
+	const anchor = "func ReadEvent("
+	generic := `func decode[T any](data []byte, value *T) error { return json.Unmarshal(data, value) }
+
+func relay[T any](data []byte, value *T) error { return decode(data, value) }
+
+type box[T any] struct{ value *T }
+
+func (b box[T]) fill(data []byte) error { return json.Unmarshal(data, b.value) }
+
+`
+	payload := analyzeFixture(t, mutation{"internal/store/store.go", anchor, generic + `func LoadPayload(data []byte) (map[string]int, error) {
+	var payload map[string]int
+	err := relay(data, &payload)
+	return payload, errors.Join(err, box[map[string]int]{&payload}.fill(data))
+}
+
+` + anchor})
+	for _, s := range payload.Open {
+		if strings.HasSuffix(s.Function, ".decode") || strings.HasSuffix(s.Function, ".fill") {
+			t.Fatalf("a parameter never bound to an Event holds one: %+v", s)
+		}
+	}
+	event := analyzeFixture(t, mutation{"internal/store/store.go", anchor, generic + `func LoadEvent(data []byte) (Event, error) {
+	var event Event
+	err := relay(data, &event)
+	return event, errors.Join(err, box[Event]{&event}.fill(data))
+}
+
+` + anchor})
+	site(t, event, storePkg+".decode", "json.Unmarshal(data, value)")
+	site(t, event, "("+storePkg+".box[T]).fill", "json.Unmarshal(data, b.value)")
+}
+
+// An instantiation in another package binds the declaring package's parameter.
+func TestTypeParameterBoundInAnotherPackage(t *testing.T) {
+	analysis := analyzeFixture(t,
+		mutation{"internal/store/store.go", "func ReadEvent(", "func Decode[T any](data []byte, value *T) error { return json.Unmarshal(data, value) }\n\nfunc ReadEvent("},
+		mutation{"cmd/concord/main.go", "func keep(store.Event) {}", "func keep(event store.Event) { _ = store.Decode(nil, &event) }"})
+	site(t, analysis, storePkg+".Decode", "json.Unmarshal(data, value)")
+}
+
+func TestEmbeddedSQLIsASite(t *testing.T) {
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "import (", "import (\n\t_ \"embed\""},
+		mutation{"internal/store/store.go", "type Tx struct{}", "//go:embed rewrite.sql\nvar rewrite string\n\ntype Tx struct{}"},
+		mutation{"internal/store/rewrite.sql", "", "UPDATE domain_events SET kind = 'thing.b';\n"})
+	site(t, analysis, storePkg+" embed rewrite.sql", "embedded file writes domain_events")
 }
 
 func TestUnanalyzableSourceIsRefused(t *testing.T) {

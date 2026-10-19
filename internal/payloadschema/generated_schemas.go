@@ -12945,6 +12945,14 @@ const GeneratedPayloadSchemaDocument = `{
                 "asserted"
               ],
               "type": "string"
+            },
+            "supplemental_classifications": {
+              "items": {
+                "$ref": "#/$defs/worker_job_measured_path"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
             }
           },
           "required": [

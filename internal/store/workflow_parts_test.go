@@ -75,8 +75,8 @@ func TestLiveHeadsAreTheirCompiledCompositions(t *testing.T) {
 
 // The composed heads match the released heads they succeed beyond the
 // declared member change: each size-capable head equals its predecessor
-// except the version, the action-catalog pin, and the three optional
-// record_worker_job members the v2 catalog declares. The normalization
+// except the version, the action-catalog pin, and the optional job-size
+// members the v2 catalog declares. The normalization
 // strips exactly those members, so any other drift fails the comparison.
 func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	t.Parallel()
@@ -112,8 +112,8 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 	}
 }
 
-// stripWorkerJobSizeMembers removes the three optional size members from the
-// rendered record_worker_job declarations and renames the dispatch packet
+// stripWorkerJobSizeMembers removes the optional size members from the
+// rendered job and acceptance declarations and renames the dispatch packet
 // closure back to the retained one, so the size-capable heads compare equal
 // to their predecessors modulo the declared member and closure change.
 func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
@@ -134,7 +134,7 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 			t.Fatalf("rendered action definition is not an object: %#v", action)
 		}
 		id, _ := entry["id"].(string)
-		if id != "record_worker_job" && id != "dispatch_worker" {
+		if id != "record_worker_job" && id != "dispatch_worker" && id != "accept_worker_result" {
 			continue
 		}
 		seen[id] = true
@@ -146,10 +146,11 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 		if !ok {
 			t.Fatalf("rendered %s payload carries no fields list", id)
 		}
-		if id == "record_worker_job" {
+		if id == "record_worker_job" || id == "accept_worker_result" {
 			kept := fields[:0]
 			for _, field := range fields {
-				if named, ok := field.(map[string]any); ok && members[named["name"].(string)] {
+				named, ok := field.(map[string]any)
+				if ok && ((id == "record_worker_job" && members[named["name"].(string)]) || (id == "accept_worker_result" && named["name"] == "supplemental_classifications")) {
 					continue
 				}
 				kept = append(kept, field)
@@ -164,8 +165,8 @@ func stripWorkerJobSizeMembers(t *testing.T, shape string) string {
 			}
 		}
 	}
-	if !seen["record_worker_job"] || !seen["dispatch_worker"] {
-		t.Fatalf("rendered shape declares record_worker_job=%v dispatch_worker=%v, want both", seen["record_worker_job"], seen["dispatch_worker"])
+	if !seen["record_worker_job"] || !seen["dispatch_worker"] || !seen["accept_worker_result"] {
+		t.Fatalf("rendered shape declares record_worker_job=%v dispatch_worker=%v accept_worker_result=%v, want all three", seen["record_worker_job"], seen["dispatch_worker"], seen["accept_worker_result"])
 	}
 	raw, err := json.Marshal(document)
 	if err != nil {

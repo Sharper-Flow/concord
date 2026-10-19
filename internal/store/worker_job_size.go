@@ -205,16 +205,9 @@ func authorWorkerJobSizeTx(ctx context.Context, tx *sql.Tx, workID string, contr
 // held that base equal to the admitted clean subject. It is empty when no
 // implementation dispatch followed the last satisfaction.
 func workerJobRetainedBaseTx(ctx context.Context, q queryer, workID, jobID string) (string, error) {
-	cutoff, err := workerJobSatisfactionSeqTx(ctx, q, workID, jobID)
-	if err != nil {
+	first, _, found, err := workerJobFirstImplementationDispatchTx(ctx, q, workID, jobID)
+	if err != nil || !found {
 		return "", err
-	}
-	first := WorkerJobBinding{JobID: jobID}
-	switch err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_job.revision'), json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id')=? AND seq>? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, jobID, cutoff).Scan(&first.Revision, &first.Digest); {
-	case err == sql.ErrNoRows:
-		return "", nil
-	case err != nil:
-		return "", wrapFailure(KindUnavailable, "worker_job_size", "cannot read the job's first implementation dispatch", true, "retry once the event log is readable", err)
 	}
 	content, err := readWorkerJobSizeContentTx(ctx, q, workID)
 	if err != nil {
@@ -224,6 +217,25 @@ func workerJobRetainedBaseTx(ctx context.Context, q queryer, workID, jobID strin
 		return entry.basis.BaseCommit, nil
 	}
 	return "", nil
+}
+
+// workerJobFirstImplementationDispatchTx reads the job's first
+// implementation dispatch authorization after its last satisfaction: the
+// revision it bound and its event seq. found is false when none exists.
+func workerJobFirstImplementationDispatchTx(ctx context.Context, q queryer, workID, jobID string) (WorkerJobBinding, int64, bool, error) {
+	cutoff, err := workerJobSatisfactionSeqTx(ctx, q, workID, jobID)
+	if err != nil {
+		return WorkerJobBinding{}, 0, false, err
+	}
+	first := WorkerJobBinding{JobID: jobID}
+	var seq int64
+	switch err := q.QueryRowContext(ctx, `SELECT seq, json_extract(payload,'$.worker_job.revision'), json_extract(payload,'$.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id')=? AND seq>? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, jobID, cutoff).Scan(&seq, &first.Revision, &first.Digest); {
+	case err == sql.ErrNoRows:
+		return WorkerJobBinding{}, 0, false, nil
+	case err != nil:
+		return WorkerJobBinding{}, 0, false, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the job's first implementation dispatch", true, "retry once the event log is readable", err)
+	}
+	return first, seq, true, nil
 }
 
 // validateWorkerJobSizeShape enforces the closed shape the retained payload
@@ -261,30 +273,8 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 		return fail(fmt.Sprintf("worker.job_recorded measurement_basis carries %d paths; 1 to %d are declared", len(basis.Paths), WorkerJobMeasuredPathsMax),
 			"inventory the explicit edit paths, at most "+fmt.Sprint(WorkerJobMeasuredPathsMax))
 	}
-	seen := map[string]bool{}
-	for _, measured := range basis.Paths {
-		if problem := normalizedRelativeRepoPathProblem("worker.job_recorded measurement_basis paths", measured.Path); problem != "" {
-			return fail(problem, "supply a normalized relative repository path")
-		}
-		if seen[measured.Path] {
-			return fail("worker.job_recorded measurement_basis carries path "+measured.Path+" twice", "inventory each measured path once")
-		}
-		seen[measured.Path] = true
-		if !slices.Contains(workerJobMeasuredPathClasses, measured.Class) {
-			return fail("worker.job_recorded measurement_basis path "+measured.Path+" carries class "+measured.Class+" outside the closed classification vocabulary",
-				"classify each measured path production, test, documentation, or generated")
-		}
-		switch {
-		case measured.Class == "generated" && measured.GeneratorRef == "":
-			return fail("worker.job_recorded measurement_basis path "+measured.Path+" classifies generated without its owning generator_ref", "name the generator that owns the generated path")
-		case measured.Class != "generated" && measured.GeneratorRef != "":
-			return fail("worker.job_recorded measurement_basis path "+measured.Path+" carries generator_ref outside the generated classification", "drop generator_ref or classify the path generated")
-		}
-		if measured.GeneratorRef != "" {
-			if problem := normalizedRelativeRepoPathProblem("worker.job_recorded measurement_basis generator_ref", measured.GeneratorRef); problem != "" {
-				return fail(problem, "supply a normalized relative repository path")
-			}
-		}
+	if err := validateWorkerJobMeasuredPaths("worker.job_recorded measurement_basis", basis.Paths, fail); err != nil {
+		return err
 	}
 	if len(allowance.ProjectID) < 2 || len(allowance.ProjectID) > oracleProjectIDMaxBytes {
 		return fail("worker.job_recorded direct_caller_allowance project_id must be between 2 and 128 bytes", "name the permitted Project")
@@ -332,6 +322,39 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 		seenLaws[binding.Source.LawID] = true
 		if err := oracleBoundedText(binding.Clause, "direct-caller allowance law binding clause for law "+binding.Source.LawID); err != nil {
 			return fail("worker.job_recorded direct_caller_allowance law binding clause for law "+binding.Source.LawID+" must be between 1 and 512 bytes without control characters", "state the clause the obligation serves")
+		}
+	}
+	return nil
+}
+
+// validateWorkerJobMeasuredPaths checks one classified path list: unique
+// normalized paths, each in the closed classification vocabulary, with a
+// generator reference exactly on a generated path. The recorded inventory
+// and the acceptance's supplemental classifications share it.
+func validateWorkerJobMeasuredPaths(member string, paths []WorkerJobMeasuredPath, fail workerJobSizeFailure) error {
+	seen := map[string]bool{}
+	for _, measured := range paths {
+		if problem := normalizedRelativeRepoPathProblem(member+" paths", measured.Path); problem != "" {
+			return fail(problem, "supply a normalized relative repository path")
+		}
+		if seen[measured.Path] {
+			return fail(member+" carries path "+measured.Path+" twice", "classify each path once")
+		}
+		seen[measured.Path] = true
+		if !slices.Contains(workerJobMeasuredPathClasses, measured.Class) {
+			return fail(member+" path "+measured.Path+" carries class "+measured.Class+" outside the closed classification vocabulary",
+				"classify each path production, test, documentation, or generated")
+		}
+		switch {
+		case measured.Class == "generated" && measured.GeneratorRef == "":
+			return fail(member+" path "+measured.Path+" classifies generated without its owning generator_ref", "name the generator that owns the generated path")
+		case measured.Class != "generated" && measured.GeneratorRef != "":
+			return fail(member+" path "+measured.Path+" carries generator_ref outside the generated classification", "drop generator_ref or classify the path generated")
+		}
+		if measured.GeneratorRef != "" {
+			if problem := normalizedRelativeRepoPathProblem(member+" generator_ref", measured.GeneratorRef); problem != "" {
+				return fail(problem, "supply a normalized relative repository path")
+			}
 		}
 	}
 	return nil
@@ -536,7 +559,7 @@ func workerJobCorrectionMeasuredTx(ctx context.Context, q queryer, workID string
 			}
 		}
 		for _, attemptID := range attempts[jobID] {
-			for _, path := range observed[attemptID] {
+			for _, path := range observed[attemptID].paths {
 				if !seen[path] {
 					seen[path] = true
 					paths = append(paths, path)
@@ -549,21 +572,29 @@ func workerJobCorrectionMeasuredTx(ctx context.Context, q queryer, workID string
 	return measured, nil
 }
 
+// workerAttemptObservedPaths is one completed attempt's sealed observed
+// paths and the seq of the terminal event that sealed them.
+type workerAttemptObservedPaths struct {
+	seq   int64
+	paths []string
+}
+
 // workerAttemptObservedPathsTx reads, in one scan, the sealed observed paths
 // every completed attempt of the work carries on its terminal event, keyed
 // by attempt id. Paths are core-observed numstat output: the store's own
 // delivery observation sealed them, never a caller's claim.
-func workerAttemptObservedPathsTx(ctx context.Context, q queryer, workID string) (map[string][]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.attempt_id'), json_extract(payload,'$.observed_delivery.paths') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.observed_delivery.paths') IS NOT NULL`, string(SubjectWorkItem), workID, WorkerCompleted)
+func workerAttemptObservedPathsTx(ctx context.Context, q queryer, workID string) (map[string]workerAttemptObservedPaths, error) {
+	rows, err := q.QueryContext(ctx, `SELECT seq, json_extract(payload,'$.attempt_id'), json_extract(payload,'$.observed_delivery.paths') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.observed_delivery.paths') IS NOT NULL`, string(SubjectWorkItem), workID, WorkerCompleted)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the completed attempts' observed paths", true, "retry once the event log is readable", err)
 	}
 	defer rows.Close()
-	observed := map[string][]string{}
+	observed := map[string]workerAttemptObservedPaths{}
 	for rows.Next() {
+		var seq int64
 		var attemptID string
 		var rawPaths string
-		if err := rows.Scan(&attemptID, &rawPaths); err != nil {
+		if err := rows.Scan(&seq, &attemptID, &rawPaths); err != nil {
 			return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the completed attempts' observed paths", true, "retry once the event log is readable", err)
 		}
 		var paths []WorkerObservedPath
@@ -573,10 +604,11 @@ func workerAttemptObservedPathsTx(ctx context.Context, q queryer, workID string)
 		if len(paths) == 0 {
 			continue
 		}
-		observed[attemptID] = make([]string, 0, len(paths))
+		record := workerAttemptObservedPaths{seq: seq, paths: make([]string, 0, len(paths))}
 		for _, path := range paths {
-			observed[attemptID] = append(observed[attemptID], path.Path)
+			record.paths = append(record.paths, path.Path)
 		}
+		observed[attemptID] = record
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the completed attempts' observed paths", true, "retry once the event log is readable", err)
@@ -846,6 +878,22 @@ func WorkerJobBindingFromDispatchPayload(payload json.RawMessage) *WorkerJobBind
 		return nil
 	}
 	return &binding
+}
+
+// workerPacketCallerExclusions reads the caller exclusions one validated
+// dispatch packet carries on inputs.worker_job.
+func workerPacketCallerExclusions(packetRaw json.RawMessage) []string {
+	var packet struct {
+		Inputs struct {
+			WorkerJob struct {
+				CallerExclusions []string `json:"caller_exclusions"`
+			} `json:"worker_job"`
+		} `json:"inputs"`
+	}
+	if json.Unmarshal(packetRaw, &packet) != nil {
+		return nil
+	}
+	return packet.Inputs.WorkerJob.CallerExclusions
 }
 
 // WorkerAttemptIDFromRejectionPayload extracts the rejected attempt one

@@ -69,6 +69,14 @@ const workflowActionCompletedWorkerJobVersion = 4
 // from a forged new-legacy claim.
 const workflowActionCompletedAttributionVersion = 5
 
+// workflowActionCompletedJobSizeVersion is the payload version at which a
+// workflow.action_completed completion may carry the job-size members
+// (CD-0225 D1, CD-0227 D1): the caller exclusions a size-capable
+// implementation dispatch bound to its packet, and the supplemental
+// classifications and final production size an acceptance recorded. Stored
+// completions below it carried none of these members.
+const workflowActionCompletedJobSizeVersion = 6
+
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -380,6 +388,23 @@ type workflowActionCompletedPayload struct {
 	// disposition and never on a name match against another job. Absent on
 	// every acceptance whose attempt was dispatched without a job binding.
 	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
+	// WorkerCallerExclusions is the caller_exclusions set the core computed
+	// and bound to a size-capable implementation dispatch's packet (CD-0227
+	// D1). The packet bytes are not retained, so acceptance reads the
+	// exclusions the worker was given from here. Absent when the set was
+	// empty.
+	WorkerCallerExclusions []string `json:"worker_caller_exclusions,omitempty"`
+	// SupplementalClassifications is the measurement classification an
+	// acceptance recorded for observed paths outside the job's inventory
+	// (CD-0225 D1). It is measurement content bound to the accepted job
+	// revision, attempt, base, and delivered tree; it never changes the job
+	// digest, path authority, cap, or an inventory classification.
+	SupplementalClassifications []WorkerJobMeasuredPath `json:"supplemental_classifications,omitempty"`
+	// WorkerProductionSize records the accepted count after the coordinator's
+	// supplemental classifications, bound to the same base and delivered tree
+	// as the report. The worker's immutable report keeps its inventory/default
+	// count; only acceptance supplies the final classification review.
+	WorkerProductionSize *WorkerProductionSize `json:"worker_production_size,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -2300,6 +2325,32 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for dispatch_worker and accept_worker_result and requires job_id, revision, and digest", false, "record the disposition derived from the accepted attempt's dispatch binding")
 		}
 	}
+	if p.WorkerCallerExclusions != nil {
+		if p.ActionID != "dispatch_worker" || p.WorkerJob == nil || len(p.WorkerCallerExclusions) > WorkerJobCallerExclusionsMax {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed worker_caller_exclusions is reserved for a job-bound dispatch_worker and carries at most %d paths", WorkerJobCallerExclusionsMax), false, "record the caller exclusions the dispatch admission computed")
+		}
+		for _, path := range p.WorkerCallerExclusions {
+			if problem := normalizedRelativeRepoPathProblem("action_completed worker_caller_exclusions", path); problem != "" {
+				return newFailure(KindInvalidPayload, "fold_event", problem, false, "record the caller exclusions the dispatch admission computed")
+			}
+		}
+	}
+	if p.SupplementalClassifications != nil {
+		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil || len(p.SupplementalClassifications) < 1 || len(p.SupplementalClassifications) > WorkerJobMeasuredPathsMax {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed supplemental_classifications is reserved for a job-bound accept_worker_result and carries 1 to %d paths", WorkerJobMeasuredPathsMax), false, "record the classifications the acceptance admitted")
+		}
+		if err := validateWorkerJobMeasuredPaths("action_completed supplemental_classifications", p.SupplementalClassifications, workerJobSizeFoldFailure); err != nil {
+			return err
+		}
+	}
+	if p.WorkerProductionSize != nil {
+		if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_production_size is reserved for a job-bound accept_worker_result", false, "record the final production size derived by acceptance")
+		}
+		if err := validateWorkerProductionSize(p.WorkerProductionSize); err != nil {
+			return err
+		}
+	}
 	// The lane identity is the dispatch_worker completion's in-flight
 	// binding input, so it is reserved for that action and must arrive all
 	// together: a partial identity would bind an attempt the fold cannot
@@ -2521,6 +2572,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	// fabricated disposition.
 	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
+	}
+	if (p.WorkerCallerExclusions != nil || p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_caller_exclusions, supplemental_classifications, and worker_production_size are reserved for payload version >= 6", false, "record the job-size members on the current completion payload")
 	}
 	// the attribution reference is the derived record's alone, and
 	// the source-version marker rules apply to both attribution members.
@@ -4140,6 +4194,15 @@ func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
 		event.Payload = raw
 	}
 	event.PayloadVersion = 5
+	return event, nil
+}
+
+// upcastWorkflowActionCompletedV5 carries a v5 completion into the v6
+// payload that may carry the job-size members. v5 payloads never carried
+// them, so the upcast is the bytes unchanged at the new version; the fold's
+// source-version gate refuses a stored v5 payload that claims one.
+func upcastWorkflowActionCompletedV5(event Event) (Event, error) {
+	event.PayloadVersion = 6
 	return event, nil
 }
 

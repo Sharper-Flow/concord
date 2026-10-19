@@ -551,13 +551,13 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
-		// Its registration is v5 with upcasters 1-4, and replay must keep a
+		// Its registration is v6 with upcasters 1-5, and replay must keep a
 		// stored pre-attribution correction completion's semantics: the
 		// correction fields survive the upcast and the legacy attribution
 		// marker is stamped explicitly.
 		completed, ok := registeredEventKind(WorkflowActionCompleted)
-		if !ok || completed.CurrentVersion != 5 || completed.Upcasters[1] == nil || completed.Upcasters[4] == nil {
-			t.Fatalf("action_completed registration = %#v, want v5 with upcasters 1-4", completed)
+		if !ok || completed.CurrentVersion != 6 || completed.Upcasters[1] == nil || completed.Upcasters[4] == nil || completed.Upcasters[5] == nil {
+			t.Fatalf("action_completed registration = %#v, want v6 with upcasters 1-5", completed)
 		}
 		correction := map[string]any{
 			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
@@ -571,8 +571,8 @@ func TestRoutineRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("recorded v4 correction completion did not upcast: %v", err)
 		}
-		if upcast.PayloadVersion != 5 || upcast.replaySourcePayloadVersion != 4 {
-			t.Fatalf("correction upcast payload version = %d source = %d, want 5 with source 4", upcast.PayloadVersion, upcast.replaySourcePayloadVersion)
+		if upcast.PayloadVersion != 6 || upcast.replaySourcePayloadVersion != 4 {
+			t.Fatalf("correction upcast payload version = %d source = %d, want 6 with source 4", upcast.PayloadVersion, upcast.replaySourcePayloadVersion)
 		}
 		var payload workflowActionCompletedPayload
 		if err := json.Unmarshal(upcast.Payload, &payload); err != nil {

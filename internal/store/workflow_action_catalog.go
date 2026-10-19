@@ -183,11 +183,12 @@ func workerJobSizeActionFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowActionCatalogV2 revises record_worker_job and dispatch_worker: the
-// v1 contract set with the three optional size members appended beside the
-// acceptance_oracle member, and dispatch_worker's packet anchored at the
-// worker_packet4 closure that projects them beside the caller exclusions.
-// Every other action's contract is v1's.
+// workflowActionCatalogV2 revises record_worker_job, dispatch_worker, and
+// accept_worker_result: the v1 contract set with the three optional size
+// members appended beside the acceptance_oracle member, dispatch_worker's
+// packet anchored at the worker_packet4 closure that projects them beside the
+// caller exclusions, and the acceptance's optional supplemental
+// classifications. Every other action's contract is v1's.
 func workflowActionCatalogV2() workflowActionCatalog {
 	v1 := workflowActionCatalogV1()
 	revisions := make(map[string][]workflowActionRevision, len(v1.revisions))
@@ -196,6 +197,9 @@ func workflowActionCatalogV2() workflowActionCatalog {
 	}
 	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields))
 	revisions["dispatch_worker"] = append(slices.Clone(revisions["dispatch_worker"]), withWorkerPacketRef(workerPacket4Schema))
+	revisions["accept_worker_result"] = append(slices.Clone(revisions["accept_worker_result"]), withAppendedPayloadFields(func() []WorkflowPayloadField {
+		return []WorkflowPayloadField{actionItemArrayField("supplemental_classifications", false, 1, WorkerJobMeasuredPathsMax, "worker_job_measured_path")}
+	}))
 	return workflowActionCatalog{Version: 2, revisions: revisions}
 }
 

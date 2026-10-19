@@ -260,25 +260,28 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 				continue
 			}
 			// CD-0198 D4: the delivery-accept versions add the optional
-			// delivery pair after the required attempt identity; every other
-			// version keeps the attempt pair alone.
+			// delivery pair after the required attempt identity. Size-capable
+			// heads also admit supplemental path classifications.
 			fields := action.Payload.Fields
-			if len(fields) != 2 && len(fields) != 4 {
-				t.Fatalf("%s acceptance payload is not closed: %+v", latest.Ref, fields)
-			}
 			want := []WorkflowPayloadField{
 				{Name: "attempt_id", ValueType: PayloadRef, Required: true},
 				{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true},
 			}
-			if len(fields) == 4 {
+			if len(fields) >= 4 {
 				want = append(want,
 					WorkflowPayloadField{Name: "delivery_artifact", ValueType: PayloadRef},
 					WorkflowPayloadField{Name: "delivery_state", ValueType: PayloadString, Enum: []string{"asserted"}},
 				)
 			}
+			if workflowJobSizeActive(latest) {
+				want = append(want, WorkflowPayloadField{Name: "supplemental_classifications", ValueType: PayloadArray, ItemRef: "worker_job_measured_path"})
+			}
+			if len(fields) != len(want) {
+				t.Fatalf("%s acceptance payload has %d fields, want %d", latest.Ref, len(fields), len(want))
+			}
 			for index, field := range want {
 				got := fields[index]
-				if got.Name != field.Name || got.ValueType != field.ValueType || got.Required != field.Required || strings.Join(got.Enum, ",") != strings.Join(field.Enum, ",") {
+				if got.Name != field.Name || got.ValueType != field.ValueType || got.Required != field.Required || got.ItemRef != field.ItemRef || strings.Join(got.Enum, ",") != strings.Join(field.Enum, ",") {
 					t.Fatalf("%s acceptance payload field %d = %+v, want %+v", latest.Ref, index, got, field)
 				}
 			}

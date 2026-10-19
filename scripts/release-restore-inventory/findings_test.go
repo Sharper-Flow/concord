@@ -61,8 +61,26 @@ func TestExemptedSitesAreReportedApartFromHeldSites(t *testing.T) {
 	if f.Refused != "" || f.Exemptions != table.digest || !reflect.DeepEqual(f.Writes, analysis.Writes) {
 		t.Fatalf("finding = %+v", f)
 	}
-	if !reflect.DeepEqual(f.Held, analysis.Open[1:]) || !reflect.DeepEqual(f.Exempted, []exemptedSite{{analysis.Open[0], "read"}}) {
+	if !reflect.DeepEqual(f.Held, analysis.Open[1:]) || !reflect.DeepEqual(f.Exempted, []exemptedSite{{analysis.Open[0], "read", "read_back"}}) {
 		t.Fatalf("held %+v exempted %+v", f.Held, f.Exempted)
+	}
+}
+
+// A replay-decoder site is exempted under its own class.
+func TestReplayDecoderSiteKeepsItsClass(t *testing.T) {
+	analysis := findingAnalysis()
+	data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{
+		{ID: "replay", Class: "replay_decoder", Function: "store.upcast", Expression: "event.PayloadVersion = 2", FunctionDigest: "sha256:1111", Check: "test"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := parseExemptions(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := finding(t, analysis, table); !reflect.DeepEqual(f.Exempted, []exemptedSite{{analysis.Open[1], "replay", "replay_decoder"}}) {
+		t.Fatalf("exempted %+v", f.Exempted)
 	}
 }
 

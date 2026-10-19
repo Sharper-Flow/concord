@@ -280,6 +280,14 @@
    "expression": "&event.Kind",
    "function_digest": "sha256:adb178dbeb01a7ef5316738b306c5dcc0dac00a1395c24e81407e0d1e1419f8c",
    "check": "reviewed source: the kind and payload_version reach a local Event only from Scan of a stored domain_events row; the function inserts no row and reads findings from its payload"
+  },
+  {
+   "id": "replay_decoder:decodeWorkflowReplayEvents:e4271e891079:store.Event{EventID: entry.EventID, Kind",
+   "class": "replay_decoder",
+   "function": "github.com/sharper-flow/concord/internal/agent.decodeWorkflowReplayEvents",
+   "expression": "store.Event{EventID: entry.EventID, Kind: entry.Kind, SubjectType: store.SubjectWorkItem, SubjectID: entry.WorkID, Actor: entry.ActorRef, OccurredAt: occurredAt.UTC(), PayloadVersion: entry.PayloadVersion, Payload: append(json.RawMessage(nil), entry.Payload...)}",
+   "function_digest": "sha256:e4271e89107976f07c7536471d4003945596d60b117d777cee2a1be1ed61c35f",
+   "check": "reviewed source: the workflow replay decoder builds work_item events from caller input"
   }
  ]
 }

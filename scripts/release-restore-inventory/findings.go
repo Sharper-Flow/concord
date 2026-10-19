@@ -16,10 +16,13 @@ import (
 // site is held. Neither a reported write nor an exemption is a discharge: no
 // finding discharges a release's obligation for any (kind, version).
 //
-// One exemption class is admitted, by a recorded ruling:
+// Two exemption classes are admitted, each by a recorded ruling, and each
+// keyed by function, exact expression, and function digest:
 //
-//   - read_back: a site that reads a stored row's kind and version back; keyed
-//     by function, exact expression, and function digest.
+//   - read_back: a site that reads a stored row's kind and version back.
+//   - replay_decoder: the v0.3-v0.39 workflow replay decoder, which builds
+//     work_item events from caller input. It holds every (kind, version) of
+//     its release.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -62,7 +65,7 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	}
 	seen := map[string]bool{}
 	for _, e := range table.Entries {
-		if e.Class != "read_back" {
+		if e.Class != "read_back" && e.Class != "replay_decoder" {
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
 		if slices.Contains([]string{e.ID, e.Function, e.Expression, e.FunctionDigest, e.Check}, "") {
@@ -101,6 +104,7 @@ type writerFinding struct {
 type exemptedSite struct {
 	writerSite
 	Exemption string `json:"exemption"`
+	Class     string `json:"class"`
 }
 
 //go:embed findings.go
@@ -134,7 +138,7 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 				if i < 0 {
 					finding.Held = append(finding.Held, site)
 				} else {
-					finding.Exempted = append(finding.Exempted, exemptedSite{site, table.Entries[i].ID})
+					finding.Exempted = append(finding.Exempted, exemptedSite{site, table.Entries[i].ID, table.Entries[i].Class})
 				}
 			}
 		}

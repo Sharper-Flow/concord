@@ -2749,7 +2749,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose surviving writer is operator-approved resolve_overlap. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose two writers are operator-approved resolve_overlap and the size revision that changes a work item's effective size (CD-0237). The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
       "enum": [
         "needed",
         "in_progress",
@@ -10354,6 +10354,10 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class",
+          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval, and reason is the override's reason. A size change supersedes the item with a forward-linked successor (CD-0237)."
+        },
         "priority": {
           "maximum": 100,
           "minimum": -100,
@@ -10364,6 +10368,10 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs",
+          "description": "Reruns the size model on fresh declared inputs; reason says why. The core re-derives every other input. A size change supersedes the item with a forward-linked successor (CD-0237)."
         },
         "tags": {
           "items": {
@@ -10415,6 +10423,10 @@ const GeneratedPayloadSchemaDocument = `{
               "actor": {
                 "$ref": "#/$defs/id"
               },
+              "attempt_id": {
+                "minLength": 1,
+                "type": "string"
+              },
               "contract_version": {
                 "$ref": "#/$defs/version"
               },
@@ -10425,7 +10437,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "items": {
                   "$ref": "#/$defs/evidence"
                 },
-                "maxItems": 32,
+                "maxItems": 64,
                 "type": "array"
               },
               "kind": {
@@ -11920,6 +11932,14 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_size_class": {
+      "enum": [
+        "small",
+        "larger",
+        "crucial"
+      ],
+      "type": "string"
+    },
     "work_size_inputs": {
       "additionalProperties": false,
       "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
@@ -11976,11 +11996,17 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_size_summary": {
       "additionalProperties": false,
-      "description": "The work item's current size record: the size the versioned model decided, the model version, and when it was recorded. Absent when the work was never sized.",
+      "description": "The work item's current size record: the effective size (the operator's size when one is recorded, otherwise the versioned model's), the model's own size and any operator size, the model version, and when the model recorded it. Absent when the work was never sized.",
       "properties": {
+        "model_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
         "model_version": {
           "minimum": 1,
           "type": "integer"
+        },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class"
         },
         "recorded_at": {
           "maxLength": 64,
@@ -21695,7 +21721,6 @@ const GeneratedPayloadSchemaDocument = `{
         "reason",
         "artifact",
         "evidence_source",
-        "approval_ref",
         "corrected_at"
       ],
       "type": "object"

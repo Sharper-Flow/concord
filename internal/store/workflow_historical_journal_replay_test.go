@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store/storetest/projection"
 )
 
 // The WHISTORY replay proof. Each frozen journal (see
@@ -102,6 +103,51 @@ func frozenJournalFixtures() []struct {
 		{"corrected-break-fix-v24", historicalJournalFixtureCorrectedBreakFixV24},
 		{"completed-architecture-spike-v17", historicalJournalFixtureCompletedArchitectureSpikeV17},
 		{"completed-ops-runbook-v18", historicalJournalFixtureCompletedOpsRunbookV18},
+	}
+}
+
+// workflowProjectionLayout is one hashed projection table with its column
+// order. Production layouts are discovered from the store; a pinned historical
+// layout is a caller-supplied input only verification code builds. The
+// encoding itself lives once in the leaf test-support oracle.
+type workflowProjectionLayout = projection.Layout
+
+// frozenJournalProjectionLayouts is the projection layout the frozen journals
+// were captured against: the hashed tables in hash order with their baseline
+// physical column order at commit d95dd9d0293f01317c5744b555dd3c59be0acbd4.
+// Frozen provenance hashes compare only against this pinned layout; the
+// current discovered layout keeps covering every present column.
+func frozenJournalProjectionLayouts() []workflowProjectionLayout {
+	return []workflowProjectionLayout{
+		{Table: "workflow_actors", Columns: []string{"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"}},
+		{Table: "workflow_checkpoints", Columns: []string{"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"}},
+		{Table: "workflow_contracts", Columns: []string{"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest"}},
+		{Table: "workflow_contract_predicates", Columns: []string{"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"}},
+		{Table: "workflow_contract_law_revisions", Columns: []string{"work_id", "contract_version", "law_id", "content_hash"}},
+		{Table: "workflow_contract_law_modifications", Columns: []string{"work_id", "contract_version", "law_id"}},
+		{Table: "workflow_overlap_resolutions", Columns: []string{"resolution_id", "event_seq", "product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "approval_ref", "created_at", "invalidated_seq"}},
+		{Table: "workflow_architecture_bindings", Columns: []string{"work_id", "contract_version", "product_id", "domain_registry_content_hash", "home_domain_id", "projection_hash"}},
+		{Table: "workflow_contract_affected_domains", Columns: []string{"work_id", "contract_version", "domain_id"}},
+		{Table: "workflow_contract_domain_modifications", Columns: []string{"work_id", "contract_version", "domain_id"}},
+		{Table: "workflow_contract_domain_relation_modifications", Columns: []string{"work_id", "contract_version", "source_domain_id", "kind", "target_domain_id"}},
+		{Table: "workflow_law_addition_reservations", Columns: []string{"product_id", "law_id", "owner_work_id", "owner_contract_version", "home_domain_id"}},
+		{Table: "workflow_contract_law_additions", Columns: []string{"work_id", "contract_version", "product_id", "law_id", "home_domain_id", "reservation_owner_work_id", "reservation_owner_contract_version"}},
+		{Table: "workflow_contract_verification_obligations", Columns: []string{"work_id", "contract_version", "law_id", "obligation_id"}},
+		{Table: "workflow_decision_records", Columns: []string{"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"}},
+		{Table: "workflow_external_conditions", Columns: []string{"work_id", "condition_id", "await_type", "await_ref", "resolution_authority", "condition_state", "resolution_evidence", "resolved_by_event", "cancellation_authority", "cancellation_evidence", "cancelled_by_event", "recorded_at", "resolved_at", "cancelled_at", "expected_within_seconds"}},
+		{Table: "workflow_impact_edges", Columns: []string{"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"}},
+		{Table: "workflow_impact_notices", Columns: []string{"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"}},
+		{Table: "workflow_context_checkpoints", Columns: []string{"work_id", "work_version", "checkpoint_sequence", "checkpoint_id", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions", "workflow_ref", "workflow_definition_version", "workflow_definition_digest", "actor_ref", "request_id", "recorded_at"}},
+		{Table: "workflow_context_boundaries", Columns: []string{"work_id", "work_version", "boundary_sequence", "boundary_count", "boundary_id", "boundary_kind", "checkpoint_id", "checkpoint_sequence", "attempt_epoch", "summary", "workflow_ref", "workflow_definition_version", "workflow_definition_digest", "actor_ref", "request_id", "recorded_at"}},
+		{Table: "workflow_design_records", Columns: []string{"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
+		{Table: "workflow_proposal_records", Columns: []string{"work_id", "work_version", "problem", "affected", "stakes", "user_outcomes", "constraints", "open_questions", "recorded_at", "out_of_scope"}},
+		{Table: "workflow_instances", Columns: []string{"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state"}},
+		{Table: "workflow_premise_confirmations", Columns: []string{"work_id", "contract_version", "confirmed_by", "confirmed_at"}},
+		{Table: "workflow_candidate_sets", Columns: []string{"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"}},
+		{Table: "law_subjects", Columns: []string{"home_project_id", "home_locator_id", "law_id", "kind", "status", "path", "title", "content_hash", "scanned_commit_oid", "authority_tier", "criterion_bindings"}},
+		{Table: "law_relations", Columns: []string{"home_project_id", "home_locator_id", "source_law_id", "kind", "target_law_id", "scanned_commit_oid"}},
+		{Table: "work_items", Columns: []string{"id", "kind", "title", "lifecycle", "priority", "version", "created_at", "updated_at", "terminal_time", "intent_json", "narrative", "urgency"}},
+		{Table: "relations", Columns: []string{"id", "work_id_from", "work_id_to", "kind", "created_at", "resolution_id"}},
 	}
 }
 
@@ -242,6 +288,42 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Historical contracts keep NULL on columns recorded after the
+			// baseline capture: the fact is never upcast into their rows.
+			var declaredFacts int64
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE decision_domains IS NOT NULL`).Scan(&declaredFacts); err != nil {
+				t.Fatal(err)
+			}
+			if declaredFacts != 0 {
+				t.Fatalf("replayed journal declares %d decision facts, want every historical contract NULL", declaredFacts)
+			}
+			// The frozen provenance hash names the baseline capture layout, so
+			// it compares against that pinned layout alone; the discovered
+			// current layout keeps covering every present column and proves
+			// rebuild stability below.
+			pinned, err := projection.HashLayouts(ctx, s.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The pinned encoder is the test copy of the production traversal:
+			// over the discovered current layout it must reproduce the
+			// production hash, so the frozen baseline still binds the
+			// production encoding.
+			current := make([]workflowProjectionLayout, 0, len(projection.Tables()))
+			for _, table := range projection.Tables() {
+				columns, err := projection.Columns(ctx, s.DatabaseForTesting(), table)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current = append(current, workflowProjectionLayout{Table: table, Columns: columns})
+			}
+			discovered, err := projection.HashLayouts(ctx, s.DatabaseForTesting(), current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if discovered != first {
+				t.Fatalf("pinned-layout encoder over the discovered layout = %s, want the production hash %s", discovered, first)
+			}
 			if err := RebuildFromLog(ctx, s); err != nil {
 				t.Fatalf("second rebuild from the frozen journal refused: %v", err)
 			}
@@ -252,8 +334,8 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if first != after {
 				t.Fatalf("projection hash moved across rebuild of the frozen journal: %s != %s", first, after)
 			}
-			if after != provenance.WorkflowProjectionHash {
-				t.Fatalf("replayed projection hash %s does not reproduce the frozen baseline hash %s", after, provenance.WorkflowProjectionHash)
+			if pinned != provenance.WorkflowProjectionHash {
+				t.Fatalf("replayed projection hash %s does not reproduce the frozen baseline hash %s", pinned, provenance.WorkflowProjectionHash)
 			}
 			workID := journal.frozenWorkID(t)
 			var instanceState, currentStep string
@@ -264,7 +346,8 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 				t.Fatalf("replayed instance state = %q, want the frozen %q", instanceState, provenance.TerminalState)
 			}
 			// Reopen stability: a restored journal reads identically across a
-			// store reopen.
+			// store reopen, on both the pinned baseline layout and the full
+			// current layout.
 			if err := s.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -274,48 +357,48 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if reopenHash != provenance.WorkflowProjectionHash {
-				t.Fatalf("reopened projection hash %s does not reproduce the frozen baseline hash %s", reopenHash, provenance.WorkflowProjectionHash)
+			if reopenHash != after {
+				t.Fatalf("reopened projection hash %s does not reproduce the pre-reopen full hash %s", reopenHash, after)
+			}
+			reopenPinned, err := projection.HashLayouts(ctx, reopened.DatabaseForTesting(), frozenJournalProjectionLayouts())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reopenPinned != provenance.WorkflowProjectionHash {
+				t.Fatalf("reopened projection hash %s does not reproduce the frozen baseline hash %s", reopenPinned, provenance.WorkflowProjectionHash)
 			}
 
-			// As-of boundaries. A reconstruct sample replays through the
-			// production as-of API; it is only available before the journal's
-			// first receipt-consuming or Product-truth-contract event, because
-			// that API folds the subject sub-log in a scratch store that
-			// restores neither durable receipts nor cross-subject Product
-			// endpoints. A prefix sample restores the journal prefix with its
-			// bounded receipts and rebuilds: this is a deterministic prefix
-			// rebuild of recorded history, not a production as-of read, and
-			// the two kinds are never conflated.
+			// As-of boundaries. Each sample restores the journal prefix with
+			// its bounded receipts and rebuilds, then reads the workflow
+			// instance the prefix folds to. A reconstruct sample also pins the
+			// work lifecycle at its sequence.
 			for _, sample := range provenance.AsOfSamples {
-				switch sample.Kind {
-				case "reconstruct":
-					snapshot, readErr := ReconstructSubjectAt(ctx, reopened, SubjectRef{Type: SubjectWorkItem, ID: workID}, sample.Seq, PurposeAudit)
-					if readErr != nil {
-						t.Fatalf("as-of %s at %d: %v", sample.Label, sample.Seq, readErr)
-					}
-					state := "running"
-					if snapshot.Work != nil && snapshot.Work.Lifecycle != "in_progress" {
-						state = snapshot.Work.Lifecycle
-					}
-					if state != sample.State {
-						t.Fatalf("as-of %s state = %q, want the frozen %q", sample.Label, state, sample.State)
-					}
-				case "prefix":
-					prefix := restoreFrozenJournal(t, ctx, journal, sample.Seq)
-					defer prefix.Close()
-					if err := RebuildFromLog(ctx, prefix); err != nil {
-						t.Fatalf("prefix rebuild at %s seq %d refused: %v", sample.Label, sample.Seq, err)
-					}
-					var prefixState, prefixStep string
-					if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&prefixState, &prefixStep); err != nil {
-						t.Fatalf("prefix workflow instance at %s is missing: %v", sample.Label, err)
-					}
-					if prefixState != sample.Instance || prefixStep != sample.Step {
-						t.Fatalf("prefix state at %s = %q/%q, want the frozen %q/%q", sample.Label, prefixState, prefixStep, sample.Instance, sample.Step)
-					}
-				default:
+				if sample.Kind != "reconstruct" && sample.Kind != "prefix" {
 					t.Fatalf("frozen as-of sample %s carries unknown kind %q", sample.Label, sample.Kind)
+				}
+				prefix := restoreFrozenJournal(t, ctx, journal, sample.Seq)
+				defer prefix.Close()
+				if err := RebuildFromLog(ctx, prefix); err != nil {
+					t.Fatalf("prefix rebuild at %s seq %d refused: %v", sample.Label, sample.Seq, err)
+				}
+				var prefixState, prefixStep string
+				if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&prefixState, &prefixStep); err != nil {
+					t.Fatalf("prefix workflow instance at %s is missing: %v", sample.Label, err)
+				}
+				if prefixState != sample.Instance || prefixStep != sample.Step {
+					t.Fatalf("prefix state at %s = %q/%q, want the frozen %q/%q", sample.Label, prefixState, prefixStep, sample.Instance, sample.Step)
+				}
+				if sample.Kind == "reconstruct" {
+					var lifecycle string
+					if err := prefix.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+						t.Fatalf("prefix work at %s is missing: %v", sample.Label, err)
+					}
+					if lifecycle == "in_progress" {
+						lifecycle = "running"
+					}
+					if lifecycle != sample.State {
+						t.Fatalf("as-of %s state = %q, want the frozen %q", sample.Label, lifecycle, sample.State)
+					}
 				}
 			}
 

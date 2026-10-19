@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -87,6 +88,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if scope == nil {
 		return newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
 	}
+	// The terminal fold and the lifecycle close resolve the same verified pin
+	// through the transaction's scope: bind the caller's registry before any
+	// write, and refuse a scope from another transaction or one already bound
+	// to a different registry.
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		return err
+	}
 	// The completion holds one depth level on the caller's scope for the whole
 	// gate: clause folds write fold-only projections, and a nested level must
 	// not drop the boundary's protection early.
@@ -108,7 +116,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, event.Actor, "", false, "complete_workflow"); err != nil {
+	if err := workflowCompletionCallerAuthority(ctx, tx, definition, event.SubjectID, event.Actor); err != nil {
 		return err
 	}
 
@@ -186,16 +194,22 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 	}
 
-	// Clause 5: premise confirmation is an operator approval, not a payload bit.
+	// Clause 5: the premise confirmation carries the authority the contract's
+	// declared decision fact demands — a verified operator for decision-bearing
+	// work, and under consequence_v1 an authenticated non-worker coordinator
+	// for engineering. Legacy contracts keep the operator requirement.
 	var confirmedBy string
 	if err := tx.QueryRowContext(ctx, `SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, event.SubjectID, contract.Version).Scan(&confirmedBy); err != nil {
 		if err == sql.ErrNoRows {
+			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 && workflowPremiseContractIsEngineering(contract) {
+				return workflowClauseFailure(KindMissingEvidence, 5, "workflow premise is not confirmed", "record the coordinator confirmation")
+			}
 			return workflowClauseFailure(KindApprovalRequired, 5, "workflow premise is not confirmed", "request_approval")
 		}
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect premise confirmation", true, "retry once the database is readable", err), 5)
 	}
-	if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
-		return workflowClauseFailure(KindApprovalRequired, 5, "workflow premise confirmation is not operator typed", "request_approval")
+	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, event.SubjectID, confirmedBy); err != nil {
+		return workflowClauseError(err, 5)
 	}
 
 	// Clause 6: the folded evaluator verdict is the authority.  Incomparable,
@@ -235,7 +249,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 			return workflowClauseFailure(KindOperationConflict, 7, "impact notice append conflicted", "reconcile_operation")
 		}
 		notice.Seq = 0
-		if err := foldRegisteredEvent(ctx, tx, notice); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, notice, scope); err != nil {
 			return workflowClauseError(err, 7)
 		}
 	}
@@ -255,7 +269,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return workflowClauseFailure(KindOperationConflict, 7, "completion append conflicted", "reconcile_operation")
 	}
 	completion.Seq = 0
-	if err := foldRegisteredEvent(ctx, tx, completion); err != nil {
+	if err := foldRegisteredEvent(ctx, tx, completion, scope); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	// CD-0183 D3: the workflow's terminal state closes the work item
@@ -265,7 +279,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// workflow.completed remains the only fold that may mark an instance
 	// completed. Replay folds the logged transition exactly as it folded
 	// here, because the event is part of the log.
-	if err := appendWorkflowTerminalLifecycleTx(ctx, tx, completion, payload.TerminalState); err != nil {
+	if err := appendWorkflowTerminalLifecycleTx(ctx, tx, scope, completion, payload.TerminalState); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	return nil
@@ -275,7 +289,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 // event that moves the work item to the workflow's terminal state. The
 // completion event must already be folded: the transition's fold keeps the
 // instance record only because the instance is terminal when it runs.
-func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, completion Event, terminalState string) error {
+func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *foldScope, completion Event, terminalState string) error {
 	var from string
 	var version int64
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, completion.SubjectID).Scan(&from, &version); err != nil {
@@ -290,7 +304,7 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, completi
 		return err
 	}
 	transition.Seq = 0
-	return foldRegisteredEvent(ctx, tx, transition)
+	return foldRegisteredEvent(ctx, tx, transition, scope)
 }
 
 type workflowCompletionContractData struct {
@@ -300,10 +314,56 @@ type workflowCompletionContractData struct {
 	SpecMandate             []string
 	LawModifies             []string
 	LawBoundaryVersion      int
+	DecisionDomains         []string
+	DecisionDomainsPresent  bool
 	OutcomeKind             string
 	OutcomePayload          string
 	ArchitectureBinding     *WorkflowArchitectureBinding
 	VerificationObligations []WorkflowVerificationObligation
+}
+
+// workflowPremiseConfirmationAuthority holds one stored confirmation to the
+// authority its contract's declared decision fact demands: a verified operator
+// for decision-bearing work, and under consequence_v1 an authenticated
+// non-worker coordinator for engineering. Legacy contracts keep the operator
+// requirement, and a missing new-policy fact fails closed.
+func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, contract workflowCompletionContractData, workID, confirmedBy string) error {
+	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
+			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
+		}
+		return nil
+	}
+	if !contract.DecisionDomainsPresent {
+		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "rebuild projections from the event log")
+	}
+	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: contract.DecisionDomains})
+	if err != nil {
+		return err
+	}
+	if decision.Consent != WorkflowConsentNone {
+		if err := requireActorClass(ctx, tx, confirmedBy, "operator"); err != nil {
+			return newFailure(KindApprovalRequired, "complete_workflow", "workflow premise confirmation is not operator typed", false, "request_approval")
+		}
+		return nil
+	}
+	if err := requireActorClass(ctx, tx, confirmedBy, "agent"); err != nil {
+		return newFailure(KindInvalidOperation, "complete_workflow", "engineering premise confirmation is not coordinator typed", false, "record the coordinator confirmation")
+	}
+	authority, authorityErr := workflowEvaluationAuthority(ctx, tx, workID, confirmedBy)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if authority == WorkflowWorkerEvaluator {
+		return newFailure(KindInvalidOperation, "complete_workflow", "worker actors cannot hold an engineering premise confirmation", false, "record the coordinator confirmation")
+	}
+	return nil
+}
+
+// workflowPremiseContractIsEngineering reports whether the contract's stored
+// decision fact classifies the work as engineering under consequence_v1.
+func workflowPremiseContractIsEngineering(contract workflowCompletionContractData) bool {
+	return contract.DecisionDomainsPresent && len(contract.DecisionDomains) == 0
 }
 
 func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, expected *int64) error {
@@ -321,6 +381,41 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 }
 
 func workflowCompletionContract(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
+	result, err := workflowCompletionContractRows(ctx, tx, workID)
+	if err != nil {
+		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+	}
+	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
+	if err != nil {
+		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+	}
+	if err := validateWorkflowCompletionContractPredicates(result, definition.Definition); err != nil {
+		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+	}
+	return result, definition.Definition, nil
+}
+
+// validateWorkflowCompletionContractPredicates validates the stored contract's
+// approved predicates against one already-verified definition: decode, kind
+// match, and pinned-definition membership. The completion gate and the
+// acceptance deliverables check share it, so no owner re-derives the rule.
+func validateWorkflowCompletionContractPredicates(contract workflowCompletionContractData, definition WorkflowDefinition) error {
+	for _, item := range contract.Predicates {
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(item.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != item.OutcomeKind {
+			return newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+		}
+		if err := ValidateWorkflowPredicateForDefinition(definition, approved); err != nil {
+			return newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is outside the pinned definition", false, "reread_entities")
+		}
+	}
+	return nil
+}
+
+// workflowCompletionContractRows reads the active contract's stored facts
+// without resolving the instance pin. Owners that already hold the verified
+// definition reuse this reader so one transaction resolves the pin once.
+func workflowCompletionContractRows(ctx context.Context, tx queryer, workID string) (workflowCompletionContractData, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
 	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "complete_workflow")
@@ -329,67 +424,74 @@ func workflowCompletionContract(ctx context.Context, tx queryer, registry Defini
 	}
 	if activeErr != nil {
 		if activeErr == sql.ErrNoRows {
-			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
+			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
-		return result, WorkflowDefinition{}, activeErr
+		return result, activeErr
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion); err != nil {
+	var decisionDomains sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains); err != nil {
 		if err == sql.ErrNoRows {
-			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
+			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
-		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read approved workflow contract", true, "retry once the database is readable", err)
+		return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot read approved workflow contract", true, "retry once the database is readable", err)
 	}
 	if err := json.Unmarshal([]byte(required), &result.RequiredEvidence); err != nil {
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
 	}
 	if err := json.Unmarshal([]byte(mandates), &result.SpecMandate); err != nil || json.Unmarshal([]byte(modifies), &result.LawModifies) != nil {
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract arrays are malformed", false, "reread_entities")
 	}
 	var predicateErr error
 	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
 	if predicateErr != nil || len(result.Predicates) == 0 {
-		return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
 	}
+	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(decisionDomains)
+	if domainsErr != nil {
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
+	}
+	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
 	result.OutcomePayload = result.Predicates[0].OutcomePayload
 	var bindingErr error
 	result.ArchitectureBinding, bindingErr = readWorkflowArchitectureBinding(ctx, tx, workID, result.Version)
 	if bindingErr != nil {
-		return result, WorkflowDefinition{}, bindingErr
+		return result, bindingErr
 	}
 	obligationRows, err := tx.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=? ORDER BY law_id,obligation_id`, workID, result.Version)
 	if err != nil {
-		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verification obligations", true, "retry once the database is readable", err)
+		return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verification obligations", true, "retry once the database is readable", err)
 	}
 	for obligationRows.Next() {
 		var obligation WorkflowVerificationObligation
 		if err := obligationRows.Scan(&obligation.LawID, &obligation.ObligationID); err != nil {
 			obligationRows.Close()
-			return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligation", true, "retry once the database is readable", err)
+			return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligation", true, "retry once the database is readable", err)
 		}
 		result.VerificationObligations = append(result.VerificationObligations, obligation)
 	}
 	if err := obligationRows.Err(); err != nil {
 		obligationRows.Close()
-		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligations", true, "retry once the database is readable", err)
+		return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verification obligations", true, "retry once the database is readable", err)
 	}
 	if err := obligationRows.Close(); err != nil {
-		return result, WorkflowDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verification obligations", true, "retry once the database is readable", err)
+		return result, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verification obligations", true, "retry once the database is readable", err)
 	}
-	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
-	if err != nil {
-		return result, WorkflowDefinition{}, err
+	return result, nil
+}
+
+// workflowStoredDecisionDomains decodes the stored contract decision-domain
+// column: SQL NULL is the absent fact, a JSON array the present one; each
+// enclosing reader keeps its own refusal wording.
+func workflowStoredDecisionDomains(stored sql.NullString) ([]string, bool, error) {
+	if !stored.Valid {
+		return nil, false, nil
 	}
-	for _, item := range result.Predicates {
-		approved, decodeErr := DecodeWorkflowPredicate([]byte(item.OutcomePayload))
-		if decodeErr != nil || string(approved.Kind) != item.OutcomeKind {
-			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
-		}
-		if err := ValidateWorkflowPredicateForDefinition(definition.Definition, approved); err != nil {
-			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is outside the pinned definition", false, "reread_entities")
-		}
+	var domains []string
+	if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
+		return nil, false, err
 	}
-	return result, definition.Definition, nil
+	return domains, true, nil
 }
 
 func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
@@ -428,17 +530,10 @@ func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry Definition
 	return current, nil
 }
 
-// missingPredicateVerdicts lists the approved contract predicates that have
-// no recorded verdict. The join deliberately does NOT mirror completion
-// clause 6: any verdict kind counts here, because a weaker or incomparable
-// verdict at confirm_premise follows the declared failure edge to refine
-// (#1062) rather than wedging the item, while clause 6 still refuses such
-// verdicts at complete. One verdict per predicate id, latest per predicate.
-func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
-	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return nil, err
-	}
+// missingPredicateVerdictsForContract lists the unverdicted approved
+// predicates from one already-read contract; owners holding the verified
+// definition reuse it so one transaction resolves the pin once.
+func missingPredicateVerdictsForContract(ctx context.Context, tx queryer, workID string, contract workflowCompletionContractData) ([]string, error) {
 	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
 	if err != nil {
 		return nil, err
@@ -540,7 +635,7 @@ func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID 
 func workflowEvidenceRequirementDefinitions(required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
 	needed := append([]string(nil), required...)
 	for _, kind := range definition.RequiredEvidenceKinds {
-		if !contains(needed, string(kind)) {
+		if !slices.Contains(needed, string(kind)) {
 			needed = append(needed, string(kind))
 		}
 	}
@@ -570,7 +665,7 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 // for every approved predicate and every required evidence kind durably
 // bound. Once the step advances, no declared action can produce them, so the
 // confirmation is the last point the requirement can be enforced.
-func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
+func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition WorkflowDefinition, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -583,16 +678,19 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 	// Leaving verify with a predicate unverdicted wedges the item at
 	// complete with no declared recovery action (#911), so the confirmation
 	// refuses here and names what is missing.
-	missing, missingErr := missingPredicateVerdicts(ctx, tx, workID)
+	contract, contractErr := workflowCompletionContractRows(ctx, tx, workID)
+	if contractErr != nil {
+		return contractErr
+	}
+	missing, missingErr := missingPredicateVerdictsForContract(ctx, tx, workID, contract)
 	if missingErr != nil {
 		return missingErr
 	}
+	if err := validateWorkflowCompletionContractPredicates(contract, definition); err != nil {
+		return err
+	}
 	if len(missing) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
-	}
-	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return err
 	}
 	// Completion's clause 4 judges each verdict actor against the whole
 	// execution history, so a verdict whose actor executed after recording it
@@ -645,7 +743,7 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID strin
 func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, required []string, definitionRequired []EvidenceKind, cutoff int64) error {
 	needed := append([]string(nil), required...)
 	for _, kind := range definitionRequired {
-		if !contains(needed, string(kind)) {
+		if !slices.Contains(needed, string(kind)) {
 			needed = append(needed, string(kind))
 		}
 	}
@@ -804,7 +902,7 @@ func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, def
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect staleness evidence", true, "retry once the database is readable", err)
 		}
-		if count == 0 && !contains(required, rule.InputRef) {
+		if count == 0 && !slices.Contains(required, rule.InputRef) {
 			return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness rule has drifted", false, "refresh_context")
 		}
 	}
@@ -831,7 +929,7 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, rule.InputRef).Scan(&count); err != nil {
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect warning staleness evidence", true, "retry once the database is readable", err)
 		}
-		if count == 0 && !contains(required, rule.InputRef) {
+		if count == 0 && !slices.Contains(required, rule.InputRef) {
 			warnings = append(warnings, rule.ID)
 		}
 	}
@@ -1089,7 +1187,7 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 	}
 	verified := false
 	for _, step := range definition.StepGraph.Steps {
-		if containsString(step.Actions, "record_verdict") && workflowStepFollows(definition, step.ID, currentStep) {
+		if slices.Contains(step.Actions, "record_verdict") && workflowStepFollows(definition, step.ID, currentStep) {
 			verified = true
 			break
 		}
@@ -1277,4 +1375,24 @@ func WorkflowChangedRefsDigest(refs []string) string {
 	sort.Strings(copyRefs)
 	h := sha256.Sum256([]byte(strings.Join(copyRefs, "\x00")))
 	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+// workflowCompletionCallerAuthority holds the completing caller's authority.
+// consequence_v1 separates evaluation from completion recording: any
+// authorized non-worker coordinator may record completion, including the
+// initiating one — the stored evaluator's distinctness from execution is
+// clause 4's check, not the terminal requester's. The legacy policy keeps the
+// completing caller distinct from execution.
+func workflowCompletionCallerAuthority(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, completingActor string) error {
+	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		authority, err := workflowEvaluationAuthority(ctx, tx, workID, completingActor)
+		if err != nil {
+			return err
+		}
+		if authority == WorkflowWorkerEvaluator {
+			return newFailure(KindUnauthorized, "complete_workflow", "worker actors cannot record workflow completion", false, "return the worker report to the coordinator")
+		}
+		return nil
+	}
+	return workflowActorsDistinct(ctx, tx, workID, completingActor, "", false, "complete_workflow")
 }

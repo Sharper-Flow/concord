@@ -6,12 +6,24 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func workerDiffRefusalShape(t *testing.T, err error, wantDetail string) {
+	t.Helper()
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("error %v is not a typed store failure", err)
+	}
+	if failure.Kind != KindUnauthorizedDispatch || failure.Op != "worker_diff" || failure.Detail != wantDetail || failure.RetrySafe || failure.RecoveryAction != "use a live review with its original packet, claimed worktree, scoped job, and complete first-editing subject history" {
+		t.Fatalf("worker diff refusal lost its typed shape, want kind=%s op=worker_diff detail=%q retry_safe=false recovery intact: %+v", KindUnauthorizedDispatch, wantDetail, failure)
+	}
+}
 
 func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) string {
 	t.Helper()
@@ -111,7 +123,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 
 func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "diff-refusal")
-	workerDiffCommit(t, j, "change", "review change\n")
+	head := workerDiffCommit(t, j, "change", "review change\n")
 	original := workerDiffDispatch(t, j, "review-refusal")
 	for _, change := range []func(*WorkerDiffRequest){
 		func(r *WorkerDiffRequest) { r.WorkID = "" },
@@ -130,6 +142,9 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 			t.Fatalf("invalid selector exposed bytes or ran Git: %+v %v", page, err)
 		}
 	}
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {
+		t.Fatalf("bound review read failed before the dirty-HEAD perturbation: %+v %v", page, err)
+	}
 	if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +152,9 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 		t.Fatalf("dirty review returned bytes: %+v %v", page, err)
 	}
 	gitRunStore(t, j.repo, "restore", "seed.txt")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {
+		t.Fatalf("bound review read failed before the mid-read retirement: %+v %v", page, err)
+	}
 	original.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
 			mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
@@ -147,8 +165,10 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 			t.Fatal(err)
 		}
 	}}
-	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err == nil || len(page.Data) != 0 {
-		t.Fatalf("attempt retired during Git returned bytes: %+v %v", page, err)
+	page, err := j.s.ReadWorkerDiff(context.Background(), original)
+	workerDiffRefusalShape(t, err, "worker diff read requires the exact live review dispatch and candidate binding")
+	if len(page.Data) != 0 {
+		t.Fatalf("attempt retired during Git returned bytes: %+v", page)
 	}
 }
 
@@ -268,5 +288,58 @@ func TestReadWorkerDiffSupersessionStartsNewEditingHistory(t *testing.T) {
 	oldRequest.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}}
 	if page, err := j.s.ReadWorkerDiff(context.Background(), oldRequest); err == nil || len(page.Data) != 0 || oldRequest.Runner.(*workerReadingProbeRunner).calls != 0 {
 		t.Fatalf("superseded review exposed bytes or ran Git: %+v %v", page, err)
+	}
+}
+
+func TestReadWorkerDiffRetiredReviewRefusesBeforeGitWithExactDiffRecovery(t *testing.T) {
+	j, _ := descendantReviewFixture(t, "diff-retired-before-read")
+	head := workerDiffCommit(t, j, "change", "review change\n")
+	original := workerDiffDispatch(t, j, "review-retired")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {
+		t.Fatalf("bound review read failed before the retirement: %+v %v", page, err)
+	}
+	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
+		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
+		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	probe := &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}}
+	original.Runner = probe
+	page, err := j.s.ReadWorkerDiff(context.Background(), original)
+	workerDiffRefusalShape(t, err, "worker diff read requires the exact live review dispatch and candidate binding")
+	if len(page.Data) != 0 || probe.calls != 0 {
+		t.Fatalf("retired review exposed bytes or ran Git: %+v calls=%d", page, probe.calls)
+	}
+}
+
+func TestReadWorkerDiffMissingActiveContractRefusesBeforeGitWithExactDiffRecovery(t *testing.T) {
+	j, _ := descendantReviewFixture(t, "diff-no-active-contract")
+	head := workerDiffCommit(t, j, "change", "review change\n")
+	original := workerDiffDispatch(t, j, "review-no-contract")
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {
+		t.Fatalf("bound review read failed before the contract perturbation: %+v %v", page, err)
+	}
+	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
+		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		// Preserve the version row and its foreign keys while removing active authority.
+		mustTxExec(t, tx, `UPDATE workflow_contracts SET superseded_by=contract_version WHERE work_id=? AND superseded_by IS NULL`, original.WorkID)
+		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	probe := &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}}
+	original.Runner = probe
+	page, err := j.s.ReadWorkerDiff(context.Background(), original)
+	workerDiffRefusalShape(t, err, "worker diff read requires an active workflow contract")
+	if len(page.Data) != 0 || probe.calls != 0 {
+		t.Fatalf("missing active contract exposed bytes or ran Git: %+v calls=%d", page, probe.calls)
+	}
+	var state string
+	if err := j.s.db.QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID).Scan(&state); err != nil || (state != "in_flight" && state != "dispatched") {
+		t.Fatalf("contract perturbation lost the recorded dispatch: state=%q err=%v", state, err)
 	}
 }

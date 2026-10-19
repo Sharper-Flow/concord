@@ -16,11 +16,6 @@ import (
 	"time"
 )
 
-// fakeWorktreeOriginURL is the remote URL the fixture repositories report
-// for remote.origin.url: the bounded preflight fetches that URL directly, so
-// the fake's fetch case matches on it.
-const fakeWorktreeOriginURL = "https://freshness.invalid/repository.git"
-
 // fakeWorktreeGit models one primary repository plus any further roots a test
 // registers: branches with heads, existing linked worktrees keyed by path,
 // ancestry, durability, dirtiness, and the default ref. It records every
@@ -1777,16 +1772,16 @@ func TestSharedRefDeletionDiagnostics(t *testing.T) {
 			for _, stage := range []string{"symbolic probe", "symbolic tip", "direct existence", "direct tip", "deletion", "malformed inventory"} {
 				t.Run(stage, func(t *testing.T) {
 					repo := initBootstrapStoreRepo(t)
-					base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+					base := runTestGit(t, repo, "rev-parse", "HEAD")
 					const branch = "concord/cleanup-diagnostics"
 					full := "refs/heads/" + branch
-					runBootstrapGit(t, repo, "branch", branch, base)
+					runTestGit(t, repo, "branch", branch, base)
 					runner := cleanupDiagnosticRunner{}
 					switch stage {
 					case "symbolic probe":
 						runner.failCommand = "symbolic-ref --quiet " + full
 					case "symbolic tip":
-						runBootstrapGit(t, repo, "symbolic-ref", full, "refs/heads/main")
+						runTestGit(t, repo, "symbolic-ref", full, "refs/heads/main")
 						runner.failCommand = "rev-parse --verify " + full
 					case "direct existence":
 						runner.failCommand = "show-ref --verify --quiet " + full
@@ -1808,7 +1803,7 @@ func TestSharedRefDeletionDiagnostics(t *testing.T) {
 					if op != "worktree_reclaim" && strings.Contains(err.Error(), "worktree_reclaim") {
 						t.Errorf("gate error contains another operation: %v", err)
 					}
-					if tip := runBootstrapGit(t, repo, "rev-parse", "--verify", full); tip != base {
+					if tip := runTestGit(t, repo, "rev-parse", "--verify", full); tip != base {
 						t.Errorf("failed gate changed the branch: tip=%s, want %s", tip, base)
 					}
 				})
@@ -1823,23 +1818,23 @@ func mutateCleanupRef(t *testing.T, repo, branch, base, reason string) (string, 
 	t.Helper()
 	switch reason {
 	case "foreign ref":
-		runBootstrapGit(t, repo, "branch", "foreign/shared", base)
-		runBootstrapGit(t, repo, "symbolic-ref", "refs/heads/"+branch, "refs/heads/foreign/shared")
+		runTestGit(t, repo, "branch", "foreign/shared", base)
+		runTestGit(t, repo, "symbolic-ref", "refs/heads/"+branch, "refs/heads/foreign/shared")
 		return base, "became a symbolic ref"
 	case "default branch":
-		runBootstrapGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+branch)
+		runTestGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+branch)
 		return base, "is the repository's default ref"
 	case "unknown default":
-		runBootstrapGit(t, repo, "checkout", "--detach", "-q", base)
-		runBootstrapGit(t, repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+		runTestGit(t, repo, "checkout", "--detach", "-q", base)
+		runTestGit(t, repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
 		return base, "cannot establish the protected default"
 	case "checked-out branch":
-		runBootstrapGit(t, repo, "worktree", "add", "-q", filepath.Join(t.TempDir(), "holder"), branch)
+		runTestGit(t, repo, "worktree", "add", "-q", filepath.Join(t.TempDir(), "holder"), branch)
 		return base, "is checked out"
 	case "moved tip":
-		tree := runBootstrapGit(t, repo, "rev-parse", base+"^{tree}")
-		tip := runBootstrapGit(t, repo, "commit-tree", tree, "-p", base, "-m", "new cleanup tip")
-		runBootstrapGit(t, repo, "update-ref", "refs/heads/"+branch, tip, base)
+		tree := runTestGit(t, repo, "rev-parse", base+"^{tree}")
+		tip := runTestGit(t, repo, "commit-tree", tree, "-p", base, "-m", "new cleanup tip")
+		runTestGit(t, repo, "update-ref", "refs/heads/"+branch, tip, base)
 		return tip, "moved from its pinned tip"
 	default:
 		t.Fatalf("unknown cleanup refusal %q", reason)
@@ -1864,7 +1859,7 @@ func assertCleanupRefRetained(t *testing.T, repo, branch, tip, reason string, ru
 		if err != nil || strings.TrimSpace(string(out)) != "refs/heads/foreign/shared" {
 			t.Errorf("symbolic target=%q err=%v", out, err)
 		}
-		if got := runBootstrapGit(t, repo, "rev-parse", "refs/heads/foreign/shared"); got != tip {
+		if got := runTestGit(t, repo, "rev-parse", "refs/heads/foreign/shared"); got != tip {
 			t.Errorf("foreign ref tip=%s, want %s", got, tip)
 		}
 	}
@@ -1874,10 +1869,10 @@ func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
 	for _, createdBranch := range []bool{true, false} {
 		t.Run(strconv.FormatBool(createdBranch), func(t *testing.T) {
 			repo := initBootstrapStoreRepo(t)
-			base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
 			const branch = "concord/cleanup-claim"
-			runBootstrapGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
+			runTestGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
 			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
 			err := CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
 			if err != cause || cause.EffectPossible {
@@ -1898,10 +1893,10 @@ func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 	for _, reason := range cleanupRefRefusalCases() {
 		t.Run(reason, func(t *testing.T) {
 			repo := initBootstrapStoreRepo(t)
-			base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
 			const branch = "concord/cleanup-claim"
-			runBootstrapGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
+			runTestGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
 			var tip string
 			runner := &cleanupRefRunner{mutate: func() {
 				tip, _ = mutateCleanupRef(t, repo, branch, base, reason)

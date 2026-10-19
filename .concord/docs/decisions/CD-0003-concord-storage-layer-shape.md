@@ -131,12 +131,9 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
 - **Closes** CD-0002 §5 (boundary, binding) and the entity-shape fork implied by §7.
 - **Does not close** (out of scope, listed for completeness):
   - migrations and schema evolution (CD-0002 §7);
-  - the compaction function (closed by PM6, PM7, and PM9, not by this record);
+  - the compaction function (closed by PM6, compaction-retention-policy, and PM9, not by this record);
   - the recovery-path taxonomy (design-constraints RB #5);
   - validation-failure isolation (RB #7);
   - evidence-resolution completeness (RB #6).
 
   These shape Concord-the-product or the durable tier, not the storage-spine build.
-- The **storage-spine slice** (`storage-spine-slice.md`) is an implementation
-  acceptance plan. PM1 defines canonical jobs; PM2/PM3 choose scope/schema through
-  research; PM1–PM5 are complete and the slice validates the accepted result.

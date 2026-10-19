@@ -1,6 +1,7 @@
 # CD-0029: Peer messages addressed to durable work
 
 - **Status:** Accepted
+- **Amended:** 2026-10-18.
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; work-item events; continuity snapshot
 - **Related:** CD-0014 (no polling), CD-0016 (continuity), CD-0028 (claims), issue #86
@@ -15,6 +16,9 @@ normal — the incident's prepared message was stale ten minutes after
 authoring because its target rebased and self-resolved.
 
 ## Decision
+
+A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal retain operator approval as listed gaps without a new class assignment. A message cannot satisfy either gate, alter the recipient's classification, or weaken a historical workflow pin.
+
 
 **D1. Messages are durable events addressed to work, not sessions.**
 `work.message_sent` carries a recipient work id in its payload; the

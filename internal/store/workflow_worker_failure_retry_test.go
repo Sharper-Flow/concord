@@ -85,7 +85,7 @@ func s2DerivedFailureRecords(t *testing.T, s *Store, workID, attemptID string) [
 	return found
 }
 
-func s2ActorRef(t *testing.T, actor WorkflowActor) string {
+func mustActorRef(t *testing.T, actor WorkflowActor) string {
 	t.Helper()
 	ref, err := WorkflowActorRef(actor)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	if record["step"] != "repair" || record["epoch"] != int64(1) {
 		t.Fatalf("derived record = %+v, want the repair step at the window's epoch 1", record)
 	}
-	if record["actor"] != s2ActorRef(t, dispatcher) {
+	if record["actor"] != mustActorRef(t, dispatcher) {
 		t.Fatalf("derived record actor = %v, want the dispatch authorization's actor", record["actor"])
 	}
 	if !strings.HasSuffix(record["event_id"].(string), ":workflow-failure") {
@@ -231,7 +231,7 @@ func TestDerivedWorkerFailureMatchesManualCorrectionProjection(t *testing.T) {
 					if err := json.Unmarshal(raw, &fields); err != nil {
 						t.Fatal(err)
 					}
-					if fields.CorrectionDiagnosis != "" || fields.CorrectionStrategy != "" || len(fields.CorrectionEvidence) != 0 || len(fields.ResultEvidence) != 1 || actor != s2ActorRef(t, fixture.owner) {
+					if fields.CorrectionDiagnosis != "" || fields.CorrectionStrategy != "" || len(fields.CorrectionEvidence) != 0 || len(fields.ResultEvidence) != 1 || actor != mustActorRef(t, fixture.owner) {
 						t.Fatalf("path %d completion does not carry the default-only failure record: %+v, actor %q", index, fields, actor)
 					}
 					if isDerived := strings.HasSuffix(sourceID, workflowDerivedWorkerFailureEventIDSuffix); isDerived != (index == 1) {

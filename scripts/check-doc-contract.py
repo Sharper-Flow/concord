@@ -1263,9 +1263,7 @@ class LawReferences:
             if ("/" in argument or argv[0] == "bun" and "." in argument) and LAW_PATH_RE.fullmatch(argument):
                 self.check_path(argument, source, line, findings)
 
-    def check(self, record: dict, source: Path, lines: list[str], findings: list[str]) -> None:
-        if record.get("status") != "accepted" or record.get("kind") not in ("constitution", "decision", "spec"):
-            return
+    def check(self, source: Path, lines: list[str], findings: list[str]) -> None:
         lines = strip_html_comments(lines)
         definitions = markdown_references.reference_definitions(lines)
         fence: tuple[str, int] | None = None
@@ -1298,8 +1296,10 @@ def check_record(
     references: LawReferences | None = None,
 ) -> None:
     kind = record.get("kind")
-    accepted_law = record.get("status") == "accepted" and kind in ("constitution", "decision", "spec")
-    if kind not in DOC_CONTRACT_KINDS or (kind not in contract and not accepted_law):
+    # The knowledge-index checker pairs law kinds with accepted and knowledge
+    # kinds with published, so status alone selects the current corpus.
+    current_record = record.get("status") in ("accepted", "published")
+    if kind not in DOC_CONTRACT_KINDS or (kind not in contract and not current_record):
         return
     path_value = record.get("path")
     if not isinstance(path_value, str) or not path_value.endswith(".md"):
@@ -1312,8 +1312,8 @@ def check_record(
     lines = read_file(absolute, findings)
     if lines is None:
         return
-    if references is not None:
-        references.check(record, absolute, lines, findings)
+    if references is not None and current_record:
+        references.check(absolute, lines, findings)
     if kind not in contract:
         return
 
@@ -1560,6 +1560,12 @@ def main(argv: list[str]) -> int:
         if not isinstance(record, dict):
             continue
         check_record(record, contract, abbreviations, banned, findings, references)
+
+    # The installer ships the top-level instruction files.
+    for source in sorted((ROOT / ".concord/instructions").glob("*.md")):
+        lines = read_file(source, findings)
+        if lines is not None:
+            references.check(source, lines, findings)
 
     if report_only_mode:
         return report_only(findings, "doc contract")

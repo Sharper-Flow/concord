@@ -36,6 +36,11 @@ Linux amd64 is the only release platform.
 - Do not introduce new third-party Go dependencies, framework abstractions, or
   runtime behavior without accepted issue or decision scope. modernc.org/sqlite
   is already accepted.
+- Adding or changing a repository dependency needs approval. The host
+  typecheck in [`scripts/check-agent-contracts.py`](scripts/check-agent-contracts.py)
+  does not: its `bun add --exact` installs the pinned host declarations into a
+  temporary staging workspace and changes no repository dependency file. Run
+  it; `--skip-host-typecheck` leaves the local evidence incomplete.
 - Do not populate reserved boundaries (`workflows/`, `skills/`) opportunistically.
 - Do not place any of the following in the repository, even temporarily:
   private Product or customer names and data; personal filesystem paths, machine

@@ -1,15 +1,16 @@
 # Concord Agent Mutation-Tool Contract (TS4)
 
 > **Status:** **Accepted — binding until superseded.**
+> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
-> **Binding inputs:** accepted PM3–PM7 domain operations, TS1 jobs/scenarios,
+> **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
 > TS2 budget/granularity, TS3 read surface, capability-placement native-authority
 > rule, and the Advance postmortem.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
-> **Amended direction:** CD-0041 requires typed architecture binding for
+> **Amended direction:** CD-0222 requires typed architecture binding for
 > Product-changing work; CD-0213 removes the Initiative route.
 > CD-0042 makes the generated current manifest the only pre-go-live surface
 > identity; this contract does not authorize partial Domain writes or any planning write.
@@ -17,7 +18,7 @@
 ## Context
 
 TS1's mutation jobs need a bounded mutation surface. The binding inputs are
-the accepted PM3 through PM7 domain operations, TS1 jobs and scenarios, TS2
+the accepted PM3 through PM6 and compaction-retention-policy domain operations, TS1 jobs and scenarios, TS2
 budget and granularity, the TS3 read surface, the capability-placement
 native-authority rule, and the Advance postmortem. This record fixes the four
 always-visible mutation tools, their operation tables, the batch boundary,
@@ -25,6 +26,9 @@ and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
+
+Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent. `merged_into`, `supersedes`, cancellation, removal, authority-expanding Product or client-policy changes, explicit cross-Product mutations, outside repair and both reconciliation modes, and physical research-pack deletion retain operator approval as listed gaps without a new class assignment. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+
 
 The binding contract is sections 1 through 4: the four-tool decision with the
 native-authority rule, each tool's operation table with core effects, the
@@ -100,8 +104,10 @@ retired: contract supersession goes through the operator-approved
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
-together. Reopening superseded work has no operation; superseded work items
-and their events stay historical and replayable.
+together. A size revision that changes a work item's size supersedes it with a
+forward-linked successor in one transaction (CD-0229 D6, CD-0237). Reopening
+superseded work has no operation; superseded work items and their events stay
+historical and replayable.
 
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow
@@ -116,7 +122,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for every kind except `depends_on` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for `merged_into` or `supersedes` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -163,7 +169,7 @@ terminal version before recording that link.
   operator recovering from an interrupted publication is told how far the
   cross-authority effect really got.
 
-PM7 pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
+compaction-retention-policy pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
 scenario requires an agent batch tool. Native bounded maintenance may exist behind
 operator/internal CLI control and can be promoted only through TS8/TS9 evidence.
 
@@ -208,13 +214,12 @@ durable results include current step and a safe next action—never a bare "star
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
-carry typed attributed-report fields per CD-0039: the native authority performs
-and proves the operation while Concord folds one `workflow.native_run_recorded`
-event per report with the reporting client, subject, evidence, and both times
-alongside the status. A report that the approved logical operation did not
-complete successfully classifies the action `partial` with
-`operation_conflict`/`reconcile_operation`; `ok` is reserved for successful
-native predicates. The adapter never derives outcomes from provider output.
+belong only to the archived `workflow.ops_runbook` family (CD-0218 D1).
+Admission refuses them, and no route records a new native-run report. Reports
+recorded under CD-0039 stay readable (CD-0218 D4): each
+`workflow.native_run_recorded` event carries the reporting client, subject,
+evidence, and both times alongside the status. The adapter never derives
+outcomes from provider output.
 
 Every native-run record embeds the shared CD-0040 capture component and carries
 its verification participation: reads return the record unverified, diverged,
@@ -293,7 +298,7 @@ or storage method is not sufficient evidence.
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
   the same transaction, a resolution that would close a cycle or add a
-  second successor is refused, and every kind except `depends_on` demands
+  second successor is refused, and `merged_into` or `supersedes` demands
   the operator approval pinned to both work and contract versions.
 
 ## Verification

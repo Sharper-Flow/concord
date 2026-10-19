@@ -17,6 +17,10 @@
       "value": "cmd/concord.TestCiWaitTerminalOutcomes"
     },
     {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit"
+    },
+    {
       "kind": "generated",
       "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
     },

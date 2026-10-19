@@ -15,6 +15,9 @@ operator reviewed. A retry also needs a durable bound to the approved contract.
 
 ## Decision
 
+The exact-approval prerequisite and approval scenarios below govern historical pins. For `approval_policy=consequence_v1`, retries require no operator consent. The store revalidates the exact failed attempt and epoch, current contract/job, and unchanged convergence rules before a fresh fenced attempt. Failure history remains immutable; a changed binding refuses without effect rather than inheriting stale authority.
+
+
 After a worker attempt fails below the escalation wall, the agent mutation
 boundary must challenge for an exact operator decision. The challenge binds
 the failed attempt ID, failed attempt epoch, active contract version, work

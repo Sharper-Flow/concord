@@ -299,16 +299,6 @@ func verifyWallAttemptEpochAtStep(t *testing.T, s *store.Store, step string) int
 	return epoch
 }
 
-// verifyWallCurrentStep reads the instance's pinned step.
-func verifyWallCurrentStep(t *testing.T, s *store.Store) string {
-	t.Helper()
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	return step
-}
-
 // rejectVerifyWallResult records the rejected disposition for one completed
 // review-lane attempt, carrying the complete open finding set the rejection
 // reports: the population the findings convergence basis compares.
@@ -703,8 +693,12 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	if after := workVersion(t, s, "work-1"); after != version {
 		t.Fatalf("refused escalation changed the work version %d -> %d", version, after)
 	}
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil || binding != nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("retry approval binding behind the escalated wall = %+v err=%v, want none", binding, err)
 	}
 
@@ -1004,7 +998,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	// binds the findings and advances the step, but renews no budget, and
 	// the step entry it lands on renews none either.
 	runGenericOneOffStoreAction(t, s, "accept_worker_result", map[string]any{"attempt_id": third, "attempt_epoch": thirdEpoch}, owner, "", "accept-noship-3")
-	if step := verifyWallCurrentStep(t, s); step != "refine" {
+	if step := stepOf(t, s); step != "refine" {
 		t.Fatalf("accepted no_ship review left the instance at step %q, want the advanced refine step", step)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {

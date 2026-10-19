@@ -194,12 +194,6 @@ def test_loader_membership_verdicts() -> None:
     assert defaults.vehicle_membership_error(MEMBER_ID, MEMBER_KIND, VEHICLE_VERSION + 1) is not None
 
 
-def write_asset(directory: Path, document: object) -> Path:
-    path = directory / "asset.json"
-    path.write_text(json.dumps(document), encoding="utf-8")
-    return path
-
-
 def base_asset_document() -> dict:
     return {
         "schema": "knowledge-authority-defaults.v1",
@@ -217,7 +211,6 @@ def test_loader_refuses_missing_or_corrupt_asset() -> None:
             pass
         else:
             raise AssertionError("missing asset must raise")
-        corrupt = base_asset_document()
         for mutate in (lambda d: d.update(schema="other"), lambda d: d.update(application_sha="nothex"), lambda d: d["vehicle"].update(contract_version=True), lambda d: d.update(members=[]), lambda d: d.update(members=[{"record_id": "CD-0002", "kind": "decision", "extra": 1}]), lambda d: d.update(members=[{"record_id": "CD-0002", "kind": "decision"}, {"record_id": "CD-0002", "kind": "decision"}])):
             document = copy.deepcopy(base_asset_document())
             mutate(document)

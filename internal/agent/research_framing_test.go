@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -74,5 +75,30 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	}
 	if step := currentStep(); step != "frame" {
 		t.Fatalf("refused record_finding moved the step to %q", step)
+	}
+
+	// The frame step records the research question as the contract premise:
+	// approval refuses a missing, blank, or placeholder question, and a stated
+	// one reaches the operator approval boundary.
+	predicates := []map[string]any{{"predicate_id": "predicate:answer", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}
+	for i, fields := range []map[string]any{
+		{"outcome_predicates": predicates},
+		{"premise": "   ", "outcome_predicates": predicates},
+		{"premise": "workflow premise", "outcome_predicates": predicates},
+	} {
+		refused := action("approve_contract", fields, "framing-gate-unstated-question-"+strconv.Itoa(i))
+		if refused.Outcome != OutcomeError || refused.Error == nil {
+			t.Fatalf("approve_contract without a stated question %d outcome=%q, want refusal", i, refused.Outcome)
+		}
+		if refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "$.fields.premise") {
+			t.Fatalf("approve_contract without a stated question %d refused as %s: %s, want an invalid premise", i, refused.Error.Kind, refused.Error.Message)
+		}
+	}
+	if approvals := contractApprovals(); approvals != 0 {
+		t.Fatalf("contract approvals without a stated question=%d, want 0", approvals)
+	}
+	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "outcome_predicates": predicates}, "framing-gate-stated-question")
+	if stated.Error == nil || stated.Error.Kind != "approval_required" {
+		t.Fatalf("approve_contract with a stated question = %+v, want the operator approval boundary", stated.Error)
 	}
 }

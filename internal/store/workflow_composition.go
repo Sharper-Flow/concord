@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 )
 
@@ -81,7 +82,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 	var actions []WorkflowActionDefinition
 	for _, step := range steps {
 		for _, actionID := range step.Actions {
-			if containsString(available, actionID) {
+			if slices.Contains(available, actionID) {
 				continue
 			}
 			action, err := catalog.action(actionID)

@@ -232,8 +232,12 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 	const workID = "authorized-failure-retry-binding"
 	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
 	version := readWorkVersion(t, s, workID)
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
 		t.Fatalf("unrecorded failure binding=%#v error=%v, want the exact failed authorization", binding, err)
 	}
 	if readWorkVersion(t, s, workID) != version {
@@ -300,7 +304,7 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
-	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("authorize checkpoint review: %v", err)
 	}
 	var epoch int64
@@ -348,7 +352,7 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	if job != nil {
 		packet["inputs"].(map[string]any)["worker_job"] = job
 	}
-	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatal(err)
 	}
 	failure := Event{EventID: "abandon-stale-registry-retry", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})}
@@ -370,7 +374,7 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if containsWorkPinAction(pin.NextValidIntents, "dispatch_worker") {
+	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
 		t.Fatal("the work pin advertises a retry refused for registry staleness")
 	}
 	freshID := attemptID + ":fresh"
@@ -383,8 +387,12 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	if !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("retry preflight error=%v, want the registry staleness refusal", err)
 	}
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("a refused retry must not request a wasted approval: binding=%#v error=%v", binding, err)
 	}
 }

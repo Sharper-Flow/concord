@@ -173,10 +173,10 @@ func compileWorkflowPartUse(part WorkflowPart, use WorkflowPartUse) (WorkflowSte
 	if stepID == "" && len(part.StepIDOptions) == 1 {
 		stepID = part.StepIDOptions[0]
 	}
-	if !containsString(part.StepIDOptions, stepID) {
+	if !slices.Contains(part.StepIDOptions, stepID) {
 		return WorkflowStep{}, partFailure(fmt.Sprintf("use of %s names step %q, not one of %v", part.Ref, use.StepID, part.StepIDOptions))
 	}
-	if use.LeadAction != "" && !containsString(part.LeadActionOptions, use.LeadAction) {
+	if use.LeadAction != "" && !slices.Contains(part.LeadActionOptions, use.LeadAction) {
 		return WorkflowStep{}, partFailure(fmt.Sprintf("use of %s names lead action %q, not one of %v", part.Ref, use.LeadAction, part.LeadActionOptions))
 	}
 	if use.FailureTo != "" && !part.FailureEdge {

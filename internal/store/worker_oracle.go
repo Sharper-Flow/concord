@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -477,7 +478,7 @@ func validateOracleReciprocity(oracle *AcceptanceOracle, cases map[string]Oracle
 			if !exists {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle case "+entry.CaseID+" names undeclared control "+controlID, "map every case to a declared control")
 			}
-			if !containsString(named.CaseIDs, entry.CaseID) {
+			if !slices.Contains(named.CaseIDs, entry.CaseID) {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+controlID+" does not name back case "+entry.CaseID, "keep the case/control mapping reciprocal")
 			}
 		}
@@ -488,7 +489,7 @@ func validateOracleReciprocity(oracle *AcceptanceOracle, cases map[string]Oracle
 			if !exists {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" names undeclared case "+caseID, "map every control to a declared case")
 			}
-			if !containsString(named.ControlIDs, control.ControlID) {
+			if !slices.Contains(named.ControlIDs, control.ControlID) {
 				return oracleFailure(KindInvalidPayload, "acceptance oracle case "+caseID+" does not name back control "+control.ControlID, "keep the case/control mapping reciprocal")
 			}
 		}

@@ -36,6 +36,9 @@ job.
 
 ## Decision
 
+For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, independence, and convergence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. Historical pins retain their original signature requirements.
+
+
 ### D1. A worker-job revision is an immutable record under the work item
 
 `record_worker_job` records one revision of a bounded job under the work

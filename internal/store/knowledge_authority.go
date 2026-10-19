@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -257,7 +258,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 		if decodeErr != nil {
 			return false, decodeErr
 		}
-		if (decoded.Kind == PredicateExists || decoded.Kind == PredicateAbsent) && containsString(decoded.Subjects, record.ID) {
+		if (decoded.Kind == PredicateExists || decoded.Kind == PredicateAbsent) && slices.Contains(decoded.Subjects, record.ID) {
 			admitted = true
 		}
 	}
@@ -266,7 +267,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 		if json.Unmarshal([]byte(lawModifies), &modifies) != nil {
 			return false, newFailure(KindInvariantViolation, "knowledge_authority", "the declared contract's law_modifies projection is malformed", false, "rebuild projections from the event log")
 		}
-		if containsString(modifies, record.ID) {
+		if slices.Contains(modifies, record.ID) {
 			admitted = true
 		}
 		if !admitted {
@@ -274,7 +275,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 			if additionsErr != nil {
 				return false, additionsErr
 			}
-			if containsString(additions, record.ID) {
+			if slices.Contains(additions, record.ID) {
 				admitted = true
 			}
 		}

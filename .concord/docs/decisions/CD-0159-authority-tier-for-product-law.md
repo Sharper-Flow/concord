@@ -11,13 +11,14 @@
   below on the same date.
 - **Amended:** 2026-10-17. D4 and its verification key the tier on the record
   that declares a conflict, the only record that can withdraw it.
-- **Related:** CD-0006, CD-0015, CD-0036, CD-0041, and
+- **Amended:** 2026-10-18.
+- **Related:** CD-0006, CD-0015, CD-0036, CD-0222, and
   `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
   outcome substitution, CD-0036 revision identity and breaking-law cutovers, and
-  CD-0041 Domain-bound contracts
+  CD-0222 Domain-bound contracts
 
 ## Context
 
@@ -49,6 +50,9 @@ and a SHA-256 content proof. No field records standing, so a new field costs no
 migration of existing law text.
 
 ## Decision
+
+Under CD-0013 D11, recording an engineering contract or routine successor does not itself enact Product law. Actual law changes follow CD-0230 D4, including its amendment of this record's D2, D4, and D5. A routine workflow consent class does not establish law-change authority. A governed scope cut remains a product decision requiring operator approval under CD-0230 D5 and is never silent.
+
 
 ### D1. A Product law record carries an authority tier
 

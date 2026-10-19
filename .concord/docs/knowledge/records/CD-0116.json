@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:28778b2ea7352068252845ec4c36ce6d733d35901d5c460907b2e387d9dfcda6",
+  "sha256": "sha256:fb85002e43b9996c47bfb62853bca6bf80aab395e9d360b2d201fd359ef276bc",
   "status": "accepted",
   "summary": "Verified operator identity permits verdicts and completion after a pinned workflow's advancing exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition membership, evidence, predicate, premise, version, and independent-evaluator gates remain in force.",
   "tags": [

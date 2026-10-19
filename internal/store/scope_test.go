@@ -159,8 +159,7 @@ func TestResearchPackOwnerWorkIDsResolvesDeterministicOwnerIdentities(t *testing
 		{id: "pack-b", owner: "blocked"},
 		{id: "pack-c", owner: "blocker"},
 	} {
-		if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
-			Identity:    researchIdentity("owner-ids-" + pack.id),
+		if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 			PackID:      pack.id,
 			OwnerWorkID: pack.owner,
 			Revision:    researchScopeRevisionInput(),
@@ -190,8 +189,7 @@ func TestResearchPackOwnerWorkIDsRefusesMissingPackAndBounds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := seedQueryFixture(t)
-	if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
-		Identity:    researchIdentity("owner-ids-control"),
+	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 		PackID:      "pack-control",
 		OwnerWorkID: "blocked",
 		Revision:    researchScopeRevisionInput(),
@@ -231,8 +229,7 @@ func TestResearchPackOwnerWorkIDsResolvesOwnerWithoutProductMembership(t *testin
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner-unmapped"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
-		Identity:    researchIdentity("owner-ids-unmapped"),
+	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 		PackID:      "pack-unmapped",
 		OwnerWorkID: "owner-unmapped",
 		Revision:    researchScopeRevisionInput(),

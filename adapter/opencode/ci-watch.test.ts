@@ -158,19 +158,11 @@ function result(result: { title: string; output: string }): Record<string, unkno
   return JSON.parse(result.output) as Record<string, unknown>
 }
 
-const context = { sessionID: SESSION, agent: "concord-operator", abort: new AbortController().signal }
+const context = { sessionID: SESSION, agent: "Concord", abort: new AbortController().signal }
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
-const pendingSlice = (stateFile: string) => ({
-  stdout: JSON.stringify({ status: "pending", state_file: stateFile, iterations: 1 }),
-})
-
-const successSlice = {
-  stdout: JSON.stringify({ status: "success", checks: { total: 3, passing: 2, failing: 0, skipped: 1, pending: 0 }, iterations: 2 }),
-}
-
-async function startWatch(fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
+async function startWatch(_fixture: ReturnType<typeof hostFixture>, args: Record<string, unknown> = watchArgs) {
   const started = await concord_ci_watch.execute(args, context)
   return result(started)
 }
@@ -286,7 +278,7 @@ test("watcher contract preserves shared runtime bounds", () => {
   expect(contract.type).toBe("object")
   expect(contract.additionalProperties).toBe(false)
   expect(contract.required).toEqual(["repo", "selector"])
-  expect(Object.keys(contract.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(contract.properties).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(contract.properties.repo).toMatchObject({
     type: "string",
     minLength: 3,
@@ -646,6 +638,52 @@ test("a duplicate watch for the same session and selector returns the active ide
   await ciWatchSettled(String(first.watch_id))
 })
 
+// A watch started beside a push names the pushed commit, so the verb judges
+// that commit and not the head it replaces. The commit is part of the watched
+// subject: a watch for it never folds into a running watch on the same pull
+// request that names no commit or another one.
+test("a pushed head_sha is validated, reaches every verb slice, and keys its own watch", async () => {
+  const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+  const admitted = validateCiWatchArgs({ ...watchArgs, mode: "merge", head_sha: pushed })
+  expect(admitted).toBeObject()
+  expect((admitted as CiWatchArgs).head_sha).toBe(pushed)
+  for (const refused of [
+    { repo: "owner/name", selector: { kind: "sha", value: pushed }, head_sha: pushed },
+    { repo: "owner/name", selector: { kind: "run", value: "77" }, head_sha: pushed },
+    { ...watchArgs, head_sha: "6459f137" },
+    { ...watchArgs, head_sha: pushed.toUpperCase() },
+  ]) {
+    expect(validateCiWatchArgs(refused), JSON.stringify(refused)).toBeString()
+  }
+
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
+  const calls: string[] = []
+  configureCiWatch({
+    stateDir: STATE_DIR,
+    confirmPollMs: 2,
+    confirmWindowMs: 20,
+    idlePollMs: 2,
+    spawner: async (_argv, stdin) => {
+      calls.push(stdin)
+      return held.promise
+    },
+  })
+  const replaced = await startWatch(fixture)
+  const named = await startWatch(fixture, { ...watchArgs, head_sha: pushed })
+  expect(named.status).toBe("started")
+  expect(named.watch_id).not.toBe(replaced.watch_id)
+  expect(named.head_sha).toBe(pushed)
+  await until(() => calls.length === 2, "both watches spawn a slice")
+  expect(calls.map((stdin) => JSON.parse(stdin).head_sha)).toEqual([undefined, pushed])
+  held.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "cancelled" }), stderr: "" })
+  await ciWatchSettled(String(replaced.watch_id))
+  await ciWatchSettled(String(named.watch_id))
+})
+
 test("a different selector starts its own watch and each session wakes with its own report", async () => {
   const fixture = hostFixture({ reply: "parented" })
   hostControlPlane().bind(fixture.client)
@@ -696,7 +734,7 @@ test("the host publishes concord_ci_watch args as per-field argument schemas", (
   // Schema passed as args publishes its own keywords as argument fields
   // instead, so repo and selector never reach the model.
   const args = concord_ci_watch.args as Record<string, unknown>
-  expect(Object.keys(args).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(Object.keys(args).sort()).toEqual(["head_sha", "mode", "repo", "selector", "time_seconds_max"])
   expect(args.repo).toMatchObject({ type: "string", minLength: 3 })
   const selector = args.selector as Record<string, unknown>
   expect(selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
@@ -1622,7 +1660,7 @@ test("the snapshot shows simultaneous watches, keeps the epoch stable on dedup, 
   expect(activeRecord(afterDedup, prId)!.watch_epoch).toBe(prRecord.watch_epoch)
 
   // Another session's watches do not leak across session-filtered snapshots.
-  const otherContext = { sessionID: "watch-session-b", agent: "concord-operator", abort: new AbortController().signal }
+  const otherContext = { sessionID: "watch-session-b", agent: "Concord", abort: new AbortController().signal }
   const other = result(await concord_ci_watch.execute({ repo: "owner/name", selector: { kind: "sha", value: SHA_BASE } }, otherContext))
   expect(other.status).toBe("started")
   const otherId = String(other.watch_id)
@@ -1803,6 +1841,29 @@ test("success reports without a usable sha project unavailable evidence, never e
   const malformedObservation = receiptFor(snapshot, String(malformed.watch_id))!.terminal_observation as Record<string, any>
   expect(malformedObservation.evidence).toBe("unavailable")
   expect(malformedObservation.evidence).not.toBe("exact_head")
+})
+
+test("a pr watch that names head_sha projects exact_head only for a report about that commit", async () => {
+  const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+  const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: pushed, head_sha: pushed, iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", checks: COMPLETE_CHECKS, sha: replaced, head_sha: replaced, iterations: 1 }) },
+  ])
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40, spawner })
+  const named = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "12" }, head_sha: pushed })
+  const other = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "13" }, head_sha: pushed })
+  await ciWatchSettled(String(named.watch_id))
+  await ciWatchSettled(String(other.watch_id))
+  const snapshot = ciWatchSnapshot(SESSION)
+  expect((receiptFor(snapshot, String(named.watch_id))!.terminal_observation as Record<string, any>).evidence).toBe("exact_head")
+  const mismatched = receiptFor(snapshot, String(other.watch_id))!.terminal_observation as Record<string, any>
+  expect(mismatched.evidence).toBe("unavailable")
+  expect(mismatched.gaps).toContain("subject_mismatch")
 })
 
 test("an adapter-generated error keeps unavailable terminal evidence separate from the earlier observation", async () => {

@@ -46,6 +46,9 @@ the engine:
 
 ## Decision
 
+For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same folded admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The historical-pin scenarios below retain their operator questions and approval requirements.
+
+
 ### D1. The contract step and the complete step keep their contract routes
 
 An advancing action with no active contract refuses at the contract step,

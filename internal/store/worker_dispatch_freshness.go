@@ -151,10 +151,9 @@ type workerDispatchSample struct {
 	currentStep     string
 	contractVersion int64
 
-	view      *WorkContextView
-	viewRaw   []byte
-	entries   []WorktreeEntry
-	claimSeen bool
+	view    *WorkContextView
+	viewRaw []byte
+	entries []WorktreeEntry
 
 	// readings holds the SQL-sampled source identities of the view's
 	// declared required readings, from the same snapshot.

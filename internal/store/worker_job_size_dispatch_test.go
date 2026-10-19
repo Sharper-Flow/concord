@@ -385,7 +385,7 @@ func sizeJourneyDispatch(t *testing.T, f workContextFixture, dir, attemptID stri
 		return err
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	_, err = dispatchJoinAttempt(ctx, t, f.store, f.workID, verdictItemVersion(t, f.store, f.workID), f.owner, packet)
+	_, err = dispatchJoinAttempt(ctx, t, f.store, f.workID, readWorkVersion(t, f.store, f.workID), f.owner, packet)
 	return err
 }
 
@@ -502,7 +502,7 @@ func TestWorkerJobSizeCorrectionAncestry(t *testing.T) {
 			t.Fatal(err)
 		}
 		prepared.proof.correctionBase = strings.Repeat("d", 40)
-		_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(context.Background(), prepared), t, f.store, f.workID, verdictItemVersion(t, f.store, f.workID), f.owner, packet)
+		_, err = dispatchJoinAttempt(WithWorkerDispatchPreparation(context.Background(), prepared), t, f.store, f.workID, readWorkVersion(t, f.store, f.workID), f.owner, packet)
 		if err == nil || !strings.Contains(err.Error(), "was prepared against base") {
 			t.Fatalf("mismatched sealed base error = %v, want the re-prepare refusal", err)
 		}

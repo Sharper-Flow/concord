@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -114,4 +116,187 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// countActorRecordedEvents reports how many workflow.actor_recorded events the
+// durable log carries.
+func countActorRecordedEvents(t *testing.T, s *Store) int {
+	t.Helper()
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, WorkflowActorRecorded).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+// readActorRecordedPrefixEvent reads the one actor-recording event the shared
+// prefix owner minted under eventID and decodes its durable payload.
+func readActorRecordedPrefixEvent(t *testing.T, s *Store, eventID string) (Event, workflowActorRecordedPayload) {
+	t.Helper()
+	var event Event
+	var occurredAt string
+	var payloadRaw []byte
+	var payload workflowActorRecordedPayload
+	err := s.DatabaseForTesting().QueryRow(`SELECT kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=? AND kind=?`, eventID, WorkflowActorRecorded).Scan(&event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &payloadRaw)
+	if err != nil {
+		t.Fatalf("actor prefix event %s is not in the durable log: %v", eventID, err)
+	}
+	parsed, parseErr := time.Parse(time.RFC3339Nano, occurredAt)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	event.OccurredAt = parsed
+	if unmarshalErr := json.Unmarshal(payloadRaw, &payload); unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+	return event, payload
+}
+
+// readEventTime reads one durable event's occurrence time by ID and kind.
+func readEventTime(t *testing.T, s *Store, eventID, kind string) time.Time {
+	t.Helper()
+	var occurredAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE event_id=? AND kind=?`, eventID, kind).Scan(&occurredAt); err != nil {
+		t.Fatalf("event %s (%s) is not in the durable log: %v", eventID, kind, err)
+	}
+	parsed, parseErr := time.Parse(time.RFC3339Nano, occurredAt)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	return parsed
+}
+
+// TestWorkflowActorRecordPrefixCharacterization pins the shared actor-prefix
+// owner's outcomes through the real dispatch path: one exact prefix at the
+// request's version cursor for a missing tuple, no prefix and an unchanged
+// actor-event count for an already-recorded tuple, the mismatch refusal for a
+// recorded row that disagrees with the authenticated actor, and the normalized
+// default time for a zero request Now.
+func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
+	t.Parallel()
+	buildAction := func(workID, actionID, operationID string, actor WorkflowActor, expectedVersion int64, payload map[string]any) WorkflowActionExecutionRequest {
+		return WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID,
+			Payload: mustJSONValue(payload), Actor: actor,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64),
+			IdempotencyIdentity:  operationID,
+			OperationID:          operationID,
+			PrincipalRef:         actor.PrincipalRef, Tool: "concord_work_transition",
+			IdempotencyKey: operationID, RequestID: "request:" + operationID,
+			ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC),
+		}
+	}
+	proposalPayload := map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
+	ctx := context.Background()
+
+	t.Run("missing tuple records one exact prefix", func(t *testing.T) {
+		workID := "issue740-prefix-missing"
+		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
+		agentRef, err := WorkflowActorRef(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
+		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, request); err != nil {
+			t.Fatalf("first workflow action by an unrecorded session: %v", err)
+		}
+		if got := countWorkflowActor(t, s, agentRef); got != 1 {
+			t.Fatalf("acting session actor rows=%d, want 1", got)
+		}
+		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor")
+		if event.Kind != WorkflowActorRecorded || event.SubjectType != SubjectWorkItem || event.SubjectID != workID || event.Actor != agentRef {
+			t.Fatalf("actor prefix event identity=%+v, want the canonical actor record for %s", event, agentRef)
+		}
+		if !event.OccurredAt.Equal(request.Now) {
+			t.Fatalf("actor prefix occurred_at=%v, want the request time %v", event.OccurredAt, request.Now)
+		}
+		if event.PayloadVersion != 1 {
+			t.Fatalf("actor prefix payload_version=%d, want 1", event.PayloadVersion)
+		}
+		if payload.WorkID != workID || payload.ExpectedVersion == nil || *payload.ExpectedVersion != version || payload.ResultingVersion == nil || *payload.ResultingVersion != version+1 {
+			t.Fatalf("actor prefix version cursor=%+v, want expected %d resulting %d", payload.WorkflowVersionFields, version, version+1)
+		}
+		if payload.ActorRef != agentRef || payload.PrincipalRef != agent.PrincipalRef || payload.ClientRef != agent.ClientRef || payload.AgentRef != agent.AgentRef || payload.SessionRef != agent.SessionRef || payload.ActorClass != string(ActorAgent) {
+			t.Fatalf("actor prefix payload=%+v, want the authenticated tuple", payload)
+		}
+	})
+
+	t.Run("recorded tuple appends no prefix", func(t *testing.T) {
+		workID := "issue740-prefix-recorded"
+		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
+		agentRef, err := WorkflowActorRef(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)); err != nil {
+			t.Fatalf("first workflow action by an unrecorded session: %v", err)
+		}
+		// Alignment is the actual next step after proposal on this
+		// definition, and record_alignment is its only advance exit. From
+		// source: a none_found alignment emits exactly one typed event, and
+		// the generic completion follows it, so the recorded session's
+		// action adds exactly two versions and no actor prefix.
+		recordedVersion := readWorkVersion(t, s, workID)
+		actorEventsBefore := countActorRecordedEvents(t, s)
+		alignmentPayload := map[string]any{"searched": "The bounded searched area.", "outcome": "none_found"}
+		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, buildAction(workID, "record_alignment", workID+"-second", agent, recordedVersion, alignmentPayload)); err != nil {
+			t.Fatalf("second workflow action by the recorded session: %v", err)
+		}
+		if got := readWorkVersion(t, s, workID); got != recordedVersion+2 {
+			t.Fatalf("already-recorded action moved version to %d, want the alignment semantic and completion pair at %d", got, recordedVersion+2)
+		}
+		if got := countActorRecordedEvents(t, s); got != actorEventsBefore {
+			t.Fatalf("matched tuple added %d actor events, want 0", got-actorEventsBefore)
+		}
+		if got := countWorkflowActor(t, s, agentRef); got != 1 {
+			t.Fatalf("acting session actor rows=%d, want 1", got)
+		}
+	})
+
+	t.Run("mismatched recorded tuple refuses", func(t *testing.T) {
+		actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-corrupt", ActorClass: ActorAgent}
+		tx := seedMismatchedActorRowTx(t, ctx, actor)
+		prefix, prefixErr := workflowActorRecordPrefixTx(ctx, tx, actor)
+		var failure *Failure
+		if !errors.As(prefixErr, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "recorded workflow actor tuple does not match the authenticated actor" {
+			t.Fatalf("mismatched tuple failure=%v, want the recorded-tuple invariant refusal", prefixErr)
+		}
+		if prefix != nil {
+			t.Fatalf("mismatched tuple returned a recording draft %+v, want no effect", prefix)
+		}
+	})
+
+	t.Run("zero request time records the normalized action time", func(t *testing.T) {
+		workID := "issue740-prefix-zero-now"
+		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
+		agentRef, err := WorkflowActorRef(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
+		request.Now = time.Time{}
+		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, request); err != nil {
+			t.Fatalf("first workflow action with zero request time: %v", err)
+		}
+		if got := countWorkflowActor(t, s, agentRef); got != 1 {
+			t.Fatalf("acting session actor rows=%d, want 1", got)
+		}
+		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor")
+		if event.OccurredAt.IsZero() {
+			t.Fatalf("actor prefix occurred_at is zero, want the normalized action time")
+		}
+		completedAt := readEventTime(t, s, request.OperationID+":completed", WorkflowActionCompleted)
+		if !event.OccurredAt.Equal(completedAt) {
+			t.Fatalf("actor prefix occurred_at=%v, want the action's normalized event time %v", event.OccurredAt, completedAt)
+		}
+		if payload.WorkID != workID || payload.ExpectedVersion == nil || *payload.ExpectedVersion != version || payload.ResultingVersion == nil || *payload.ResultingVersion != version+1 {
+			t.Fatalf("actor prefix version cursor=%+v, want expected %d resulting %d", payload.WorkflowVersionFields, version, version+1)
+		}
+		if payload.ActorRef != agentRef || payload.PrincipalRef != agent.PrincipalRef || payload.ClientRef != agent.ClientRef || payload.AgentRef != agent.AgentRef || payload.SessionRef != agent.SessionRef || payload.ActorClass != string(ActorAgent) {
+			t.Fatalf("actor prefix payload=%+v, want the authenticated tuple", payload)
+		}
+	})
 }

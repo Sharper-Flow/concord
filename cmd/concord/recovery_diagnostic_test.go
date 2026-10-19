@@ -30,6 +30,11 @@ func TestDiagnosticTextNamesTheStoreRecoveryOnce(t *testing.T) {
 			t.Fatalf("%s refusal renders %q, want its text and one recovery line", name, text)
 		}
 	}
+	route := &store.Failure{Kind: store.KindUnauthorizedDispatch, Op: "worker_oracle", Detail: "HEAD moved",
+		RecoveryAction: store.RecoveryUseDeclaredRoute, RecoveryRefs: []string{"worktree_verify", "dispatch_worker"}}
+	if text := diagnosticText(route); text != route.Error()+"\nrecovery: use_declared_route: worktree_verify, dispatch_worker" {
+		t.Fatalf("route refusal renders %q, want its ordered route on the recovery line", text)
+	}
 	for name, err := range map[string]error{
 		"plain":       errors.New("cannot read the request"),
 		"no recovery": &store.Failure{Kind: store.KindInvalidOperation, Op: "backup", Detail: "backup destination already exists"},

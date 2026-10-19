@@ -5075,7 +5075,7 @@ CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_o
 `,
 	},
 	{
-		// CD-0171 D2: one Linear Project per Concord Initiative. The drain
+		// One Linear Project per Concord Initiative. The drain
 		// records the remote Project identity when a project_create
 		// completes; project_update and the issue enqueue path address the
 		// Initiative's Project through this row. The queue widens again to
@@ -5145,7 +5145,7 @@ CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_o
 `,
 	},
 	{
-		// CD-0171 removed the repository-to-Linear-Project mapping.
+		// Planning law removed the repository-to-Linear-Project mapping.
 		// Connections recorded while the mapping still existed keep its
 		// retired project_id and project_ids members in stored metadata, and
 		// the update path reaches a document only when an operator edits the
@@ -6394,6 +6394,105 @@ CREATE TRIGGER work_size_assessments_guard_update BEFORE UPDATE ON work_size_ass
 CREATE TRIGGER work_size_assessments_guard_delete BEFORE DELETE ON work_size_assessments FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_assessments is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 132,
+		Name:    "work_size_overrides_and_resize_lineage",
+		SQL: `
+-- CD-0229 D6: the operator's size, kept beside the model decision it was
+-- recorded against. One row per work item; a later override replaces it.
+-- Fold-only; the work.size_overridden fold owns every write.
+CREATE TABLE work_size_overrides (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    model_sequence INTEGER NOT NULL CHECK(typeof(model_sequence)='integer' AND model_sequence >= 1),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY(work_id, model_sequence) REFERENCES work_size_assessments(work_id, sequence) ON DELETE RESTRICT
+);
+CREATE TRIGGER work_size_overrides_guard_insert BEFORE INSERT ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_overrides_guard_update BEFORE UPDATE ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_size_overrides_guard_delete BEFORE DELETE ON work_size_overrides FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_size_overrides is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+-- CD-0229 D6: each resize successor and the lineage root it descends from.
+-- Fold-only; the work.resized fold owns every write.
+CREATE TABLE work_resize_lineage (
+    predecessor_work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    successor_work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id) ON DELETE RESTRICT,
+    event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    root_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    root_define_start_event_id TEXT REFERENCES domain_events(event_id) ON DELETE RESTRICT,
+    CHECK(predecessor_work_id <> successor_work_id)
+);
+CREATE TRIGGER work_resize_lineage_guard_insert BEFORE INSERT ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_resize_lineage_guard_update BEFORE UPDATE ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_resize_lineage_guard_delete BEFORE DELETE ON work_resize_lineage FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_resize_lineage is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  133,
+		Name:     "workflow_contract_decision_domains",
+		Breaking: false,
+		// The contract fold writes this column once per contract INSERT and
+		// never updates it: first derivation wins, so a rebuild from the event
+		// log and the live writer agree, the origin class migration 127
+		// declared for its lease column. Older rows read NULL.
+		FoldMaintained: "origin",
+		SQL: `
+-- The workflow contract records its declared decision fact: a canonical
+-- sorted unique array over preference, product, ui_ux, where [] records
+-- engineering. NULL means the contract predates the fact — historical
+-- absence, never engineering — so no backfill upcasts old contracts into [].
+-- The CHECK holds stored text to the closed canonical enumeration; the fold
+-- refuses non-canonical sets with a typed failure before this constraint can.
+ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_domains IS NULL OR decision_domains IN ('[]','["preference"]','["product"]','["ui_ux"]','["preference","product"]','["preference","ui_ux"]','["product","ui_ux"]','["preference","product","ui_ux"]'));
+`,
+	},
+	{
+		// Routine coordination resolves compatible_with, depends_on, and
+		// blocks overlaps without a consumed approval, and the fold writes
+		// those resolutions unapproved. The rebuilt check admits an empty
+		// approval_ref for the routine kinds alone; merged_into and
+		// supersedes keep demanding a reference. The rebuild copies
+		// migration 91's shape, and every existing row satisfies the new
+		// check unchanged.
+		Version:  134,
+		Name:     "overlap_routine_resolution_carries_own_authority",
+		Breaking: true,
+		SQL: `
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE workflow_overlap_resolutions_v129_backup AS SELECT * FROM workflow_overlap_resolutions;
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DELETE FROM workflow_overlap_resolutions;
+DROP TABLE workflow_overlap_resolutions;
+
+CREATE TABLE workflow_overlap_resolutions (
+    resolution_id TEXT PRIMARY KEY,
+    event_seq INTEGER NOT NULL UNIQUE REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    from_contract_version INTEGER NOT NULL,
+    to_contract_version INTEGER NOT NULL,
+    resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks','merged_into','supersedes')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    approval_ref TEXT NOT NULL CHECK(length(approval_ref) > 0 OR resolution_kind IN ('compatible_with','depends_on','blocks')),
+    created_at TEXT NOT NULL,
+    invalidated_seq INTEGER REFERENCES domain_events(seq) ON DELETE RESTRICT,
+    CHECK(from_work_id <> to_work_id),
+    CHECK(from_contract_version > 0 AND to_contract_version > 0),
+    FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+INSERT INTO workflow_overlap_resolutions SELECT * FROM workflow_overlap_resolutions_v129_backup;
+DROP TABLE workflow_overlap_resolutions_v129_backup;
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+CREATE TRIGGER workflow_overlap_resolutions_guard_insert BEFORE INSERT ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_update BEFORE UPDATE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workflow_overlap_resolutions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_overlap_resolutions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -6634,11 +6733,10 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
-// UnstampedMigrationRefusal is what an unstamped build read before it refused
-// to migrate an existing store (CD-0139): the applied head and the pending
-// tail this build defines. No manifest row names the release that applied it,
-// so the refusal carries no owner.
-type UnstampedMigrationRefusal struct {
+// unstampedRefusal is what an unstamped build read before it refused to
+// migrate an existing store (CD-0139): the applied head and the pending tail
+// this build defines. No manifest row names the release that applied it.
+type unstampedRefusal struct {
 	SchemaVersion    int
 	HeadName         string
 	FirstPending     int
@@ -6653,19 +6751,16 @@ type UnstampedMigrationRefusal struct {
 const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
 
 func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
-	refusal := unstampedRefusalFacts(applied)
-	return refusal.failure(fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
-		refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking))
+	return unstampedRefusalFacts(applied).failure("unstamped development build refuses schema migration for an existing store")
 }
 
-func (refusal UnstampedMigrationRefusal) failure(detail string) *Failure {
-	failure := newFailure(KindInvalidOperation, "open", detail, true, UnstampedRecovery)
-	failure.UnstampedMigration = &refusal
-	return failure
+func (refusal unstampedRefusal) failure(lead string) *Failure {
+	return newFailure(KindInvalidOperation, "open", fmt.Sprintf("%s at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		lead, refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking), true, UnstampedRecovery)
 }
 
-func unstampedRefusalFacts(applied map[int]appliedMigration) UnstampedMigrationRefusal {
-	var refusal UnstampedMigrationRefusal
+func unstampedRefusalFacts(applied map[int]appliedMigration) unstampedRefusal {
+	var refusal unstampedRefusal
 	for recorded := range applied {
 		refusal.SchemaVersion = max(refusal.SchemaVersion, recorded)
 	}

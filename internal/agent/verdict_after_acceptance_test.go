@@ -82,7 +82,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": key}
 		if actionID == "confirm_premise" {
 			delete(input, "fields")
-			question, err := store.ReadWorkflowOperatorQuestion(ctx, s, workID)
+			question, err := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 			if err != nil || question == nil {
 				t.Fatalf("operator question=%+v err=%v", question, err)
 			}

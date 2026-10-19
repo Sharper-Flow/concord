@@ -2,20 +2,20 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-22
-- **Scope:** Domain registry population; law-record homing; the CD-0041 D9.1
+- **Scope:** Domain registry population; law-record homing; the CD-0222 D9.1
   migration delta
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-22;
   the public record is
   [PR #393 comment](https://github.com/Sharper-Flow/concord/pull/393#issuecomment-5383612548)
-- **Related:** CD-0041 D2/D3/D9, CD-0002, CD-0013, CD-0015, CD-0036, CD-0047,
+- **Related:** CD-0222 D2/D3/D9, CD-0002, CD-0013, CD-0015, CD-0036, CD-0047,
   issue #337
-- **Preserves:** CD-0041 D3's one-home invariant; Git as the sole writer of
+- **Preserves:** CD-0222 D3's one-home invariant; Git as the sole writer of
   Domain identity; the derived-projection role of SQLite
 - **Supersedes:** nothing
 
 ## Context
 
-CD-0041 D2 made the Domain registry Product law. The registry then held one
+CD-0222 D2 made the Domain registry Product law. The registry then held one
 entry, `product-root:concord`. Every current law record homed to it.
 
 D2 forbids that shape:
@@ -118,7 +118,7 @@ holding the only two records that do not belong in it.
   root and seven children. `.concord/docs/knowledge/domain-registry.json` is the shard;
   the aggregate is generated from it.
 - Every current law record declares `home_domain_id`. No current law is unhomed,
-  which satisfies the CD-0041 D9.2 requirement for the manifest version that
+  which satisfies the CD-0222 D9.2 requirement for the manifest version that
   makes the one-home invariant mandatory.
 - Twenty-one records gain `applies_to_domain_ids`.
 - Domain-scoped reads over law now return partitioned results. Before this

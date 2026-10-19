@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +89,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 			t.Fatalf("%s actions = %v, want %v", definition.Ref, definition.AvailableActions, wantActions[definition.Ref])
 		}
 		for _, step := range definition.StepGraph.Steps {
-			if !containsString(step.Actions, "checkpoint_context") || !containsString(step.Actions, "cross_context_boundary") {
+			if !slices.Contains(step.Actions, "checkpoint_context") || !slices.Contains(step.Actions, "cross_context_boundary") {
 				t.Fatalf("%s step %s does not expose both continuity actions", definition.Ref, step.ID)
 			}
 		}
@@ -106,7 +108,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 			t.Fatalf("%s edges = %v, want %v", definition.Ref, definition.StepGraph.Edges, wantEdges[definition.Ref])
 		}
 		terminal := definition.StepGraph.Steps[len(definition.StepGraph.Steps)-1]
-		if terminal.ID != wantTerminals[definition.Ref] || !containsString(terminal.Actions, "complete") {
+		if terminal.ID != wantTerminals[definition.Ref] || !slices.Contains(terminal.Actions, "complete") {
 			t.Fatalf("%s terminal completion verb is not declared: %+v", definition.Ref, terminal)
 		}
 		if len(definition.RequiredEvidenceKinds) == 0 || len(definition.RigorRules) == 0 || !definition.CompositionRules.ForwardLinkOnly {
@@ -140,7 +142,7 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 		if refine.ID == "" || refine.Kind != WorkflowStepExternalEffect {
 			t.Fatalf("%s refine step = %+v, want external_effect", definition.Ref, refine)
 		}
-		if !containsString(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
+		if !slices.Contains(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
 		// The derived-start shape: the qualifying checkpoint opens the fence,
@@ -234,8 +236,8 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		// must be its only advance exit, so no dispatched attempt can accept
 		// its way past the search.
 		for _, step := range latest.StepGraph.Steps {
-			admitted := containsString(step.Actions, "accept_worker_result")
-			terminalStep := containsString(latest.StepGraph.TerminalSteps, step.ID)
+			admitted := slices.Contains(step.Actions, "accept_worker_result")
+			terminalStep := slices.Contains(latest.StepGraph.TerminalSteps, step.ID)
 			gated := false
 			for _, actionID := range step.Actions {
 				for _, action := range latest.ActionDefinitions {
@@ -559,9 +561,9 @@ func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowA
 	events := []Event{
 		{EventID: workID + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: workID + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-" + workID, Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
+		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-"+workID): 0, VersionRef(SubjectProject, "project-"+workID): 0, VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
@@ -572,7 +574,7 @@ func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowA
 // spikeDecisionRecordEnvelope is one record_decision payload whose token can
 // be varied per case.
 func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
-	return mustJSONBytes(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
+	return mustJSONValue(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
 }
 
 // CD-0013 D4 binds the architecture-spike record at evaluation and completion
@@ -657,4 +659,11 @@ func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
 	if lifecycle != "completed" {
 		t.Fatalf("lifecycle = %q, want completed", lifecycle)
 	}
+}
+
+// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
+// the scoped checkpoint fold carries the transaction's registry to the same
+// core.
+func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
+	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
 }

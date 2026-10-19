@@ -190,7 +190,7 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 
 func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
-	version := verdictItemVersion(t, j.s, j.workID)
+	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
 	return j.s.Transact(ctx, func(transaction *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, transaction, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
@@ -422,7 +422,7 @@ func TestManagedCandidateSubjectReviewAcceptanceChecksRequestedAttempt(t *testin
 	payload := map[string]any{"attempt_id": "attempt-review-a", "attempt_epoch": j.dispatchEpoch(t, "attempt-review-a")}
 	j.refuse(t, "accept_worker_evidence preflight of A after B review completes", func() error {
 		return WorkflowActionPreflightWithRegistry(context.Background(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-			WorkID: j.workID, ExpectedVersion: verdictItemVersion(t, j.s, j.workID), ActionID: "accept_worker_evidence",
+			WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "accept_worker_evidence",
 			Payload: mustJSONValue(payload), Actor: j.acceptor,
 		})
 	})
@@ -507,7 +507,7 @@ func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capabili
 		t.Fatalf("prepare dispatch %s: %v", attemptID, err)
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatalf("dispatch %s on %s: %v", attemptID, laneID, err)
 	}
 	bound := job
@@ -708,7 +708,7 @@ func (j *candidateJourney) dispatchReview(t *testing.T, attemptID string) {
 		t.Fatalf("prepare review %s: %v", attemptID, err)
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatalf("dispatch review %s: %v", attemptID, err)
 	}
 	j.laneDispatch(t, attemptID, "review", nil)

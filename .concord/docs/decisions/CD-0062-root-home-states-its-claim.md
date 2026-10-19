@@ -7,9 +7,9 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-23;
   the public record is the pull request that lands this record
 - **Related:** CD-0060 (partitions the corpus; D2 gives the root Product-wide
-  law), CD-0041 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002, PM1.Q10
-- **Preserves:** CD-0041 D3's one-home invariant; the derived-projection role of
-  SQLite; the CD-0041 D9.2 upcast
+  law), CD-0222 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002, PM1.Q10
+- **Preserves:** CD-0222 D3's one-home invariant; the derived-projection role of
+  SQLite; the CD-0222 D9.2 upcast
 - **Supersedes:** nothing
 
 ## Context
@@ -56,7 +56,7 @@ follows them.
 
 ### D3. The upcast marks an undecided home rather than inventing a claim
 
-CD-0041 D9.2 assigns the root to legacy law carrying zero or several component
+CD-0222 D9.2 assigns the root to legacy law carrying zero or several component
 IDs. That home is undecided by construction. The migration cannot invent a
 reason, and emitting none would recreate the silent default this record
 removes.

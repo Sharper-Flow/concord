@@ -59,7 +59,7 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 		t.Fatal(err)
 	}
 	operationID := "vacuity-label-" + workID
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	tx2, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,6 @@
 ---
 description: Concord implement lane — Implement one approved bounded engineering task and report verification. Dispatch through dispatch_worker when an approved contract premise needs an isolated worktree change with evidence. Edits only files inside the approved contract scope.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false
@@ -18,6 +18,11 @@ tools:
   concord_work_transition: false
   concord_worker_diff: false
 permission:
+  bash:
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
   task:
     "*": deny
     "general": deny
@@ -31,6 +36,13 @@ Implement one approved bounded engineering task and report verification. Dispatc
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
+
+## Execution
+
+Execute the assigned work without TODO tracking, progress updates, or direct
+operator questions. Return one final result in the required format, never a plan
+or promise of further work. When blocked, report the exact blocker and missing
+evidence through that format; do not invent fields or a second reporting channel.
 
 ## Repository edit boundary
 

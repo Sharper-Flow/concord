@@ -50,10 +50,11 @@ func TestTxBeginGuard(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		// These packages implement test fixtures, including deliberate foreign
-		// write locks. No production file may import them. This is a package
-		// boundary, not an exemption for a production transaction call site.
-		if txBeginTestSupport(rel) {
+		// Declared test-support packages implement fixtures, including
+		// deliberate foreign write locks. No production file may import them.
+		// This is a package boundary, not an exemption for a production
+		// transaction call site.
+		if testSupportPackage(filepath.Dir(rel)) {
 			return nil
 		}
 		files++
@@ -87,10 +88,6 @@ func TestTxBeginGuard(t *testing.T) {
 	}
 }
 
-func txBeginTestSupport(path string) bool {
-	return strings.HasPrefix(path, "internal/pm1fixture/") || strings.HasPrefix(path, "internal/store/storetest/")
-}
-
 func TestTxBeginGuardBites(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -104,6 +101,7 @@ func TestTxBeginGuardBites(t *testing.T) {
 		{"foreign package", "internal/other/read.go", `package other; func bad() { s.DatabaseForTesting().BeginTx(ctx, nil) }`},
 		{"production fixture import", "internal/other/read.go", `package other; import "github.com/sharper-flow/concord/internal/pm1fixture"`},
 		{"production neighbor import", "internal/other/read.go", `package other; import "github.com/sharper-flow/concord/internal/store/storetest/neighbor"`},
+		{"production test-support import", "internal/other/read.go", `package other; import "github.com/sharper-flow/concord/internal/testenv"`},
 		{"raw SQL", "internal/store/query.go", `package store; func bad() { conn.ExecContext(ctx, "BEGIN IMMEDIATE") }`},
 		{"raw SQL constant", "internal/store/query.go", `package store; const begin = "BEGIN " + "TRANSACTION"; func bad() { db.Exec(begin) }`},
 		{"split SQL constants", "internal/store/query.go", `package store; const pre = "BE"; const suffix = "GIN"; func bad() { db.Exec(pre + suffix) }`},
@@ -292,7 +290,7 @@ func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet, info *typ
 			findings = append(findings, path+":"+strconv.Itoa(fset.Position(imp.Pos()).Line)+": invalid import: "+err.Error())
 			continue
 		}
-		if txBeginTestSupport(strings.TrimPrefix(name, "github.com/sharper-flow/concord/") + "/") {
+		if testSupportPackage(strings.TrimPrefix(name, "github.com/sharper-flow/concord/")) {
 			findings = append(findings, path+":"+strconv.Itoa(fset.Position(imp.Pos()).Line)+": production imports transaction test support "+name)
 		}
 	}

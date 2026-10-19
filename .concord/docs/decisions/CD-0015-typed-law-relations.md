@@ -3,7 +3,7 @@
 **Status:** Accepted.
 **Approval date:** 2026-08-11.
 **Approval:** Operator approval for GitHub issue #44.
-**Amended by:** CD-0041 gives every law one Domain home and composes these
+**Amended by:** CD-0222 gives every law one Domain home and composes these
 relations with architecture-bound work contracts and overlap checks.
 **Amended:** 2026-10-17. Planning admits an explicit conflict only when
 `law_modifies` names the endpoint whose record declares it, because only that

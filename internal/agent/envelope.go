@@ -791,9 +791,6 @@ func validateError(err TypedError) error {
 			return errors.New("invalid current version reference")
 		}
 	}
-	if len(err.Details) > 20 || !scalarDetails(err.Details) {
-		return errors.New("invalid error details")
-	}
 	if err.Kind == "cross_repository_claim" || err.SessionPlacement != nil {
 		placement := err.SessionPlacement
 		if err.Kind != "cross_repository_claim" || placement == nil || !bounded(placement.WorkID, 1, 128) || !bounded(placement.ProjectID, 1, 128) || !bounded(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {

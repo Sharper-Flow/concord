@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 )
@@ -107,6 +108,10 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	}
 	dispatch, auth, err := readNativeOracleDispatchBindingTx(ctx, q, req.WorkID, req.AttemptID)
 	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return workerDiffRefusal("worker diff read requires the exact live review dispatch and candidate binding")
+		}
 		return err
 	}
 	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)
@@ -114,6 +119,9 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 		return workerDiffRefusal("diff requires a live inspect_diff attempt with its pinned job")
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, req.WorkID, "worker_diff")
+	if errors.Is(err, sql.ErrNoRows) {
+		return workerDiffRefusal("worker diff read requires an active workflow contract")
+	}
 	if err != nil {
 		return err
 	}

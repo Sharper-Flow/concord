@@ -270,7 +270,7 @@ func validateWorkerJobSizeShape(projectScope string, sizeCap *int64, basis *Work
 			return fail("worker.job_recorded measurement_basis carries path "+measured.Path+" twice", "inventory each measured path once")
 		}
 		seen[measured.Path] = true
-		if !containsString(workerJobMeasuredPathClasses, measured.Class) {
+		if !slices.Contains(workerJobMeasuredPathClasses, measured.Class) {
 			return fail("worker.job_recorded measurement_basis path "+measured.Path+" carries class "+measured.Class+" outside the closed classification vocabulary",
 				"classify each measured path production, test, documentation, or generated")
 		}

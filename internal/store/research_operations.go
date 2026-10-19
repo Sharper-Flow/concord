@@ -14,63 +14,6 @@ import (
 	"unicode/utf8"
 )
 
-func validateResearchIdentity(identity ResearchMutationIdentity) error {
-	if identity.PrincipalRef == "" || identity.Tool == "" || identity.OperationKind == "" || identity.IdempotencyKey == "" {
-		return researchInvalid("principal_ref, tool, operation_kind, and idempotency_key are required")
-	}
-	return nil
-}
-
-func canonicalRequestDigest(value any) (string, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", researchUnavailable("cannot encode canonical research request", err)
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutationIdentity, digest string) (*sql.Tx, []byte, bool, error) {
-	if s == nil || s.db == nil {
-		return nil, nil, false, researchUnavailable("store is not open", nil)
-	}
-	tx, err := beginOrdinaryTx(ctx, s.db)
-	if err != nil {
-		return nil, nil, false, researchUnavailable("cannot begin research transaction", err)
-	}
-	var priorDigest, result string
-	err = tx.QueryRowContext(ctx, `SELECT canonical_digest,result_event_ids FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey).Scan(&priorDigest, &result)
-	if err == nil {
-		if priorDigest != digest {
-			_ = tx.Rollback()
-			return nil, nil, false, newFailure(KindIdempotencyConflict, "research_mutation", "idempotency key was used for a different request", false, "use a new idempotency key")
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET replayed_count=replayed_count+1,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, s.now().Format(time.RFC3339Nano), identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey); err != nil {
-			_ = tx.Rollback()
-			return nil, nil, false, researchUnavailable("cannot record idempotent replay", err)
-		}
-		return tx, []byte(result), true, nil
-	}
-	if err != sql.ErrNoRows {
-		_ = tx.Rollback()
-		return nil, nil, false, researchUnavailable("cannot inspect idempotency record", err)
-	}
-	return tx, nil, false, nil
-}
-
-func finishResearchMutation(ctx context.Context, tx *sql.Tx, identity ResearchMutationIdentity, digest string, observedAt time.Time, result researchResult) error {
-	data, err := json.Marshal(result)
-	if err != nil {
-		return researchUnavailable("cannot encode research result", err)
-	}
-	now := observedAt.UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,replayed_count,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,0,?,?)`, identity.PrincipalRef, identity.Tool, identity.OperationKind, identity.IdempotencyKey, digest, newResearchID("op"), string(data), now, now)
-	if err != nil {
-		return researchConstraint("cannot record research idempotency identity", err)
-	}
-	return nil
-}
-
 func normalizeRevision(input ResearchRevisionInput) (ResearchRevisionInput, error) {
 	if input.Question == "" || input.Method == "" {
 		return input, researchInvalid("revision question and method are required")

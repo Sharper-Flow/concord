@@ -152,7 +152,7 @@ func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 	}
 	destination, present, err := snapshotBeforeMutation(path, dataRoot, "repair", version)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %s", destination, diagnosticText(unstampedRefusalDiagnostic(err, filepath.Dir(path)))))
+		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %s", destination, diagnosticText(err)))
 		return 1
 	}
 	if !present {

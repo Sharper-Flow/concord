@@ -24,6 +24,7 @@
 
 import { execFileSync } from "node:child_process"
 import { promptAndConfirm } from "./host-prompt"
+import { cleanupRefusedSubtask } from "./native-subtask-refusal"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
@@ -118,6 +119,10 @@ export class HostControlPlane {
 
   available(): boolean {
     return this.#client !== null
+  }
+
+  async cleanupRefusedSubtask(input: { sessionID: string; callID: string }, args: Record<string, unknown>, error: string, activeCallID?: string): Promise<void> {
+    await cleanupRefusedSubtask(this.#client, input, args, error, activeCallID)
   }
 
   async promptSession(sessionID: string, text: string, metadata: Record<string, unknown>, beforePost: () => Promise<boolean>): Promise<"delivered" | "unconfirmed"> {

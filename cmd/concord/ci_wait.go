@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -64,6 +65,9 @@ type ciWaitRequest struct {
 	Mode           string          `json:"mode"`
 	TimeSecondsMax *int            `json:"time_seconds_max"`
 	StateFile      string          `json:"state_file"`
+	// HeadSHA names the commit a pr wait judges, normally the one the caller
+	// just pushed. Empty means the head the first poll observes.
+	HeadSHA string `json:"head_sha"`
 }
 
 type ciWaitSelector struct {
@@ -125,6 +129,9 @@ type ciWaitState struct {
 	LastMergeState string         `json:"last_merge_state,omitempty"`
 	Mode           string         `json:"mode,omitempty"`
 	OwnerPID       int            `json:"owner_pid,omitempty"`
+	// ExpectedHeadSHA is the commit the caller named. HeadSHA stays empty
+	// until the pull request head reaches it.
+	ExpectedHeadSHA string `json:"expected_head_sha,omitempty"`
 	// MergeQueueBaseline is the newest merge-queue event id the wait's first
 	// queue read observed. Nil means not read yet; "" means no event.
 	MergeQueueBaseline *string `json:"merge_queue_baseline,omitempty"`
@@ -396,10 +403,32 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	if err := ciWaitDecode(headBody, &head); err != nil {
 		return ciWaitReport{}, false, err
 	}
-	state.LastMergeState = head.MergeStateStatus
 	if head.HeadRefOid == "" {
 		return ciWaitReport{}, false, fmt.Errorf("gh pr view returned no head SHA")
 	}
+	// A wait the caller named a commit for judges only that commit. Until
+	// the pull request head reaches it, the observed head is the one the
+	// push replaces, so its checks and merge state are no verdict. A pull
+	// request merged or closed at another head never reaches the commit.
+	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" && head.HeadRefOid != state.ExpectedHeadSHA {
+		report := ciWaitReport{
+			Status:     "pending",
+			Reason:     "the pull request head is not the expected head yet",
+			SHA:        state.ExpectedHeadSHA,
+			HeadSHA:    head.HeadRefOid,
+			RunURL:     head.URL,
+			MergeState: head.MergeStateStatus,
+		}
+		if head.MergedAt != "" || strings.EqualFold(head.State, "CLOSED") {
+			report.Status = "superseded"
+			report.Reason = "the pull request ended at a head other than the expected head"
+			return report, true, nil
+		}
+		return report, false, nil
+	}
+	// Only the watched commit's merge state reaches a later stall, error, or
+	// timeout report.
+	state.LastMergeState = head.MergeStateStatus
 	// Head-SHA policy: the wait watches one commit. A pushed correction means
 	// the checks now observed belong to a different subject than the one the
 	// caller asked about, so the wait stops with superseded instead of
@@ -426,12 +455,15 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		RunURL:     head.URL,
 		MergeState: head.MergeStateStatus,
 	}
-	if head.MergedAt != "" {
+	// CD-0161 D2: merge mode waits for the pull request to end, so a merged
+	// or closed one ends the wait. Checks mode waits for the watched head's
+	// checks, and a merge or close proves nothing about them.
+	if state.Mode == "merge" && head.MergedAt != "" {
 		report.Status = "merged"
 		report.Reason = "the pull request is merged"
 		return report, true, nil
 	}
-	if strings.EqualFold(head.State, "CLOSED") {
+	if state.Mode == "merge" && strings.EqualFold(head.State, "CLOSED") {
 		report.Status = "closed"
 		report.Reason = "the pull request is closed without a merge"
 		return report, true, nil
@@ -686,11 +718,30 @@ type ghRunSummary struct {
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
 	URL        string `json:"url"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// ciWaitRunListFields is the field set every `gh run list` read requests.
+const ciWaitRunListFields = "databaseId,name,status,conclusion,url,createdAt"
+
+// ciWaitSortRuns puts a commit's runs in creation order, so the
+// representative run and the failure order come from the provider's
+// metadata, never from the order gh lists them in. A run that another run
+// triggers is created after it, so the earliest run stands for the commit.
+// gh reports createdAt in RFC 3339 UTC, which orders lexically; the run ID
+// breaks a tie.
+func ciWaitSortRuns(runs []ghRunSummary) {
+	sort.SliceStable(runs, func(i, j int) bool {
+		if runs[i].CreatedAt != runs[j].CreatedAt {
+			return runs[i].CreatedAt < runs[j].CreatedAt
+		}
+		return runs[i].DatabaseID < runs[j].DatabaseID
+	})
 }
 
 func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
 	body, err := ciWaitGH(ctx, "run", "list", "--repo", state.Repo,
-		"--commit", state.Selector.Value, "--json", "databaseId,name,status,conclusion,url")
+		"--commit", state.Selector.Value, "--json", ciWaitRunListFields)
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -698,6 +749,7 @@ func ciWaitPollSHA(ctx context.Context, state *ciWaitState) (ciWaitReport, bool,
 	if err := ciWaitDecode(body, &runs); err != nil {
 		return ciWaitReport{}, false, err
 	}
+	ciWaitSortRuns(runs)
 	state.LastSHA = strings.ToLower(state.Selector.Value)
 	// A commit with no runs yet is pending, never success: the empty set does
 	// not silently count as passing CI.
@@ -1001,6 +1053,9 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 	if mode == "merge" && request.Selector.Kind != "pr" {
 		return nil, "", fmt.Errorf("mode merge requires a pr selector")
 	}
+	if request.HeadSHA != "" && (request.Selector.Kind != "pr" || !ciWaitHex40(request.HeadSHA)) {
+		return nil, "", fmt.Errorf("head_sha must be a 40-character commit SHA and requires a pr selector")
+	}
 
 	budget := ciWaitDefaultBudget
 	if request.TimeSecondsMax != nil {
@@ -1019,6 +1074,10 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 		DeadlineAt:    now.Add(time.Duration(budget) * time.Second),
 		Mode:          mode,
 		OwnerPID:      os.Getppid(),
+		// GitHub reports object ids in lowercase. A timeout before the pull
+		// request reaches the expected head still names it.
+		ExpectedHeadSHA: strings.ToLower(request.HeadSHA),
+		LastSHA:         strings.ToLower(request.HeadSHA),
 	}
 	return state, path, nil
 }
@@ -1175,6 +1234,9 @@ func ciWaitFinishTimeout(state *ciWaitState, out io.Writer) int {
 		SHA:        state.LastSHA,
 		HeadSHA:    state.HeadSHA,
 		MergeState: state.LastMergeState,
+	}
+	if state.HeadSHA == "" && state.ExpectedHeadSHA != "" {
+		report.Reason = "the wall-time deadline expired before the pull request head reached the expected head"
 	}
 	return ciWaitEmit(out, report, 1)
 }

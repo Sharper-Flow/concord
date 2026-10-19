@@ -101,27 +101,3 @@ func TestVocabularyRegistriesAreImmutable(t *testing.T) {
 		})
 	}
 }
-
-func TestReconstructionScratchWorkUsesStoredOperatorKind(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := insertScratchWork(ctx, tx, "scratch-endpoint"); err != nil {
-		t.Fatalf("insert reconstruction scratch work: %v", err)
-	}
-	var kind string
-	if err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id='scratch-endpoint'`).Scan(&kind); err != nil {
-		t.Fatal(err)
-	}
-	if kind != "task" {
-		t.Fatalf("scratch work kind = %q, want task", kind)
-	}
-}

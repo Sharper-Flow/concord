@@ -32,7 +32,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	binding := workflowArchitectureBindingFixture()
 	if stage == "overlap" || stage == "pending-dispatch-overlap" || stage == "self-repair" {
@@ -46,17 +46,17 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	if stage != "before-start" {
 		invokeWorkflowIssue31Action(t, s, service, env, "start_execution", version, "supersede-start-execution")
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	if stage == "acceptance" {
 		invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", version, "supersede-bind-evidence")
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 			t.Fatal(err)
 		}
 		evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
 		invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", version, "supersede-record-verdict")
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	before, err := store.VerifyWorkflowInstanceDefinition(context.Background(), s, store.BuiltinWorkflowRegistry(), "work-1")
 	if err != nil {
@@ -84,7 +84,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		// (CD-0205). The verify lane is a verification capability class
 		// and the recorded checks cannot be empty.
 		recordReadyRetryJobWithChecks(t, s, service, env, "job:supersede-pending", 1, []string{"go test ./internal/store/"})
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
 			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
@@ -99,7 +99,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		if dispatched.Outcome != OutcomeOK {
 			t.Fatalf("authorize dispatch window: %+v", dispatched.Error)
 		}
-		version = workflowIssue31Version(t, s)
+		version = workOneVersion(t, s)
 	}
 	if stage == "pending-dispatch-overlap" {
 		seedContractCorrectionPeer(t, s)
@@ -158,7 +158,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind == "approval_required" {
 			t.Fatalf("pending dispatch admitted correction: %+v", challenge.Error)
 		}
-		if workflowIssue31Version(t, s) != version {
+		if workOneVersion(t, s) != version {
 			t.Fatal("refused correction changed the work version")
 		}
 		return
@@ -182,12 +182,12 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, map[string]any{"work": version, "contract": 1}, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), "supersede-contract-approval")
 	tampered := bytes.Replace(approvedRaw, []byte("corrected premise"), []byte("unapproved premise"), 1)
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tampered}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workflowIssue31Version(t, s) != version {
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
 		t.Fatalf("changed contract reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	tamperedDesign := bytes.Replace(approvedRaw, []byte("corrected design"), []byte("unapproved design"), 1)
 	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tamperedDesign}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workflowIssue31Version(t, s) != version {
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workOneVersion(t, s) != version {
 		t.Fatalf("changed design reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	var stale map[string]any
@@ -200,7 +200,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatal(err)
 	}
 	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workflowIssue31Version(t, s) != version {
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workOneVersion(t, s) != version {
 		t.Fatalf("stale version admitted correction: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
@@ -277,9 +277,9 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			t.Fatalf("self-repair stayed overlap-blocked: %v", err)
 		}
 	}
-	committedVersion := workflowIssue31Version(t, s)
+	committedVersion := workOneVersion(t, s)
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workflowIssue31Version(t, s) != committedVersion {
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
 		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
 	}
 	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 2 {

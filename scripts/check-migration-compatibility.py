@@ -320,11 +320,6 @@ def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None
         if key in born:
             return key
     return None
-
-
-def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
-    """Return whether a table reference resolves to a born table."""
-    return resolve_born(ref, born) is not None
 # One SQL table reference: quoted, bracketed, backticked, string-literal, or
 # bare, alone or schema-qualified. Comparisons normalize through sql_table_key.
 DROP_INDEX = re.compile(
@@ -856,8 +851,6 @@ def split_top_level(text: str) -> list[str]:
     return parts
 
 
-IF_EXISTS_RE = re.compile(rf"IF{SQL_SP}EXISTS", re.IGNORECASE)
-IF_NOT_EXISTS_RE = re.compile(rf"IF{SQL_SP}NOT{SQL_SP}EXISTS", re.IGNORECASE)
 DROP_TABLE_MAYBE = re.compile(
     rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?"
     rf"{SQL_NAME_SEP}({SQL_QUAL})$",
@@ -867,9 +860,6 @@ DROP_DEPENDENT = re.compile(
     rf"^DROP{SQL_SP}(INDEX|TRIGGER|VIEW)((?:{SQL_SP}IF{SQL_SP}EXISTS)?)"
     rf"{SQL_NAME_SEP}({SQL_QUAL})$",
     re.IGNORECASE,
-)
-ADD_COLUMN_DEF = re.compile(
-    rf"^ADD{SQL_NAME_SEP}(?:COLUMN{SQL_NAME_SEP})?([\s\S]+)$", re.IGNORECASE
 )
 # Matched against the whitespace-collapsed copy statement: INSERT INTO new
 # (columns) SELECT columns FROM scratch. OR IGNORE, a WHERE, or any other

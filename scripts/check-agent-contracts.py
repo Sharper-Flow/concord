@@ -292,7 +292,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "takeover_attempt": {"payload", "operation_id", "current_claim"},
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
-        "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},
+        "rebuild": {"payload", "event_stream"},
         "start_execution": {"payload"}, "workflow_action": {"payload"}, "record_delivery": {"payload"},
         "concurrent_reads_and_writes": {"payload"}, "repair_and_rebuild": {"payload", "event_stream"},
         "replay": {"payload", "event_stream"},
@@ -564,8 +564,8 @@ def check_workflow_contracts() -> list[str]:
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         # Numbers run 1..57; a retired number is never reused. 3 and 52 were
-        # retired with CD-0236.
-        retired_numbers = {3, 52}
+        # retired with CD-0236, 36 with CD-0238.
+        retired_numbers = {3, 36, 52}
         expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
         if len(scenarios) != len(expected_numbers):
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected {len(expected_numbers)} scenarios, got {len(scenarios)}")
@@ -668,11 +668,9 @@ def _check_evidence_obligation_vocabulary() -> list[str]:
 def _check_lane_agent_selectability() -> list[str]:
     """Prove a lane definition is dispatchable but not operator-selectable (CD-0070).
 
-    Two frontmatter keys carry this and they pull in opposite directions. Run
-    mode refuses a subagent-mode target and silently substitutes the default
-    agent, so CD-0064 D1 requires a primary-capable mode. The host then cycles
-    every primary-capable agent whose hidden flag is unset, which is how a
-    worker lane became selectable as the operator's session agent.
+    Subagent mode keeps lanes out of primary sessions. The hidden flag keeps
+    them out of ordinary discovery; authorized native Task dispatch still
+    resolves their exact names.
 
     The generator's own `--check` proves the definitions match the generator,
     which is self-consistency rather than proof: a change to both sides passes
@@ -690,8 +688,8 @@ def _check_lane_agent_selectability() -> list[str]:
             continue
         if "\nhidden: true\n" not in f"\n{frontmatter}":
             findings.append(f"{relative}: lane definition must declare `hidden: true` (CD-0070 D1)")
-        if "\nmode: all\n" not in f"\n{frontmatter}":
-            findings.append(f"{relative}: lane definition must declare `mode: all` (CD-0064 D1)")
+        if "\nmode: subagent\n" not in f"\n{frontmatter}":
+            findings.append(f"{relative}: lane definition must declare `mode: subagent` (CD-0064 D1)")
     return findings
 
 def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:
@@ -871,7 +869,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="omit only scripts/test-agent-contracts.py; the caller must separately run and require that suite",
     )
+    parser.add_argument(
+        "--skip-host-typecheck",
+        action="store_true",
+        help="never run bun add and omit the pinned host typecheck: the host schema probe and the permission-merge probe are NOT run either",
+    )
     options = parser.parse_args(argv)
+    if options.skip_host_typecheck and os.environ.get("CONCORD_REQUIRE_BUN") == "1":
+        print(
+            "--skip-host-typecheck refuses under CONCORD_REQUIRE_BUN=1: the required check must run the adapter host typecheck",
+            file=sys.stderr,
+        )
+        return 1
     workflow_findings = check_workflow_contracts()
     if workflow_findings:
         for finding in workflow_findings:
@@ -900,6 +909,12 @@ def main(argv: list[str] | None = None) -> int:
     if lane_findings:
         for finding in lane_findings:
             print(finding, file=sys.stderr)
+        return 1
+    # Validate the pin even when Bun or host typechecking is unavailable.
+    pin_findings: list[str] = []
+    pin = load_host_pin(pin_findings)
+    if pin is None:
+        for finding in pin_findings: print(finding, file=sys.stderr)
         return 1
     bun = shutil.which("bun")
     # The adapter is the agent-facing surface, so "Bun was unavailable" is a
@@ -954,64 +969,63 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             # Typecheck against the published declarations at the exact
             # versions .concord/docs/adapter-host-pin.v1.json pins.
             summary = "Bun syntax/build/typecheck"
-            pin_findings: list[str] = []
-            pin = load_host_pin(pin_findings)
-            if pin is None:
-                for finding in pin_findings: print(finding, file=sys.stderr)
-                return 1
-            workspace = Path(out) / "host-typecheck"
-            staging_error = stage_host_workspace(bun, pin, workspace)
-            if staging_error:
-                # Installing the declarations needs the package registry. On a
-                # contributor laptop that is a tolerable answer, for the same
-                # reason a missing Bun is; in CI it is not, and the variable
-                # that makes a missing toolchain fail closed makes an
-                # unreachable registry fail closed too.
-                if os.environ.get("CONCORD_REQUIRE_BUN") == "1":
-                    print(staging_error, file=sys.stderr); return 1
-                print(f"adapter host typecheck skipped: {staging_error}")
+            if options.skip_host_typecheck:
+                print("adapter host typecheck NOT run: --skip-host-typecheck also omits the host schema probe and the permission-merge probe and never installs the pinned declarations")
                 summary = "Bun syntax/build; host typecheck NOT run"
             else:
-                schema_probe = subprocess.run([bun, "run", "src/host_schema_probe.ts"], cwd=workspace, capture_output=True, text=True)
-                if schema_probe.returncode:
-                    print((schema_probe.stderr or schema_probe.stdout).strip(), file=sys.stderr)
-                    print("adapter host schema probe failed", file=sys.stderr)
-                    return schema_probe.returncode
-                # Opt-in real-host permission-merge evidence. The portable probe
-                # above never requires the installed host; when this variable
-                # names a binary (or "1" to resolve one from PATH or
-                # OPENCODE_BIN), the probe additionally resolves every generated
-                # role's permissions through `debug agent` in an isolated temp
-                # fixture and fails on a missing deny or a drifted resolution.
-                merge_binary = os.environ.get("CONCORD_HOST_MERGE_PROBE")
-                if merge_binary:
-                    command = [bun, "run", "src/host_schema_probe.ts", "--host-merge", str(ROOT / ".opencode/agents"), str(Path(out) / "host-merge-summary.json")]
-                    if merge_binary != "1": command.append(merge_binary)
-                    # Every host command inside the probe carries its own
-                    # 30-second spawn timeout; this parent-level bound only
-                    # stops the whole mode from hanging without output.
-                    try:
-                        merge_probe = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=600)
-                    except subprocess.TimeoutExpired as expired:
-                        captured = expired.stderr or expired.stdout or ""
-                        if isinstance(captured, bytes): captured = captured.decode(errors="replace")
-                        print(captured.strip(), file=sys.stderr)
-                        print("adapter host permission-merge probe exceeded its 600s parent bound and was stopped", file=sys.stderr)
-                        return 124
-                    if merge_probe.returncode:
-                        print((merge_probe.stderr or merge_probe.stdout).strip(), file=sys.stderr)
-                        print("adapter host permission-merge probe failed", file=sys.stderr)
-                        return merge_probe.returncode
-                    merge_out = os.environ.get("CONCORD_HOST_MERGE_OUT")
-                    if merge_out:
-                        shutil.copyfile(Path(out) / "host-merge-summary.json", merge_out)
-                        print(f"host permission-merge summary written to {merge_out}")
-                typecheck = subprocess.run([bun, "x", f"typescript@{pin['typescript']}", "-p", "tsconfig.json"], cwd=workspace, capture_output=True, text=True)
-                reconcile_diagnostics(typecheck.stdout + typecheck.stderr, pin["allowances"], pin_findings, typecheck.returncode)
-                if pin_findings:
-                    print(typecheck.stdout.strip(), file=sys.stderr)
-                    for finding in pin_findings: print(finding, file=sys.stderr)
-                    return 1
+                workspace = Path(out) / "host-typecheck"
+                staging_error = stage_host_workspace(bun, pin, workspace)
+                if staging_error:
+                    # Installing the declarations needs the package registry. On a
+                    # contributor laptop that is a tolerable answer, for the same
+                    # reason a missing Bun is; in CI it is not, and the variable
+                    # that makes a missing toolchain fail closed makes an
+                    # unreachable registry fail closed too.
+                    if os.environ.get("CONCORD_REQUIRE_BUN") == "1":
+                        print(staging_error, file=sys.stderr); return 1
+                    print(f"adapter host typecheck skipped: {staging_error}")
+                    summary = "Bun syntax/build; host typecheck NOT run"
+                else:
+                    schema_probe = subprocess.run([bun, "run", "src/host_schema_probe.ts"], cwd=workspace, capture_output=True, text=True)
+                    if schema_probe.returncode:
+                        print((schema_probe.stderr or schema_probe.stdout).strip(), file=sys.stderr)
+                        print("adapter host schema probe failed", file=sys.stderr)
+                        return schema_probe.returncode
+                    # Opt-in real-host permission-merge evidence. The portable probe
+                    # above never requires the installed host; when this variable
+                    # names a binary (or "1" to resolve one from PATH or
+                    # OPENCODE_BIN), the probe additionally resolves every generated
+                    # role's permissions through `debug agent` in an isolated temp
+                    # fixture and fails on a missing deny or a drifted resolution.
+                    merge_binary = os.environ.get("CONCORD_HOST_MERGE_PROBE")
+                    if merge_binary:
+                        command = [bun, "run", "src/host_schema_probe.ts", "--host-merge", str(ROOT / ".opencode/agents"), str(Path(out) / "host-merge-summary.json")]
+                        if merge_binary != "1": command.append(merge_binary)
+                        # Every host command inside the probe carries its own
+                        # 30-second spawn timeout; this parent-level bound only
+                        # stops the whole mode from hanging without output.
+                        try:
+                            merge_probe = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=600)
+                        except subprocess.TimeoutExpired as expired:
+                            captured = expired.stderr or expired.stdout or ""
+                            if isinstance(captured, bytes): captured = captured.decode(errors="replace")
+                            print(captured.strip(), file=sys.stderr)
+                            print("adapter host permission-merge probe exceeded its 600s parent bound and was stopped", file=sys.stderr)
+                            return 124
+                        if merge_probe.returncode:
+                            print((merge_probe.stderr or merge_probe.stdout).strip(), file=sys.stderr)
+                            print("adapter host permission-merge probe failed", file=sys.stderr)
+                            return merge_probe.returncode
+                        merge_out = os.environ.get("CONCORD_HOST_MERGE_OUT")
+                        if merge_out:
+                            shutil.copyfile(Path(out) / "host-merge-summary.json", merge_out)
+                            print(f"host permission-merge summary written to {merge_out}")
+                    typecheck = subprocess.run([bun, "x", f"typescript@{pin['typescript']}", "-p", "tsconfig.json"], cwd=workspace, capture_output=True, text=True)
+                    reconcile_diagnostics(typecheck.stdout + typecheck.stderr, pin["allowances"], pin_findings, typecheck.returncode)
+                    if pin_findings:
+                        print(typecheck.stdout.strip(), file=sys.stderr)
+                        for finding in pin_findings: print(finding, file=sys.stderr)
+                        return 1
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
             if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact", "work_start"]:
@@ -1026,6 +1040,6 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             text = path.read_text(encoding="utf-8")
             if "Code generated by scripts/generate-agent-contracts.py" not in text or "manifestDigest" not in text and path.name == "generated-contracts.ts":
                 print(f"generated TypeScript marker missing: {path}", file=sys.stderr); return 1
-        print("agent contract check passed (generated-marker fallback only; Bun unavailable, adapter build and tests NOT run)")
+        print("agent contract check passed (non-Bun checks only; Bun unavailable: adapter build, adapter tests, host typecheck, host schema/permission-merge probes, and publication byte measurement NOT run)")
     return 0
 if __name__ == "__main__": raise SystemExit(main())

@@ -50,7 +50,7 @@ func outsideRepairSampleEvidence() OutsideRepairEvidence {
 
 func outsideRepairTestRequest(t *testing.T, s *Store, workID, operation string) OutsideRepairRequest {
 	t.Helper()
-	version := deliveryWorkVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	eventID := workID + ":" + operation + ":" + jsonInt(version)
 	hash := sha256.Sum256([]byte(eventID))
 	ref := hex.EncodeToString(hash[:])
@@ -121,13 +121,13 @@ func TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence(t *testing.T) {
 	bad = req
 	bad.ApprovalOperationDigest = "sha256:" + strings.Repeat("a", 64)
 	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}), KindUnauthorized)
-	if got := deliveryWorkVersion(t, s, work); got != 3 {
+	if got := readWorkVersion(t, s, work); got != 3 {
 		t.Fatalf("refused hold changed version: %d", got)
 	}
 	if err := outsideRepairApply(t, s, req, WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := deliveryWorkVersion(t, s, work); got != 5 {
+	if got := readWorkVersion(t, s, work); got != 5 {
 		t.Fatalf("hold version = %d", got)
 	}
 	pin, err := ReadWorkPin(context.Background(), s, work)
@@ -189,7 +189,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 		err := applyWorkEvent(t, s, workTransitionEvent(work+":"+target, work, "needed", target, 5, 6), workVersion(work, 5))
 		assertFailureKind(t, err, KindOutsideRepairActive)
 	}
-	if got := deliveryWorkVersion(t, s, work); got != 5 {
+	if got := readWorkVersion(t, s, work); got != 5 {
 		t.Fatalf("refusal changed version: %d", got)
 	}
 }
@@ -346,7 +346,7 @@ func TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations(t *testi
 	req := outsideRepairTestRequest(t, s, work, "stale")
 	req.ExpectedVersion += 5
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindVersionConflict)
-	if got := deliveryWorkVersion(t, s, work); got != 5 {
+	if got := readWorkVersion(t, s, work); got != 5 {
 		t.Fatalf("failed mutations left effects: %d", got)
 	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
@@ -398,7 +398,7 @@ func TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts(t *testing.T)
 			e := outsideRepairSampleEvidence()
 			mutate(&e)
 			assertFailureKind(t, outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, e), KindInvalidPayload)
-			if got := deliveryWorkVersion(t, s, work); got != 5 {
+			if got := readWorkVersion(t, s, work); got != 5 {
 				t.Fatalf("invalid receipt changed version: %d", got)
 			}
 		})
@@ -444,7 +444,7 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 		return err
 	})
 	assertFailureKind(t, err, KindInvalidPayload)
-	if got := deliveryWorkVersion(t, s, work); got != 5 {
+	if got := readWorkVersion(t, s, work); got != 5 {
 		t.Fatalf("fold refusal left effects: %d", got)
 	}
 }

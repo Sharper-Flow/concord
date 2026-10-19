@@ -44,8 +44,12 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 
 	// The armed wall keeps no approvable identity: the retry approval binding
 	// the ordinary failed-retry route mints is absent behind the escalation.
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil || binding != nil {
+	var binding *store.WorkflowRetryApprovalBinding
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("retry approval binding behind the escalated wall = %+v err=%v, want none", binding, err)
 	}
 
@@ -223,7 +227,11 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	if rearmed.FailedAttemptEpoch != retryAttemptEpoch {
 		t.Fatalf("re-armed correction epoch %d, want the admitted attempt's own fenced epoch %d", rearmed.FailedAttemptEpoch, retryAttemptEpoch)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		var txErr error
+		binding, txErr = store.WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, "work-1")
+		return txErr
+	}); err != nil || binding != nil {
 		t.Fatalf("retry approval binding behind the re-armed wall = %+v err=%v, want none", binding, err)
 	}
 

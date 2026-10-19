@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -146,7 +147,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	if got := events(); got != before {
 		t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
 	}
-	if got := verdictItemVersion(t, s, workID); got != 4 {
+	if got := readWorkVersion(t, s, workID); got != 4 {
 		t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
 	}
 }
@@ -285,11 +286,11 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		if candidate.ID == "discovery" {
 			t.Fatal("the discovery marker step is still on the canonical implementation head")
 		}
-		if containsString(candidate.Actions, "record_discovery") {
+		if slices.Contains(candidate.Actions, "record_discovery") {
 			t.Fatalf("step %s still carries the record_discovery marker", candidate.ID)
 		}
 	}
-	if containsString(definition.AvailableActions, "record_discovery") {
+	if slices.Contains(definition.AvailableActions, "record_discovery") {
 		t.Fatal("record_discovery is still advertised on the canonical head")
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -434,7 +435,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	}
 	// approve_contract's approval is the contract machinery itself, not an
 	// operator actor: the action runs without one, like every live approver.
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	operationID := "canonical-approval-" + workID
 	tx2, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -540,7 +541,7 @@ func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 	if want := builtinWorkflowCurrentVersions["workflow.research"]; definition.Version != want {
 		t.Fatalf("canonical research head = v%d, want v%d", definition.Version, want)
 	}
-	if containsString(definition.AvailableActions, "record_worker_failure") {
+	if slices.Contains(definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("record_worker_failure is still advertised on the canonical research head")
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -910,7 +911,7 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 	if record["step"] != "investigate" || record["epoch"] != int64(1) {
 		t.Fatalf("derived record = %+v, want the investigate step at the window's epoch 1", record)
 	}
-	if record["actor"] != s2ActorRef(t, dispatcher) {
+	if record["actor"] != mustActorRef(t, dispatcher) {
 		t.Fatalf("derived record actor = %v, want the dispatch authorization's actor", record["actor"])
 	}
 	if !strings.HasSuffix(record["event_id"].(string), ":workflow-failure") {
@@ -1203,7 +1204,7 @@ func cutoverTableSnapshot(t *testing.T, s *Store, table string) string {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return string(mustJSONBytes(snapshot))
+	return string(mustJSONValue(snapshot))
 }
 
 func cutoverReadWork(ctx context.Context, s *Store, id string) (workProjection, error) {
@@ -1253,7 +1254,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	// Research content stays; only the cancelled work's active bindings drop.
 	execStaleRegistryInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
-	pack, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{Identity: researchIdentity("cutover-pack"), OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
+	pack, err := createResearchPack(ctx, s, CreateResearchPackRequest{OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
 	if err != nil {
 		t.Fatal(err)
 	}

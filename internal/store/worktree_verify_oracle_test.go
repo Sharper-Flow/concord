@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,22 +84,33 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 	if len(recordedSubject) > 0 {
 		f.dispatchSubject = recordedSubject[0]
 	}
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim','oracle-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(work), f.head, f.repo, f.repo); err != nil {
+	f.qualify(t, "oracle-branch", "pkg", "pkg/oracle.json", "case:fixture", "TestValue")
+	return f
+}
+
+// qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
+// single control for caseID without launching it, and authorizes two attempts
+// to execute it.
+func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
+	t.Helper()
+	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
 		t.Fatal(err)
 	}
-	fields := acceptanceOracleFieldsForTest(t, f.s, work)
+	fields := acceptanceOracleFieldsForTest(t, f.s, f.work)
 	raw, _ := json.Marshal(fields)
 	var oracle AcceptanceOracle
 	if err := json.Unmarshal(raw, &oracle); err != nil {
 		t.Fatal(err)
 	}
 	f.bundle = NativeOracleControlBundle{Owner: oracle.Owners[0], Cases: oracle.Cases, Control: oracle.Controls[0]}
-	f.bundle.Control.Cwd = "pkg"
-	f.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "pkg/oracle.json", CommitOID: f.head}
-	f.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."}
+	f.bundle.Cases[0].CaseID = caseID
+	f.bundle.Control.CaseIDs = []string{caseID}
+	f.bundle.Control.Cwd = cwd
+	f.bundle.Control.RecipeSource = WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: recipePath, CommitOID: f.head}
+	f.bundle.Control.Argv = []string{"go", "test", "-count=1", "-run", "^(" + testName + ")$", "."}
 	f.bundle.Control.ReadinessEvidenceRefs = nil
 	f.s.nativeOracleProgramLaunched = func() {
 		f.launches++
@@ -107,14 +120,14 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 		}
 	}
 	prepare := &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	var err error
 	f.prepare, err = f.s.VerifyWorktree(context.Background(), f.request("prepare", prepare))
 	if err != nil || f.prepare.Oracle == nil || f.prepare.Oracle.Qualification != "ready" {
 		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
 	}
 	f.assertNoLaunch(t)
-	f.a = f.authorize(t, "a", seed.owner)
-	f.b = f.authorize(t, "b", seed.owner)
-	return f
+	f.a = f.authorize(t, "a", f.actor)
+	f.b = f.authorize(t, "b", f.actor)
 }
 
 func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {
@@ -133,7 +146,7 @@ func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowA
 	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
 	version := readWorkVersion(t, f.s, f.work)
 	next := version + 1
-	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned value control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{"pkg"}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
+	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned value control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{b.Control.Cwd}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
 	job.Digest = DeriveWorkerJobDigest(job)
 	raw, _ := json.Marshal(job)
 	actorRef, _ := WorkflowActorRef(actor)
@@ -215,6 +228,51 @@ func TestNativeOracleExecuteMissingCandidateBindingNeverLaunches(t *testing.T) {
 func TestNativeOracleExecuteRecordedOlderSubjectNeverLaunches(t *testing.T) {
 	f := newNativeOracleFixture(t, strings.Repeat("a", 40))
 	f.refusal(t, "older-subject", f.a)
+}
+
+// An editing attempt commits a candidate over its dispatch subject. Execution
+// under that attempt still refuses, but the genuine binding names the route
+// that grades the candidate, whether or not the core has pinned it yet. A
+// forged binding on the same HEAD keeps the bare refusal.
+func TestNativeOracleExecuteEditedCandidateNamesTheEvaluatorRoute(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	gitRunStore(t, f.repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "--allow-empty", "-m", "edited candidate")
+	out, err := (ExecGitRunner{}).Run(context.Background(), f.repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := strings.TrimSpace(string(out))
+	wantRoute := []string{"worktree_verify", "record_worker_job", "dispatch_worker"}
+	check := func(id string, o NativeOracleRequest, routed bool) {
+		t.Helper()
+		_, err := f.s.VerifyWorktree(context.Background(), f.request(id, &o))
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
+			t.Fatalf("%s: refusal=%v, want unauthorized_dispatch", id, err)
+		}
+		if !routed {
+			if failure.RecoveryAction == RecoveryUseDeclaredRoute {
+				t.Errorf("%s: a forged binding named the evaluator route: %+v", id, failure)
+			}
+		} else if failure.RecoveryAction != RecoveryUseDeclaredRoute || !slices.Equal(failure.RecoveryRefs, wantRoute) || !strings.Contains(failure.Detail, f.head) || !strings.Contains(failure.Detail, candidate) {
+			t.Errorf("%s: refusal recovery=%q refs=%v detail=%q, want the evaluator route naming %s and %s", id, failure.RecoveryAction, failure.RecoveryRefs, failure.Detail, f.head, candidate)
+		}
+		f.assertNoLaunch(t)
+	}
+	check("candidate-unpinned", f.a, true)
+	forged := f.a
+	forged.WorkerPacketDigest = f.b.WorkerPacketDigest
+	check("candidate-forged", forged, false)
+	foreignPreparation := f.a
+	foreignPreparation.PreparationRunRef = "worktree_verify:invented-preparation"
+	check("candidate-foreign-preparation", foreignPreparation, false)
+	foreignControl := f.a
+	foreignControl.ControlID = "control:invented"
+	check("candidate-foreign-control", foreignControl, false)
+	if _, err := f.s.VerifyWorktree(context.Background(), f.request("candidate-subject", nil)); err != nil {
+		t.Fatal(err)
+	}
+	check("candidate-pinned", f.a, true)
 }
 
 func TestNativeOracleExecuteCoreDisagreementNeverLaunches(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -52,7 +53,7 @@ type workflowActionGuardContext struct {
 	actorRef                string
 	eventActor              string
 	operatorRef             string
-	actorNeedsRecord        bool
+	actorRecordPrefix       *workflowActorRecordPrefix
 	operatorNeedsRecord     bool
 }
 
@@ -223,7 +224,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if currentStep == "" {
 		return false, nil
 	}
-	if !containsString(definition.AvailableActions, "record_worker_failure") {
+	if !slices.Contains(definition.AvailableActions, "record_worker_failure") {
 		return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
 	}
 	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
@@ -523,7 +524,7 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		return fieldsErr
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(g.entry.Definition, g.currentStep)
-	declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+	declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
 	if declaresRoute && !atCompleteStep {
 		return newFailure(KindInvalidPayload, "workflow_action", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 	}
@@ -547,16 +548,16 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 		// shared predicate evaluates the same conditions.
 		return true
 	}
-	if containsString(definition.StepGraph.TerminalSteps, currentStep) {
+	if slices.Contains(definition.StepGraph.TerminalSteps, currentStep) {
 		return false
 	}
 	if workflowUnhealthyVerdictRouteTarget(definition, currentStep) != "" {
 		return true
 	}
 	if step.Kind == WorkflowStepHumanCheckpoint {
-		return containsString(step.Actions, "confirm_premise")
+		return slices.Contains(step.Actions, "confirm_premise")
 	}
-	return containsString(step.Actions, "dispatch_worker")
+	return slices.Contains(step.Actions, "dispatch_worker")
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete
@@ -743,26 +744,56 @@ func guardForwardLinkOnly(g *workflowActionGuardContext) error {
 }
 
 // guardRecordedActorTuple verifies the authenticated actor against the durable
-// workflow actor record, or marks the actor for recording when no row exists.
-// It applies to every action rather than to one action ID, so the dispatcher
-// calls it directly instead of through the per-action table, as it does for
-// guardOperatorPremiseActor. Any action the current step declares is some
-// session's possible first action, and the folds that call requireActor refuse
-// until the row exists (issue #740).
+// workflow actor record, or retains the shared actor-recording draft when no
+// row exists. It applies to every action rather than to one action ID, so the
+// dispatcher calls it directly instead of through the per-action table, as it
+// does for guardOperatorPremiseActor. Any action the current step declares is
+// some session's possible first action, and the folds that call requireActor
+// refuse until the row exists.
 func guardRecordedActorTuple(g *workflowActionGuardContext) error {
+	prefix, err := workflowActorRecordPrefixTx(g.ctx, g.tx, g.request.Actor)
+	if err != nil {
+		return err
+	}
+	g.actorRecordPrefix = prefix
+	return nil
+}
+
+// workflowActorRecordPrefixTx is the shared actor-prefix owner for every
+// writer that may meet an unrecorded authenticated session: it derives the
+// canonical actor_ref and reads the durable tuple once, returning nil for a
+// matching row or the absent-actor draft for recording. The draft carries no
+// event metadata; the caller materializes its canonical event at its own
+// version cursor with its own normalized time. A recorded row that disagrees
+// with the authenticated tuple refuses; this owner never writes.
+func workflowActorRecordPrefixTx(ctx context.Context, q queryer, actor WorkflowActor) (*workflowActorRecordPrefix, error) {
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		return nil, err
+	}
 	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
-	recordErr := g.tx.QueryRowContext(g.ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, g.actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
+	recordErr := q.QueryRowContext(ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)
 	switch {
 	case recordErr == sql.ErrNoRows:
-		g.actorNeedsRecord = true
-		return nil
+		return &workflowActorRecordPrefix{actorRef: actorRef, actor: actor}, nil
 	case recordErr != nil:
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow actor", true, "retry once the workflow actor authority is readable", recordErr)
 	}
-	if recordedPrincipal != g.request.Actor.PrincipalRef || recordedClient != g.request.Actor.ClientRef || recordedAgent != g.request.Actor.AgentRef || recordedSession != g.request.Actor.SessionRef {
-		return newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
+	if recordedPrincipal != actor.PrincipalRef || recordedClient != actor.ClientRef || recordedAgent != actor.AgentRef || recordedSession != actor.SessionRef {
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "recorded workflow actor tuple does not match the authenticated actor", false, "reread workflow actor authority")
 	}
-	return nil
+	return nil, nil
+}
+
+type workflowActorRecordPrefix struct {
+	actorRef string
+	actor    WorkflowActor
+}
+
+// event materializes the exact canonical WorkflowActorRecorded event. It
+// mutates nothing, so one lookup can serve repeated materializations.
+func (p workflowActorRecordPrefix) event(eventID, workID string, now time.Time, expectedVersion int64) Event {
+	return workflowTypedEvent(eventID, WorkflowActorRecorded, workID, p.actorRef, now, expectedVersion, map[string]any{"actor_ref": p.actorRef, "principal_ref": p.actor.PrincipalRef, "client_ref": p.actor.ClientRef, "agent_ref": p.actor.AgentRef, "session_ref": p.actor.SessionRef, "actor_class": string(p.actor.ActorClass)})
 }
 
 // Only these operator-decision actions can carry a verified operator identity.
@@ -777,6 +808,7 @@ func workflowActionAllowsOperatorIdentity(actionID string) bool {
 }
 
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
+	newPolicy := g.entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1
 	if g.request.OperatorActor == nil {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
@@ -793,12 +825,28 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 			if !state.CorrectionRequestRecovery {
 				return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 			}
+			if newPolicy {
+				// A repair request is routine: no operator approval identity,
+				// and no self-evaluation predicate — the requesting
+				// coordinator may have executed the failed delivery.
+				return nil
+			}
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
 		if state.ContractCorrectionAvailable {
+			if newPolicy {
+				// Contract correction is routine under consequence_v1: the
+				// authenticated coordinator supersedes unsigned, and the
+				// fold keeps the duplicate-recovery, stale-law, and
+				// audit-evidence walls it always ran.
+				return nil
+			}
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil
+	}
+	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" {
+		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for "+g.request.ActionID+"; invoke under the authenticated evaluator or coordinator identity", false, "act under the verified caller identity")
 	}
 	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
@@ -1037,7 +1085,7 @@ func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID st
 		if err := rows.Scan(&ref); err != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
 		}
-		if !contains(refs, ref) {
+		if !slices.Contains(refs, ref) {
 			refs = append(refs, ref)
 		}
 	}
@@ -1354,10 +1402,9 @@ type workflowActionAssemblyInput struct {
 	payload      json.RawMessage
 	evidenceRefs []string
 
-	actorRef               string
 	eventActor             string
 	operatorRef            string
-	actorNeedsRecord       bool
+	actorRecordPrefix      *workflowActorRecordPrefix
 	operatorNeedsRecord    bool
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
@@ -1369,7 +1416,6 @@ type workflowActionAssemblyInput struct {
 
 type workflowActionEventAssembly struct {
 	events       []Event
-	nativeRun    *NativeRunReport
 	attemptEpoch int64
 }
 
@@ -1385,8 +1431,8 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	actor := in.eventActor
 	events := []Event{}
 	versionCursor := in.request.ExpectedVersion
-	if in.actorNeedsRecord {
-		events = append(events, workflowTypedEvent(in.request.OperationID+":actor", WorkflowActorRecorded, in.request.WorkID, in.actorRef, in.request.Now, versionCursor, map[string]any{"actor_ref": in.actorRef, "principal_ref": in.request.Actor.PrincipalRef, "client_ref": in.request.Actor.ClientRef, "agent_ref": in.request.Actor.AgentRef, "session_ref": in.request.Actor.SessionRef, "actor_class": string(in.request.Actor.ActorClass)}))
+	if in.actorRecordPrefix != nil {
+		events = append(events, in.actorRecordPrefix.event(in.request.OperationID+":actor", in.request.WorkID, in.request.Now, versionCursor))
 		versionCursor++
 	}
 	if in.operatorNeedsRecord {
@@ -1445,10 +1491,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		if semanticErr != nil {
 			return out, semanticErr
 		}
-		if len(semantic) != 0 {
-			events = append(events, semantic...)
-			out.nativeRun = nativeRunFromSemanticEvents(semantic)
-		}
+		events = append(events, semantic...)
 	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
@@ -1802,7 +1845,7 @@ func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bo
 	return false
 }
 
-func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, definition WorkflowDefinition) ([]Event, error) {
+func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, scope *foldScope, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, definition WorkflowDefinition) ([]Event, error) {
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return nil, err
@@ -1816,7 +1859,7 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		}
 		for _, verdict := range verdicts {
 			for _, ref := range verdict.EvaluationEvidence {
-				if !contains(refs, ref) {
+				if !slices.Contains(refs, ref) {
 					refs = append(refs, ref)
 				}
 			}
@@ -1864,28 +1907,11 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		if _, err := appendEvent(ctx, tx, event, true); err != nil {
 			return nil, err
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return nil, err
 		}
 	}
 	return events, nil
-}
-
-// nativeRunFromSemanticEvents lifts the native-run report the semantic events
-// carry into the action result. The last report wins, matching the order the
-// events were appended in.
-func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
-	var run *NativeRunReport
-	for _, semanticEvent := range semantic {
-		if semanticEvent.Kind != WorkflowNativeRunRecorded {
-			continue
-		}
-		var report nativeRunPayload
-		if decodePayload(semanticEvent, &report) == nil {
-			run = &NativeRunReport{RunID: report.RunID, Phase: report.Phase, Status: report.Status, EventID: semanticEvent.EventID, ReportingAuthorityRef: report.ReportingAuthorityRef, ActorRef: report.ActorRef, NativeSubjectRef: report.NativeSubjectRef, SubjectDigest: report.SubjectDigest, EvidenceRef: report.EvidenceRef, EvidenceDigest: report.EvidenceDigest, AssertedAt: report.AssertedAt, RecordedAt: semanticEvent.OccurredAt.UTC().Format(time.RFC3339Nano), Unverified: true}
-		}
-	}
-	return run
 }
 
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
@@ -1916,17 +1942,17 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		if _, err := appendEvent(ctx, tx, event, true); err != nil {
 			return result, err
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return result, err
 		}
 	}
 	request.ExpectedVersion += int64(len(prefixEvents))
-	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, request, actor, payload, entry.Definition)
+	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, scope, request, actor, payload, entry.Definition)
 	if bindingErr != nil {
 		return result, bindingErr
 	}
 	request.ExpectedVersion += int64(len(bindingEvents))
-	completion, completionErr := workflowCompletionEvent(ctx, tx, request, actor, payload)
+	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, registry, entry.Definition, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
 	}

@@ -19,6 +19,7 @@
         "internal/pm1fixture",
         "internal/store/storetest",
         "internal/store/storetest/neighbor",
+        "internal/store/storetest/projection",
         "internal/testenv",
         "internal/testutil/schemawire",
         "internal/workflowcorpus"
@@ -26,33 +27,12 @@
       "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
-      "id": "point-in-time-reconstruction-no-operator-verb",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.ReconstructSubjectAt",
-        "internal/store.excludedFromReconstructionSnapshot",
-        "internal/store.insertScratchLocator",
-        "internal/store.insertScratchProject",
-        "internal/store.insertScratchWork",
-        "internal/store.insertScratchWorkWithExternalRef",
-        "internal/store.newReconstructionStore",
-        "internal/store.populateReconstructionSnapshot",
-        "internal/store.productsForProject",
-        "internal/store.readSubjectEvents",
-        "internal/store.reconstructionRelations",
-        "internal/store.seedReconstructionEndpoints",
-        "internal/store.upcastEvent"
-      ],
-      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the entry point; its private helpers include productsForProject, which populates reconstructed Project membership, and upcastEvent."
-    },
-    {
       "id": "test-only-registry-assertions",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.knownSubjectTypes",
         "internal/store.validateEventKindRegistry"
       ],
-      "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
+      "reason": "validateEventKindRegistry is an assertion helper for registry conformance tests: it rejects an ill-formed event-kind registration. It guards no production path: it runs where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing it to an operator would offer a verb whose only honest answer is that the build already settled the question."
     },
     {
       "id": "registry-injection-test-seam",
@@ -101,40 +81,6 @@
         "internal/store.validateManifestPath"
       ],
       "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
-    },
-    {
-      "id": "research-pooled-transaction-test-surface",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.AppendResearchRevision",
-        "internal/store.CreateResearchPack",
-        "internal/store.SetResearchFreshness",
-        "internal/store.Store.AddResearchFinding",
-        "internal/store.Store.AddResearchSource",
-        "internal/store.Store.AppendResearchRevision",
-        "internal/store.Store.CreateResearchPack",
-        "internal/store.Store.SetResearchFreshness",
-        "internal/store.Store.UpdateResearchFinding",
-        "internal/store.Store.UpdateResearchSource",
-        "internal/store.addResearchFinding",
-        "internal/store.addResearchSource",
-        "internal/store.beginResearchMutation",
-        "internal/store.canonicalRequestDigest",
-        "internal/store.finishResearchMutation",
-        "internal/store.validateResearchIdentity"
-      ],
-      "reason": "CD-0216 Consequences names this direct-caller form: direct callers use the sole pack-operation idempotency boundary (beginResearchMutation and finishResearchMutation over idempotency_records), and agent envelopes compose its transaction-scoped cores with envelope-owned idempotency. Production reaches only those WithinTx cores through internal/agent research mutations; research_test.go and the agent research fixtures call these forms. Deleting them needs an amendment to that CD-0216 sentence."
-    },
-    {
-      "id": "law-boundary-pooled-test-seams",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.Store.CheckMandatedLawsAtHome",
-        "internal/store.Store.QueryLawConflictsAtHome",
-        "internal/store.Store.verifyKnowledgeSourceSetFreshness",
-        "internal/store.queryLawConflictsAtHome"
-      ],
-      "reason": "CD-0200 governs mandated-law home and conflict checks. Runtime admission uses the transaction-scoped boundary; the law-boundary tests exercise these pooled-connection entry points, including knowledge source-set freshness. These test seams and their private helpers preserve that boundary's independent assertions without opening a second runtime admission path."
     },
     {
       "id": "store-test-and-durable-introspection-seams",

@@ -12,7 +12,3 @@ func NativeRunStatusAllowed(phase, status string) bool {
 	_, ok := nativeRunStatuses[phase][status]
 	return ok
 }
-
-func NativeRunStatusIsFailure(phase, status string) bool {
-	return nativeRunStatuses[phase][status]
-}

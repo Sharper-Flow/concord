@@ -143,7 +143,7 @@
       ]
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose surviving writer is operator-approved resolve_overlap. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose two writers are operator-approved resolve_overlap and the size revision that changes a work item's effective size (CD-0237). The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
       "type": "string",
       "enum": [
         "needed",
@@ -1624,7 +1624,6 @@
         "reason",
         "artifact",
         "evidence_source",
-        "approval_ref",
         "corrected_at"
       ],
       "properties": {
@@ -4728,6 +4727,10 @@
               "kind": {
                 "$ref": "#/$defs/short"
               },
+              "attempt_id": {
+                "type": "string",
+                "minLength": 1
+              },
               "version": {
                 "$ref": "#/$defs/version"
               },
@@ -4743,7 +4746,7 @@
               },
               "evidence": {
                 "type": "array",
-                "maxItems": 32,
+                "maxItems": 64,
                 "items": {
                   "$ref": "#/$defs/evidence"
                 }
@@ -5320,6 +5323,14 @@
           "items": {
             "$ref": "#/$defs/evidence"
           }
+        },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class",
+          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval, and reason is the override's reason. A size change supersedes the item with a forward-linked successor (CD-0237)."
+        },
+        "size_inputs": {
+          "$ref": "#/$defs/work_size_inputs",
+          "description": "Reruns the size model on fresh declared inputs; reason says why. The core re-derives every other input. A size change supersedes the item with a forward-linked successor (CD-0237)."
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -12962,10 +12973,18 @@
         }
       }
     },
+    "work_size_class": {
+      "type": "string",
+      "enum": [
+        "small",
+        "larger",
+        "crucial"
+      ]
+    },
     "work_size_summary": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The work item's current size record: the size the versioned model decided, the model version, and when it was recorded. Absent when the work was never sized.",
+      "description": "The work item's current size record: the effective size (the operator's size when one is recorded, otherwise the versioned model's), the model's own size and any operator size, the model version, and when the model recorded it. Absent when the work was never sized.",
       "required": [
         "size",
         "model_version",
@@ -12979,6 +12998,12 @@
             "larger",
             "crucial"
           ]
+        },
+        "model_size": {
+          "$ref": "#/$defs/work_size_class"
+        },
+        "operator_size": {
+          "$ref": "#/$defs/work_size_class"
         },
         "model_version": {
           "type": "integer",

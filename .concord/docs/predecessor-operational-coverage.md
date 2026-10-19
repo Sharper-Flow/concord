@@ -148,8 +148,8 @@ Commissioning, validating, and reusing investigation so work does not start blin
 |---|---|---|
 | Track an independent investigation as first-class work with its own completion evidence | Covered | `research` workflow definition, `internal/store/workflow_registry.go` |
 | Explore a bounded architectural question, record options, and reach a recorded decision | Covered | `architecture_spike` workflow definition, `internal/store/workflow_registry.go` |
-| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
-| Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
+| Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0216) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
+| Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0216). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `supersede_contract` in `internal/store/workflow_event_constructors.go` |
 | Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, authored as a file with its record and coverage shards and published through a reviewed pull request (CD-0026 D3); the record's evidence paths stay audited by `scripts/check-knowledge-index.py`. |
 | Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
@@ -160,10 +160,10 @@ Executing operational procedures with approval, conditions, and rollback.
 
 | Outcome | State | Evidence or reason |
 |---|---|---|
-| Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Covered | `ops_runbook` workflow definition, `internal/store/workflow_registry.go` |
-| Roll back a partially executed operation | Covered | `rollback_run` action, `internal/store/workflow_registry.go` |
-| Wait on an external signal without polling, and distinguish waiting from never-completable | Covered for waiting | `add_condition` / `resolve_condition` / `cancel_condition`, `internal/store/workflow_conditions.go`. Distinguishing never-completable is tracked as issue #87. |
-| Record the health of an operational run | Covered | `record_health` action, `internal/store/workflow_registry.go` |
+| Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 retires ops choreography from new execution and adds no provider executor. D4 preserves archived definitions for historical reads, not new capture or dispatch. |
+| Roll back a partially executed operation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a rollback claim or authority for external effects. The archived `rollback_run` action is not a live rollback route. |
+| Wait on an external signal without polling, and distinguish waiting from never-completable | Excluded | Accepted [CD-0234](./decisions/CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2: no retained workflow family can open a condition and no resolver or wait authority exists, so no runtime path waits on an external signal. Recorded conditions stay readable and block consequential actions. |
+| Record the health of an operational run | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a health observer. D4 preserves archived `record_health` history, not a live health-recording route. |
 | Claim a shared resource so concurrent agents do not collide outside the repository | Covered | `concord_work_relate.resource_claim` records a durable typed claim held by a work item; contention refuses with coordination, terminal transition releases, and `resource_claims` (PM1.Q13) resolves holder and reason before another agent acts (CD-0028); dispatched in `internal/agent/mutations.go` and exercised by `internal/agent/resource_claims_dispatch_test.go`. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
@@ -194,8 +194,8 @@ Territory that appears across all six and is an outcome in its own right.
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Many concurrent agents mutate shared state on one machine with bounded writer admission and no escaped busy failure | Covered | Ten-process conformance harness, `internal/store/conformance_test.go`; invariant stated by CD-0045 |
-| Reconstruct any subject at any point in its history | Covered | `ReconstructSubjectAt`, `internal/store/reconstruction.go` |
-| Rebuild every projection from the event log without loss | Covered | `internal/store/reconstruction.go`; rebuild byte-equality scenario in `.concord/scenarios/workflow-engine.v1.json` |
+| Reconstruct any subject at any point in its history | Excluded | Accepted [CD-0238](./decisions/CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) D1-D2: the core has no point-in-time reconstruction. The operator reconstructs a past state on the operator's machine by folding a prefix of a copy of the retained log. |
+| Rebuild every projection from the event log without loss | Covered | `RebuildFromLog`, `internal/store/operation.go`; rebuild byte-equality scenario in `.concord/scenarios/workflow-engine.v1.json` |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
 | Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. Recorded as `fc2-context-freshness` (`satisfied`). |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 58 |
+| Covered | 53 |
 | Not covered | 0 |
-| Excluded with reason | 17 |
+| Excluded with reason | 22 |
 
 **Total enumerated outcomes: 75.**
 

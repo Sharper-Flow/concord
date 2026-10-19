@@ -8,6 +8,20 @@
 - **Related:** CD-0012, CD-0013, CD-0018
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-8392894d5f50a158bf6910c1`.
+- **Amended:** 2026-10-18.
+- **Revision choice:** Compatible amendment under
+  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; this record keeps its ID.
+- **Amendment reason:** The published tool surface declares no condition
+  action under
+  [CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2.
+  Schema teaching must name only published predicate fields. The D3 example
+  uses a retained verification route because
+  [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
+  D1 retires ops_runbook from new execution. The example changes no acceptance
+  requirement.
+- **P12:** One affected Domain: workflow-engine. No user-visible behavior is
+  removed or reversed. No security or data-safety rule changes. No UI/UX
+  changes.
 
 ## Context
 
@@ -22,6 +36,9 @@ would run. No Product law said that acceptance must be decidable at delivery,
 and the authoring schema did not teach the rule.
 
 ## Decision
+
+Delivery-decidable acceptance is required even when CD-0013 D11 permits engineering contract recording without operator consent. The contract author and independent evaluator must retain the same predicate and evidence obligations. Removing a human planning prompt does not permit observation-window acceptance, an unrun check, or unsupported passing verdicts.
+
 
 ### D1. A predicate names an end state verifiable at delivery
 
@@ -44,17 +61,18 @@ rule removes that failure.
 ### D3. One-shot live checks stay allowed
 
 A check against a live system stays allowed when verification can decide its
-result at delivery. An `ops_runbook` health check run right after the change
-is delivered is acceptance, because its result exists when verification runs.
-The line is the time of evaluation, not whether the subject is a production
-system.
+result at delivery. For example, native service tooling runs a one-shot health
+check just after delivery. A `workflow.implementation` item binds its result as
+verification evidence for a `check` predicate with `bind_evidence`. At acceptance,
+an independent evaluator records its verdict with `record_verdict`. The result exists
+when verification runs. The line is the time of evaluation, not whether the
+subject is a production system.
 
 ### D4. The authoring schema teaches the rule
 
 The generated schema that agents read when they write contracts states the
 rule at the field. The `outcome_predicates` array shared by `approve_contract`
-and `supersede_contract` carries the rule in its description. The
-`add_condition` `expected_within_seconds` field carries it as well.
+and `supersede_contract` carries the rule in its description.
 `advertisedAdmissionTeachingGaps` reports a gap when the published schema
 drops the rule, so generation and its tests fail on drift.
 

@@ -37,7 +37,7 @@ type WorkPin struct {
 	// pin's reader verified no definition — the outside-repair hold reads raw
 	// identity only and grants no managed pin authority — so the keys stay
 	// absent on the wire instead of carrying a zero-value or fabricated
-	// definition identity. Only workPinReadInstanceTx sets them.
+	// definition identity. Only workPinReadInstanceForRegistryTx sets them.
 	WorkflowDefinitionVersion *int64  `json:"workflow_definition_version,omitempty"`
 	WorkflowDefinitionDigest  *string `json:"workflow_definition_digest,omitempty"`
 	// Obligations lists the sorted exact evidence obligation IDs the pinned
@@ -138,19 +138,24 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadMutationWorkPinTx distinguishes a pin from a known absent post-state.
-// An absent instance without an outside-repair hold, or an own committed
-// removal, has no pin. The returned identity still carries its version;
-// every other unreadable pin is an error.
-func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+// ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
+// caller registry verifies the stored pin through itself with no builtin
+// fallback, and a nil registry keeps the builtin convenience default. The
+// absent/present distinction precedes the definition verification, so it
+// answers identically under either registry.
+func ReadMutationWorkPinTxForRegistry(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
 		return WorkPin{}, false, err
 	}
-	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
+	return readMutationWorkPinForRegistryTx(ctx, tx, registry, workID, ownEventIDs)
 }
 
 func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+	return readMutationWorkPinForRegistryTx(ctx, tx, nil, workID, ownEventIDs)
+}
+
+func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	identity := WorkPin{WorkID: workID}
 	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&identity.Version)
 	var instance bool
@@ -189,7 +194,7 @@ func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEv
 			return identity, false, nil
 		}
 	}
-	pin, err := ReadWorkPinTx(ctx, tx, workID)
+	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
 	return pin, true, err
 }
 
@@ -199,8 +204,16 @@ func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEv
 // attempt, recovery intents — each of which owns its own refusals; this
 // function owns their order and the two early exits the phases cannot
 // express (the contract-ambiguity escape hatch and the terminal-state
-// intent selection).
+// intent selection). It is the builtin convenience: the instance's stored
+// pin verifies against the builtin registry.
 func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, error) {
+	return readWorkPinForRegistryTx(ctx, tx, workID, nil)
+}
+
+// readWorkPinForRegistryTx is the registry-threaded pin core: a caller
+// registry verifies the actual stored pin through itself with no builtin
+// fallback, and every phase below resolves the same verified definition.
+func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry) (WorkPin, error) {
 	var pin WorkPin
 	if tx == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "transaction is not open", false, "supply an active read transaction")
@@ -222,7 +235,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		}
 		return pin, nil
 	}
-	registered, readDefinition, instanceState, err := workPinReadInstanceTx(ctx, tx, workID, &pin)
+	registered, readDefinition, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
 	if err != nil {
 		return pin, err
 	}
@@ -253,7 +266,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 			return pin, stateErr
 		}
 		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted || decision.ApprovalRequired {
-			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(registered.Definition), pin.Version, "operator_contract_correction")}
 		}
 		return pin, nil
 	}
@@ -336,11 +349,11 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// workPinReadInstanceTx reads the workflow instance, sets the pin's step and
-// workflow type, and verifies the pinned definition against the registry.
-// It returns the registered definition, the raw read definition, and the
-// instance state.
-func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
+// workPinReadInstanceForRegistryTx is the registry-threaded instance phase:
+// a nil registry keeps the builtin convenience verification, and a caller
+// registry verifies the actual stored pin through itself with no builtin
+// fallback.
+func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
 	var definition WorkflowReadDefinition
 	var instanceState string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
@@ -352,7 +365,7 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	pin.WorkflowType = definition.Ref
 	pin.WorkflowDefinitionVersion = &definition.Version
 	pin.WorkflowDefinitionDigest = &definition.Digest
-	registered, err := verifyReadWorkflowDefinition(definition)
+	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
@@ -364,6 +377,18 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	obligations := workflowDefinitionObligationIDs(registered.Definition)
 	pin.Obligations = &obligations
 	return registered, definition, instanceState, nil
+}
+
+// verifyReadWorkflowDefinitionForRegistry verifies one read definition
+// through the existing pin verifier: a nil registry keeps the builtin
+// convenience and its historical refusal shapes, and an explicit registry
+// gets VerifyWorkflowDefinitionPin's complete digest verification with no
+// builtin fallback. There is no second resolver.
+func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, registry DefinitionRegistry) (RegisteredDefinition, error) {
+	if registry == nil {
+		return verifyReadWorkflowDefinition(definition)
+	}
+	return VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
 }
 
 // workPinStepIntentsTx fills the pin's step intents and returns the folded
@@ -448,7 +473,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		}
 		contract.SelfRepair = selfRepair
 		pin.SelfRepair = contract.SelfRepair
-		pending, withheld, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, readDefinition, contract)
+		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority, factFailure: state.ConfirmationFactFailure})
 		if questionErr != nil {
 			return questionErr
 		}
@@ -526,7 +551,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	// answer is not the advertisement's gate — the stale-law recovery stays
 	// offered at a step whose correction checkpoint refuses.
 	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction"))
 	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
 		return err
@@ -540,7 +565,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		return nil
 	}
 	if instanceState == "completed" && admits("supersede_contract") {
-		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction")}
 	} else {
 		pin.NextValidIntents = []WorkPinIntent{}
 	}
@@ -723,6 +748,15 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		if !ok {
 			continue
 		}
+		// The approve intent advertises the pinned declaration's selected
+		// shape; an unusable pinned initial declaration is never advertised.
+		if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+			selected, err := workflowDecisionFactInitialActionDefinition(definition)
+			if err != nil {
+				continue
+			}
+			action = selected
+		}
 		payload := publicWorkflowActionPayload(action)
 		fields := make([]string, 0, len(payload.Fields))
 		for _, field := range payload.Fields {
@@ -733,7 +767,7 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint && workflowContractCorrectionCheckpoint(definition, stepID) {
-		intents = append(intents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), version, "operator_contract_correction"))
+		intents = append(intents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), version, "operator_contract_correction"))
 	}
 	return intents
 }

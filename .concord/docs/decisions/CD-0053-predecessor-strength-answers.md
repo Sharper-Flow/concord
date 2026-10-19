@@ -10,7 +10,7 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-21,
   approving all three answers on the merge grant for PR #299; the public record is
   [issue #295 comment](https://github.com/Sharper-Flow/concord/issues/295#issuecomment-5375357551)
-- **Related:** CD-0019 D1–D3, CD-0006, CD-0009, CD-0012, CD-0026, CD-0035,
+- **Related:** CD-0019 D1–D3, CD-0006, CD-0012, CD-0215, CD-0026, CD-0035,
   CD-0037, [`priorities.md`](../priorities.md) Priority 3 and §Workflow
   versatility, [`workflows.md`](../workflows.md), issue #295
 - **Preserves:** The CD-0019 mandate method (D2 research-informed shapes);
@@ -38,6 +38,9 @@ shape now exists, is structurally enforced, and carries executable evidence.
 What was missing is the record that closes the question.
 
 ## Decision
+
+For definitions declaring `approval_policy=consequence_v1`, the human-checkpoint floor is conditional on recorded decision domains under CD-0013 D11, not on `changes_product_truth`. Engineering still requires a recorded contract, independent outcome evaluation, premise confirmation, and the same completion proof. Historical definitions retain their human-checkpoint requirement.
+
 
 ### D1. Gated human-checkpoint lifecycle: **absorbed**
 
@@ -104,7 +107,7 @@ it is part of the knowledge authority:
   manifest
   (`TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof`).
 - **Deliberately not carried:** unpromoted per-change wisdom — the transient
-  working layer. CD-0009 already fixes active working context as bounded and
+  working layer. CD-0215 already fixes research working context as bounded and
   non-durable; the predecessor's two-tier split is collapsed to one durable
   tier (publish or discard), which removes the promotion decision from the
   author's workflow and puts it in the archive surface where approval lives.

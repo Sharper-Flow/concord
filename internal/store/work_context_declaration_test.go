@@ -215,7 +215,7 @@ func recordHistoricalWorkContext(t *testing.T, f workContextFixture, fields map[
 	event := f.rawWorkContextEvent(t, fields)
 	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{
 		Events:           []Event{event},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): verdictItemVersion(t, f.store, f.workID)},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): readWorkVersion(t, f.store, f.workID)},
 	}); err != nil {
 		t.Fatalf("historical declaration refused: %v", err)
 	}

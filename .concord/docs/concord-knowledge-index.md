@@ -4,9 +4,9 @@ The shard tree under [`.concord/docs/knowledge/`](./knowledge/) is the registry 
 durable `decision`, `spec`, and `lesson` records in a repository home. The
 head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
 registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
-and one record shard per record under `knowledge/records/` compose the
-manifest document (CD-0114); no committed file lists every record. Schema `1.1` is backward-compatible with `1.0`
-and optionally adds authored typed law relations to decision/spec records. The companion
+and one record shard per record under [`knowledge/records/`](./knowledge/records/) compose the
+manifest document (CD-0114); no committed file lists every record. The current
+schema is `1.3` and carries explicit authority tiers. The companion
 [`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
 
@@ -25,7 +25,7 @@ the reader. A field that must restrict older cores requires a
 `schema_version` bump. An additive field declares itself on the Go model in
 the same change.
 A record has an authored stable ID, closed kind, clean regular
-Markdown path below `docs/`, status, RFC3339 date, bounded title and summary,
+Markdown path below `.concord/docs/`, status, RFC3339 date, bounded title and summary,
 unique tags, closed scopes, and a required `sha256:` hash. It has no body or
 content field. `decision` and `spec` records are `accepted`; `lesson` records
 are `published`; `superseded` records require a successor.
@@ -85,7 +85,8 @@ updates hashes only; it never authors inclusion, metadata, or status.
 
 ## Authoring
 
-Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally; CI repeats this preflight against `origin/main`.
+Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally;
+CI repeats this preflight against the fetched default branch of origin.
 
 Coverage records for indexed law are authored as shards under `.concord/docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 

@@ -149,15 +149,27 @@ bin/oc-test targeted -- python3 scripts/check-doc-links.py
 bin/oc-test targeted -- python3 scripts/check-public-content.py
 ```
 
-The local smoke tier runs all Go packages, adapter tests, and JSON/law validation.
-The conformance tier runs the ten-process SQLite harness:
+The local smoke tier runs adapter tests, JSON/law validation, and the Go
+packages CI tests without shards. It leaves out `internal/store` and
+`cmd/concord`, which CI splits into shard jobs. The conformance tier runs the
+ten-process SQLite harness:
 
 ```sh
 bin/oc-test smoke
 bin/oc-test conformance
 ```
 
-See [`bin/oc-test`](bin/oc-test) for workload and host admission details, and the
+To test one shard of a package that smoke leaves out, run CI's selection for
+it, here shard 1 of the 5 `internal/store` shards:
+
+```sh
+bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
+```
+
+Every tier sets a kernel-enforced 1024 MiB limit on each file a test writes.
+A writer that reaches it is normally killed by SIGXFSZ, and the tier reports
+its command's exit status. See [`bin/oc-test`](bin/oc-test) for
+the limit's per-run override, workload, and host admission details, and the
 [CI workflow](.github/workflows/ci.yml) for the required repository checks.
 
 ## Roadmap
@@ -176,6 +188,11 @@ These are not shipped features or release-date commitments:
 
 Concord supports Linux amd64. Read the [full prerequisites](.concord/docs/installation.md#prerequisites)
 before you install. Run the installer with Python 3.
+
+Before an upgrade introduces the `Concord` and `Concord-RTE` profiles, complete
+the [primary-agent authorization step](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
+for every affected trusted client. Installation does not grant agent scope;
+verify the exact names before activation or selecting the profiles.
 
 > **Warning:** On a headless host without a login collection, the installer
 > creates an unencrypted, user-scoped keyring collection. The operating-system

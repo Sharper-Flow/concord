@@ -207,7 +207,7 @@ func TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses(t *testing.T) {
 	// payload is well-formed: the refusal is the admission's, not the
 	// envelope's.
 	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:no-ship-preflight","delivery_state":"asserted"}`)
-	preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
+	preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
 	var failure *Failure
 	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
 		t.Fatalf("preflight record_delivery behind review debt = %v, want the typed fresh-review refusal", preflightErr)
@@ -376,7 +376,7 @@ func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
 	if acceptorRefErr != nil {
 		t.Fatal(acceptorRefErr)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "no-ship-parked-gate-accept", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: acceptorRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,

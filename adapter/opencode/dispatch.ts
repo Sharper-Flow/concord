@@ -1,7 +1,6 @@
 import { createHash, sign as signBytes } from "node:crypto"
 import { RUN_EVENT_TYPES, readWorkerReportTexts, selectWorkerReport } from "./worker-report-protocol.js"
 import fs from "node:fs"
-import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
@@ -1294,17 +1293,6 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
 }
 
 
-// The core compares this absolute host directory against the active claim.
-// A redacted or relative directory cannot establish worktree identity.
-export function readSessionDirectory(stdout: string, sessionID: string): string | null {
-  let value: unknown
-  try { value = JSON.parse(stdout) } catch { return null }
-  if (!isRecord(value) || !isRecord(value.info)) return null
-  const info = value.info
-  if (info.id !== sessionID) return null
-  return typeof info.directory === "string" && info.directory.startsWith("/") ? info.directory : null
-}
-
 export function readSessionParent(stdout: string, sessionID: string): string | null {
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
@@ -2445,7 +2433,7 @@ export function provenanceRefusal(lane: AgentLane | null, packet: Partial<AgentL
   return refusal
 }
 
-export async function dispatchWorker(packet: unknown,   options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string; provenance?: HostProvenance } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown,   options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string; provenance?: HostProvenance } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -2460,7 +2448,6 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   if (sessionID && dispatchRequiresNextTurn(sessionID)) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
   }
-  const signal = options.signal ?? new AbortController().signal
   const workerDirectory = options.workerDirectory
   const canonicalWorkerDirectory = canonicalDirectory(options.pinnedWorkerDirectory ?? workerDirectory)
   if (canonicalWorkerDirectory === null) {
@@ -2491,19 +2478,13 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     if (contextRefusal) return contextRefusal
   }
 
-  // The packet's acceptance oracle must be dispatch-ready before
-  // the authorization call persists an attempt. The pinned harness sources
-  // resolve as exact Git objects and paths in the repository this dispatch
-  // can reach, and every control carries its retained readiness evidence.
-  // The check runs read-only git plumbing through the dispatch runner; it
-  // never executes the oracle's own argv and never calls the core. A packet
-  // without an oracle (every pre-oracle definition revision) skips it.
+  // The packet's acceptance oracle must be dispatch-ready before the
+  // authorization call persists an attempt: every control carries a matching
+  // qualified native preparation. The check reads only the packet; it runs no
+  // subprocess and never calls the core. A packet without an oracle (every
+  // pre-oracle definition revision) skips it.
   if (packet.inputs.worker_job?.acceptance_oracle !== undefined) {
-    const oracleRefusal = await verifyPacketOracleReadiness(packet, {
-      runner: options.runner ?? defaultRunner,
-      directory: options.authorizedWorktree ?? canonicalWorkerDirectory,
-      signal,
-    })
+    const oracleRefusal = await verifyPacketOracleReadiness(packet)
     if (oracleRefusal !== null) {
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", oracleRefusal.message, "retry_same_request")
     }

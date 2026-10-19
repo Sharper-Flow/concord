@@ -94,7 +94,7 @@ func descendantDispatch(t *testing.T, j *candidateJourney, laneID, attempt strin
 		}
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	_, err = dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet)
+	_, err = dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet)
 	return err
 }
 
@@ -232,7 +232,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 		t.Fatal("fixture must move live HEAD without replacing the qualified B pin")
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, verdictItemVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
+	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatalf("dispatch the sealed B observation: %v", err)
 	}
 	if subject := j.dispatchedSubject(t, "observed-b-review"); subject != j.b || subject == c {

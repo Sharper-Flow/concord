@@ -194,7 +194,7 @@ func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: ActorAgent}
-	version := verdictItemVersion(t, s, "work-w")
+	version := readWorkVersion(t, s, "work-w")
 	event, err := buildNativeRunEvent("oracle-native-health", "work-w", actor, time.Unix(40, 0).UTC(), version, "health", "run:matched", result.SubjectRef, "healthy", result.OperationRef, "sha256:"+strings.Repeat("b", 64), time.Unix(40, 0).UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		t.Fatal(err)
@@ -419,7 +419,7 @@ func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("oracle-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
@@ -455,7 +455,7 @@ func oracleFixtureClaimedWorktree(t *testing.T, s *Store, workID string) (*fakeW
 	}
 	git := newFakeWorktreeGit(root)
 	claim := baseClaim(git)
-	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "project", verdictItemVersion(t, s, workID)
+	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "project", readWorkVersion(t, s, workID)
 	claim.OpID, claim.RequestID = "oracle-claim-"+workID, "oracle-claim-"+workID
 	claimed, err := s.ClaimWorktree(context.Background(), claim)
 	if err != nil {
@@ -603,7 +603,7 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := verdictItemVersion(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	epoch := latestStepStartEpoch(t, s, workID, "repair") + 1
 	// The dispatch authorization names the attempt's original Project claim,
 	// so completion resolves ownership from this same event.

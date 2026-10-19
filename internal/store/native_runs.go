@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"time"
 )
@@ -17,16 +15,7 @@ import (
 // policy registry exists.
 const (
 	WorkflowNativeRunRecorded = "workflow.native_run_recorded"
-
-	nativeRunAssertedSkewBound = 2 * time.Minute
 )
-
-// nativeRunObservationID derives the shared-component observation identity
-// from the subject digest the core already computed. The same run's reports
-// share one observation, so one verification answers every phase row.
-func nativeRunObservationID(subjectDigest string) string {
-	return "xobs:" + subjectDigest[len("sha256:"):len("sha256:")+16]
-}
 
 // nativeRunPolicyRefs returns the derived freshness/divergence references for
 // the native-run kind. CD-0040 D7: a same-ID policy edit changes the hash and
@@ -126,10 +115,10 @@ type legacyNativeRunUniverse struct {
 	Total                string   `json:"total"`
 }
 
-// legacyNativeRunPayload reflects the released writer's payload. Strict
-// decoding refuses every member the current writer added, so a recorded
-// report cannot acquire a fabricated observation identity or a relabeled
-// policy reference by replaying.
+// legacyNativeRunPayload reflects the released writer's payload, recorded at
+// version 1 before the shared observation component. Strict decoding refuses
+// every member the current shape added, so a recorded report cannot acquire a
+// fabricated observation identity or a relabeled policy reference by replaying.
 type legacyNativeRunPayload struct {
 	WorkID                string                  `json:"work_id"`
 	RunID                 string                  `json:"run_id"`
@@ -153,8 +142,8 @@ type legacyNativeRunPayload struct {
 // validateLegacyNativeRunPayload strictly decodes and validates one recorded
 // native-run report against the released shape: unknown members, wrong types,
 // and trailing data refuse. The recorded-event preparation route calls it for
-// events it recognized as this shape; validateNativeRunPayload above stays
-// the only validator a live write can reach.
+// events it recognized as this shape; every other report is validated by
+// validateNativeRunPayload above.
 func validateLegacyNativeRunPayload(event Event) error {
 	var payload legacyNativeRunPayload
 	if err := decodeRegisteredPayload(event, &payload); err != nil {
@@ -209,60 +198,6 @@ func validateLegacyNativeRunUniverse(payload *legacyNativeRunPayload) error {
 	return nil
 }
 
-// buildNativeRunEvent derives the attributed record from a workflow action's
-// typed fields. The capture component and policy references are core-derived;
-// the reporting authority is the authenticated actor's client, never a caller
-// string.
-func buildNativeRunEvent(eventID, workID string, actor WorkflowActor, now time.Time, expected int64, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt string) (Event, error) {
-	digest := sha256.Sum256([]byte(subjectRef))
-	subjectDigest := "sha256:" + hex.EncodeToString(digest[:])
-	freshness, divergence := nativeRunPolicyRefs()
-	payload := nativeRunPayload{
-		WorkID: workID, RunID: runID, NativeSubjectRef: subjectRef, Phase: phase,
-		SubjectDigest: subjectDigest,
-		Status:        status, EvidenceRef: evidenceRef, EvidenceDigest: evidenceDigest,
-		AssertedAt: assertedAt, ReportingAuthorityRef: actor.ClientRef,
-		ActorRef:      DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef),
-		CaptureMethod: CaptureTrustedClientReport,
-		// The universe is structural: one item, exactly scoped to the reported
-		// subject, complete by authoritative item read, one identity. No
-		// caller hand-builds a universe for a native report (CD-0040 D4).
-		ObservedUniverse: ObservedUniverse{
-			Shape:                UniverseItem,
-			AppliedScope:         subjectRef,
-			AnchorToken:          subjectDigest,
-			StructureDigest:      subjectDigest,
-			Coverage:             CoverageComplete,
-			ObservedCount:        1,
-			TotalKind:            TotalEq,
-			TotalValue:           1,
-			CompletionEvidence:   CompletionClosedStructureDigest,
-			CanonicalIdentityKey: workID + "/" + runID,
-		},
-		FreshnessPolicyRef:  freshness,
-		DivergencePolicyRef: divergence,
-		ObservationID:       nativeRunObservationID(subjectDigest),
-		ExpectedVersion:     expected, ResultingVersion: expected + 1,
-	}
-	if err := validateNativeRunShape(&payload); err != nil {
-		return Event{}, err
-	}
-	// asserted_at may not trail the core event time by more than the
-	// authority clock-skew bound (CD-0039 D3).
-	if asserted, parseErr := time.Parse(time.RFC3339Nano, payload.AssertedAt); parseErr == nil && asserted.After(now.Add(nativeRunAssertedSkewBound)) {
-		return Event{}, newFailure(KindInvalidPayload, "workflow_action", "native run asserted_at exceeds the report skew bound", false, "supply the reporting authority's own observation time")
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode native run report", false, "supply a JSON-safe report", err)
-	}
-	// Payload version 2 starts the new-write epoch after the released v1
-	// shape. Stored v1 reports recorded by the current writer remain a
-	// recognized recorded variant; the released pre-CD-0040 shape joins them
-	// only through the recorded-event preparation route.
-	return Event{EventID: eventID, Kind: WorkflowNativeRunRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), OccurredAt: now, PayloadVersion: 2, Payload: encoded}, nil
-}
-
 // nativeRunProjectionRow is the workflow_native_runs projection one recorded
 // report folds into. The current fold and the released-schema fold share it,
 // so the projection INSERT has one owner and a legacy row can differ only in
@@ -309,9 +244,9 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	// A report the released writer recorded folds through its own shape. Only
-	// the recorded-event preparation route tags this shape, so every live
-	// write keeps the current fold below.
+	// A report in the released writer's shape folds through its own shape. Only
+	// the recorded-event preparation route tags it; every other report, including
+	// a current-shaped version-1 record, folds below.
 	if event.recordedPayloadShape == recordedShapeLegacyNativeRun {
 		return foldLegacyNativeRunRecorded(ctx, tx, event)
 	}

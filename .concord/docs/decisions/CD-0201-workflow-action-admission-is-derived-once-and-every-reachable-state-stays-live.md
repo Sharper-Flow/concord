@@ -89,6 +89,9 @@ record and does not change this record's law.
 
 ### D2. The liveness law
 
+For CD-0013 D11's consequence policy, the same derivation folds the policy pin, decision-domain class, confirmation authority, and evaluator prerequisites. Engineering states retain contract and confirmation actions without an operator question. Independent evaluator actions must be genuinely admitted before the model counts their exit. Removed consent never supplies evidence or clears a recovery wall. Both liveness checks and real conformance witnesses cover engineering, decision-bearing, and historical pins.
+
+
 For every registered definition version:
 
 - Every well-formed nonterminal abstract state admits at least one action

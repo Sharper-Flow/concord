@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1290,6 +1291,105 @@ func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	}
 }
 
+// ciWaitServeHead points gh at a stub whose pr view answers headJSON.
+func ciWaitServeHead(t *testing.T, headJSON string) {
+	t.Helper()
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"pr view"*) cat <<'EOC'
+`+headJSON+`
+EOC
+;;
+	*"pr checks"*) exit 97;;
+	*"run view"*) exit 97;;
+`+ciWaitQuietReads+`esac`))
+}
+
+// A watch started beside a push can read the pull request before the push
+// lands. Named with the pushed commit, it judges only that commit: the head it
+// replaces is pending, whatever its checks and merge state say, and the wait
+// latches the pushed commit once the pull request reaches it.
+func TestCiWaitPRExpectedHeadJudgesOnlyThePushedCommit(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced,
+		[]ghPRRollup{ciWaitRollupFail("verify-tests", "https://github.com/o/r/actions/runs/11/job/1")}))
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
+	code, report := runCiWaitStdin(t, request)
+	if code != 0 || report.Status != "pending" || report.SHA != pushed || report.HeadSHA != replaced || report.Checks != nil || len(report.Failures) != 0 {
+		t.Fatalf("the replaced head's failure must stay pending for the pushed commit, got code=%d report=%+v", code, report)
+	}
+	if !strings.Contains(report.Reason, "not the expected head") {
+		t.Fatalf("the pending reason must say the pull request has not reached the expected head, got %q", report.Reason)
+	}
+
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", pushed, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+	_, report = runCiWaitStdin(t, request)
+	if report.Status != "pending" || report.SHA != pushed || report.HeadSHA != pushed || !strings.Contains(report.Reason, "can merge") {
+		t.Fatalf("the pushed commit must be judged once the pull request reaches it, got %+v", report)
+	}
+
+	const later = "0123456789abcdef0123456789abcdef01234567"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "OPEN", "", later, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+	_, report = runCiWaitStdin(t, request)
+	if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != later {
+		t.Fatalf("a head change after the pushed commit is latched must supersede the wait, got %+v", report)
+	}
+}
+
+// A pull request merged or closed at another head never reaches the expected
+// commit, so the wait ends superseded instead of judging the head it found.
+func TestCiWaitPRExpectedHeadNeverReachedIsSuperseded(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	for _, tc := range []struct{ name, mergedAt string }{{"merged", "2026-10-18T04:10:20Z"}, {"closed", ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "CLEAN", "CLOSED", tc.mergedAt, replaced, []ghPRRollup{ciWaitRollupPass("verify-tests")}))
+			_, report := runCiWaitStdin(t, `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"`+pushed+`"}`)
+			if report.Status != "superseded" || report.SHA != pushed || report.HeadSHA != replaced {
+				t.Fatalf("a pull request %s at another head must supersede the wait, got %+v", tc.name, report)
+			}
+		})
+	}
+}
+
+// The merge state a poll observes before the latch belongs to the head the
+// push replaces, so a wait that times out before the pull request reaches the
+// expected commit names that commit and carries no merge state.
+func TestCiWaitPRExpectedHeadTimeoutCarriesNoReplacedMergeState(t *testing.T) {
+	const replaced = "79dfa01fdc5852f7bdbe9510c91dc75a1a4712f9"
+	const pushed = "6459f13778fcad4b42f771ac4988f55897f635f5"
+	ciWaitServeHead(t, ciWaitMergeHeadFixture(t, "DIRTY", "OPEN", "", replaced, nil))
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	request := `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","mode":"merge","time_seconds_max":8,"head_sha":"` + pushed + `","state_file":"` + statePath + `"}`
+	if _, report := runCiWaitStdin(t, request); report.Status != "pending" {
+		t.Fatalf("the replaced head must keep the wait pending, got %+v", report)
+	}
+	state, ok := ciWaitReadState(statePath)
+	if !ok {
+		t.Fatal("a pending slice must persist its state")
+	}
+	state.DeadlineAt = time.Now().Add(-time.Minute)
+	ciWaitSaveState(state, statePath)
+	code, report := runCiWaitStdin(t, request)
+	if code != 1 || report.Status != "timeout" || report.SHA != pushed || report.HeadSHA != "" || report.MergeState != "" || !strings.Contains(report.Reason, "reached the expected head") {
+		t.Fatalf("a timeout before the pull request reaches the pushed commit must say so and carry no replaced-head merge state, got code=%d report=%+v", code, report)
+	}
+}
+
+func TestCiWaitExpectedHeadRequiresAPRSelectorAndACommitSHA(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	for name, body := range map[string]string{
+		"sha selector": `{"selector":{"kind":"sha","value":"6459f13778fcad4b42f771ac4988f55897f635f5"},"repo":"o/r","head_sha":"6459f13778fcad4b42f771ac4988f55897f635f5"}`,
+		"short sha":    `{"selector":{"kind":"pr","value":"5"},"repo":"o/r","head_sha":"6459f137"}`,
+	} {
+		code, report := runCiWaitStdin(t, body)
+		if code != 1 || report.Status != "refused" {
+			t.Fatalf("%s: want refused, got code=%d report=%+v", name, code, report)
+		}
+	}
+}
+
 func TestCiWaitRunSelectorConclusions(t *testing.T) {
 	cases := []struct {
 		conclusion string
@@ -1531,4 +1631,91 @@ func TestCiWaitSliceBoundedByShutdownSlack(t *testing.T) {
 	}
 	_ = code
 	_ = context.Background
+}
+
+// CD-0161 D2: in checks mode a merged or closed pull request still reports
+// the watched head's check verdict. The pull request's terminal state proves
+// nothing about CI, so it never ends a checks wait by itself.
+func TestCiWaitPRChecksModeJudgesMergedAndClosedHeads(t *testing.T) {
+	failJob := "https://github.com/o/r/actions/runs/10/job/2"
+	populations := []struct {
+		name         string
+		rollup       []ghPRRollup
+		wantStatus   string
+		wantTerminal bool
+	}{
+		{"passing", []ghPRRollup{ciWaitRollupPass("verify-go")}, "success", true},
+		{"failing", []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupFail("verify-tests", failJob)}, "failure", true},
+		{"pending", []ghPRRollup{ciWaitRollupPass("verify-go"), ciWaitRollupPending("verify-tests")}, "pending", false},
+		{"empty", []ghPRRollup{}, "pending", false},
+	}
+	for _, ended := range []struct{ name, mergedAt string }{{"merged", "2026-10-18T15:32:40Z"}, {"closed", ""}} {
+		for _, population := range populations {
+			t.Run(ended.name+"/"+population.name, func(t *testing.T) {
+				headJSON := ciWaitMergeHeadFixture(t, "UNKNOWN", "CLOSED", ended.mergedAt, "aabbccdd", population.rollup)
+				report, terminal, _ := ciWaitPollPROnce(t, "checks", headJSON, "")
+				if report.Status != population.wantStatus || terminal != population.wantTerminal {
+					t.Fatalf("status=%s terminal=%t want %s terminal=%t (report=%+v)", report.Status, terminal, population.wantStatus, population.wantTerminal, report)
+				}
+				if report.Checks == nil || report.Checks.Total != len(population.rollup) {
+					t.Fatalf("the report must count the watched head's checks, got %+v", report.Checks)
+				}
+				if population.name == "failing" && (len(report.Failures) != 1 || report.Failures[0].URL != failJob) {
+					t.Fatalf("a failing set must name its failure, got %+v", report.Failures)
+				}
+			})
+		}
+	}
+}
+
+// The representative run of a commit comes from the provider's creation
+// metadata, never from the order gh lists the runs in: a run another run
+// triggers is created after it, so the earliest run stands for the commit.
+// Every observed run still counts.
+func TestCiWaitSHARunURLIsIndependentOfRunOrder(t *testing.T) {
+	ci := ghRunSummary{DatabaseID: 39140963598, Name: "CI", Status: "completed", Conclusion: "success", URL: "https://github.com/o/r/actions/runs/39140963598", CreatedAt: "2026-10-18T15:30:01Z"}
+	release := ghRunSummary{DatabaseID: 39141183868, Name: "Auto Release", Status: "completed", Conclusion: "success", URL: "https://github.com/o/r/actions/runs/39141183868", CreatedAt: "2026-10-18T15:36:12Z"}
+	failing := func(run ghRunSummary) ghRunSummary { run.Conclusion = "failure"; return run }
+	pending := func(run ghRunSummary) ghRunSummary { run.Status, run.Conclusion = "in_progress", ""; return run }
+	cases := []struct {
+		name       string
+		runs       []ghRunSummary
+		wantStatus string
+		wantURL    string
+		wantNames  []string
+	}{
+		{"success", []ghRunSummary{ci, release}, "success", ci.URL, nil},
+		{"failure", []ghRunSummary{failing(ci), failing(release)}, "failure", ci.URL, []string{"CI", "Auto Release"}},
+		{"pending", []ghRunSummary{ci, pending(release)}, "pending", ci.URL, nil},
+	}
+	for _, tc := range cases {
+		for _, order := range []string{"listed", "reversed"} {
+			t.Run(tc.name+"/"+order, func(t *testing.T) {
+				runs := append([]ghRunSummary(nil), tc.runs...)
+				if order == "reversed" {
+					runs[0], runs[1] = runs[1], runs[0]
+				}
+				ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"run list"*) echo '`+ciWaitJSON(t, runs)+`';;
+	*"run view"*) exit 97;;
+esac`))
+				_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+					Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+				}))
+				if report.Status != tc.wantStatus || report.RunURL != tc.wantURL {
+					t.Fatalf("status=%s run_url=%q want %s %q (report=%+v)", report.Status, report.RunURL, tc.wantStatus, tc.wantURL, report)
+				}
+				if report.Checks == nil || report.Checks.Total != 2 {
+					t.Fatalf("every observed run must count, got %+v", report.Checks)
+				}
+				var names []string
+				for _, failure := range report.Failures {
+					names = append(names, failure.Name)
+				}
+				if !reflect.DeepEqual(names, tc.wantNames) {
+					t.Fatalf("failures=%v want %v", names, tc.wantNames)
+				}
+			})
+		}
+	}
 }

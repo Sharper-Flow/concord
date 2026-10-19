@@ -621,7 +621,7 @@ func batchVerdictRefSet(refs []string) []string {
 func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
 	const workID = "batch-union-authority"
 	fixture := seedWorkflowVerdictBatchFixtureWithEvidence(t, workID, 32)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 
 	extra := func(from, to int) []string {
@@ -689,7 +689,7 @@ func TestWorkflowVerdictBatchEvidenceUnionIsTheDurableAuthority(t *testing.T) {
 func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) {
 	const workID = "batch-union-maximum"
 	fixture := seedWorkflowVerdictBatchFixturePredicates(t, workID, 256, []string{"verification"}, batchVerdictPredicateSet(workID, 8))
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 
 	entries := make([]any, 0, 8)
@@ -753,7 +753,7 @@ func TestWorkflowVerdictBatchMaximumUnionRebuilds(t *testing.T) {
 func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
 	const workID = "batch-mixed-default-per-entry"
 	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 	mintedRef := "evidence:" + operationID
 	artifact := "evidence:return-route-artifact"
@@ -851,7 +851,7 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 	const workID = "batch-union-native-run"
 	fixture := seedWorkflowVerdictBatchFixtureRequiring(t, workID, 4, []string{"verification", "native_run"})
 	capture := seedVerifiedNativeRunCapture(t, fixture.store, workID)
-	version := verdictItemVersion(t, fixture.store, workID)
+	version := readWorkVersion(t, fixture.store, workID)
 	operationID := fmt.Sprintf("issue933-record_verdict-%s-%d", workID, version)
 	mintedRef := "evidence:" + operationID
 	explicitRefs := []string{"evidence:return-route-artifact", "evidence:batch-extra-00"}
@@ -969,4 +969,18 @@ func TestWorkflowVerdictBatchEvidenceUnionSpansNativeRunEnrichment(t *testing.T)
 	if naming != 2 {
 		t.Fatalf("%d batched verdicts name the capture, want every defaulted entry sharing the minted set", naming)
 	}
+}
+
+// missingPredicateVerdicts lists the approved contract predicates that have
+// no recorded verdict. The join deliberately does NOT mirror completion
+// clause 6: any verdict kind counts here, because a weaker or incomparable
+// verdict at confirm_premise follows the declared failure edge to refine
+// rather than wedging the item, while clause 6 still refuses such
+// verdicts at complete. One verdict per predicate id, latest per predicate.
+func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
+	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return nil, err
+	}
+	return missingPredicateVerdictsForContract(ctx, tx, workID, contract)
 }

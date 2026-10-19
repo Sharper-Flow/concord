@@ -20,8 +20,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := researchSurfaceFixture(t)
-			pack, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{
-				Identity:    store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-test", OperationKind: "create", IdempotencyKey: "create"},
+			pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
 				OwnerWorkID: "work-1", Revision: store.ResearchRevisionInput{Question: "Which revision?", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
 			})
 			if err != nil {
@@ -63,7 +62,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				input["fields"] = map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}
 				switch test.name {
 				case "omitted_stale_pin", "required_stale_declaration":
-					if err := s.SetResearchFreshness(ctx, store.SetResearchFreshnessRequest{Identity: store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-test", OperationKind: "stale", IdempotencyKey: "stale"}, PackID: pack.PackID, ExpectedVersion: 2, Freshness: store.ResearchStale}); err != nil {
+					if err := setResearchFreshness(ctx, s, store.SetResearchFreshnessRequest{PackID: pack.PackID, ExpectedVersion: 2, Freshness: store.ResearchStale}); err != nil {
 						t.Fatal(err)
 					}
 					if test.name == "omitted_stale_pin" {
@@ -99,11 +98,8 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := researchSurfaceFixture(t)
-			identity := func(key string) store.ResearchMutationIdentity {
-				return store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-test", OperationKind: key, IdempotencyKey: key}
-			}
 			revision := store.ResearchRevisionInput{Question: "Which revision?", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)}
-			pack, err := s.CreateResearchPack(ctx, store.CreateResearchPackRequest{Identity: identity("create"), OwnerWorkID: "work-1", Revision: revision})
+			pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{OwnerWorkID: "work-1", Revision: revision})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +135,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			packVersion := int64(2)
 			wantRevision, wantRole, wantRequired := int64(1), "context", true
 			if name == "rebind_after_stale" {
-				if _, err := s.AppendResearchRevision(ctx, store.AppendResearchRevisionRequest{Identity: identity("append"), PackID: pack.PackID, ExpectedVersion: packVersion, Revision: revision}); err != nil {
+				if err := appendResearchRevision(ctx, s, store.AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: packVersion, Revision: revision}); err != nil {
 					t.Fatal(err)
 				}
 				packVersion++
@@ -147,7 +143,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 				wantRevision = 2
 			}
 			if name != "role_change" {
-				if err := s.SetResearchFreshness(ctx, store.SetResearchFreshnessRequest{Identity: identity("stale"), PackID: pack.PackID, Revision: 1, ExpectedVersion: packVersion, Freshness: store.ResearchStale}); err != nil {
+				if err := setResearchFreshness(ctx, s, store.SetResearchFreshnessRequest{PackID: pack.PackID, Revision: 1, ExpectedVersion: packVersion, Freshness: store.ResearchStale}); err != nil {
 					t.Fatal(err)
 				}
 				packVersion++

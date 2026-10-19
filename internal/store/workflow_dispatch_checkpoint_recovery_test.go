@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 				// steps; this check asserts neither state for them.
 				continue
 			}
-			if !containsString(step.Actions, "dispatch_worker") {
+			if !slices.Contains(step.Actions, "dispatch_worker") {
 				dispatchCorrectionAssertExcluded(t, definition, step)
 				continue
 			}
@@ -54,8 +55,8 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 				// the same structure: the complete gate owns its steps above,
 				// so the checkpoint answer here is the evaluator route target
 				// or the confirm_premise gate on a live step.
-				expected := !containsString(definition.StepGraph.TerminalSteps, step.ID) &&
-					(workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "" || containsString(step.Actions, "confirm_premise"))
+				expected := !slices.Contains(definition.StepGraph.TerminalSteps, step.ID) &&
+					(workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "" || slices.Contains(step.Actions, "confirm_premise"))
 				if workflowContractCorrectionCheckpoint(definition, step.ID) != expected {
 					t.Fatalf("%s v%d step %s (%s) resolves as a correction checkpoint = %v, want the structure's %v", definition.Ref, definition.Version, step.ID, step.Kind, !expected, expected)
 				}
@@ -80,7 +81,7 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 // evaluator route.
 func dispatchCorrectionAssertExcluded(t *testing.T, definition WorkflowDefinition, step WorkflowStep) {
 	t.Helper()
-	if step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "confirm_premise") {
+	if step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "confirm_premise") {
 		return
 	}
 	if workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "" {
@@ -706,7 +707,7 @@ func seedWalledEvaluationCheckpoint(t *testing.T, workID, reviewVerdict string) 
 	}
 	matched := false
 	for _, evidence := range recordedReview.Evidence {
-		if evidence.Detail == "reviewed "+reportRef+" against active predicate:return-route (contract 2)" && containsString(evidence.PredicateIDs, "predicate:return-route") {
+		if evidence.Detail == "reviewed "+reportRef+" against active predicate:return-route (contract 2)" && slices.Contains(evidence.PredicateIDs, "predicate:return-route") {
 			matched = true
 		}
 	}

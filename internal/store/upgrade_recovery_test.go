@@ -6,19 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/version"
 )
-
-// stampAsRelease pins the build as a stamped release for one test, the way
-// unstamped_open_test.go does, so Upgrade exercises the release migration
-// path instead of the development-build isolation rule (CD-0139).
-func stampAsRelease(t *testing.T) {
-	t.Helper()
-	previous := version.Value
-	version.Value = "v-test"
-	t.Cleanup(func() { version.Value = previous })
-}
 
 // migratedStoreWithTailRemoved builds a real, fully migrated store and then
 // removes the manifest rows from `from` on. The schema objects those steps
@@ -66,7 +54,7 @@ func storePathForTest(t *testing.T) string {
 // operating it. This is the failure half of CON-807 recovery: nothing about
 // a failed migration damages the usable active release (CON-807).
 func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
-	stampAsRelease(t)
+	useStampedBuild(t)
 	path := migratedStoreWithTailRemoved(t, 112)
 	held := []HeldSchema{}
 
@@ -98,7 +86,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 // the tail. An interrupted or failed migration is retried by running it
 // again; no intermediate state survives the failed transaction.
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
-	stampAsRelease(t)
+	useStampedBuild(t)
 	path := migratedStoreWithTailRemoved(t, 115)
 	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")
@@ -126,6 +114,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
 		t.Fatalf("cannot restore the pre-127 verify lease: %v", err)
 	}
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_contracts DROP COLUMN decision_domains`); err != nil {
+		t.Fatalf("cannot restore the pre-133 workflow contract: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE project_locators DROP COLUMN normalization_version`); err != nil {
 		t.Fatalf("cannot restore the pre-remote-identity locator shape: %v", err)
 	}
@@ -138,7 +129,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err := undoMigration124(t, context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_size_assessments;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_resize_lineage; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
 	if err := dropMigration120Objects(context.Background(), db); err != nil {

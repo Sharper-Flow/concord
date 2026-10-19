@@ -352,7 +352,12 @@ func TestHalfMaterializedDispatchConsumesTheConvergenceBasis(t *testing.T) {
 	}); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("approved interrupted retry = %v, want the missing-basis refusal", err)
 	}
-	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+	var binding *WorkflowRetryApprovalBinding
+	if bindingErr := s.Transact(context.Background(), func(tx *Transaction) error {
+		var txErr error
+		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
+		return txErr
+	}); bindingErr != nil || binding != nil {
 		t.Fatalf("retry binding at the wall = %+v, %v, want none", binding, bindingErr)
 	}
 

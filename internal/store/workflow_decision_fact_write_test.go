@@ -914,8 +914,8 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			{name: "the supersede_contract recovery declaration", action: recovery, builtin: workflowContractRecoveryPayloadFields()},
 		} {
 			fields := selected.action.Payload.Fields
-			if len(fields) != len(selected.builtin)+1 {
-				t.Fatalf("%s declares %d fields, want the %d declared fields plus the one copied fact", selected.name, len(fields), len(selected.builtin))
+			if !reflect.DeepEqual(fields, factWriteExpectedSelection(selected.builtin)) {
+				t.Fatalf("%s fields differ from the released fields plus the law-change inputs and canonical decision fact", selected.name)
 			}
 			for index, field := range selected.builtin {
 				if !reflect.DeepEqual(fields[index], field) {
@@ -1226,7 +1226,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		// selector under test or the builtin policy.
 		pinnedInitial := workflowActionDefinitionByID(definition, "approve_contract")
 		expectedInitial := pinnedInitial
-		expectedInitial.Payload.Fields = append(append([]WorkflowPayloadField{}, pinnedInitial.Payload.Fields...), workflowDecisionFactField())
+		expectedInitial.Payload.Fields = factWriteExpectedSelection(pinnedInitial.Payload.Fields)
 		_, initialAction, err := WorkflowActionDefinitionFor(ctx, s, registry, workID, "approve_contract")
 		if err != nil {
 			t.Fatalf("dispatch refused the new-policy initial action: %v", err)
@@ -1461,7 +1461,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if !discovered.Payload.Closed {
 			t.Errorf("discovery resolved an open initial payload for the pinned closed declaration")
 		}
-		expectedFields := append(append([]WorkflowPayloadField{}, pinned.Payload.Fields...), workflowDecisionFactField())
+		expectedFields := factWriteExpectedSelection(pinned.Payload.Fields)
 		if count := countDecisionDomainFields(discovered.Payload.Fields); count != 1 {
 			t.Errorf("discovery resolved %d decision_domains fields, want exactly the one canonical fact", count)
 		}
@@ -1471,7 +1471,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if discovered.PublicPayload == nil || !discovered.PublicPayload.Closed {
 			t.Errorf("discovery dropped the pinned closed PublicPayload: %+v", discovered.PublicPayload)
 		}
-		expectedPublicFields := append(append([]WorkflowPayloadField{}, pinned.PublicPayload.Fields...), workflowDecisionFactField())
+		expectedPublicFields := factWriteExpectedSelection(pinned.PublicPayload.Fields)
 		var wantRequired []string
 		for _, field := range expectedPublicFields {
 			if field.Required {
@@ -1842,8 +1842,8 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		mid := len(payloadWithout) / 2
 		wrongAction.Payload.Fields = insertAt(payloadWithout, wrongFact, mid)
 		wrongAction.PublicPayload.Fields = insertAt(publicWithout, wrongFact, 1)
-		wantPayload := insertAt(payloadWithout, workflowDecisionFactField(), mid)
-		wantPublic := insertAt(publicWithout, workflowDecisionFactField(), 1)
+		wantPayload := append(insertAt(payloadWithout, workflowDecisionFactField(), mid), workflowLawChangeFields()...)
+		wantPublic := append(insertAt(publicWithout, workflowDecisionFactField(), 1), workflowLawChangeFields()...)
 		wrongDefinition := WorkflowDefinition{ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ActionDefinitions: []WorkflowActionDefinition{wrongAction}}
 		wrongBefore, wrongErr := json.Marshal(wrongDefinition)
 		if wrongErr != nil {
@@ -2219,13 +2219,21 @@ func factWriteConstructSuccessorContract(t *testing.T, s *Store, definition Work
 	return events, constructErr
 }
 
+// factWriteExpectedSelection states the selected payload in order, independent
+// of the production selector: released fields, law-change inputs, decision fact.
+func factWriteExpectedSelection(released []WorkflowPayloadField) []WorkflowPayloadField {
+	fields := append([]WorkflowPayloadField{}, released...)
+	fields = append(fields, workflowLawChangeFields()...)
+	return append(fields, workflowDecisionFactField())
+}
+
 // assertFactWriteFieldsCarryFact holds the declaration-owner agreement: the
-// projected contract-authoring fields keep every released field in order and
-// append the one required closed decision-fact field.
+// projected contract-authoring fields keep every released field in order,
+// add the law-change inputs, and append the required closed decision fact.
 func assertFactWriteFieldsCarryFact(t *testing.T, label string, fields, released []WorkflowPayloadField) {
 	t.Helper()
-	if len(fields) != len(released)+1 {
-		t.Fatalf("%s declares %d fields, want the %d released fields plus the one copied fact", label, len(fields), len(released))
+	if !reflect.DeepEqual(fields, factWriteExpectedSelection(released)) {
+		t.Fatalf("%s fields differ from the released fields plus the law-change inputs and canonical decision fact", label)
 	}
 	for index, field := range released {
 		if !reflect.DeepEqual(fields[index], field) {

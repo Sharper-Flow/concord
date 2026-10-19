@@ -1,6 +1,6 @@
 # CD-0239: A later process claim permits one bounded host-recovery attempt
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-19
 - **Scope:** The convergence bases that admit a dispatch behind the
   three-attempt escalation wall
@@ -21,8 +21,9 @@
   three, and only a productive acceptance opens a new window; CD-0148's
   single-use basis and its fresh fenced attempt; CD-0205 D7's rule that a
   bare cancellation proves no cause
-- **Approval:** Pending. The operator approves the exact text of this
-  record and of the amendments it makes (CD-0230 D4).
+- **Approval:** The operator approved the exact text of this record and of
+  the amendments it makes on 2026-10-19 (CD-0230 D4), for
+  [Concord (CON) issue 1188](https://linear.app/sharper-flow/issue/CON-1188).
 - **P12 declaration:** Serious. It removes behavior the operator sees: a host
   failure at the escalation wall no longer needs an operator-approved contract
   supersession for one more attempt, which narrows an operator approval point

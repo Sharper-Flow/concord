@@ -1,6 +1,6 @@
 ---
 description: Concord research lane — Investigate bounded questions and return source-backed findings. Dispatch through dispatch_worker when a workflow step owes recorded research findings the contract can bind. Does not edit repository source.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false

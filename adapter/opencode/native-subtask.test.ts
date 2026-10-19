@@ -10,45 +10,45 @@ test("a native subtask preserves the parent's host-selected model without assign
   host.bind({
     async get(request) {
       expect(request.path?.id).toBe("parent")
-      return { data: { id: "parent", agent: "concord-operator", model: { providerID: "user-provider", id: "selected-model", variant: "selected-variant" } }, response: new Response(null, { status: 200 }) }
+      return { data: { id: "parent", agent: "Concord", model: { providerID: "user-provider", id: "selected-model", variant: "selected-variant" } }, response: new Response(null, { status: 200 }) }
     },
     async post(request) {
       requests.push(request)
       return {
-        data: { info: { id: "message-queued", sessionID: "parent", agent: "concord-operator" }, parts: [{ id: "part-queued", type: "subtask", ...task }] },
+        data: { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [{ id: "part-queued", type: "subtask", ...task }] },
         response: new Response(null, { status: 200 }),
       }
     },
   })
-  await host.queueSubtask("parent", "concord-operator", task, signal)
+  await host.queueSubtask("parent", "Concord", task, signal)
   expect(requests).toEqual([{
     url: SESSION_MESSAGES_ROUTE,
     path: { id: "parent" },
-    body: { agent: "concord-operator", model: { providerID: "user-provider", modelID: "selected-model" }, variant: "selected-variant", noReply: true, parts: [{ type: "subtask", ...task }] },
+    body: { agent: "Concord", model: { providerID: "user-provider", modelID: "selected-model" }, variant: "selected-variant", noReply: true, parts: [{ type: "subtask", ...task }] },
     signal,
   }])
 })
 
 test.each([
-  { info: { id: "message-queued", sessionID: "another-parent", agent: "concord-operator" }, parts: [{ type: "subtask", ...task }] },
-  { info: { id: "message-queued", sessionID: "parent", agent: "concord-operator" }, parts: [] },
-  { info: { id: "message-queued", sessionID: "parent", agent: "concord-operator" }, parts: [{ type: "subtask", ...task, prompt: "different packet" }] },
+  { info: { id: "message-queued", sessionID: "another-parent", agent: "Concord" }, parts: [{ type: "subtask", ...task }] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [] },
+  { info: { id: "message-queued", sessionID: "parent", agent: "Concord" }, parts: [{ type: "subtask", ...task, prompt: "different packet" }] },
 ])("a host acknowledgment must retain the intended parent and exact native subtask", async data => {
   const host = new HostControlPlane()
   host.bind({
-    async get() { return { data: { id: "parent", agent: "concord-operator" }, response: new Response(null, { status: 200 }) } },
+    async get() { return { data: { id: "parent", agent: "Concord" }, response: new Response(null, { status: 200 }) } },
     async post() { return { data, response: new Response(null, { status: 200 }) } },
   })
-  await expect(host.queueSubtask("parent", "concord-operator", task, new AbortController().signal)).rejects.toThrow("native subtask")
+  await expect(host.queueSubtask("parent", "Concord", task, new AbortController().signal)).rejects.toThrow("native subtask")
 })
 
 test.each([null, { providerID: "user-provider" }, { id: "selected-model" }, { providerID: "", id: "selected-model" }])("an invalid host model selection cannot fall back to a different choice", async model => {
   const host = new HostControlPlane()
   let posts = 0
   host.bind({
-    async get() { return { data: { id: "parent", agent: "concord-operator", model }, response: new Response(null, { status: 200 }) } },
+    async get() { return { data: { id: "parent", agent: "Concord", model }, response: new Response(null, { status: 200 }) } },
     async post() { posts++; throw new Error("an invalid host selection cannot queue work") },
   })
-  await expect(host.queueSubtask("parent", "concord-operator", task)).rejects.toThrow("host model selection")
+  await expect(host.queueSubtask("parent", "Concord", task)).rejects.toThrow("host model selection")
   expect(posts).toBe(0)
 })

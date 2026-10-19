@@ -179,11 +179,11 @@ AGENT_FILES = (
     "concord-verify.md",
     "concord-advisor.md",
     # Named primary profiles (CD-0154). Numbered host files stay unmanaged.
-    "concord-coordinator.md",
-    "concord-operator.md",
+    "Concord-RTE.md",
+    "Concord.md",
 )
 STABLE_ROOT_NAME = "current"
-AGENT_GLOB = "concord-*.md"
+AGENT_GLOB = "[Cc]oncord*.md"
 PROJECT_CONFIG_NAMES = ("opencode.json", "opencode.jsonc")
 PROJECT_LINK_OWNERSHIP_NAME = "project-link-ownership.json"
 PROJECT_LINK_PENDING_NAME = "project-link-pending.json"
@@ -1689,7 +1689,7 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     ):
         raise InstallerError("installer manifest has invalid agent file records")
     for name in agent_files:
-        if not name.startswith("concord-") or not name.endswith(".md"):
+        if name != "Concord.md" and (not name.startswith(("concord-", "Concord-")) or not name.endswith(".md")):
             raise InstallerError(f"installer manifest has invalid agent file name {name!r}")
         safe_relative_target(paths.agents_dir, name, "agent file")
 

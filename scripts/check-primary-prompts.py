@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Validate the named primary profiles and the inert numbered examples.
 
-The generated named profiles `concord-coordinator` and `concord-operator` ship
+The generated named profiles `Concord-RTE` and `Concord` ship
 as managed agents. scripts/generate-agent-lanes.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
 
-  coordinator        denies every mutating Concord tool, denies the shell by
-                     default, and routes every Concord approval challenge to
-                     the operator
-  operator           keeps the delegation anchor and the cross-repository
+  RTE                keeps Build-level permissions, item decisions with the
+                     owning session, and human-only approval challenges
+  Concord            needs no RTE, keeps the delegation anchor and cross-repository
                      boundary (CD-0178 D2)
   both               no host-specific research tool names in frontmatter, no
                      duplicated conduct obligation, and no routing by
@@ -42,19 +41,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = Path(".opencode/agents")
 NAMED_PROFILE_FILES = (
-    "concord-coordinator.md",
-    "concord-operator.md",
+    "Concord-RTE.md",
+    "Concord.md",
 )
-COORDINATOR_DENIED_TOOLS = (
-    "concord_work_compact",
-    "concord_work_define",
-    "concord_work_relate",
-    "concord_work_start",
-    "concord_work_transition",
-)
-COORDINATOR_REQUIRED_PHRASES = (
+PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
+RTE_REQUIRED_PHRASES = (
+    "never decides inside another session's item",
     "Never answer a Concord approval challenge",
     "goes to the operator unchanged",
+    "Each session owns its design, code, tests, review, law text, publication",
+    "Keep Linear current",
+    "Report ship status to the operator",
+    "The user may choose to start this optional session",
+)
+CONCORD_REQUIRED_PHRASES = (
+    "You are Concord, the primary agent",
+    "You do not need an RTE session",
+    "The user may choose to start an RTE session",
+    "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
 )
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
@@ -186,6 +190,9 @@ def flatten(text: str) -> str:
 
 def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
+    for retired in ("concord-coordinator.md", "concord-operator.md"):
+        if (root / PROFILE_DIR / retired).exists():
+            findings.append(f"retired named primary profile {retired} is present")
     for name in NAMED_PROFILE_FILES:
         path = root / PROFILE_DIR / name
         if not path.is_file():
@@ -212,20 +219,25 @@ def check_named_profiles(root: Path) -> list[str]:
             for match in [GENERATED_AGENT_ID.search(flat_body)]
             if match is not None
         )
-        if name == "concord-coordinator.md":
-            findings.extend(
-                f"{name} frontmatter lost the coordinator boundary '{tool}: deny'"
-                for tool in COORDINATOR_DENIED_TOOLS
-                if f"\n  {tool}: deny" not in "\n" + frontmatter
-            )
-            if '\n  bash:\n    "*": deny\n' not in "\n" + frontmatter:
-                findings.append(f"{name} frontmatter does not deny bash by default")
-            findings.extend(
-                f"{name} lost the approval challenge rule {phrase!r}"
-                for phrase in COORDINATOR_REQUIRED_PHRASES
-                if phrase not in flat_body
-            )
-        else:
+        findings.extend(
+            f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
+            for tool in PRIMARY_BUILD_TOOLS
+            if f"\n  {tool}: allow" not in "\n" + frontmatter
+        )
+        for permission in ("bash", "task"):
+            if f'\n  {permission}:\n    "*": allow' not in "\n" + frontmatter:
+                findings.append(f"{name} frontmatter does not allow {permission} by default")
+        findings.extend(
+            f"{name} frontmatter denies Concord tool {tool}"
+            for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
+        )
+        required_phrases = RTE_REQUIRED_PHRASES if name == "Concord-RTE.md" else CONCORD_REQUIRED_PHRASES
+        findings.extend(
+            f"{name} lost the role rule {phrase!r}"
+            for phrase in required_phrases
+            if phrase not in flat_body
+        )
+        if name == "Concord.md":
             findings.extend(
                 f"{name} lost the delegation anchor marker {marker!r}"
                 for marker in DELEGATION_ANCHOR_MARKERS
@@ -233,7 +245,12 @@ def check_named_profiles(root: Path) -> list[str]:
             )
             findings.extend(
                 f"{name} lost the cross-repository boundary phrase {phrase!r}"
-                for phrase in REQUIRED_BOUNDARY_PHRASES
+                for phrase in (
+                    "Keep a work-item session in each repository",
+                    "a second Project in another git repository",
+                    "never claim or move across the boundary",
+                    "this session stops driving the other repository",
+                )
                 if phrase not in flat_body
             )
     return findings

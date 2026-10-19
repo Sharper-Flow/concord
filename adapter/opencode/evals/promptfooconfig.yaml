@@ -38,24 +38,34 @@ prompts:
     label: verify/refuses-repair
 
 providers:
-  - id: 'exec: opencode run --agent concord-research --format json'
+  - id: file://native-lane.mjs
     label: lane-research
+    config:
+      lane: research
     prompts:
       - 'research/*'
-  - id: 'exec: opencode run --agent concord-implement --format json'
+  - id: file://native-lane.mjs
     label: lane-implement
+    config:
+      lane: implement
     prompts:
       - 'implement/*'
-  - id: 'exec: opencode run --agent concord-design --format json'
+  - id: file://native-lane.mjs
     label: lane-design
+    config:
+      lane: design
     prompts:
       - 'design/*'
-  - id: 'exec: opencode run --agent concord-review --format json'
+  - id: file://native-lane.mjs
     label: lane-review
+    config:
+      lane: review
     prompts:
       - 'review/*'
-  - id: 'exec: opencode run --agent concord-verify --format json'
+  - id: file://native-lane.mjs
     label: lane-verify
+    config:
+      lane: verify
     prompts:
       - 'verify/*'
 

@@ -4,54 +4,14 @@
   "version": 1,
   "profiles": [
     {
-      "id": "concord-coordinator",
+      "id": "Concord-RTE",
       "version": 1,
-      "description": "Concord coordinator — supervises live sessions across authorized Projects through the host; never authors a candidate or drives a work item's workflow.",
-      "role_source": ".concord/roles/coordinator.md",
-      "tools": {
-        "edit": "deny",
-        "write": "deny",
-        "patch": "deny",
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "question": "allow",
-        "todowrite": "allow",
-        "skill": "allow",
-        "webfetch": "allow"
-      },
-      "bash": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "git status *", "action": "allow"},
-        {"pattern": "git log *", "action": "allow"},
-        {"pattern": "git show *", "action": "allow"},
-        {"pattern": "git diff *", "action": "allow"},
-        {"pattern": "git rev-parse *", "action": "allow"},
-        {"pattern": "gh pr view *", "action": "allow"},
-        {"pattern": "gh pr checks *", "action": "allow"},
-        {"pattern": "gh run view *", "action": "allow"}
-      ],
-      "task": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "concord-explore", "action": "allow"},
-        {"pattern": "concord-lookup", "action": "allow"},
-        {"pattern": "concord-advisor", "action": "allow"}
-      ],
-      "denied_concord_tools": [
-        "concord_work_compact",
-        "concord_work_define",
-        "concord_work_relate",
-        "concord_work_start",
-        "concord_work_transition"
-      ]
-    },
-    {
-      "id": "concord-operator",
-      "version": 1,
-      "description": "Concord operator — drives one work item in one repository: shapes it, dispatches the Concord lanes, records verdicts, and completes it.",
-      "role_source": ".concord/roles/operator.md",
+      "description": "Concord-RTE — optional coordination for busy Product or Project work; sequences conflicts, keeps Linear current, and reports ship status without deciding for sessions.",
+      "role_source": ".concord/roles/rte.md",
       "tools": {
         "edit": "allow",
+        "write": "allow",
+        "patch": "allow",
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
@@ -66,8 +26,34 @@
         {"pattern": "rm -rf / *", "action": "deny"}
       ],
       "task": [
-        {"pattern": "*", "action": "deny"},
-        {"pattern": "concord-*", "action": "allow"}
+        {"pattern": "*", "action": "allow"}
+      ],
+      "denied_concord_tools": []
+    },
+    {
+      "id": "Concord",
+      "version": 1,
+      "description": "Concord — self-sufficient primary agent; owns design, engineering, tests, review, law, publication, CI, deployment, and planning for its item. No RTE session required.",
+      "role_source": ".concord/roles/concord.md",
+      "tools": {
+        "edit": "allow",
+        "write": "allow",
+        "patch": "allow",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "question": "allow",
+        "todowrite": "allow",
+        "skill": "allow",
+        "webfetch": "allow"
+      },
+      "bash": [
+        {"pattern": "*", "action": "allow"},
+        {"pattern": "sudo *", "action": "deny"},
+        {"pattern": "rm -rf / *", "action": "deny"}
+      ],
+      "task": [
+        {"pattern": "*", "action": "allow"}
       ],
       "denied_concord_tools": []
     }

@@ -158,7 +158,7 @@ function result(result: { title: string; output: string }): Record<string, unkno
   return JSON.parse(result.output) as Record<string, unknown>
 }
 
-const context = { sessionID: SESSION, agent: "concord-operator", abort: new AbortController().signal }
+const context = { sessionID: SESSION, agent: "Concord", abort: new AbortController().signal }
 
 const watchArgs = { repo: "owner/name", selector: { kind: "pr", value: "12" } }
 
@@ -1660,7 +1660,7 @@ test("the snapshot shows simultaneous watches, keeps the epoch stable on dedup, 
   expect(activeRecord(afterDedup, prId)!.watch_epoch).toBe(prRecord.watch_epoch)
 
   // Another session's watches do not leak across session-filtered snapshots.
-  const otherContext = { sessionID: "watch-session-b", agent: "concord-operator", abort: new AbortController().signal }
+  const otherContext = { sessionID: "watch-session-b", agent: "Concord", abort: new AbortController().signal }
   const other = result(await concord_ci_watch.execute({ repo: "owner/name", selector: { kind: "sha", value: SHA_BASE } }, otherContext))
   expect(other.status).toBe("started")
   const otherId = String(other.watch_id)

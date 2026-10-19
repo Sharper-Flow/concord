@@ -668,11 +668,9 @@ def _check_evidence_obligation_vocabulary() -> list[str]:
 def _check_lane_agent_selectability() -> list[str]:
     """Prove a lane definition is dispatchable but not operator-selectable (CD-0070).
 
-    Two frontmatter keys carry this and they pull in opposite directions. Run
-    mode refuses a subagent-mode target and silently substitutes the default
-    agent, so CD-0064 D1 requires a primary-capable mode. The host then cycles
-    every primary-capable agent whose hidden flag is unset, which is how a
-    worker lane became selectable as the operator's session agent.
+    Subagent mode keeps lanes out of primary sessions. The hidden flag keeps
+    them out of ordinary discovery; authorized native Task dispatch still
+    resolves their exact names.
 
     The generator's own `--check` proves the definitions match the generator,
     which is self-consistency rather than proof: a change to both sides passes
@@ -690,8 +688,8 @@ def _check_lane_agent_selectability() -> list[str]:
             continue
         if "\nhidden: true\n" not in f"\n{frontmatter}":
             findings.append(f"{relative}: lane definition must declare `hidden: true` (CD-0070 D1)")
-        if "\nmode: all\n" not in f"\n{frontmatter}":
-            findings.append(f"{relative}: lane definition must declare `mode: all` (CD-0064 D1)")
+        if "\nmode: subagent\n" not in f"\n{frontmatter}":
+            findings.append(f"{relative}: lane definition must declare `mode: subagent` (CD-0064 D1)")
     return findings
 
 def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:

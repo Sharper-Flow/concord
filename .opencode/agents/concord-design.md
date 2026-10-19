@@ -1,6 +1,6 @@
 ---
 description: Concord design lane — Implement visual UI and UX changes for one approved bounded task and report design evidence. Dispatch through dispatch_worker when an approved contract premise names a visual surface change. Edits only files inside the approved contract scope.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false

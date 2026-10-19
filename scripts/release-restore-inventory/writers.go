@@ -77,19 +77,27 @@ type writerSite struct {
 	// Confinement is "upcaster" on an assignment, outside any loop or
 	// closure, of fields of the site function's own Event parameter, when
 	// the function is reachable only as an Upcaster value through the one
-	// dispatcher, the parameter's Kind and whole value are never assigned, it
-	// is never captured or addressed, and after the site it is only returned
-	// or the base of a field selector.
+	// dispatcher and names no result, the parameter's Kind and whole value
+	// are never assigned, it is never captured or addressed, and after the
+	// site it is only returned or the base of a field selector.
 	Confinement string `json:"confinement,omitempty"`
 }
 
-// upcastDispatcher is the one declaration that calls Upcaster values and
-// holds every other expression of the Upcaster type, with the conditions of
-// its if statements whose body ends in a return.
+// upcastDispatcher is the one function declaration that calls Upcaster
+// values and holds every other expression of the Upcaster type, with the
+// conditions of its if statements whose body ends in a return, and its
+// callers: every declared function that calls it, or calls a caller that
+// passes its own parameter as the EventKindRegistration argument.
 type upcastDispatcher struct {
-	Function       string   `json:"function"`
-	FunctionDigest string   `json:"function_digest"`
-	Guards         []string `json:"guards"`
+	Function       string      `json:"function"`
+	FunctionDigest string      `json:"function_digest"`
+	Guards         []string    `json:"guards"`
+	Callers        []namedHash `json:"callers"`
+}
+
+type namedHash struct {
+	Function string `json:"function"`
+	Digest   string `json:"digest"`
 }
 
 // writerAnalysis is one release binary's event writers. Writes are the pairs
@@ -211,9 +219,12 @@ type returned struct {
 	at      assignment
 }
 
+// callSite is one static call, its package, and the declared function it
+// sits in directly, nil in a closure or outside any function.
 type callSite struct {
-	call *ast.CallExpr
-	pkg  *checkedPackage
+	call   *ast.CallExpr
+	pkg    *checkedPackage
+	caller *function
 }
 
 // analyzer holds one binary's type-checked packages, the flow facts the
@@ -410,7 +421,7 @@ func (a *analyzer) index(p *checkedPackage) {
 			case *ast.FuncDecl:
 				a.indexFunc(p, v)
 			case *ast.CallExpr:
-				a.indexCall(p, v)
+				a.indexCall(p, v, a.enclosingFunc(p, stack))
 			case *ast.DeferStmt:
 				if fn := a.enclosingFunc(p, stack); fn != nil {
 					fn.deferred = true
@@ -477,7 +488,7 @@ func (a *analyzer) indexFunc(p *checkedPackage, decl *ast.FuncDecl) {
 
 // indexCall records a static call. A method expression call, whose arguments
 // start with the receiver, uses its function as a value.
-func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr) {
+func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr, caller *function) {
 	id := calleeIdent(call.Fun)
 	f, ok := p.info.Uses[id].(*types.Func)
 	if !ok {
@@ -488,7 +499,7 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr) {
 		a.function(f).value = true
 		return
 	}
-	a.function(f).calls = append(a.function(f).calls, callSite{call, p})
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p, caller})
 }
 
 func calleeIdent(fun ast.Expr) *ast.Ident {
@@ -1003,8 +1014,9 @@ func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site
 }
 
 // indexUpcaster records an Upcaster container literal's function elements,
-// and the top-level declaration of every Upcaster-typed expression and call.
-// An operand of a comparison with nil neither calls nor hands on a value.
+// and the top-level declaration of every Upcaster-typed expression and call
+// and of every node handsOnUpcaster reports. An operand of a comparison with
+// nil neither calls nor hands on a value.
 func (a *analyzer) indexUpcaster(p *checkedPackage, n ast.Node, stack []ast.Node) {
 	if lit, ok := n.(*ast.CompositeLit); ok && a.isNamed(elementType(p.info.Types[lit].Type), "Upcaster") {
 		for _, element := range lit.Elts {
@@ -1016,14 +1028,20 @@ func (a *analyzer) indexUpcaster(p *checkedPackage, n ast.Node, stack []ast.Node
 			}
 		}
 	}
+	if len(stack) < 2 {
+		return
+	}
+	decl, _ := stack[1].(ast.Decl)
+	if a.handsOnUpcaster(p, n) {
+		a.upcasterExprs[decl] = p
+	}
 	expr, ok := n.(ast.Expr)
-	if tv, typed := p.info.Types[expr]; !ok || !typed || tv.IsType() || !a.isNamed(tv.Type, "Upcaster") || len(stack) < 2 {
+	if tv, typed := p.info.Types[expr]; !ok || !typed || tv.IsType() || !a.isNamed(tv.Type, "Upcaster") {
 		return
 	}
 	if binary, ok := stack[len(stack)-1].(*ast.BinaryExpr); ok && (binary.Op == token.EQL || binary.Op == token.NEQ) && (isNil(p, binary.X) || isNil(p, binary.Y)) {
 		return
 	}
-	decl, _ := stack[1].(ast.Decl)
 	a.upcasterExprs[decl] = p
 	if call, ok := stack[len(stack)-1].(*ast.CallExpr); ok && call.Fun == expr {
 		a.upcasterCalls[decl] = p
@@ -1034,6 +1052,34 @@ func isNil(p *checkedPackage, expr ast.Expr) bool {
 	id, ok := ast.Unparen(expr).(*ast.Ident)
 	_, isNil := p.info.Uses[id].(*types.Nil)
 	return ok && isNil
+}
+
+// handsOnUpcaster reports a node that moves an Upcaster value where no
+// expression of the Upcaster type shows it: a comma-ok read, a range that
+// assigns existing variables, or an instantiation whose type argument is an
+// Upcaster or holds one.
+func (a *analyzer) handsOnUpcaster(p *checkedPackage, n ast.Node) bool {
+	upcaster := func(t types.Type) bool {
+		return a.isNamed(t, "Upcaster") || t != nil && a.isNamed(elementType(t), "Upcaster")
+	}
+	var holders []types.Type
+	switch v := n.(type) {
+	case *ast.RangeStmt:
+		if v.Tok == token.ASSIGN {
+			holders = append(holders, p.info.Types[v.X].Type)
+		}
+	case *ast.Ident:
+		if instance, ok := p.info.Instances[v]; ok {
+			holders = slices.Collect(instance.TypeArgs.Types())
+		}
+	case ast.Expr:
+		if tuple, ok := p.info.Types[v].Type.(*types.Tuple); ok {
+			for variable := range tuple.Variables() {
+				holders = append(holders, variable.Type())
+			}
+		}
+	}
+	return slices.ContainsFunc(holders, upcaster)
 }
 
 // findDispatcher returns the one function declaration that calls Upcaster
@@ -1047,7 +1093,11 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 	for decl, p = range a.upcasterCalls {
 	}
 	fn, ok := decl.(*ast.FuncDecl)
-	if a.upcasterExprs[decl] == nil || !ok || fn.Body == nil {
+	if !ok {
+		return nil
+	}
+	callers, ok := a.dispatchCallers(a.funcs[a.siteFunction(p, fn)])
+	if !ok {
 		return nil
 	}
 	guards := []string{}
@@ -1060,22 +1110,56 @@ func (a *analyzer) findDispatcher() *upcastDispatcher {
 		return true
 	})
 	name, body := a.declName(p, fn)
-	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards}
+	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards, Callers: callers}
+}
+
+// dispatchCallers lists upcastDispatcher's callers of dispatcher, sorted, or
+// reports false when it or a forwarding caller is used other than by a
+// static call, or a call sits in a closure or outside any function.
+func (a *analyzer) dispatchCallers(dispatcher *function) ([]namedHash, bool) {
+	var callers []namedHash
+	seen := map[*function]bool{}
+	for queue := []*function{dispatcher}; len(queue) > 0; queue = queue[1:] {
+		fn := queue[0]
+		if fn == nil || fn.value || fn.upcaster {
+			return nil, false
+		}
+		for _, call := range fn.calls {
+			if call.caller == nil || call.caller.decl == nil {
+				return nil, false
+			}
+			if seen[call.caller] {
+				continue
+			}
+			seen[call.caller] = true
+			name, body := a.declName(call.caller.pkg, call.caller.decl)
+			callers = append(callers, namedHash{name, body})
+			for _, arg := range call.call.Args {
+				id, isIdent := ast.Unparen(arg).(*ast.Ident)
+				if param, ok := a.formals[call.pkg.info.Uses[id]]; isIdent && ok && a.funcs[param.function] == call.caller && a.isNamed(call.pkg.info.Types[arg].Type, "EventKindRegistration") {
+					queue = append(queue, call.caller)
+					break
+				}
+			}
+		}
+	}
+	slices.SortFunc(callers, func(x, y namedHash) int { return strings.Compare(x.Function, y.Function) })
+	return callers, true
 }
 
 // confinedSite reports whether an assignment meets writerSite.Confinement.
 func (a *analyzer) confinedSite(p *checkedPackage, d ast.Decl, assign *ast.AssignStmt) bool {
 	decl, ok := d.(*ast.FuncDecl)
-	if !ok || a.dispatcher == nil || decl.Recv != nil {
+	if !ok || a.dispatcher == nil {
 		return false
 	}
-	if fn := a.funcs[a.siteFunction(p, d)]; fn == nil || !fn.upcaster || fn.value || len(fn.calls) > 0 {
+	if fn := a.funcs[a.siteFunction(p, d)]; fn == nil || !fn.upcaster || fn.value || len(fn.calls) > 0 || decl.Type.Results.List[0].Names != nil {
 		return false
 	}
 	var param types.Object
 	for _, lhs := range assign.Lhs {
 		selector, ok := ast.Unparen(lhs).(*ast.SelectorExpr)
-		if !ok || p.info.Selections[selector] == nil || p.info.Selections[selector].Kind() != types.FieldVal {
+		if !ok {
 			return false
 		}
 		id, ok := ast.Unparen(selector.X).(*ast.Ident)
@@ -1084,7 +1168,7 @@ func (a *analyzer) confinedSite(p *checkedPackage, d ast.Decl, assign *ast.Assig
 		}
 		param = p.info.Uses[id]
 	}
-	if _, ok := a.formals[param]; !ok || !a.isEvent(param.Type()) || a.unknown[param] || a.captured[param] {
+	if _, ok := a.formals[param]; !ok || a.unknown[param] || a.captured[param] {
 		return false
 	}
 	for _, at := range a.assigns[param] {
@@ -1095,26 +1179,33 @@ func (a *analyzer) confinedSite(p *checkedPackage, d ast.Decl, assign *ast.Assig
 	return a.returnsOnly(p, decl, param, assign)
 }
 
-// returnsOnly reports whether stmt is in no loop or closure of fn, and every
-// read of obj after stmt is a returned result, which for an upcaster is its
-// Event, or the base of a field selector.
+// returnsOnly reports whether fn has no label, through which a goto could run
+// stmt again, stmt is in no loop of fn, and every read of obj after
+// stmt is a returned result, which for an upcaster is its Event, or the base
+// of a field selector.
 func (a *analyzer) returnsOnly(p *checkedPackage, fn *ast.FuncDecl, obj types.Object, stmt ast.Stmt) bool {
 	parents := map[ast.Node]ast.Node{}
 	var stack []ast.Node
+	labeled := false
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if n == nil {
 			stack = stack[:len(stack)-1]
 			return true
 		}
+		_, label := n.(*ast.LabeledStmt)
+		labeled = labeled || label
 		if len(stack) > 0 {
 			parents[n] = stack[len(stack)-1]
 		}
 		stack = append(stack, n)
 		return true
 	})
+	if labeled {
+		return false
+	}
 	for at := parents[stmt]; at != fn; at = parents[at] {
 		switch at.(type) {
-		case *ast.ForStmt, *ast.RangeStmt, *ast.FuncLit:
+		case *ast.ForStmt, *ast.RangeStmt:
 			return false
 		}
 	}

@@ -302,6 +302,13 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 	if d := analysis.Dispatcher; d == nil || d.Function != storePkg+".upcastEventWithRegistration" || !slices.Equal(d.Guards, []string{"event.PayloadVersion < registration.MinSupported || event.PayloadVersion > registration.CurrentVersion", "upcaster == nil", "err != nil"}) {
 		t.Fatalf("dispatcher %+v", analysis.Dispatcher)
 	}
+	var callers []string
+	for _, c := range analysis.Dispatcher.Callers {
+		callers = append(callers, strings.TrimPrefix(c.Function, storePkg+"."))
+	}
+	if !slices.Equal(callers, []string{"prepareEventWithRegistration", "prepareRecordedEvent"}) {
+		t.Fatalf("dispatcher callers %q", callers)
+	}
 	// upcastB2 is also a recorded-schema adapt value: a function value.
 	var confined []string
 	for _, s := range analysis.Open {
@@ -344,10 +351,18 @@ func TestUpcasterConfinement(t *testing.T) {
 		"payload beside the version":  {[]mutation{body("\tevent.Payload, event.PayloadVersion = nil, 2\n\t_ = event.Kind\n\treturn event, nil")}, "event.Payload, event.PayloadVersion = nil, 2", true},
 		"call outside the dispatcher": {[]mutation{declare("func Stray(event Event) (Event, error) { return eventKindRegistry[\"thing.a\"].Upcasters[1](event) }")}, "", false},
 		"upcaster handed on":          {[]mutation{declare("func Stray() Upcaster { return eventKindRegistry[\"thing.a\"].Upcasters[1] }")}, "", false},
+		"comma-ok into a variable":    {[]mutation{declare("func Stray(event Event) (Event, error) {\n\tvar f func(Event) (Event, error)\n\tf, _ = eventKindRegistry[\"thing.a\"].Upcasters[1]\n\treturn f(event)\n}")}, "", false},
+		"range into a variable":       {[]mutation{declare("func Stray(event Event) (Event, error) {\n\tvar f func(Event) (Event, error)\n\tfor _, f = range eventKindRegistry[\"thing.a\"].Upcasters {\n\t}\n\treturn f(event)\n}")}, "", false},
+		"generic caller":              {[]mutation{declare("func apply[F ~func(Event) (Event, error)](fs map[int]F, event Event) (Event, error) { return fs[1](event) }\n\nfunc Stray(event Event) (Event, error) { return apply(eventKindRegistry[\"thing.a\"].Upcasters, event) }")}, "", false},
 		"function used as a value":    {[]mutation{declare("var stray = upcastA1")}, "", false},
 		"function also called":        {[]mutation{declare("func Stray(event Event) (Event, error) { return upcastA1(event) }")}, "", false},
 		"kind assigned":               {[]mutation{body("\tevent.Kind = \"thing.b\"\n\tevent.PayloadVersion = 2\n\treturn event, nil")}, "", false},
 		"kind beside the version":     {[]mutation{body("\tevent.Kind, event.PayloadVersion = \"thing.b\", 2\n\treturn event, nil")}, "event.Kind, event.PayloadVersion = \"thing.b\", 2", false},
+		"another holder first":        {[]mutation{body("\tother := Event{}\n\tother.Kind, event.PayloadVersion = \"thing.b\", 2\n\t_ = other\n\treturn event, nil")}, "other.Kind, event.PayloadVersion = \"thing.b\", 2", false},
+		"named result":                {[]mutation{{store, upcastA1, "func upcastA1(event Event) (out Event, err error) {\n\tdefer func() { sink(out) }()\n\tevent.PayloadVersion = 2\n\treturn event, nil\n}"}, declare("func sink(Event) {}")}, "", false},
+		"goto back over the site":     {[]mutation{body("\tn := 0\nagain:\n\tif n == 1 {\n\t\tsink(event)\n\t\treturn event, nil\n\t}\n\tevent.PayloadVersion = 2\n\tn = 1\n\tgoto again"), declare("func sink(Event) {}")}, "", false},
+		"three-clause loop":           {[]mutation{body("\tfor i := 0; i < 1; i++ {\n\t\tevent.PayloadVersion = 2\n\t}\n\treturn event, nil")}, "", false},
+		"method value after the site": {[]mutation{body("\tevent.PayloadVersion = 2\n\tf := event.Copy\n\t_ = f\n\treturn event, nil"), declare("func (e Event) Copy() Event { return e }")}, "", false},
 		"parameter replaced":          {[]mutation{body("\tevent = Event{Payload: event.Payload}\n\tevent.PayloadVersion = 2\n\treturn event, nil")}, "", false},
 		"parameter addressed":         {[]mutation{body("\tevent.PayloadVersion = 2\n\tkeep(&event)\n\treturn event, nil"), declare("func keep(*Event) {}")}, "", false},
 		"parameter captured":          {[]mutation{body("\tevent.PayloadVersion = 2\n\tfunc() { _ = event }()\n\treturn event, nil")}, "", false},
@@ -357,6 +372,9 @@ func TestUpcasterConfinement(t *testing.T) {
 		"addressed before the site":   {[]mutation{body("\tp := &event\n\tevent.PayloadVersion = 2\n\tsink(*p)\n\treturn event, nil"), declare("func sink(Event) {}")}, "", false},
 		"captured before the site":    {[]mutation{body("\tf := func() Event { return event }\n\tevent.PayloadVersion = 2\n\tsink(f())\n\treturn event, nil"), declare("func sink(Event) {}")}, "", false},
 		"another local":               {[]mutation{body("\tother := event\n\tother.PayloadVersion = 2\n\treturn other, nil")}, "other.PayloadVersion = 2", false},
+		"dispatcher used as a value":  {[]mutation{declare("var stray = upcastEventWithRegistration")}, "", false},
+		"forwarder used as a value":   {[]mutation{declare("var stray = prepareEventWithRegistration")}, "", false},
+		"dispatcher call in closure":  {[]mutation{declare("var stray = func(event Event) (Event, error) { return upcastEventWithRegistration(event, eventKindRegistry[\"thing.b\"]) }")}, "", false},
 		"no dispatcher":               {[]mutation{declare("func Stray(u Upcaster, event Event) (Event, error) { return u(event) }")}, "", false},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -365,13 +383,11 @@ func TestUpcasterConfinement(t *testing.T) {
 				expression = "event.PayloadVersion = 2"
 			}
 			analysis := analyzeFixture(t, c.mutations...)
-			got := ""
-			for _, s := range analysis.Open {
-				if s.Function == storePkg+".upcastA1" && s.Expression == expression {
-					got = s.Confinement
-				}
+			i := slices.IndexFunc(analysis.Open, func(s writerSite) bool { return s.Function == storePkg+".upcastA1" && s.Expression == expression })
+			if i < 0 {
+				t.Fatalf("no site %q in %+v", expression, analysis.Open)
 			}
-			if (got == "upcaster") != c.confined {
+			if got := analysis.Open[i].Confinement; (got == "upcaster") != c.confined {
 				t.Fatalf("confinement %q; dispatcher %+v; open %+v", got, analysis.Dispatcher, analysis.Open)
 			}
 		})

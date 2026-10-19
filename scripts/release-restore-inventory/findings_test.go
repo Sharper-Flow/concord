@@ -101,7 +101,7 @@ func TestReplayDecoderHoldsWorkItemKinds(t *testing.T) {
 // an older supported version or an upcaster; any drift leaves it held.
 func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 	data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{
-		{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222", Guard: "event.PayloadVersion != registration.CurrentVersion", Check: "test"},
+		{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222", Guard: "event.PayloadVersion != registration.CurrentVersion", Callers: []namedHash{{"store.prepare", "sha256:3333"}}, Check: "test"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -114,19 +114,21 @@ func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
 		a := findingAnalysis()
 		a.Open = slices.Clone(a.Open)
 		a.Open[1].Confinement = "upcaster"
-		a.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"upcaster == nil", "event.PayloadVersion != registration.CurrentVersion"}}
+		a.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"upcaster == nil", "event.PayloadVersion != registration.CurrentVersion"}, Callers: []namedHash{{"store.prepare", "sha256:3333"}}}
 		return a
 	}
 	inv := findingInventory(analysis())
-	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, Type: "t"})
+	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, RecordedSchemas: []int{3}, Type: "t"})
 	f := writerFindings(inv, table)[0]
-	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"thing.a v2", "thing.c v3"}) {
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"* v3", "thing.a v2", "thing.c v3"}) {
 		t.Fatalf("exempted %+v upcast held %v", f.Exempted, f.UpcastHeld)
 	}
 	for name, drift := range map[string]func(*writerAnalysis){
 		"dispatcher changed": func(a *writerAnalysis) { a.Dispatcher.FunctionDigest = "sha256:9999" },
 		"dispatcher renamed": func(a *writerAnalysis) { a.Dispatcher.Function = "store.other" },
 		"guard dropped":      func(a *writerAnalysis) { a.Dispatcher.Guards = a.Dispatcher.Guards[:1] },
+		"caller changed":     func(a *writerAnalysis) { a.Dispatcher.Callers = []namedHash{{"store.prepare", "sha256:9999"}} },
+		"caller added":       func(a *writerAnalysis) { a.Dispatcher.Callers = append(a.Dispatcher.Callers, namedHash{"store.other", "sha256:4444"}) },
 		"no dispatcher":      func(a *writerAnalysis) { a.Dispatcher = nil },
 		"confinement lost":   func(a *writerAnalysis) { a.Open[1].Confinement = "" },
 	} {

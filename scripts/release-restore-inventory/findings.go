@@ -29,12 +29,15 @@ import (
 //     checkSubject differs from the entry's reviewed digest. Every version of
 //     a named kind stays held at that release.
 //   - upcast_confinement: a site the analysis confines to an upcaster
-//     (writerSite.Confinement), keyed by the dispatcher's name and digest and
-//     one exact guard it holds. The reviewed dispatcher refuses any result
-//     whose version is not the registered current version of the event's
-//     kind, so a covered site can still produce that current version: its
-//     finding names, as upcast_held_pairs, the current version of every kind
-//     with an older supported version or an upcaster.
+//     (writerSite.Confinement), keyed by the dispatcher's name and digest,
+//     one exact guard it holds, and its callers' names and digests. The
+//     reviewed dispatcher refuses any result whose version is not the current
+//     version of the registration it is passed, and the reviewed callers pass
+//     the registry registration of the event's kind; a recorded-schema adapt
+//     between them may change the kind. So a covered site can still produce
+//     the current version of a kind with an older supported version or an
+//     upcaster, and of any kind at that version when the kind also has
+//     recorded schemas: the finding names those pairs as upcast_held_pairs.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -53,9 +56,10 @@ type exemption struct {
 	FunctionDigest string `json:"function_digest,omitempty"`
 	// Dispatcher, DispatcherDigest, and Guard key an upcast_confinement
 	// entry; no other class has them.
-	Dispatcher       string `json:"dispatcher,omitempty"`
-	DispatcherDigest string `json:"dispatcher_digest,omitempty"`
-	Guard            string `json:"guard,omitempty"`
+	Dispatcher       string      `json:"dispatcher,omitempty"`
+	DispatcherDigest string      `json:"dispatcher_digest,omitempty"`
+	Guard            string      `json:"guard,omitempty"`
+	Callers          []namedHash `json:"callers,omitempty"`
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
@@ -86,7 +90,15 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	seen := map[string]bool{}
 	for _, e := range table.Entries {
 		site := []string{e.Function, e.Expression, e.FunctionDigest}
-		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard}
+		callers := ""
+		if len(e.Callers) > 0 {
+			data, err := json.Marshal(e.Callers)
+			if err != nil {
+				return table, err
+			}
+			callers = string(data)
+		}
+		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard, callers}
 		check := []string{e.CheckSubjectDigest}
 		keys, absent := site, slices.Concat(upcast, check)
 		switch e.Class {
@@ -115,7 +127,7 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
 	if e.Class == "upcast_confinement" {
 		d := analysis.Dispatcher
-		return site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard)
+		return site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
 	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }
@@ -190,9 +202,12 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 					for _, r := range inv.Groups[result.Group] {
 						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
 							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
+							if len(r.RecordedSchemas) > 0 {
+								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
+							}
 						}
 					}
-					slices.Sort(finding.UpcastHeld)
+					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))
 				}
 			}
 		}

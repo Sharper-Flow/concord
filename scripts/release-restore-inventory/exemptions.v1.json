@@ -291,20 +291,88 @@
    "check": "reviewed source: the workflow replay decoder builds work_item events from caller input; it holds every kind whose fold does not begin by refusing a work_item subject through checkSubject, the reviewed function a fold refusal rolls the import back through"
   },
   {
-   "id": "upcast:2ce9aa22493f",
-   "class": "upcast_confinement",
-   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
-   "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
-   "guard": "event.PayloadVersion != registration.CurrentVersion",
-   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; a confined site never assigns Kind"
-  },
-  {
    "id": "upcast:cb77c84ae9c8",
    "class": "upcast_confinement",
    "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
    "dispatcher_digest": "sha256:cb77c84ae9c864adc12bb3f418ab73b9547d39c00db9503c56a063d38dc0aa7a",
    "guard": "event.PayloadVersion != registration.CurrentVersion",
-   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; a confined site never assigns Kind"
+   "callers": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRegisteredEvent",
+     "digest": "sha256:7e35f2ccb967f57074e4bfa5a0a3cfb7cdbeb37a1dd0682829457bd02b73defd"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.upcastEvent",
+     "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
+    }
+   ],
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and nothing runs between the lookup and the dispatch; a confined site never assigns Kind"
+  },
+  {
+   "id": "upcast:2ce9aa22493f-a",
+   "class": "upcast_confinement",
+   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
+   "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
+   "guard": "event.PayloadVersion != registration.CurrentVersion",
+   "callers": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRegisteredEvent",
+     "digest": "sha256:7e35f2ccb967f57074e4bfa5a0a3cfb7cdbeb37a1dd0682829457bd02b73defd"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.upcastEvent",
+     "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
+    }
+   ],
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and nothing runs between the lookup and the dispatch; a confined site never assigns Kind"
+  },
+  {
+   "id": "upcast:2ce9aa22493f-b",
+   "class": "upcast_confinement",
+   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
+   "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
+   "guard": "event.PayloadVersion != registration.CurrentVersion",
+   "callers": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareEventWithRegistration",
+     "digest": "sha256:d9db54c52c05166be6147d22cca7aad12df921931f80392b506123cfa22362fe"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
+     "digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRegisteredEvent",
+     "digest": "sha256:40bae4f9e02b42a2c0812941aa294012648ea00058807386f77413ba92602dae"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.upcastEvent",
+     "digest": "sha256:7617d93a56432c32fa942f4ba608da5b4e9c53a2a2d082b91ec99446410bda13"
+    }
+   ],
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind"
+  },
+  {
+   "id": "upcast:2ce9aa22493f-c",
+   "class": "upcast_confinement",
+   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
+   "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
+   "guard": "event.PayloadVersion != registration.CurrentVersion",
+   "callers": [
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareEventWithRegistration",
+     "digest": "sha256:d9db54c52c05166be6147d22cca7aad12df921931f80392b506123cfa22362fe"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRecordedEvent",
+     "digest": "sha256:8317d4fb62164de2185ba70536579c5f504124a61a6642d460248de13b386745"
+    },
+    {
+     "function": "github.com/sharper-flow/concord/internal/store.prepareRegisteredEvent",
+     "digest": "sha256:40bae4f9e02b42a2c0812941aa294012648ea00058807386f77413ba92602dae"
+    }
+   ],
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; reviewed callers pass registeredEventKind(event.Kind), a forwarder passes its own registration parameter, and only prepareRecordedEvent's recorded-schema adapt runs between the lookup and the dispatch; a confined site never assigns Kind"
   }
  ]
 }

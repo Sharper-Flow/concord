@@ -993,6 +993,9 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	if fieldsErr != nil {
 		return fieldsErr
 	}
+	if err := guardAcceptWorkerResultChanges(g, fields); err != nil {
+		return err
+	}
 	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 	state := workflowFieldStringDefault(fields, "delivery_state", "")
 	// Payload-bound advance derivation while the folded hold stands.

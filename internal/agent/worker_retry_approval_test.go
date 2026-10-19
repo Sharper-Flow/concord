@@ -401,7 +401,10 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 
 func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+	// A failed retry below the wall asks for the operator's approval only
+	// under the legacy approval policy; consequence_v1 revalidates the
+	// binding instead.
+	if got := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}

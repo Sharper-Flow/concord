@@ -25,7 +25,7 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Operator verdict challenge", "task", "workflow.implementation", "operator-verdict-capture")
+	workID := seedLegacyApprovalPolicyWork(t, s, grant)
 
 	signedAction := func(actionID string, fields map[string]any, key string) Envelope {
 		return signedWorkflowAction(ctx, t, s, service, env, grant, privateKey, workID, actionID, key, fields, grant.Worktree)
@@ -116,7 +116,7 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.implementation", "accept-e2e-capture")
+	workID := seedLegacyApprovalPolicyWork(t, s, grant)
 
 	// Dispatch admission requires the host session to sit inside the work
 	// item's active worktree claim, compared by filesystem identity, so the

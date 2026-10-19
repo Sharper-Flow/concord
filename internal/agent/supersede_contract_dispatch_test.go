@@ -23,7 +23,9 @@ func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing
 func testSupersedeContractDispatch(t *testing.T, stage string) {
 	t.Helper()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version := seedAgentWorkflow(t, s, grant)
+	// The supersession's approval challenge is a legacy approval-policy flow;
+	// consequence_v1 records supersession as routine.
+	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation"))
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +41,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		binding["domain_modifies"] = []string{"root"}
 	}
 	contractFields := workflowContractFieldsFixture()
+	delete(contractFields, "decision_domains")
 	contractFields["architecture_binding"] = binding
 	contract, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {

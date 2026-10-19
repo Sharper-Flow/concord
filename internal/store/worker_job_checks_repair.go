@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// The checks repair (CD-0205 D4, amended 2026-10-19): a job revision whose
+// The checks repair (CD-0205 D4): a job revision whose
 // own checks no admitted lane can execute is repaired by a newer revision of
 // the same job whose only content change is the checks. The correction
 // history walk owns the repair state — recorded, accepted, confirmed through
@@ -251,7 +251,7 @@ func workerJobUnresolvedRevisions(history *workflowCorrectionHistory, jobID stri
 // attempt failed or was rejected and its repairing revision still stands
 // unresolved, no checks repair may fold that own obligation into its named
 // set — recovery first re-records and accepts that revision's own obligation
-// (CD-0205 D4, amended 2026-10-19). Prefix is the strict event prefix the
+// (CD-0205 D4). Prefix is the strict event prefix the
 // caller folds (the deriving action passes its own pre-append watermark).
 func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string, candidate WorkerJobRecordedPayload, revisions []int64, reason string, prefix int64) (*WorkerJobChecksRepair, error) {
 	if len(revisions) == 0 || reason == "" {
@@ -259,7 +259,7 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 	}
 	sorted := slices.Clone(revisions)
 	slices.Sort(sorted)
-	if len(sorted) == 0 || sorted[0] < 1 {
+	if sorted[0] < 1 {
 		return nil, newFailure(KindInvalidPayload, "worker_job", "repair_revisions must be positive distinct revision integers of the job", false, "name each unresolved revision once")
 	}
 	for i := 1; i < len(sorted); i++ {
@@ -282,21 +282,11 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 	for _, repair := range history.checksRepairs {
 		if repair.voided && repair.confirmAttempt != "" && repair.binding.JobID == candidate.JobID &&
 			history.unresolved[workerJobKey(repair.binding.JobID, repair.binding.Revision)] {
-			return nil, newFailure(KindInvalidPayload, "worker_job", "the failed or rejected confirming review of a voided repair left its repairing revision unresolved: recovery first re-records and accepts that revision's own obligation", false, "re-record and accept the failed confirming review's repairing revision's own obligation, then name only the revisions whose checks could not run")
+			return nil, newFailure(KindInvalidPayload, "worker_job", "the confirming review of a voided repair left its repairing revision unresolved: recovery first re-records and accepts that revision's own obligation", false, "re-record and accept the repairing revision's own obligation, then name only the revisions whose checks could not run")
 		}
 	}
-	active, err := activeWorkflowContractVersion(ctx, q, workID, "worker_job")
-	if err != nil {
-		if err == sql.ErrNoRows {
-			active = 0
-		} else {
-			return nil, err
-		}
-	}
-	for _, repair := range history.checksRepairs {
-		if repair.openUnconfirmed() && repair.contractVersion == active && repair.binding.JobID == candidate.JobID {
-			return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let the confirming review end before recording another repair")
-		}
+	if history.openUnconfirmedRepairBeside(candidate.JobID, candidate.Revision) != nil {
+		return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let the confirming review end before recording another repair")
 	}
 	entries := make([]WorkerJobChecksRepairEntry, 0, len(sorted))
 	for _, revision := range sorted {
@@ -319,9 +309,6 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 			Checks:    nonNilStrings(named.Checks),
 		})
 	}
-	// If the named revisions' oracles differ, no checks repair can name them
-	// together; the byte-identical comparison above already pinned every
-	// oracle to the candidate's, so this holds by construction.
 	return &WorkerJobChecksRepair{Reason: reason, Revisions: entries}, nil
 }
 

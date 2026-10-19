@@ -18,7 +18,11 @@ import (
 // ordinary CD-0148 authority behind real store-derived findings convergence:
 // the continuity snapshot publishes the unfunded candidate beside the funded
 // ones, and the recorded admission marker names the exact repairing
-// acceptance with funded=false.
+// acceptance with funded=false. The first review dispatches at the wall: a
+// plain unrelated job's failed attempt stands the three-attempt wall beneath
+// the real 5→4 findings convergence, and the funded admission rides the wall
+// without recording the ordinary basis — a funded review's dispatch burns no
+// convergence a later escalated retry would need.
 
 // checksRepairClaimGit rebinds the review-claim fixture's fake git the way
 // reviewSubjectClaim built it, so closure verify runs drive the claimed
@@ -83,8 +87,12 @@ func checksRepairBlocker(t *testing.T, s *Store, workID, detail, family string) 
 
 func checksRepairReject(t *testing.T, s *Store, workID, attemptID string, open []string, acceptor WorkflowActor) {
 	t.Helper()
+	// The rejection binds the attempt's own dispatch epoch: an intermediate
+	// dispatch at the step moves the step's latest start, never the
+	// attempt's authorized window.
+	window := attributionDispatchWindow(t, s, workID, attemptID)
 	payload := map[string]any{
-		"attempt_id": attemptID, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair"),
+		"attempt_id": attemptID, "attempt_epoch": window.AttemptEpoch,
 		"diagnosis": "the repaired checks still cannot be executed or decided as written",
 		"strategy":  "repair the failing entry paths", "predicate_ids": []string{"predicate:return-route"},
 		"evidence_refs": []string{"evidence:checks-repair-continuity"},
@@ -122,7 +130,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	git := checksRepairClaimGit(t, s, workID, dir, head)
 	acceptor := reviewGateAcceptor(workID)
 
-	// Round one: the original revision's attempt completes no_ship with four
+	// Round one: the original revision's attempt completes no_ship with five
 	// classified blockers, and the exact-set rejection records them.
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "concord check --continuity-original --exit-code=never", nil)); err != nil {
@@ -138,19 +146,20 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		checksRepairBlocker(t, s, workID, "second blocker", "family-two"),
 		checksRepairBlocker(t, s, workID, "third blocker", "family-three"),
 		checksRepairBlocker(t, s, workID, "fourth blocker", "family-four"),
+		checksRepairBlocker(t, s, workID, "fifth blocker", "family-five"),
 	}, nil, nil)
 	lineage, err := readWorkerOracleFindingLineageTx(ctx, s.DatabaseForTesting(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	open := lineage.openFindingIDs()
-	if len(open) != 4 {
-		t.Fatalf("open finding ids = %v, want four blockers", open)
+	if len(open) != 5 {
+		t.Fatalf("open finding ids = %v, want five blockers", open)
 	}
 	checksRepairReject(t, s, workID, attempt1, open, acceptor)
 
 	// The first repair names the one unresolved revision; its acceptance
-	// opens the repair and funds the confirming review below the wall.
+	// opens the repair and funds the confirming review.
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityOne", []int64{1})); err != nil {
 		t.Fatalf("record the first repair: %v", err)
 	}
@@ -158,16 +167,69 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if first == nil {
 		t.Fatal("the first repair is not recorded")
 	}
+	// A plain unrelated job's attempt dispatches below the wall and fails, so
+	// three non-progress attempts stand when the funded review dispatches. It
+	// dispatches before the repairing attempt: every dispatch at the step
+	// supersedes the rejectable window and the acceptance epoch fence, and
+	// only the correction records a dispatch postdates can remain the wall's
+	// convergence basis.
+	plain := "attempt:" + workID + ":plain"
+	unrelated := &WorkerJobBinding{JobID: "job:checks-repair-continuity-unrelated", Revision: 1}
+	plainCorrection, plainCorrectionErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", plain)
+	if plainCorrectionErr != nil {
+		t.Fatal(plainCorrectionErr)
+	}
+	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", unrelated)
+	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
+		AttemptID: plain, ReadbackModel: preferredModelForLane(reviewGateLane(t, "implementation")), FailureKind: WorkerFailureWorkerError, Detail: "the unrelated attempt failed before a judgeable result",
+		FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()},
+	})}
+	if err := s2WorkerFailedLive(t, s, plainFailure); err != nil {
+		t.Fatalf("the unrelated attempt's failure ingest refused: %v", err)
+	}
 	pin := issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	attempt2 := "attempt:" + workID + ":2"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, workerForChecksRepair(workID), pin.Version, "checks-repair-continuity-2", first)
-	completeChecksRepairAttemptObserved(t, s, workID, attempt2, "checks-repair-completed-"+attempt2)
-	acceptChecksRepairAttempt(t, s, workID, attempt2, acceptor)
+	// The first repairing result resolves the fifth blocker with a real
+	// oracle receipt, and the core observes its delivery, so the accepted
+	// attempt anchors the confirming review's subject join.
+	run5 := checksRepairClosureRun(t, s, workID, "close-family-five", git, dir)
+	attempt2Completion := oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
+		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+			checksRepairContinuation(t, s, workID, open[0], "first blocker stands"),
+			checksRepairContinuation(t, s, workID, open[1], "second blocker stands"),
+			checksRepairContinuation(t, s, workID, open[2], "third blocker stands"),
+			checksRepairContinuation(t, s, workID, open[3], "fourth blocker stands"),
+		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}}
+		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
+			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
+			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
+			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run5.OperationRef,
+			EvidenceRefs: []string{run5.OperationRef},
+		}
+	})
+	attempt2Prepared, attempt2PreparedErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt2, EventID: attempt2Completion.EventID})
+	if attempt2PreparedErr != nil {
+		t.Fatalf("the first repair's terminal delivery preparation refused: %v", attempt2PreparedErr)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), attempt2Prepared), s, attempt2Completion)
+	// The exact-set rejection records the 5→4 shrink cycle before the
+	// acceptance, so the wall's ordinary convergence basis derives from real
+	// store records; the acceptance still opens the repair.
+	checksRepairReject(t, s, workID, attempt2, open[:4], acceptor)
+	// The acceptance binds the attempt's own dispatch epoch: the plain
+	// attempt's dispatch moved the step's latest start, never attempt2's
+	// authorized window.
+	attempt2Window := attributionDispatchWindow(t, s, workID, attempt2)
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt2, "attempt_epoch": attempt2Window.AttemptEpoch}), 0, acceptor); err != nil {
+		t.Fatalf("accept %s: %v", attempt2, err)
+	}
 
-	// Below the wall the funded candidate publishes; the funded review
-	// dispatches and its no_ship verdict voids the first repair.
+	// The funded candidate publishes for the first repair; the funded
+	// confirming review dispatches at the wall and its no_ship verdict voids
+	// the repair.
 	continuity, continuityErr := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if continuityErr != nil {
 		t.Fatal(continuityErr)
@@ -175,9 +237,48 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if len(continuity.ChecksRepairReviewJobs) != 1 || continuity.ChecksRepairReviewJobs[0].JobID != jobID || continuity.ChecksRepairReviewJobs[0].Revision != first.Revision {
 		t.Fatalf("funded continuity jobs = %+v, want the first repair's exact binding", continuity.ChecksRepairReviewJobs)
 	}
+	// The wall stands: the open correction window counts three dispatched
+	// attempts, so the funded review's dispatch is escalated, and the 5→4
+	// shrink cycle derives the ordinary convergence basis independently of
+	// the funding it could have ridden instead.
 	review1 := "attempt:" + workID + ":review-1"
+	wall, wallErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", review1)
+	if wallErr != nil || wall == nil || !wall.Escalated {
+		t.Fatalf("the correction window at the funded review = (%#v, %v), want the escalated wall", wall, wallErr)
+	}
+	reject1Seq, reject2Seq := checksRepairCorrectionRecordSeq(t, s, workID, attempt1), checksRepairCorrectionRecordSeq(t, s, workID, attempt2)
+	basis, basisErr := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair")
+	if basisErr != nil {
+		t.Fatal(basisErr)
+	}
+	if !basis.valid() || basis.Basis != "findings_shrinking" || basis.PreviousRecordSeq != reject1Seq || basis.LatestRecordSeq != reject2Seq {
+		t.Fatalf("the derived convergence basis = %+v, want findings_shrinking over the recorded %d→%d shrink cycle", basis, reject1Seq, reject2Seq)
+	}
 	if err := dispatchConfirmingReview(t, s, workID, review1, first, fixture.owner); err != nil {
-		t.Fatalf("the funded confirming review dispatch refused: %v", err)
+		t.Fatalf("the funded confirming review dispatch refused at the wall: %v", err)
+	}
+	// The funded admission is the recorded wall route. The existing basis
+	// freshness rule still requires new convergence after every dispatch.
+	var review1Marker struct {
+		Funded                 bool   `json:"funded"`
+		RepairingAcceptanceSeq int64  `json:"repairing_acceptance_seq"`
+		RecordedBasis          string `json:"recorded_basis"`
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.checks_repair_review.funded'), json_extract(payload,'$.checks_repair_review.repairing_acceptance_seq'), COALESCE(json_extract(payload,'$.retry_convergence.basis'),'') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, review1).Scan(&review1Marker.Funded, &review1Marker.RepairingAcceptanceSeq, &review1Marker.RecordedBasis); err != nil {
+		t.Fatal(err)
+	}
+	acceptanceSeq, acceptanceFound, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(ctx, s.DatabaseForTesting(), workID, *first)
+	if acceptanceErr != nil || !acceptanceFound || acceptanceSeq == 0 {
+		t.Fatalf("the walked repairing acceptance = (%d, %v, %v), want the recorded accepting event", acceptanceSeq, acceptanceFound, acceptanceErr)
+	}
+	if !review1Marker.Funded || review1Marker.RepairingAcceptanceSeq != acceptanceSeq {
+		t.Fatalf("the funded review's admission marker = %+v, want funded=true beside the exact repairing acceptance %d", review1Marker, acceptanceSeq)
+	}
+	if review1Marker.RecordedBasis != "" {
+		t.Fatalf("the funded confirming review also recorded ordinary convergence authority %q", review1Marker.RecordedBasis)
+	}
+	if after, err := workflowRetryConvergence(ctx, s.DatabaseForTesting(), workID, "repair"); err != nil || after.valid() {
+		t.Fatalf("convergence after the funded dispatch = (%+v, %v), want fresh convergence required", after, err)
 	}
 	// The voiding report continues three standing blockers and closes the
 	// fourth with an evidenced pass, so the exact-set rejection shrinks the
@@ -250,6 +351,16 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("the recovery dispatch refused behind the recorded convergence: %v", dispatchErr)
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attempt3, recovery)
+	// The recovery dispatch is escalated and unfunded, so it still records
+	// the convergence basis it rides: only a funded review's dispatch leaves
+	// the ordinary basis unspent.
+	var recoveryRecordedBasis string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt3).Scan(&recoveryRecordedBasis); err != nil {
+		t.Fatal(err)
+	}
+	if recoveryRecordedBasis != "findings_shrinking" {
+		t.Fatalf("the recovery dispatch's recorded convergence basis = %q, want findings_shrinking", recoveryRecordedBasis)
+	}
 
 	// The recovery run settles: its own checks pass — the pass receipt proves
 	// the run — and its evidenced resolution closes the third blocker, so the
@@ -399,6 +510,18 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	} else if !strings.Contains(err.Error(), "at most one unconfirmed checks repair") {
 		t.Fatalf("third repair refusal = %v, want the open-repair refusal", err)
 	}
+}
+
+// checksRepairCorrectionRecordSeq reads the sequence of one attempt's
+// recorded exact-set rejection, the correction record a convergence basis
+// cites.
+func checksRepairCorrectionRecordSeq(t *testing.T, s *Store, workID, attemptID string) int64 {
+	t.Helper()
+	var seq int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&seq); err != nil {
+		t.Fatalf("read the recorded rejection of %s: %v", attemptID, err)
+	}
+	return seq
 }
 
 func workerForChecksRepair(workID string) WorkflowActor {

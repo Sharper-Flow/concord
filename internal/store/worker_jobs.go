@@ -585,8 +585,16 @@ func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return err
 	}
-	if repair := history.repairOfBinding(binding.JobID, binding.Revision); repair == nil || repair.acceptanceSeq != 0 || repair.voided {
+	repair := history.repairOfBinding(binding.JobID, binding.Revision)
+	if repair == nil || repair.acceptanceSeq != 0 || repair.voided {
 		return nil
+	}
+	// Two repairs can be recorded before either result is accepted. Check
+	// again at the acceptance that would open the second repair (CD-0205 D4).
+	if open := history.openUnconfirmedRepairBeside(binding.JobID, binding.Revision); open != nil {
+		return newFailure(KindInvalidOperation, "fold_event",
+			fmt.Sprintf("a second unconfirmed checks repair of the job cannot open while revision %d's repair stands unconfirmed", open.binding.Revision),
+			false, "let the open repair's confirming review end before accepting another repairing revision of the job")
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	for _, entry := range metadata.Revisions {

@@ -49,7 +49,8 @@ AND (lease_id=? OR (result_json IS NOT NULL AND json_valid(result_json) AND json
 // completions of the work at or below the watermark, in event order. The
 // acceptance event's own identifier is the result reference, the same
 // satisfied_result_ref the worker_jobs owner records; no latest-job lookup
-// and no timestamp participates.
+// and no timestamp participates. A confirming review judges an already
+// accepted revision; its core-marked dispatch grants no second input result.
 const workerFailureIntegrationAcceptQuery = `SELECT e.event_id,
 	json_extract(e.payload,'$.worker_job.job_id'),
 	json_extract(e.payload,'$.worker_job.revision'),
@@ -58,6 +59,15 @@ FROM domain_events e
 WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND e.seq<=?
 AND json_extract(e.payload,'$.action_id')='accept_worker_result'
 AND json_extract(e.payload,'$.worker_job') IS NOT NULL
+AND NOT EXISTS (
+	SELECT 1 FROM domain_events d
+	WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind AND d.seq<e.seq
+	AND json_extract(d.payload,'$.action_id')='dispatch_worker'
+	AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id')
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.job_id')=json_extract(e.payload,'$.worker_job.job_id')
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.revision')=json_extract(e.payload,'$.worker_job.revision')
+	AND json_extract(d.payload,'$.checks_repair_review.worker_job.digest')=json_extract(e.payload,'$.worker_job.digest')
+)
 ORDER BY e.seq`
 
 // workerFailureIntegrationJobRecordedQuery joins one accepted revision to
@@ -253,8 +263,8 @@ func workerFailureIntegrationRunIdentity(lease *workerFailureIntegrationLease, w
 // with the acceptance event id as the result reference. A lease without its
 // watermark reports the population explicitly unavailable — never an empty
 // accepted list and never a timestamp reconstruction. A repeated revision
-// in the acceptance history is structural corruption: a satisfied revision
-// cannot re-accept, so the repeat can only be a corrupt log.
+// in the input acceptance history is structural corruption: the confirming
+// judgment is excluded, and no other satisfied revision can re-accept.
 func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID string, watermark sql.NullInt64) ([]WorkerFailureInputResult, bool, error) {
 	if !watermark.Valid {
 		return nil, true, nil

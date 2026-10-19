@@ -2607,11 +2607,20 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	// unresolved until the confirming review's accepted ship verdict, so the
 	// provisional readiness clears no correction debt.
 	if p.ActionID == "accept_worker_result" && p.WorkerJob != nil {
-		if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+		// The confirming review's acceptance judges the repairing revision;
+		// it is no second satisfaction, so the repairing acceptance stays
+		// the revision's recorded result reference.
+		confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
+		if err != nil {
 			return err
 		}
-		if err := markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob); err != nil {
-			return err
+		if !confirming {
+			if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+				return err
+			}
+			if err := markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob); err != nil {
+				return err
+			}
 		}
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {

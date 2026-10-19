@@ -1643,9 +1643,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// does not compute the digest itself, so the assertion's evidence
 	// is bound to the exact bytes the core digested and authorized.
 	if in.request.ActionID == "dispatch_worker" {
-		if in.admission != nil && in.admission.retryEscalated() && in.admission.RetryConvergence.valid() {
-			completionValues["retry_convergence"] = in.admission.RetryConvergence
-		}
 		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 		completionValues["worker_attempt_id"] = attemptID
 		packetRaw := workflowFieldRaw(fields, "worker_packet")
@@ -1822,6 +1819,11 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 		}
 		repairReview.RepairingAcceptanceSeq = acceptanceSeq
 		completionValues["checks_repair_review"] = *repairReview
+	}
+	// Record only the authority this dispatch uses. Funded reviews still
+	// advance the existing convergence freshness boundary like any dispatch.
+	if in.admission != nil && in.admission.retryEscalated() && in.admission.RetryConvergence.valid() && !(repairReview != nil && repairReview.Funded) {
+		completionValues["retry_convergence"] = in.admission.RetryConvergence
 	}
 	if in.admission != nil && in.admission.retryEscalated() && !in.admission.RetryConvergence.valid() && (repairReview == nil || !repairReview.Funded) {
 		return workflowRetryConvergenceFailure(*in.admission)

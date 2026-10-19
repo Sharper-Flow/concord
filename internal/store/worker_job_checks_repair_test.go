@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -291,6 +292,22 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
 		t.Fatalf("accept the confirming review's ship verdict: %v", err)
 	}
+	var confirmedRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, jobID, rev3View.Binding.Revision).Scan(&confirmedRef); err != nil || confirmedRef != acceptedRef {
+		t.Fatalf("the repairing revision's satisfaction reference after the confirming acceptance = %q, %v, want the repairing acceptance %q", confirmedRef, err, acceptedRef)
+	}
+	assertIntegrationPopulation := func() {
+		t.Helper()
+		watermark, err := workerChecksRepairWatermarkTx(ctx, s.DatabaseForTesting(), workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputs, unavailable, err := workerFailureIntegrationInputs(ctx, s.DatabaseForTesting(), workID, sql.NullInt64{Int64: watermark, Valid: true})
+		if err != nil || unavailable || len(inputs) != 1 || inputs[0].Job == nil || *inputs[0].Job != *rev3 || inputs[0].ResultRef != acceptedRef {
+			t.Fatalf("confirmed repair's integration population = (%+v, %v, %v), want only the repairing acceptance %q", inputs, unavailable, err, acceptedRef)
+		}
+	}
+	assertIntegrationPopulation()
 
 	// The confirmed repair opens the productive window: no other recorded
 	// revision stays unresolved, so the acceptance resets the count and the
@@ -319,6 +336,7 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if pin := issue1013Pin(t, s, workID); pin.Correction != nil {
 		t.Fatalf("rebuilt correction window = %#v, want it closed", pin.Correction)
 	}
+	assertIntegrationPopulation()
 }
 
 // dispatchConfirmingReview dispatches one review-lane attempt whose packet

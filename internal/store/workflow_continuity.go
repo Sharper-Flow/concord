@@ -140,12 +140,10 @@ type ContinuitySnapshot struct {
 	// dispatcher binds a selected revision verbatim and never authors job
 	// content itself. Empty when no revision is ready.
 	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
-	// ChecksRepairReviewJobs carries the satisfied repairing revisions whose
-	// unconfirmed checks repair still holds an unconsumed confirming-review
-	// funding (CD-0205 D4), in the same packet shape. Normal ready jobs stay
-	// in ready_worker_jobs; the adapter selects a review job from here only
-	// for the review capability, and only the funded review dispatch admits
-	// it. Empty when no repair stands unconfirmed with its funding unspent.
+	// ChecksRepairReviewJobs carries satisfied repairing revisions awaiting
+	// their one confirming review (CD-0205 D4), in packet shape. Only review
+	// capability selects them; the core admits funded reviews or requires
+	// ordinary authority for unfunded repeats. They are not ready_worker_jobs.
 	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil

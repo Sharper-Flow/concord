@@ -719,6 +719,19 @@ func (h *workflowCorrectionHistory) repairOfBinding(jobID string, revision int64
 	return h.checksRepairs[workerJobKey(jobID, revision)]
 }
 
+// openUnconfirmedRepairBeside shares the at-most-one-open guard between
+// recording and acceptance. The lowest revision deterministically names the
+// blocker if a corrupt history contains several.
+func (h *workflowCorrectionHistory) openUnconfirmedRepairBeside(jobID string, revision int64) *workflowChecksRepairState {
+	var open *workflowChecksRepairState
+	for _, repair := range h.checksRepairs {
+		if repair.binding.JobID == jobID && repair.binding.Revision != revision && repair.openUnconfirmed() && (open == nil || repair.binding.Revision < open.binding.Revision) {
+			open = repair
+		}
+	}
+	return open
+}
+
 func (h *workflowCorrectionHistory) bind(attempt string, binding WorkerJobBinding) {
 	if binding.JobID == "" {
 		return

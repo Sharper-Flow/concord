@@ -838,6 +838,15 @@ supplies no findings basis, because a failure carries no findings. A
 contract supersession after the latest dispatch at any step is a changed
 approach, and a changed approach is a basis.
 
+The third family, `host_changed`, requires the latest dispatch's recorded
+host execution failure, the dispatching session's recorded live leased
+process claim, and a process start more than one minute after that failure.
+The claim proves neither host repair nor authenticated host identity. It can admit only
+one counted dispatch per nonprogress window, even after another restart.
+CD-0239 D1 defines eligibility and its local process-claim trust limit; D3
+requires the host observation as an input to the shared admission loader.
+Without that input the pin retains the visible convergence-required dispatch.
+
 Canonical finding IDs use terminal event sequence and ordinal: context
 findings first, ranked findings offset by their count (CD-0197). Continuations
 retain identity; uncovered variants mint new IDs and remain legitimate
@@ -853,8 +862,9 @@ supply no productive acceptance or new basis family (CD-0148).
 Each basis admits exactly one fresh fenced attempt, and the admitted dispatch
 consumes its basis. Findings convergence compares records at one step, so a
 step change yields no reusable findings basis. Dispatch completion durably
-records the derived basis token (`findings_shrinking` or `approach_changed`)
-and the sequence references of the events the basis was derived from.
+records the derived basis token (`findings_shrinking`, `approach_changed`, or
+`host_changed`) and the sequence references of the events it was derived from.
+A `host_changed` basis also records the qualifying host process id and process start.
 
 A convergence dispatch opens no new window: the correction stays escalated
 until a productive acceptance resets the nonprogress budget. The wall re-arms

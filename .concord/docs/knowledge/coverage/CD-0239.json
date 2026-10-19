@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEscalatedHostRetryReadsHostLeaseBeforeAdmission"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimLandingRefreshesRestartedHostIdentity"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHostChangedConvergenceNeedsARestartAfterEachFailure"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHostChangedConvergenceNeverFollowsAWorkerAttributedFailure"
+    }
+  ],
+  "id": "CD-0239",
+  "state": "satisfied"
+}

@@ -3410,8 +3410,14 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 		return out, err
 	}
 	if held && len(sources) == 0 && claimRecorded > 0 {
-		out.AlreadyRecorded = true
-		return out, nil
+		var sameProcess bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_occupancy WHERE worktree_id=? AND session_ref=? AND has_process_identity=1 AND host_pid=? AND host_pid_start=?)`, worktreeOccupancyID(WorktreeSetID(req.WorkID), projectID, claimOpID), req.SessionRef, req.HostPID, pidStart).Scan(&sameProcess); err != nil {
+			return out, wrapFailure(KindUnavailable, "claim-landing", "cannot read the recorded host process identity", true, "retry once the database is readable", err)
+		}
+		if sameProcess {
+			out.AlreadyRecorded = true
+			return out, nil
+		}
 	}
 	out.ReleasedSources = sources
 	// One transfer is the unit of identity: the recorded landing count for

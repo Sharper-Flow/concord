@@ -146,6 +146,17 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_start" in finding for finding in findings))
 
+    def test_named_profiles_cannot_reallow_host_bash_denials(self) -> None:
+        for name in check_primary_prompts.NAMED_PROFILE_FILES:
+            for rule in ('    "git *": allow\n', '    "git *": "ask"\n'):
+                self.setUp()
+                self.rewrite(name, lambda text: text.replace('  bash:\n', '  bash:\n' + rule, 1))
+                self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()), rule)
+
+    def test_resume_cannot_accept_a_project_selector(self) -> None:
+        self.rewrite("Concord.md", lambda text: text.replace('with `work_id` alone', 'with `work_id` and `project_id`', 1))
+        self.assertTrue(any("Concord.md" in finding and "with `work_id` alone" in finding for finding in self.findings()))
+
     def test_rte_lost_required_role_sentence_reports(self) -> None:
         def strip_sentences(text: str) -> str:
             for phrase in check_primary_prompts.RTE_REQUIRED_PHRASES:

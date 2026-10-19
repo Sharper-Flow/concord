@@ -280,7 +280,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if dispatch.WorkerSubjectCommit == "" || dispatch.WorkerSubjectCommit != observedHead || dispatch.AttemptEpoch != o.AttemptEpoch || dispatch.WorkerPacketDigest != o.WorkerPacketDigest || dispatch.WorkerWorktreeIdentity != identity || dispatch.WorkerJob == nil || *dispatch.WorkerJob != *o.WorkerJobBinding {
+	if dispatch.WorkerSubjectCommit == "" || dispatch.AttemptEpoch != o.AttemptEpoch || dispatch.WorkerPacketDigest != o.WorkerPacketDigest || dispatch.WorkerWorktreeIdentity != identity || dispatch.WorkerJob == nil || *dispatch.WorkerJob != *o.WorkerJobBinding {
 		return refuse()
 	}
 	var epoch int64
@@ -309,11 +309,23 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if DeriveWorkerJobDigest(job) != o.WorkerJobBinding.Digest {
 		return refuse()
 	}
+	if dispatch.WorkerSubjectCommit != observedHead {
+		return b, version, auth, nativeOracleSubjectMoved(dispatch.WorkerSubjectCommit, observedHead)
+	}
 	b, err = nativeBundleForControl(job.AcceptanceOracle, o.ControlID)
 	if err != nil {
 		return b, version, auth, err
 	}
 	return b, job.ContractVersion, auth, nil
+}
+
+// nativeOracleSubjectMoved refuses a genuine attempt binding whose dispatch
+// subject is not the clean HEAD (CD-0067 D2). An editing attempt cannot grade
+// its own later commit; a fresh dispatch on that commit can.
+func nativeOracleSubjectMoved(subject, head string) error {
+	return newRouteFailure(KindUnauthorizedDispatch, "worker_oracle",
+		"native oracle execution grades only this attempt's dispatch subject "+subject+", and clean HEAD is "+head+"; no attempt grades a later commit, including its own edit. After this attempt ends, pin HEAD with a worktree_verify command, prepare that subject, record a ready job revision with the new preparation, dispatch an evaluator lane, and execute under its attempt",
+		false, "worktree_verify", "record_worker_job", "dispatch_worker")
 }
 
 // readNativeOracleDispatchBindingTx is the shared live-attempt join. A native
@@ -347,16 +359,18 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if !observed.clean || !worktreeSHAPattern.MatchString(observed.head) {
 		return refuse()
 	}
+	// The dispatch join runs first so a genuine attempt whose HEAD moved
+	// names its recovery route before the core subject is compared.
+	b, version, auth, err := readNativeOracleDispatchTx(ctx, tx, req, observed.head, identity)
+	if err != nil {
+		return b, version, auth, err
+	}
 	core, err := readCurrentOracleSubject(ctx, tx, req.WorkID)
 	if err != nil {
 		return b, version, auth, err
 	}
 	if core == "" || core != observed.head {
 		return refuse()
-	}
-	b, version, auth, err = readNativeOracleDispatchTx(ctx, tx, req, observed.head, identity)
-	if err != nil {
-		return b, version, auth, err
 	}
 	if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
 		return b, version, auth, err

@@ -122,16 +122,18 @@ a second Project in another git repository, never claim or move across the
 boundary: the core refuses it with `cross_repository_claim`, and its remedy
 names the route. Open the second session only when the work must edit that
 other repository: record the second Project membership with
-`concord_work_relate.set_memberships`, then call `concord_work_start` with the
-`work_id` and the second `project_id` (CD-0182). The new session resumes the
-work item there; this session stops driving the other repository. A placement
+`concord_work_relate.set_memberships`, then use the refusal's typed
+`session_placement` detail to have the host start a session at the target
+Project's canonical checkout (CD-0182). The receiving session resumes through
+`concord_work_start` with `work_id` alone; its calling directory resolves the
+Project, and this session stops driving the other repository. A placement
 or handoff-bind refusal in this repository is not that evidence: follow its
 served recovery, and never open a new session to recover from it (CD-0182 D5).
 Two Projects in one repository keep the within-repository move through
 `concord_work_transition.worktree_claim` with that Project's `project_id`. Do
 not use `concord_work_start` to switch Projects within one repository.
 
-To resume an existing item in this Project, call `concord_work_start` with its
+To resume an existing item in this Project, call `concord_work_start` with only
 `work_id` from the default checkout or a worktree; the tool reuses the active
 worktree or bootstraps the missing canonical one and moves this session
 automatically. After a move, use the returned absolute path for reads, edits,

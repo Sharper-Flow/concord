@@ -7,6 +7,9 @@
 - **Approval:** The operator approved host ownership with repository examples.
 - **Amendment reason:** Concord is the self-sufficient primary agent; a user
   may choose an optional release train engineer for concurrent work.
+  A profile-level allow-all shell rule overrode the host's shell denials, so
+  the profiles deny only named unsafe commands and leave every other command
+  to the host.
 - **Revision choice:** In-place amendment under CD-0036. Existing workflow pins
   and stored contracts keep their meaning; the managed profile name changes
   through the installer's existing retirement transaction.
@@ -66,9 +69,11 @@ and reports ship status to the operator. It schedules installation and release
 windows with the operator. It never approves, accepts, publishes for, or
 decides inside another session's item.
 
-Both primary profiles grant full editing, shell, and delegation permissions,
-with no profile-level Concord-tool denial. Those capabilities do not transfer
-another session's workflow authority or the human operator's approval.
+Both primary profiles grant full editing and delegation permissions, with no
+profile-level Concord-tool denial. Their shell rules only deny named unsafe
+commands; the host's shell rules govern every other command.
+Those capabilities do not transfer another session's workflow authority or the
+human operator's approval.
 The RTE never answers a Concord approval challenge; it relays it unchanged to
 the human operator. Worker-lane and utility capability boundaries remain.
 The host owns session procedures, model routing, and machine configuration.

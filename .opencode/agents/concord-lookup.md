@@ -36,6 +36,10 @@ tools:
 permission:
   bash:
     "*": deny
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
 ---
 
 # concord-lookup

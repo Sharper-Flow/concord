@@ -1603,7 +1603,11 @@ func writeDiagnostic(out io.Writer, message string) {
 func diagnosticText(err error) string {
 	var failure *store.Failure
 	if errors.As(err, &failure) && failure.RecoveryAction != "" {
-		return err.Error() + "\n" + recoveryLine(failure.RecoveryAction)
+		action := failure.RecoveryAction
+		if len(failure.RecoveryRefs) > 0 {
+			action += ": " + strings.Join(failure.RecoveryRefs, ", ")
+		}
+		return err.Error() + "\n" + recoveryLine(action)
 	}
 	return err.Error()
 }

@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-16T00:00:00Z",
   "doc_contract_profile": "legacy",
@@ -40,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a0e4d7f7643ca553939e71c4c9a395a24b4f76ad9b9610c62c30d4c08d5fcacd",
+  "sha256": "sha256:fcaa8875c212ac0645a28961aa80d66f2e22fcc135c1106cd09b7dd6dcfb60e3",
   "status": "accepted",
   "summary": "Concord keeps concord-0, concord-1, and concord-2 host-owned, supplies inert portable examples, and leaves live numbered definitions unchanged through every installer operation.",
   "tags": [

@@ -18,6 +18,11 @@ tools:
   concord_work_transition: false
   concord_worker_diff: false
 permission:
+  bash:
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
   task:
     "*": deny
     "general": deny

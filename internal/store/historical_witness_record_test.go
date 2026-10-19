@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -10,7 +11,7 @@ import (
 
 // historicalWitnessLogEnv names the file a release restore coverage run
 // collects historical corpus rows into. Unset, recording does nothing.
-const historicalWitnessLogEnv = "CONCORD_HISTORICAL_WITNESS_LOG"
+const historicalWitnessLogEnv = "TEST_CONCORD_HISTORICAL_WITNESS_LOG"
 
 var historicalWitnessMu sync.Mutex
 
@@ -65,6 +66,21 @@ func TestHistoricalWitnessRecorderIsInertWhenUnset(t *testing.T) {
 	}
 	if !passed || len(entries) != 0 {
 		t.Fatalf("unset recorder: subtest passed=%v, wrote %d entries", passed, len(entries))
+	}
+}
+
+// The census sets the log path on the go test command line, so it must survive
+// TestMain's environment scrub.
+func TestHistoricalWitnessLogSurvivesTheScrub(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "witnesses.jsonl")
+	command := exec.Command(os.Args[0], "-test.run=^TestRecordedHistoricalProjectionMigrationAndReplayAgree$")
+	command.Env = append(os.Environ(), historicalWitnessLogEnv+"="+path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("corpus child: %v\n%s", err, output)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		t.Fatalf("corpus child recorded no witness rows: %v", err)
 	}
 }
 

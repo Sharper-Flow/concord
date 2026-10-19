@@ -7,6 +7,10 @@ candidates are small executables that read and write real SQLite files, so
 snapshot, conservation, and effect checks run against real stores. No
 published binary is downloaded and no installed store is reachable. The
 population join has its own suite, test-release-restore-population.py.
+
+The suite lowers its own hard file-size limit before any test runs, and every
+child inherits it, so no test can write a file larger than FILE_LIMIT even when
+a bound under test is broken. Growth fixtures also stop at GROWTH_CAP.
 """
 
 from __future__ import annotations
@@ -17,7 +21,10 @@ import hashlib
 import importlib.util
 import json
 import os
+import resource
+import signal
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -32,11 +39,30 @@ sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
 TARGET = "a" * 40
+FILE_LIMIT = 64 << 20
+GROWTH_CAP = 8 << 20
+resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_LIMIT, FILE_LIMIT))
+
+# A bounded runaway: grow HOME/growth to GROWTH_CAP at `pace` seconds per
+# 64 KiB, then idle, so a missing gate bound shows as a timeout, not a full disk.
+GROW = """
+def grow(pace):
+    import os, time
+    with open(os.path.join(os.environ["HOME"], "pid"), "w") as handle:
+        handle.write(str(os.getpid()))
+    with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
+        while handle.tell() < {cap}:
+            handle.write(b"x" * 65536)
+            handle.flush()
+            time.sleep(pace)
+    time.sleep(60)
+""".format(cap=GROWTH_CAP).replace("{", "{{").replace("}", "}}")
 
 WRITER = """#!{python}
 import json, os, sqlite3, sys
 TAG = {tag!r}
 MODE = {mode!r}
+""" + GROW + """
 if sys.argv[1:] == ["--version"]:
     print("v0.0.0-wrong" if MODE == "wrong-version" else TAG)
     sys.exit(0)
@@ -45,10 +71,9 @@ with open(os.path.join(os.environ["HOME"], "env.json"), "w") as handle:
 if MODE == "refuse":
     sys.exit(2)
 if MODE == "grow":
-    with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
-        while True:
-            handle.write(b"x" * 65536)
-            handle.flush()
+    grow(0)
+if MODE == "trickle":
+    grow(0.05)
 if MODE == "deaf":
     import time
     time.sleep(30)
@@ -66,13 +91,10 @@ CANDIDATE = """#!{python}
 import json, sqlite3, sys
 VERSION = {version!r}
 MODE = {mode!r}
+""" + GROW + """
 if sys.argv[1:] == ["--version"]:
     if MODE == "grow-preflight":
-        import os
-        with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
-            while True:
-                handle.write(b"x" * 65536)
-                handle.flush()
+        grow(0)
     print(VERSION)
     sys.exit(0)
 if MODE == "refuse":
@@ -235,10 +257,30 @@ class CaseTests(unittest.TestCase):
     def bounded(self, body: str, seconds: float = 0.5, limit: int = gate.STREAM_LIMIT) -> gate.CaseFailure | None:
         script = self.fixture.write(self.fixture.root / "child", f"#!/bin/sh\n{body}\n")
         try:
-            gate.run_bounded([str(script)], {"PATH": "/usr/bin:/bin"}, "", time.monotonic() + seconds, self.fixture.root / "streams", "child", limit=limit)
+            gate.run_bounded([str(script)], {"PATH": "/usr/bin:/bin"}, "", time.monotonic() + seconds, self.fixture.root / "streams", "child",
+                             gate.Guard(lambda: None, lambda: 1 << 30), limit=limit)
         except gate.CaseFailure as failure:
             return failure
         return None
+
+    def test_the_kernel_caps_a_child_file_when_the_scratch_check_is_off(self) -> None:
+        writer = self.fixture.publish("v1.0.0", mode="grow")
+        home = self.fixture.root / "home"
+        home.mkdir()
+        started = time.monotonic()
+        rc, _ = gate.run_bounded([sys.executable, str(self.fixture.assets / str(writer.asset_id)), "product-create"],
+                                 {"PATH": "/usr/bin:/bin", "HOME": str(home)}, "{}", time.monotonic() + 20,
+                                 self.fixture.root / "streams", "grow", gate.Guard(lambda: None, lambda: 1 << 20))
+        # Python ignores SIGXFSZ, so the write fails with EFBIG and the child exits.
+        self.assertNotEqual(rc, 0)
+        self.assertIn("File too large", (self.fixture.root / "streams" / "grow.stderr").read_text())
+        self.assertEqual((home / "growth").stat().st_size, 1 << 20)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_every_child_inherits_the_suite_file_limit(self) -> None:
+        probe = subprocess.run([sys.executable, "-c", "import resource; print(resource.getrlimit(resource.RLIMIT_FSIZE))"],
+                               capture_output=True, text=True, check=True)
+        self.assertEqual(probe.stdout.strip(), str((FILE_LIMIT, FILE_LIMIT)))
 
     def test_every_child_ending_kills_its_process_group(self) -> None:
         for name, body in (("timeout", "sleep 30"), ("exit", "exit 0")):
@@ -323,6 +365,79 @@ class SnapshotTests(unittest.TestCase):
             db.close()
             with self.assertRaisesRegex(gate.CaseFailure, "empty"):
                 gate.snapshot_fixture(store, Path(directory) / "snap.db", "v1.0.0")
+
+
+# Runs the gate's child runner from a worker thread, as the gate's pool does,
+# with the gate's own interrupt handlers, then prints how the run ended.
+DRIVER = """
+import importlib.util, json, sys, threading, time
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).parent))
+spec = importlib.util.spec_from_file_location("gate", sys.argv[1])
+gate = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gate)
+gate.install_interrupt_handlers()
+outcome = {}
+def work():
+    try:
+        gate.run_bounded([sys.executable, sys.argv[2], "product-create"], {"PATH": "/usr/bin:/bin", "HOME": sys.argv[3]}, "{}",
+                         time.monotonic() + 60, Path(sys.argv[3]) / "streams", "trickle", gate.Guard(lambda: None, lambda: 1 << 30))
+    except gate.CaseFailure as failure:
+        outcome["stage"] = failure.stage
+worker = threading.Thread(target=work)
+worker.start()
+while worker.is_alive():
+    worker.join(0.05)
+print(json.dumps(outcome))
+"""
+
+
+class InterruptTests(unittest.TestCase):
+    """Stopping the gate stops its children: a handled signal kills them, and SIGKILL reaches them through pdeathsig."""
+
+    def stop_gate(self, signum: int) -> tuple[subprocess.CompletedProcess, Path]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            writer_tag = "v1.0.0"
+            fixture = Fixture(root)
+            writer = fixture.publish(writer_tag, mode="trickle")
+            home = root / "home"
+            home.mkdir()
+            gate_path = Path(__file__).with_name("release-restore-gate.py")
+            driver = subprocess.Popen([sys.executable, "-c", DRIVER, str(gate_path), str(fixture.assets / str(writer.asset_id)), str(home)],
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            deadline = time.monotonic() + 15
+            while not ((home / "growth").exists() and (home / "growth").stat().st_size > 0):
+                self.assertLess(time.monotonic(), deadline, "the trickle child never started")
+                time.sleep(0.05)
+            child = int((home / "pid").read_text())
+            driver.send_signal(signum)
+            out, err = driver.communicate(timeout=15)
+            time.sleep(0.3)
+            size = (home / "growth").stat().st_size
+            time.sleep(0.5)
+            self.assertEqual((home / "growth").stat().st_size, size, "the child kept writing after the gate stopped")
+            self.assertLess(size, GROWTH_CAP)
+            self.assertFalse(alive(child), f"child {child} outlived the gate")
+            return subprocess.CompletedProcess(driver.args, driver.returncode, out, err), home
+
+    def test_a_handled_signal_kills_the_child_and_reports_interrupted(self) -> None:
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            with self.subTest(signal=signum.name):
+                result, _ = self.stop_gate(signum)
+                self.assertEqual((result.returncode, json.loads(result.stdout)), (0, {"stage": "interrupted"}), result.stderr)
+
+    def test_sigkill_of_the_gate_kills_the_child(self) -> None:
+        result, _ = self.stop_gate(signal.SIGKILL)
+        self.assertEqual(result.returncode, -signal.SIGKILL)
+
+
+def alive(pid: int) -> bool:
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return False
+    return state not in ("Z", "X")
 
 
 if __name__ == "__main__":

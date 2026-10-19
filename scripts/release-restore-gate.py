@@ -41,6 +41,7 @@ import hashlib
 import json
 import os
 import re
+import resource
 import shutil
 import signal
 import sqlite3
@@ -107,6 +108,55 @@ class Scratch:
             self.retained += size
 
 
+class Guard:
+    """A child's running scratch check and the hard per-file size the kernel enforces on it."""
+
+    def __init__(self, check, file_bytes) -> None:
+        self.check, self.file_bytes = check, file_bytes
+
+    def __call__(self) -> None:
+        self.check()
+
+
+# Process groups of running children. A terminating signal kills each of them,
+# so stopping the gate cannot leave a writer or candidate running unwatched.
+STOP = threading.Event()
+ACTIVE: set[int] = set()
+ACTIVE_LOCK = threading.RLock()
+
+
+def interrupt(signum, frame) -> None:
+    STOP.set()
+    with ACTIVE_LOCK:
+        for group in list(ACTIVE):
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def install_interrupt_handlers() -> None:
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, interrupt)
+
+
+def confinement(file_bytes: int) -> list[str]:
+    """The exec-in-place prefix: die with the spawning thread, and never write a file above file_bytes.
+
+    PR_SET_PDEATHSIG fires when the forking thread ends, so a caller spawns and
+    waits for its child on one thread. RLIMIT_FSIZE cannot be raised past the
+    inherited hard limit, so the cap is clamped to it.
+    """
+    hard = resource.getrlimit(resource.RLIMIT_FSIZE)[1]
+    cap = file_bytes if hard == resource.RLIM_INFINITY else min(file_bytes, hard)
+    if cap < 1:
+        raise CaseFailure("unknown", "disk", "no scratch remains for the child's files")
+    tools = [shutil.which(name, path="/usr/bin:/bin") for name in ("setpriv", "prlimit")]
+    if None in tools:
+        raise CaseFailure("unknown", "harness", "setpriv and prlimit (util-linux) are required")
+    return [tools[0], "--pdeathsig", "KILL", "--", tools[1], f"--fsize={cap}:{cap}", "--"]
+
+
 class CaseFailure(Exception):
     def __init__(self, status: str, stage: str, detail: str) -> None:
         super().__init__(detail)
@@ -124,33 +174,45 @@ def sandbox_env(root: Path) -> dict[str, str]:
 
 
 def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadline: float, streams: Path, label: str,
-                guard=None, stdout_path: Path | None = None, limit: int = STREAM_LIMIT) -> tuple[int, str]:
-    """Run one child in its own process group and kill the whole group when it ends.
+                guard: Guard, stdout_path: Path | None = None, limit: int = STREAM_LIMIT) -> tuple[int, str]:
+    """Run one confined child in its own process group and kill the whole group when it ends.
 
-    The deadline, the stream limit, and the caller's guard are checked while the
-    child runs, so a runaway child is stopped rather than measured afterward.
+    The deadline, the stream limit, the caller's guard, and an interrupt are
+    checked while the child runs and once it exits, so a runaway child is stopped
+    rather than measured afterward. The kernel caps every file the child writes.
     """
+    if STOP.is_set():
+        raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
+    prefix = confinement(guard.file_bytes())
     streams.mkdir(parents=True, exist_ok=True)
     in_path, out_path, err_path = streams / f"{label}.stdin", stdout_path or streams / f"{label}.stdout", streams / f"{label}.stderr"
     in_path.write_text(stdin, encoding="utf-8")
     with in_path.open("rb") as feed, out_path.open("wb") as out, err_path.open("wb") as err:
-        child = subprocess.Popen(argv, env=env, stdin=feed, stdout=out, stderr=err, start_new_session=True)
+        child = subprocess.Popen([*prefix, *argv], env=env, stdin=feed, stdout=out, stderr=err, start_new_session=True)
+        with ACTIVE_LOCK:
+            ACTIVE.add(child.pid)
         try:
             # WNOWAIT leaves the exited leader unreaped, so its group ID cannot be
             # reused before the group is killed below.
             while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                if STOP.is_set():
+                    raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
                 if time.monotonic() >= deadline:
                     raise CaseFailure("unknown", label, "case budget exhausted")
                 if out_path.stat().st_size + err_path.stat().st_size > limit:
                     raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
-                if guard:
-                    guard()
+                guard()
                 time.sleep(POLL_SECONDS)
+            if STOP.is_set():
+                raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
+            guard()
         finally:
             try:
                 os.killpg(child.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            with ACTIVE_LOCK:
+                ACTIVE.discard(child.pid)
             child.wait()
     if out_path.stat().st_size + err_path.stat().st_size > limit:
         raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
@@ -295,9 +357,11 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
     def room() -> int:
         return scratch.allowance() - tree_bytes(case) - tree_bytes(streams)
 
-    def guard() -> None:
+    def check() -> None:
         if room() < 0:
             raise CaseFailure("unknown", "disk", f"case scratch and streams exceed their {scratch.allowance()} byte share")
+
+    guard = Guard(check, scratch.allowance)
 
     try:
         if started >= wall_deadline:
@@ -345,14 +409,14 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
     transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
     preflight = output / "candidate"
 
-    def guard() -> None:
+    def check() -> None:
         if tree_bytes(preflight) > scratch.allowance():
             raise CaseFailure("unknown", "disk", "candidate preflight exceeds its scratch share")
 
     try:
         rc, version = run_bounded([str(candidate), "--version"], sandbox_env(preflight), "",
-                                  min(wall_deadline, time.monotonic() + NETWORK_SECONDS), preflight / "streams", "version", guard)
-        guard()
+                                  min(wall_deadline, time.monotonic() + NETWORK_SECONDS), preflight / "streams", "version",
+                                  Guard(check, scratch.allowance))
     except CaseFailure as failure:
         raise GateError(f"candidate preflight: {failure.detail}") from None
     scratch.retain(tree_bytes(preflight))
@@ -368,7 +432,7 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         raise GateError("the candidate binary changed during the run")
     rows += unknown
     counts = {status: sum(row["status"] == status for row in rows) for status in ("pass", "fail", "unknown")}
-    result = "fail" if counts["fail"] else "unknown" if counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
+    result = "fail" if counts["fail"] else "unknown" if STOP.is_set() or counts["unknown"] or not writers or len(rows) != len(writers) + len(unknown) else "pass"
     report = {
         "schema": "concord.release-restore-gate.v1", "repository": args.repository, "target_sha": args.target_sha,
         "candidate": {"path": str(candidate), "version": args.candidate_version, "sha256": candidate_sha256},
@@ -397,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, default in (("--workers", 4), ("--wall-seconds", 14400), ("--case-seconds", 120), ("--disk-bytes", 6 << 30), ("--transfer-bytes", 40 << 30)):
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)
+    install_interrupt_handlers()
     output = Path(args.output_dir)
     wall_deadline = time.monotonic() + args.wall_seconds
     try:

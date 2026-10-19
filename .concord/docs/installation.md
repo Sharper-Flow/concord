@@ -182,9 +182,10 @@ replaces `agent.<name>.prompt`, and its permission rules can override your
 global rules. Do not use a global `prompt` value to append instructions or
 assume a global permission addition overrides a shipped deny.
 
-For project-specific settings, add an `agent` entry to the project's
-`.opencode/opencode.jsonc` (or its existing `.opencode/opencode.json`), which
-loads after the global agent definition and before `~/.opencode/opencode.jsonc`.
+For project-specific settings, add an `agent` entry to `opencode.jsonc` (or the
+existing `opencode.json`) inside the consuming project's `.opencode` directory.
+That file loads after the global agent definition and before
+`~/.opencode/opencode.jsonc`.
 Machine settings therefore also win over project settings for the same key.
 
 Do not duplicate the agent markdown to customize it. Linking, upgrading,

@@ -53,12 +53,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from release_restore_population import (
-    NETWORK_SECONDS, GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases,
+    GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases,
 )
 
 FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 STREAM_LIMIT = 64 * 1024 * 1024
+NETWORK_SECONDS = 120
 POLL_SECONDS = 0.05
 RECIPE_ID = "bootstrap-v1"
 PRODUCT = {
@@ -246,16 +247,38 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def network_env() -> dict[str, str]:
+    """The allowlisted environment `gh` and `git` need to reach GitHub, and nothing else."""
+    return {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST") if key in os.environ}
+
+
+def population_runner(streams: Path, wall_deadline: float):
+    """A `run(argv) -> stdout` for the population readers: confined, wall-bounded, and interruptible."""
+    calls = iter(range(1 << 30))
+
+    def run(argv: list[str]) -> str:
+        label = f"population-{next(calls)}"
+        try:
+            rc, out = run_bounded(argv, network_env(), "", min(wall_deadline, time.monotonic() + NETWORK_SECONDS), streams, label,
+                                  Guard(lambda: None, lambda: STREAM_LIMIT))
+        except CaseFailure as failure:
+            raise GateError(f"{argv[:3]}: {failure.detail}") from None
+        if rc != 0:
+            raise GateError(f"{argv[:3]} exited {rc}: {(streams / f'{label}.stderr').read_text(errors='replace').strip()[-400:]}")
+        return out
+
+    return run
+
+
 def download_asset(repository: str, asset_id: int, size: int, destination: Path, deadline: float, streams: Path,
                    transfer: Transfer, guard, room: int) -> None:
     """Fetch one asset by its enumerated ID with an allowlisted authentication environment."""
     if size > room:
         raise CaseFailure("unknown", "disk", f"asset {asset_id} of {size} bytes exceeds the case's remaining scratch")
     transfer.reserve(size)
-    auth = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST") if key in os.environ}
     destination.parent.mkdir(parents=True, exist_ok=True)
     rc, _ = run_bounded(["gh", "api", "-H", "Accept: application/octet-stream", f"repos/{repository}/releases/assets/{asset_id}"],
-                        auth, "", min(deadline, time.monotonic() + NETWORK_SECONDS), streams, f"download-{asset_id}",
+                        network_env(), "", min(deadline, time.monotonic() + NETWORK_SECONDS), streams, f"download-{asset_id}",
                         guard, stdout_path=destination, limit=size + STREAM_LIMIT)
     if rc != 0:
         raise CaseFailure("unknown", "download", f"asset {asset_id} download exited {rc}")
@@ -422,6 +445,7 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
     if time.monotonic() >= wall_deadline:
         raise GateError("the wall budget ran out during enumeration")
     transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
+    scratch.retain(tree_bytes(output / "streams" / "population"))
     preflight = output / "candidate"
 
     def check() -> None:
@@ -487,8 +511,9 @@ def main(argv: list[str] | None = None) -> int:
         if output.exists() and any(output.iterdir()):
             raise GateError(f"output directory {output} is not empty")
         output.mkdir(parents=True, exist_ok=True)
-        releases = list_releases(gh_release_total(args.repository), lambda page: gh_release_page(args.repository, page))
-        report, status = run_gate(args, releases, git_tags(args.repository), wall_deadline)
+        run = population_runner(output / "streams" / "population", wall_deadline)
+        releases = list_releases(gh_release_total(args.repository, run), lambda page: gh_release_page(args.repository, page, run))
+        report, status = run_gate(args, releases, git_tags(args.repository, run), wall_deadline)
     except (GateError, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         report, status = {"schema": "concord.release-restore-gate.v1", "result": "unknown", "stage": "population", "detail": str(error)}, 1
     output.mkdir(parents=True, exist_ok=True)

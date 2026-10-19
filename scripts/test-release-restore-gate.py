@@ -345,6 +345,24 @@ class CaseTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.CaseFailure, "exceeds the case's remaining scratch"):
             gate.snapshot_fixture(store, self.fixture.root / "snap.db", "v1.0.0", room=lambda: 100)
 
+    def test_population_reads_run_confined_bounded_and_interruptible(self) -> None:
+        page = [{"id": 1, "tag_name": "v1.0.0"}]
+        (self.fixture.assets / "releases?per_page=100&page=1").parent.mkdir(parents=True, exist_ok=True)
+        (self.fixture.assets / "releases?per_page=100&page=1").write_text(json.dumps(page))
+        streams = self.fixture.root / "out" / "streams" / "population"
+        run = gate.population_runner(streams, time.monotonic() + 60)
+        self.assertEqual(gate.gh_release_page("owner/repo", 1, run), page)
+        with self.assertRaisesRegex(gate.GateError, "exited 1"):
+            gate.gh_release_page("owner/repo", 2, run)
+        with self.assertRaisesRegex(gate.GateError, "budget exhausted"):
+            gate.gh_release_page("owner/repo", 1, gate.population_runner(streams, time.monotonic() - 1))
+        gate.STOP.set()
+        try:
+            with self.assertRaisesRegex(gate.GateError, "stopped by a signal"):
+                gate.gh_release_page("owner/repo", 1, run)
+        finally:
+            gate.STOP.clear()
+
     def test_candidate_identity_is_bound(self) -> None:
         with self.assertRaisesRegex(gate.GateError, "candidate reports"):
             gate.run_gate(self.args(self.fixture.candidate(version="v8.0.0")), [], {})

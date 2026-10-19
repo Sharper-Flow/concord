@@ -27,6 +27,7 @@ package store
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"sort"
@@ -1016,6 +1017,14 @@ func admissionRenewNonProgressWindow(state *admissionModelState) {
 // admissionAgentMoves models the size rerun, observation records, and the native verify route
 // outside workflow_action. Verification still needs an admitted evidence bind.
 func admissionAgentMoves(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
+	return admissionAgentMovesWith(definition, state, func() bool {
+		return workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted
+	})
+}
+
+// admissionAgentMovesWith is admissionAgentMoves with the bind_evidence
+// admission supplied, so the reachable search can answer it from its memo.
+func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModelState, bindEvidenceAdmitted func() bool) []admissionModelState {
 	if state.done {
 		return nil
 	}
@@ -1037,8 +1046,8 @@ func admissionAgentMoves(definition WorkflowDefinition, state admissionModelStat
 	// (CD-0205 D3): a green verify run after the required job acceptances and
 	// the phase start, bound through an admitted evidence bind, integrates
 	// the required Projects.
-	integrates := workflowWorkerJobsActive(definition) && state.started && state.jobs == "satisfied" && !state.integration
-	if (!proves && !integrates) || !workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted {
+	integrates := state.started && state.jobs == "satisfied" && !state.integration && workflowWorkerJobsActive(definition)
+	if (!proves && !integrates) || !bindEvidenceAdmitted() {
 		return successors
 	}
 	if proves {
@@ -1571,7 +1580,8 @@ func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
 	graph := admissionReachableGraph(definition, admissionModelStart(definition))
 	live := admissionLiveGraphStates(graph)
 	var witnesses []string
-	for i, state := range graph.reachable {
+	for i := range graph.keys {
+		state := graph.state(int32(i))
 		if state.done || live[i] || admissionOperatorStopResolves(definition, state) {
 			continue
 		}
@@ -1581,20 +1591,43 @@ func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
 	return witnesses
 }
 
-// admissionModelKey is a pointer-free encoding of one model state: every
-// string dimension maps to its index in a closed vocabulary, every count to a
-// byte, and every flag to a bit, so two states share a key exactly when they
-// are equal. A value outside its vocabulary panics rather than collide. The
-// reachable search keys its maps on it: fixed bytes hash far faster than the
-// state's thirteen strings, and the collector does not scan a pointer-free
-// map. TestAdmissionModelKeyEncodesEveryField fails when the state gains a
-// field the key does not encode.
-type admissionModelKey struct {
-	step, findingsSeen, unboundRejectionStep          uint8
-	debt, ready, attempt, convergence, stale, verdict uint8
-	mandate, jobs, jobsUnsatisfied, jobsScope         uint8
-	nonprogress, contracts                            uint8
-	flags                                             uint16
+// admissionModelKey is a pointer-free encoding of one model state in one
+// machine word: every string dimension maps to its index in a closed
+// vocabulary, every count to a byte, and every flag to a bit, each in its own
+// bit field, so two states share a key exactly when they are equal. A value
+// outside its vocabulary or its field width panics rather than collide. The
+// reachable search keys its maps on it: a word hashes and compares far faster
+// than the state's thirteen strings, and the collector does not scan a
+// pointer-free map. TestAdmissionModelKeyEncodesEveryField fails when the
+// state gains a field the key does not encode.
+type admissionModelKey uint64
+
+// admissionModelKeyStepBits is the width of each step field: a definition
+// may declare at most 30 steps beside the empty step.
+const admissionModelKeyStepBits = 5
+
+// admissionModelKeyPacker appends bit fields to a key from the low end.
+type admissionModelKeyPacker struct {
+	key   admissionModelKey
+	shift uint
+}
+
+func (p *admissionModelKeyPacker) put(value uint8, bits uint) {
+	if uint(value) >= 1<<bits {
+		panic(fmt.Sprintf("admission model key field value %d does not fit %d bits", value, bits))
+	}
+	if p.shift+bits > 64 {
+		panic(fmt.Sprintf("admission model key needs more than 64 bits at field offset %d", p.shift))
+	}
+	p.key |= admissionModelKey(value) << p.shift
+	p.shift += bits
+}
+
+// get reads the next bit field in the order put wrote it.
+func (p *admissionModelKeyPacker) get(bits uint) uint8 {
+	value := uint8(p.key >> p.shift & (1<<bits - 1))
+	p.shift += bits
+	return value
 }
 
 var (
@@ -1629,31 +1662,58 @@ func admissionKeyCount(value int64) uint8 {
 // admissionModelKeyOf encodes one state; steps is "" followed by the
 // definition's step IDs.
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
-	var flags uint16
-	for i, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
+	var p admissionModelKeyPacker
+	p.put(admissionKeyCode(state.step, steps), admissionModelKeyStepBits)
+	p.put(admissionKeyCode(state.findingsSeen, steps), admissionModelKeyStepBits)
+	p.put(admissionKeyCode(state.unboundRejectionStep, steps), admissionModelKeyStepBits)
+	p.put(admissionKeyCode(string(state.debt), admissionKeyDebts), 1)
+	p.put(admissionKeyCode(state.ready, admissionKeyReadies), 2)
+	p.put(admissionKeyCode(state.attempt, admissionKeyAttempts), 3)
+	p.put(admissionKeyCode(state.convergence, admissionKeyConvergences), 2)
+	p.put(admissionKeyCode(state.stale, admissionKeyStales), 2)
+	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
+	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
+	p.put(admissionKeyCode(state.jobs, admissionKeyJobs), 2)
+	p.put(admissionKeyCode(state.jobsUnsatisfied, admissionKeyJobKeys), 1)
+	p.put(admissionKeyCode(state.jobsScope, admissionKeyJobScopes), 1)
+	p.put(admissionKeyCount(state.nonprogress), 8)
+	p.put(admissionKeyCount(state.contracts), 8)
+	for _, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
 		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.sizeStop, state.done, state.engineering} {
+		var bit uint8
 		if set {
-			flags |= 1 << i
+			bit = 1
 		}
+		p.put(bit, 1)
 	}
-	return admissionModelKey{
-		step:                 admissionKeyCode(state.step, steps),
-		findingsSeen:         admissionKeyCode(state.findingsSeen, steps),
-		unboundRejectionStep: admissionKeyCode(state.unboundRejectionStep, steps),
-		debt:                 admissionKeyCode(string(state.debt), admissionKeyDebts),
-		ready:                admissionKeyCode(state.ready, admissionKeyReadies),
-		attempt:              admissionKeyCode(state.attempt, admissionKeyAttempts),
-		convergence:          admissionKeyCode(state.convergence, admissionKeyConvergences),
-		stale:                admissionKeyCode(state.stale, admissionKeyStales),
-		verdict:              admissionKeyCode(state.verdict, admissionKeyVerdicts),
-		mandate:              admissionKeyCode(state.mandate, admissionKeyMandates),
-		jobs:                 admissionKeyCode(state.jobs, admissionKeyJobs),
-		jobsUnsatisfied:      admissionKeyCode(state.jobsUnsatisfied, admissionKeyJobKeys),
-		jobsScope:            admissionKeyCode(state.jobsScope, admissionKeyJobScopes),
-		nonprogress:          admissionKeyCount(state.nonprogress),
-		contracts:            admissionKeyCount(state.contracts),
-		flags:                flags,
+	return p.key
+}
+
+// admissionModelStateOf decodes a key admissionModelKeyOf encoded with the
+// same steps, field for field in the same order.
+func admissionModelStateOf(steps []string, key admissionModelKey) admissionModelState {
+	p := admissionModelKeyPacker{key: key}
+	var state admissionModelState
+	state.step = steps[p.get(admissionModelKeyStepBits)]
+	state.findingsSeen = steps[p.get(admissionModelKeyStepBits)]
+	state.unboundRejectionStep = steps[p.get(admissionModelKeyStepBits)]
+	state.debt = WorkflowReviewDebt(admissionKeyDebts[p.get(1)])
+	state.ready = admissionKeyReadies[p.get(2)]
+	state.attempt = admissionKeyAttempts[p.get(3)]
+	state.convergence = admissionKeyConvergences[p.get(2)]
+	state.stale = admissionKeyStales[p.get(2)]
+	state.verdict = admissionKeyVerdicts[p.get(2)]
+	state.mandate = admissionKeyMandates[p.get(2)]
+	state.jobs = admissionKeyJobs[p.get(2)]
+	state.jobsUnsatisfied = admissionKeyJobKeys[p.get(1)]
+	state.jobsScope = admissionKeyJobScopes[p.get(1)]
+	state.nonprogress = int64(p.get(8))
+	state.contracts = int64(p.get(8))
+	for _, flag := range []*bool{&state.dispatched, &state.attemptProduces, &state.attemptFresh, &state.jobDebt, &state.designStale,
+		&state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.integration, &state.sizeStop, &state.done, &state.engineering} {
+		*flag = p.get(1) == 1
 	}
+	return state
 }
 
 // admissionModelKeyFields is the number of admissionModelState fields
@@ -1663,6 +1723,42 @@ const admissionModelKeyFields = 29
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
 		t.Fatalf("admissionModelState has %d fields but admissionModelKeyOf encodes %d; encode the new field so distinct states keep distinct keys", got, admissionModelKeyFields)
+	}
+}
+
+// TestAdmissionModelKeyRoundTrips proves the reachable graph, which holds
+// states only as keys, decodes every state it encoded: each well-formed state
+// of the current implementation and break-fix definitions, and seeded random
+// states that draw every field independently from its whole range, so a
+// decoder that swaps two fields of one width fails.
+func TestAdmissionModelKeyRoundTrips(t *testing.T) {
+	t.Parallel()
+	random := rand.New(rand.NewPCG(1, 2))
+	pick := func(vocabulary []string) string { return vocabulary[random.IntN(len(vocabulary))] }
+	flip := func() bool { return random.IntN(2) == 1 }
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
+		definition := mustBuiltinDefinition(t, ref).Definition
+		steps := []string{""}
+		for _, step := range definition.StepGraph.Steps {
+			steps = append(steps, step.ID)
+		}
+		states := wellFormedAdmissionStates(definition)
+		for range 2000 {
+			states = append(states, admissionModelState{
+				step: pick(steps), findingsSeen: pick(steps), unboundRejectionStep: pick(steps),
+				debt: WorkflowReviewDebt(pick(admissionKeyDebts)), ready: pick(admissionKeyReadies), attempt: pick(admissionKeyAttempts),
+				convergence: pick(admissionKeyConvergences), stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
+				mandate: pick(admissionKeyMandates), jobs: pick(admissionKeyJobs), jobsUnsatisfied: pick(admissionKeyJobKeys),
+				jobsScope: pick(admissionKeyJobScopes), nonprogress: random.Int64N(256), contracts: random.Int64N(256),
+				dispatched: flip(), attemptProduces: flip(), attemptFresh: flip(), jobDebt: flip(), designStale: flip(), artifactStale: flip(),
+				artifact: flip(), observed: flip(), started: flip(), proof: flip(), integration: flip(), sizeStop: flip(), done: flip(), engineering: flip(),
+			})
+		}
+		for _, state := range states {
+			if decoded := admissionModelStateOf(steps, admissionModelKeyOf(steps, state)); decoded != state {
+				t.Fatalf("%s: key round trip changed %#v into %#v", ref, state, decoded)
+			}
+		}
 	}
 }
 
@@ -1678,14 +1774,18 @@ func TestAdmissionModelKeyKeepsEngineeringClassification(t *testing.T) {
 // admissionModelGraph is the reachable search's whole edge set: for every
 // reachable state, the successors of its admitted moves and the agent's
 // observation record, held as integer indices into the discovery order.
+// States are held as their keys: a definition reaches about a million, and
+// a pointer-free slice of words keeps the collector from rescanning them.
 // Environment edges stay out: the live propagation reads this graph, and
 // an environment move never makes a state live. Edge k runs from
 // edgeFrom[k] to edgeTo[k]; parent and via record the first edge into each
-// state by index.
+// state by index; via indexes viaNames.
 type admissionModelGraph struct {
-	reachable        []admissionModelState
+	steps            []string
+	keys             []admissionModelKey
 	parent           []int32
-	via              []string
+	via              []uint16
+	viaNames         []string
 	edgeFrom, edgeTo []int32
 }
 
@@ -1693,46 +1793,71 @@ type admissionModelGraph struct {
 // the agent's own moves, and the environment's moves, from
 // the start state, in discovery order.
 func admissionReachableGraph(definition WorkflowDefinition, start admissionModelState) admissionModelGraph {
-	graph := admissionModelGraph{
-		reachable: []admissionModelState{start},
-		parent:    []int32{-1},
-		via:       []string{""},
-	}
 	steps := []string{""}
 	for _, step := range definition.StepGraph.Steps {
 		steps = append(steps, step.ID)
 	}
-	index := map[admissionModelKey]int32{admissionModelKeyOf(steps, start): 0}
-	moveMemo := map[admissionModelKey][]string{}
+	graph := admissionModelGraph{
+		steps:    steps,
+		keys:     []admissionModelKey{admissionModelKeyOf(steps, start)},
+		parent:   []int32{-1},
+		via:      []uint16{0},
+		viaNames: []string{""},
+	}
+	viaIndex := map[string]uint16{"": 0}
+	viaOf := func(action string) uint16 {
+		name, ok := viaIndex[action]
+		if !ok {
+			name = uint16(len(graph.viaNames))
+			viaIndex[action] = name
+			graph.viaNames = append(graph.viaNames, action)
+		}
+		return name
+	}
+	index := map[admissionModelKey]int32{graph.keys[0]: 0}
+	// The memo holds what workflowAdmit decides over one fold key: the
+	// admitted moves and the bind_evidence admission the agent's verify
+	// route needs.
+	type foldDecisions struct {
+		moves        []string
+		bindEvidence bool
+	}
+	memo := map[admissionModelKey]foldDecisions{}
+	var decisions foldDecisions
+	bindEvidenceAdmitted := func() bool { return decisions.bindEvidence }
 	link := func(from int32, action string, successor admissionModelState) {
 		key := admissionModelKeyOf(steps, successor)
 		to, ok := index[key]
 		if !ok {
-			to = int32(len(graph.reachable))
+			to = int32(len(graph.keys))
 			index[key] = to
-			graph.reachable = append(graph.reachable, successor)
+			graph.keys = append(graph.keys, key)
 			graph.parent = append(graph.parent, from)
-			graph.via = append(graph.via, action)
+			graph.via = append(graph.via, viaOf(action))
 		}
 		if to != from && action != admissionEnvironmentMoveName {
 			graph.edgeFrom = append(graph.edgeFrom, from)
 			graph.edgeTo = append(graph.edgeTo, to)
 		}
 	}
-	for i := 0; i < len(graph.reachable); i++ {
-		state := graph.reachable[i]
+	for i := 0; i < len(graph.keys); i++ {
+		state := graph.state(int32(i))
 		moveKey := admissionModelKeyOf(steps, admissionMoveFoldKey(state))
-		moves, ok := moveMemo[moveKey]
+		var ok bool
+		decisions, ok = memo[moveKey]
 		if !ok {
-			moves = admissionModelMoves(definition, state)
-			moveMemo[moveKey] = moves
+			decisions = foldDecisions{
+				moves:        admissionModelMoves(definition, state),
+				bindEvidence: workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted,
+			}
+			memo[moveKey] = decisions
 		}
-		for _, actionID := range moves {
+		for _, actionID := range decisions.moves {
 			for _, successor := range admissionSuccessors(definition, state, actionID) {
 				link(int32(i), actionID, successor)
 			}
 		}
-		for _, successor := range admissionAgentMoves(definition, state) {
+		for _, successor := range admissionAgentMovesWith(definition, state, bindEvidenceAdmitted) {
 			link(int32(i), admissionAgentMoveName(state, successor), successor)
 		}
 		for _, successor := range admissionEnvironmentMoves(state) {
@@ -1740,6 +1865,11 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 		}
 	}
 	return graph
+}
+
+// state decodes the reachable state at index i.
+func (graph admissionModelGraph) state(i int32) admissionModelState {
+	return admissionModelStateOf(graph.steps, graph.keys[i])
 }
 
 // admissionEnvironmentMoveName labels the environment's edges: pin
@@ -1750,10 +1880,10 @@ const admissionEnvironmentMoveName = "environment"
 // recorded edges. Neither an environment move nor an operator stop can
 // replace a missing completion path from another state.
 func admissionLiveGraphStates(graph admissionModelGraph) []bool {
-	live := make([]bool, len(graph.reachable))
+	live := make([]bool, len(graph.keys))
 	// The reverse adjacency in compressed form: the predecessors of state
 	// i are reverse[start[i]:start[i+1]].
-	start := make([]int32, len(graph.reachable)+1)
+	start := make([]int32, len(graph.keys)+1)
 	for _, to := range graph.edgeTo {
 		start[to+1]++
 	}
@@ -1761,20 +1891,20 @@ func admissionLiveGraphStates(graph admissionModelGraph) []bool {
 		start[i] += start[i-1]
 	}
 	reverse := make([]int32, len(graph.edgeTo))
-	fill := append([]int32(nil), start[:len(graph.reachable)]...)
+	fill := append([]int32(nil), start[:len(graph.keys)]...)
 	for k, to := range graph.edgeTo {
 		reverse[fill[to]] = graph.edgeFrom[k]
 		fill[to]++
 	}
-	queue := make([]int32, 0, len(graph.reachable))
+	queue := make([]int32, 0, len(graph.keys))
 	mark := func(i int32) {
 		if !live[i] {
 			live[i] = true
 			queue = append(queue, i)
 		}
 	}
-	for i, state := range graph.reachable {
-		if state.done {
+	for i := range graph.keys {
+		if graph.state(int32(i)).done {
 			mark(int32(i))
 		}
 	}
@@ -1793,7 +1923,7 @@ func admissionLiveGraphStates(graph admissionModelGraph) []bool {
 func admissionModelPath(graph admissionModelGraph, i int32) string {
 	var actions []string
 	for ; graph.parent[i] >= 0; i = graph.parent[i] {
-		actions = append(actions, graph.via[i])
+		actions = append(actions, graph.viaNames[graph.via[i]])
 	}
 	for i, j := 0, len(actions)-1; i < j; i, j = i+1, j-1 {
 		actions[i], actions[j] = actions[j], actions[i]

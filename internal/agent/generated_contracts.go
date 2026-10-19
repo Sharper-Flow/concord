@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:2811dc6b3a0ad8bdee6e336953d971903151f952ce31adb0492ca5fb2c1ba4ea"
+const ManifestDigest = "sha256:51101d998a5a62fecbeb85f507274614bbe1c3c0c8e052a98d6534f3abe1ad47"
 
 type OperationKind string
 
@@ -377,6 +377,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_law_context_criterion":                        {Required: []string{"criterion", "predicate_id"}, Properties: []string{"criterion", "predicate_id"}},
 	"workflow_law_context_domain":                           {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
 	"workflow_law_context_law":                              {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path", "criteria"}},
+	"workflow_law_text_pin":                                 {Required: []string{"law_id", "content_hash"}, Properties: []string{"law_id", "content_hash"}},
 	"workflow_outcome_absent":                               {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                                {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},
 	"workflow_outcome_exists":                               {Required: []string{"kind", "surface", "subjects"}, Properties: []string{"kind", "surface", "subjects"}},

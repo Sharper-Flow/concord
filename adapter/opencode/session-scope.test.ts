@@ -88,16 +88,16 @@ test("managed scope admits ordinary host Tasks but keeps lanes dispatch-only", a
 })
 
 test("managed participation survives agent changes and plugin recreation", async () => {
-  const fixture = host([{ ...session("scope-restart", true), agent: "concord-1" }])
+  const fixture = host([{ ...session("scope-restart", true), agent: "concord-1" }, session("scope-foreign-root")])
+  const foreign = () => ({ args: { ...args(), task_id: "scope-foreign-root" } })
   const first = await fixture.plugin()
-  await first["tool.execute.before"](task("scope-restart"), { args: args() })
+  await expect(first["tool.execute.before"](task("scope-restart"), foreign())).rejects.toThrow("resume")
   fixture.sessions.get("scope-restart")!.agent = "build"
   const freshControlPlane = new HostControlPlane()
   freshControlPlane.bind(fixture.client)
   expect(await freshControlPlane.taskScope("scope-restart")).toBe("managed")
   const restarted = await fixture.plugin()
-  await restarted["tool.execute.before"](task("scope-restart"), { args: args() })
-  expect(await freshControlPlane.taskScope("scope-restart")).toBe("managed")
+  await expect(restarted["tool.execute.before"](task("scope-restart"), foreign())).rejects.toThrow("resume")
   expect(fixture.writes).toEqual([])
 })
 
@@ -227,7 +227,8 @@ test("managed callers resume only their own originally ordinary children, includ
 })
 
 test("an unreadable or malformed own-child opening refuses a resume for host and utility calls", async () => {
-  for (const opening of ["unreadable", "assistant", "foreign", "lane"]) {
+  const refusal = { unreadable: "cannot authenticate worker opening", assistant: "original host child agent", foreign: "original host child agent", lane: "resume" }
+  for (const opening of ["unreadable", "assistant", "foreign", "lane"] as const) {
     const fixture = host([session("scope-caller", true), { ...session("scope-own"), parentID: "scope-caller", agent: "host-reviewer" }])
     const messages = fixture.openings.get("scope-own")!
     if (opening === "unreadable") fixture.openings.delete("scope-own")
@@ -238,7 +239,7 @@ test("an unreadable or malformed own-child opening refuses a resume for host and
     for (const subagent_type of ["host-reviewer", "concord-explore"]) {
       const output = { args: { ...args(), subagent_type, task_id: "scope-own" } }
       const original = structuredClone(output.args)
-      await expect(plugin["tool.execute.before"](task("scope-caller"), output)).rejects.toThrow()
+      await expect(plugin["tool.execute.before"](task("scope-caller"), output)).rejects.toThrow(refusal[opening])
       expect(output.args).toEqual(original)
     }
     expect(fixture.writes).toEqual([])

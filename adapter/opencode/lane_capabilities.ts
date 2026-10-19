@@ -73,7 +73,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   }
 
   async function observe(sessionID: string, selectedAgent?: string): Promise<void> {
-    const laneSelected = agentLanes.some((lane) => selectedAgent === `concord-${lane.id}`)
+    const laneSelected = isLaneAgent(selectedAgent)
     if (roots.has(sessionID)) {
       if (selectedAgent !== undefined) roots.set(sessionID, laneSelected)
       return
@@ -85,7 +85,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
       const result = await reader.get(sessionID, signal)
       const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
       if (info.parentID === undefined) {
-        roots.set(sessionID, selectedAgent === undefined ? agentLanes.some((lane) => info.agent === `concord-${lane.id}`) : laneSelected)
+        roots.set(sessionID, selectedAgent === undefined ? isLaneAgent(info.agent) : laneSelected)
       } else {
         if (typeof info.parentID !== "string" || !info.parentID) throw new WorkerCapabilityError("cannot authenticate tool access: the host parent identity is invalid")
         if (await sessions.hasManagedParent(sessionID, signal)) managedChildren.add(sessionID)
@@ -107,7 +107,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     const result = await reader.get(sessionID, signal)
     const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
     if (info.parentID === undefined) {
-      if (roots.get(sessionID) || agentLanes.some((lane) => info.agent === `concord-${lane.id}`)) {
+      if (roots.get(sessionID) || isLaneAgent(info.agent)) {
         throw new WorkerCapabilityError("a Concord lane requires an active authorized attempt")
       }
       roots.set(sessionID, false)

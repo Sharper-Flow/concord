@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5a649d903ccf520044beb2f35958d39a6e13b1de6b9b1dfffcf9d5789d96f1c9",
+  "sha256": "sha256:705040f5ff651a36fb80cf46d9efaef2310d10cbcd136c60d1beab3134052fc8",
   "status": "accepted",
-  "summary": "Typed dispatch authorizes one attempt and queues its native Task after host permission, without another model-authored launch or a worker model override. The queue preserves the parent's host-selected model and variant. Only a registered lane Task consumes its authorized packet window. Ordinary host Tasks from callers with no managed parent retain host permissions, create no Concord evidence, and resume only their own native children; managed descendants cannot nest Tasks. Completion reads the host child, derives report identity, and settles terminal events through the retained call identity. Lanes do not own workflow state.",
+  "summary": "Typed dispatch authorizes one attempt and queues its native Task after host permission, without another model-authored launch or a worker model override. The queue preserves the parent's host-selected model and variant. Only a registered lane Task consumes its authorized packet window. Ordinary host Tasks from callers with no managed parent retain host permissions and create no Concord evidence; an enrolled caller resumes only its own originally native children, and managed descendants cannot nest Tasks. Completion reads the host child, derives report identity, and settles terminal events through the retained call identity. Lanes do not own workflow state.",
   "tags": [
     "authority",
     "worker-lanes",

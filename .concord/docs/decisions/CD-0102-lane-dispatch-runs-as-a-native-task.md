@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
-- **Scope:** Worker lane execution, the dispatch authorization window, the
-  coordinator posture tool ruleset; issue #689
+- **Scope:** Worker lane execution, the dispatch authorization window, and the
+  separation of host Task permissions from lane authorization; issue #689
 - **Approval:** The operator approved this execution model in-session on
   2026-09-02 and rejected a worker that renders no Task card. On 2026-09-08,
   the operator selected explicit managed-session scope for D2 in

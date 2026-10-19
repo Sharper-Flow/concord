@@ -181,10 +181,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         // opened. Without one, a direct lane Task is exactly the coordinator
         // Task-list competition the registry forbids: the call is refused with
         // the correcting route instead of consuming a lane's attempt unbound.
-        if (concordLane && !windows.has(input.sessionID)) {
-          throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
-        }
         if (concordLane) {
+          if (!windows.has(input.sessionID)) {
+            throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; dispatch_worker schedules its authorized native Task without a separate Task call`)
+          }
           if (await hostControlPlane().hasManagedParent(input.sessionID)) throw new DispatchWindowError("a Task cannot run from a session with a managed parent")
           await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
           return

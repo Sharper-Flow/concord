@@ -227,7 +227,8 @@ test("native provenance is read once across pages, but current identity and role
 })
 
 test("malformed original identity and nested or missing ancestry never authorize native tools", async () => {
-  for (const variant of ["agent", "role", "session", "nested", "missing"]) {
+  const refusal = { agent: "original host child agent", role: "original host child agent", session: "original host child agent", nested: "cannot nest", missing: "host parent session is missing" }
+  for (const variant of ["agent", "role", "session", "nested", "missing"] as const) {
     const f = await fixture()
     f.state.agent = f.state.openingAgent = "host-reviewer"
     if (variant === "agent") f.state.openingAgent = ""
@@ -239,7 +240,7 @@ test("malformed original identity and nested or missing ancestry never authorize
       f.state.parentScope = null
       await f.guard.observe("child")
     }
-    await expect(f.before("read")).rejects.toThrow()
+    await expect(f.before("read")).rejects.toThrow(refusal[variant])
   }
 })
 

@@ -1305,9 +1305,10 @@ func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDe
 }
 
 // withPinnedDecisionFact declares the explicit engineering decision-domain
-// fact on a seeded contract approval when the pinned definition answers
-// consent under consequence_v1, at the payload version that carries the fact.
-// A legacy pin keeps the seeded bytes.
+// fact on a seeded contract approval, or on a seeded supersession's successor
+// contract, when the pinned definition answers consent under consequence_v1,
+// at the payload version that carries the fact. A legacy pin keeps the seeded
+// bytes.
 func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event Event) Event {
 	t.Helper()
 	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
@@ -1317,10 +1318,18 @@ func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event E
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if _, declared := payload["decision_domains"]; !declared {
-		payload["decision_domains"] = []string{}
+	contract, factVersion := payload, workflowContractDecisionDomainsPayloadVersion
+	if event.Kind == WorkflowContractSuperseded {
+		successor, ok := payload["successor_contract"].(map[string]any)
+		if !ok {
+			t.Fatal("seeded supersession carries no successor contract")
+		}
+		contract, factVersion = successor, workflowContractSupersededDecisionDomainsPayloadVersion
+	}
+	if _, declared := contract["decision_domains"]; !declared {
+		contract["decision_domains"] = []string{}
 	}
 	event.Payload = mustJSONValue(payload)
-	event.PayloadVersion = max(event.PayloadVersion, workflowContractDecisionDomainsPayloadVersion)
+	event.PayloadVersion = max(event.PayloadVersion, factVersion)
 	return event
 }

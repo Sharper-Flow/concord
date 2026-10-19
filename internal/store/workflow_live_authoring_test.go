@@ -428,6 +428,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
+		"decision_domains": []string{},
 	}
 	encoded, err := json.Marshal(approval)
 	if err != nil {
@@ -506,14 +507,18 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	base := `{"contract_version":2,"premise":"the corrected successor premise",` +
 		`"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],` +
 		`"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:canonical-supersede"],`
-	valid := json.RawMessage(base + predicates() + "}")
+	// The live head answers consent under consequence_v1, so its successor
+	// declares the explicit engineering decision fact; the historical head
+	// below never declared it.
+	live := base + `"decision_domains":[],`
+	valid := json.RawMessage(live + predicates() + "}")
 	if err := validateWorkflowContractRecoveryPayload(canonical.Definition, valid); err != nil {
 		t.Fatalf("canonical successor with explicit predicates: %v", err)
 	}
 	for name, raw := range map[string]json.RawMessage{
-		"outcome pair": json.RawMessage(base + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`),
-		"no outcome":   json.RawMessage(base + "}"),
-		"empty array":  json.RawMessage(base + `"outcome_predicates":[]}`),
+		"outcome pair": json.RawMessage(live + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`),
+		"no outcome":   json.RawMessage(live + "}"),
+		"empty array":  json.RawMessage(live + `"outcome_predicates":[]}`),
 	} {
 		if err := validateWorkflowContractRecoveryPayload(canonical.Definition, raw); !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("canonical successor with %s = %v, want %s", name, err, KindInvalidPayload)

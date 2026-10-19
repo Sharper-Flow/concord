@@ -55,6 +55,13 @@ func seedDerivedRevisionWorkflow(t *testing.T, s *Store, workID string, actor Wo
 	if err != nil {
 		t.Fatal(err)
 	}
+	return seedDerivedRevisionWorkflowAt(t, s, workID, actor, registered)
+}
+
+// seedDerivedRevisionWorkflowAt initializes the research workflow under the
+// given registered pin.
+func seedDerivedRevisionWorkflowAt(t *testing.T, s *Store, workID string, actor WorkflowActor, registered RegisteredDefinition) int64 {
+	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

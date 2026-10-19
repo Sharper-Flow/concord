@@ -26,7 +26,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			s := openTemp(t)
 			const workID = "research-law-successor"
 			actor := WorkflowActor{PrincipalRef: "principal:law-successor", ClientRef: "client:law-successor", AgentRef: "agent:law-successor", SessionRef: "session:law-successor", ActorClass: ActorAgent}
-			operator := WorkflowActor{PrincipalRef: "principal:operator-law-successor", ClientRef: "client:operator-law-successor", AgentRef: "agent:operator-law-successor", SessionRef: "session:operator-law-successor", ActorClass: ActorOperator}
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
 			seedDerivedLawExtension(t, s)
@@ -52,6 +51,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			fields["rigor_class"] = "prototype_internal"
 			fields["supersede_reason"] = "Revise the contract under the accepted successor law."
 			fields["audit_evidence"] = []string{"evidence:law-successor"}
+			fields["decision_domains"] = []string{}
 			if scenario.refused {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}
@@ -62,7 +62,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			}
 			defer tx.Rollback()
 			_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor, OperatorActor: &operator,
+				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor,
 				AcceptedInputsDigest: "sha256:derived-successor", IdempotencyIdentity: "supersede-derived", OperationID: "supersede-derived",
 				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-derived",
 				RequestID: "request:supersede-derived", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),

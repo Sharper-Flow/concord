@@ -72,6 +72,7 @@ func TestNonProductChangingLawRevisionSurvivesReplay(t *testing.T) {
 				})
 				event.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 				event.OccurredAt = time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+				event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
 				if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 					t.Fatalf("live successor fold: %v", err)
 				}

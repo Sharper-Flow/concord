@@ -7876,7 +7876,7 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "domain_ids": {
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
@@ -7890,21 +7890,21 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "product_ids": {
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
         },
         "project_ids": {
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
         },
         "tag_ids": {
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           },
           "maxItems": 32,
           "type": "array"
@@ -8001,7 +8001,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "source_id": {
-          "$ref": "#/$defs/research_record_id"
+          "$ref": "#/$defs/id"
         },
         "title": {
           "maxLength": 512,

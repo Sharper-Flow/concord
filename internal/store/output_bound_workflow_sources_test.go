@@ -585,7 +585,7 @@ func init() {
 	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/maxItems", proposalUserOutcomesCount)
 
 	// Workflow read: the ready derivation and the warning union are the
-	// genuinely unbounded arrays (the CON-1124 core); the LIMIT-guarded
+	// genuinely unbounded arrays; the LIMIT-guarded
 	// arrays share one raw read-limit comparison.
 	registerOutputBound("/$defs/workflow_read/properties/blocking_conditions/maxItems",
 		unboundedOutput("deriveWorkflowReady scans every open workflow_external_conditions row with no LIMIT (internal/store/workflow_conditions.go:21) and appends one blocking entry per durable_operation-owned condition (internal/store/workflow_conditions.go:53), while the add_condition fold admits one condition per call with per-field byte caps only (internal/store/workflow.go:3906-3927), so the open-condition count is uncapped", readSizeRefusalPath))

@@ -374,6 +374,17 @@ func TestTiersAgainstRealGitInspectFileAndVerifyCommand(t *testing.T) {
 	if file.Content != "base\n" {
 		t.Fatalf("file content=%q", file.Content)
 	}
+	// A file above the cap returns exactly the cap and reports truncation.
+	if err := os.WriteFile(filepath.Join(worktreePath, "large.txt"), []byte(strings.Repeat("x", 9)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	large, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-w", ProjectID: "project-w", Mode: WorktreeInspectModeFile, Path: "large.txt", MaxBytes: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(large.Content) != 8 || !large.Truncated {
+		t.Fatalf("over-cap file content=%d bytes truncated=%v, want 8 bytes truncated", len(large.Content), large.Truncated)
+	}
 	missing, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-w", ProjectID: "project-w", Mode: WorktreeInspectModeFile, Path: "absent.txt"})
 	if failureKind(err) != KindProjectionNotFound || missing.Path != "" {
 		t.Fatalf("err=%v, want typed missing-file refusal", err)

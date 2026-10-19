@@ -13,17 +13,14 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CON-1124 regression fixtures. The workflow_read producers for classified
-// conditions (blocking and unreadable) and completion warnings have no finite
-// cardinality guard: deriveWorkflowReady scans every open condition and the
-// persisted staleness arm returns one warning per distinct drifted rule id.
-// The published work_event_page schema nevertheless capped those members at
-// 100 and 32, so a legal store state refused the whole read at output
-// validation instead of round-tripping. These tests hold the real dispatch
-// boundary to the approved consequence: the producer's whole result publishes
-// whole, below and beyond the legacy caps, readiness derives from every open
-// condition, and only a result too large for the 51200-byte envelope refuses
-// — as the typed limit_exceeded byte refusal, never a field-schema failure.
+// The workflow_read producers for classified conditions (blocking and
+// unreadable) and completion warnings have no finite cardinality guard:
+// deriveWorkflowReady scans every open condition and the persisted staleness
+// arm returns one warning per distinct drifted rule id. These tests hold the
+// real dispatch boundary to that: the producer's whole result publishes whole
+// at any count, readiness derives from every open condition, and only a
+// result too large for the 51200-byte envelope refuses, as the typed
+// limit_exceeded byte refusal, never a field-schema failure.
 
 const (
 	// unboundedWitnessBlocking is the classified-condition count the
@@ -31,7 +28,7 @@ const (
 	// width the complete workflow member alone exceeds the envelope ceiling,
 	// so no event page limit can fit it and the read must answer the typed
 	// byte refusal. The witness never relies on an oversized single history
-	// event; CON-1148's single-item paging problem stays out of scope.
+	// event.
 	unboundedWitnessBlocking = 280
 	unboundedWitnessIDWidth  = 128
 )

@@ -2903,6 +2903,12 @@ class ResearchContextProjectionTests(unittest.TestCase):
         retained["items"]["$ref"] = "#/$defs/" + generator.retained_twin_name("work_context_research_finding_view")
         twin = self.projected["$defs"][generator.retained_twin_name("work_context_view")]
         self.assertEqual(twin["properties"]["research_findings"], retained)
+        # Packet dispatch keeps the lane's bounded scope id; only the retained
+        # read twin carries the store's wider knowledge ids.
+        retained_scopes = self.projected["$defs"][generator.retained_twin_name("research_scopes")]
+        for kind in ("product_ids", "project_ids", "domain_ids", "tag_ids"):
+            self.assertEqual(self.projected["$defs"]["research_scopes"]["properties"][kind]["items"], {"$ref": "#/$defs/id"})
+            self.assertEqual(retained_scopes["properties"][kind]["items"], {"$ref": "#/$defs/knowledge_id"})
 
     def _project_with_lane_packet(self, lane_document):
         """Project against a temporary canonical lane packet on disk: the

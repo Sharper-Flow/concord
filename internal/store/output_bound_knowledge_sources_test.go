@@ -1,6 +1,6 @@
 package store
 
-// Output-bound ledger rows for the knowledge family (CON-1124): the durable
+// Output-bound ledger rows for the knowledge family: the durable
 // knowledge surface (domain registry, law, footprint, git notes, research
 // packs, architecture bindings of contract scope, domain observations and
 // attachments as they appear in domain reads).

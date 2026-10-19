@@ -24,7 +24,7 @@ import (
 // wider to absorb a consumer mismatch; consumer mismatches are recorded
 // here and repaired at the consumer sites.
 //
-// Row states after the CON-1124 source trace and the ledger-proof repair:
+// Row states after the source trace:
 //   - absolute_path and cursor are unbounded, byte-ceiling only: every
 //     writer was traced and neither family has an expressible finite
 //     producer guard. Their consumer caps are parent repairs.

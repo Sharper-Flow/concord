@@ -1,6 +1,6 @@
 package store
 
-// Pages-group rows for the CON-1124 output-bound ledger: every
+// Pages-group rows for the output-bound ledger: every
 // output-reachable maxItems/maxLength/x-maxBytes under the page, result, and
 // summary definitions listed by the census, one registerOutputBound row each.
 //
@@ -1193,9 +1193,8 @@ func init() {
 		pkTimeLayoutWidthBound("internal/store/resource_claims.go", "foldResourceClaimReleased", "time.RFC3339Nano"),
 		pkTimeLayoutWidthBound("internal/store/resource_claims.go", "foldTerminalReleasesResourceClaims", "time.RFC3339Nano"),
 	))
-	// The traced pattern admits one code point more than the consumer
-	// maximum: the row stays red until the parent raises the cap to 161
-	// (CON-1143 consumer repair).
+	// The traced pattern admits 161 code points, so the consumer cap admits
+	// every pattern-valid key.
 	registerOutputBound("/$defs/resource_claims_page/properties/claims/items/properties/resource_key/maxLength", goPatternBound("internal/store/resource_claims.go", "resourceKeyPattern"))
 	registerOutputBound("/$defs/resource_claims_page/properties/claims/maxItems", goInlineBound("internal/store/resource_claims.go", "resourceClaims", "limit", boundItems))
 
@@ -1298,9 +1297,7 @@ func init() {
 	// The result build truncates the committed change list through
 	// boundResultChangedRefs (internal/agent/mutations.go:3124) before the
 	// payload embeds mutationResultChangedRefs(changed), so the constant
-	// bounds today's emitted changed_refs. The planned CON-1153
-	// admission-32 pass bound is a separate future source and is not cited
-	// here.
+	// bounds today's emitted changed_refs.
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
 	registerOutputBound("/$defs/worktree_audit_reclaim_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),

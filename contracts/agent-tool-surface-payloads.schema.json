@@ -7910,28 +7910,28 @@
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           }
         },
         "project_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           }
         },
         "domain_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           }
         },
         "tag_ids": {
           "type": "array",
           "maxItems": 32,
           "items": {
-            "$ref": "#/$defs/knowledge_id"
+            "$ref": "#/$defs/id"
           }
         }
       }
@@ -8036,7 +8036,7 @@
           "minimum": 1
         },
         "source_id": {
-          "$ref": "#/$defs/research_record_id"
+          "$ref": "#/$defs/id"
         },
         "kind": {
           "type": "string",
@@ -22281,8 +22281,8 @@
             "context": {
               "type": "string",
               "minLength": 0,
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384
+              "maxLength": 16384,
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {
               "$ref": "#/$defs/workflow_law_context",

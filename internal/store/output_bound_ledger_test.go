@@ -1,15 +1,13 @@
 package store
 
-// Structural output-bound ledger for CON-1124 (test-only machinery, no
-// per-family data).
+// Structural output-bound ledger (test-only machinery, no per-family data).
 //
-// The CON-1124 ruling (route 2, see the coordinator assignment) removes
-// redundant output caps where no finite producer guard exists, keeps the
-// 51200-byte result envelope ceiling with its honest typed whole-result
-// refusal, and requires every remaining finite output maximum to admit the
-// real input, store, and derivation bounds that feed it. This file owns the
-// census, the source evaluation, and the closure machinery that holds later
-// family files to that ruling. It registers no rows itself: with an empty
+// The output bound rule removes redundant output caps where no finite
+// producer guard exists, keeps the 51200-byte result envelope ceiling with
+// its typed whole-result refusal, and requires every remaining finite output
+// maximum to admit the real input, store, and derivation bounds that feed it.
+// This file owns the census, the source evaluation, and the closure machinery
+// that holds the family files to that rule. It registers no rows itself: with an empty
 // registration list the closure test fails RED listing every
 // output-reachable bound that still lacks a source row.
 //
@@ -123,8 +121,8 @@ const (
 	agentEnvelopeFile = "internal/agent/envelope.go"
 	// agentEnvelopeCeilingConst is the agent constant the ceiling reads from.
 	agentEnvelopeCeilingConst = "MaxResultEnvelopeBytes"
-	// ruledEnvelopeCeilingBytes pins the 51200-byte ceiling per the CON-1124
-	// ruling. The ledger checks the agent constant and the manifest against it.
+	// ruledEnvelopeCeilingBytes pins the 51200-byte result ceiling. The ledger
+	// checks the agent constant and the manifest against it.
 	ruledEnvelopeCeilingBytes int64 = 51200
 )
 
@@ -2917,7 +2915,7 @@ func ledgerCeilingFailures(rt *ledgerRuntime) []ledgerFailure {
 		failures = append(failures, ledgerFailure{Kind: "ceiling", Subject: agentEnvelopeFile + ":" + agentEnvelopeCeilingConst, Detail: fmt.Sprintf("agent constant is %d but the manifest envelope.max_bytes is %d", actual, published)})
 	}
 	if published != ruledEnvelopeCeilingBytes {
-		failures = append(failures, ledgerFailure{Kind: "ceiling", Subject: surfaceManifestFile, Detail: fmt.Sprintf("envelope.max_bytes moved to %d; the CON-1124 ruling pins the ceiling at %d bytes", published, ruledEnvelopeCeilingBytes)})
+		failures = append(failures, ledgerFailure{Kind: "ceiling", Subject: surfaceManifestFile, Detail: fmt.Sprintf("envelope.max_bytes moved to %d; the output bound rule pins the ceiling at %d bytes", published, ruledEnvelopeCeilingBytes)})
 	}
 	return failures
 }
@@ -2946,7 +2944,7 @@ func ledgerHasFailure(failures []ledgerFailure, kind, subject string) bool {
 
 // TestOutputBoundLedgerClosure is the ledger's main gate. With an empty
 // registration list it fails RED: every output-reachable bound is a missing
-// source row until the CON-1124 family files register one.
+// source row until the family files register one.
 func TestOutputBoundLedgerClosure(t *testing.T) {
 	t.Parallel()
 	root := ledgerRepoRoot(t)
@@ -3009,7 +3007,7 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 	for _, failure := range failures {
 		summary = append(summary, "  "+failure.String())
 	}
-	summary = append(summary, "fix: register every output-reachable bound in the CON-1124 family files via registerOutputBound; cite real input, store, or derivation sources, or unboundedOutput with a typed refusal path")
+	summary = append(summary, "fix: register every output-reachable bound in the output_bound_*_sources_test.go family files via registerOutputBound; cite real input, store, or derivation sources, or unboundedOutput with a typed refusal path")
 	t.Fatalf("output bound ledger is not closed: %d failure(s)\n%s", len(failures), strings.Join(summary, "\n"))
 }
 

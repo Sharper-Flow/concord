@@ -775,6 +775,14 @@ RETAINED_OUTPUT_RAISES = {
     "research_scopes": {f"/properties/{name}/maxItems": 100 for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
     "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
 }
+# References a retained twin points at a wider definition: the retained
+# producers admit identities above the lane contract's bounded id
+# (validateResearchScopes admits 256-rune scope IDs; raw retained research
+# source IDs exceed the id bound), while packet dispatch keeps that id.
+RETAINED_OUTPUT_RETYPES = {
+    "research_scopes": {f"/properties/{name}/items/$ref": "#/$defs/knowledge_id" for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
+    "research_source": {"/properties/source_id/$ref": "#/$defs/research_record_id"},
+}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
 RETAINED_OUTPUT_PARENTS = {
@@ -816,6 +824,15 @@ def raise_retained_caps(node: dict, name: str) -> None:
         if parent[keyword] >= value:
             fail(f"retained twin {name} raises {pointer} to {value}, which the shared cap {parent[keyword]} already admits")
         parent[keyword] = value
+
+
+def retype_retained_items(node: dict, name: str) -> None:
+    """Point a twin's items at the wider definition its retained producer needs."""
+    for pointer, ref in RETAINED_OUTPUT_RETYPES.get(name, {}).items():
+        parent, keyword = retained_cap_parent(node, name, pointer)
+        if parent[keyword] == ref:
+            fail(f"retained twin {name} retypes {pointer} to {ref}, which the shared definition already references")
+        parent[keyword] = ref
 
 
 def install_retained_output_twins(defs: dict) -> None:
@@ -868,6 +885,7 @@ def install_retained_output_twins(defs: dict) -> None:
         twin = copy.deepcopy(defs[name])
         drop_retained_caps(twin, name)
         raise_retained_caps(twin, name)
+        retype_retained_items(twin, name)
         retarget(twin, retained_twin_name(name), set(RETAINED_OUTPUT_TWINS))
         twins[retained_twin_name(name)] = twin
     defs.update(twins)
@@ -986,7 +1004,6 @@ def preserve_retained_outcome_outputs(defs: dict) -> None:
     if not isinstance(criterion, dict) or not isinstance(criterion.get("properties"), dict):
         fail("the projected work_pin_verified_criterion schema is missing; the retained output retarget has no owner")
     retarget_predicate_union(criterion["properties"].get("outcome_payload"), "work_pin_verified_criterion")
-
 
 
 def install_workflow_self_repair_schema(defs: dict) -> None:
@@ -1526,7 +1543,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     outcome_payload = install_workflow_outcome_schema(defs)
     # The retained output shapes are preserved and their uses retargeted
     # before the live outcome union narrows: stored predicates replay the
-    # full frozen vocabulary (CON-1124), and the narrowing must never leak
+    # full frozen vocabulary, and the narrowing must never leak
     # into the copies.
     preserve_retained_outcome_outputs(defs)
     # The live outcome union narrows before any branch copy is taken: the

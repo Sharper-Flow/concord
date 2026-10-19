@@ -323,11 +323,14 @@ class CaseTests(unittest.TestCase):
             "unbound_writer_witnesses": list(unbound)}))
         return census
 
-    def census_without(self, key: str) -> Path:
-        """A closed census whose coverage lacks one section, as written before that section existed."""
+    def census_without(self, key: str, value: object = KeyError) -> Path:
+        """A closed census whose coverage lacks one section, or holds the given value there."""
         census = self.census(covered=True)
         coverage = json.loads((census / "coverage.json").read_text())
-        del coverage[key]
+        if value is KeyError:
+            del coverage[key]
+        else:
+            coverage[key] = value
         (census / "coverage.json").write_text(json.dumps(coverage))
         return census
 
@@ -361,6 +364,7 @@ class CaseTests(unittest.TestCase):
             (self.fixture.root / "absent", "held", "is unreadable"),
             (self.census_without("older_versions"), "held", "is unreadable"),
             (self.census_without("unbound_writer_witnesses"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses", None), "held", "is unreadable"),
         )
         for census, status, detail in cases:
             coverage = gate.shape_coverage(census, writers)

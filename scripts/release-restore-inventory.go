@@ -6,8 +6,8 @@
 // joined to the witness logs: historical corpus rows, and writer-produced rows
 // from scripts/release-restore-gate.py, each bound to its own release's
 // registered shape or older accepted version. An unwitnessed shape or older
-// version, a writer row that binds to no registered shape of its release, or
-// an unapproved refusal holds (exit 1).
+// version, a writer row that binds to no registered shape or accepted version of
+// its release, or an unapproved refusal holds (exit 1).
 // Run from the repository root.
 package main
 
@@ -573,21 +573,23 @@ func cover(inv inventory, rows []witness) (coverageReport, error) {
 		s.Covered = len(tests) > 0 && len(missing) == 0
 		coverage = append(coverage, *s)
 	}
+	witnessed := map[string]bool{}
+	for i, w := range rows {
+		var value map[string]any
+		if w.Writer == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)
+		if !accepted[key] || json.Unmarshal([]byte(w.Payload), &value) != nil || value == nil {
+			continue
+		}
+		bound[i] = true
+		witnessed[key] = true
+	}
 	olderCoverages := make([]olderCoverage, 0, len(older))
 	for _, o := range older {
-		witnessed := map[string]bool{}
-		for i, w := range rows {
-			var value map[string]any
-			if w.Writer == nil || w.Kind != o.Kind || w.PayloadVersion != o.PayloadVersion ||
-				!accepted[fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)] ||
-				json.Unmarshal([]byte(w.Payload), &value) != nil || value == nil {
-				continue
-			}
-			bound[i] = true
-			witnessed[w.Writer.Tag] = true
-		}
 		for _, tag := range o.Writers {
-			if witnessed[tag] {
+			if witnessed[fmt.Sprintf("%s\x00%s\x00%d", tag, o.Kind, o.PayloadVersion)] {
 				o.Witnesses = append(o.Witnesses, tag)
 			} else {
 				o.Missing = append(o.Missing, tag)

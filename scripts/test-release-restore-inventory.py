@@ -428,6 +428,7 @@ class InventoryTest(unittest.TestCase):
             writer_witness("v1.0.0", "thing.typed", 1, [], seq=2),  # an older accepted version, but not a JSON object
             writer_witness("v1.0.0", "thing.constant", 1, {"depth": "deep"}, seq=3),  # not its release's encoding
             writer_witness("v5.0.0", "thing.legacy", 1, {"depth": 1}, seq=4),  # a kind its release does not register
+            writer_witness("v1.0.0", "thing.typed", 1, None, seq=6),  # an older accepted version whose payload is null
         ]
         output, coverage, log = (self.scratch / f"unbound.{suffix}" for suffix in ("writers.json", "coverage.json", "witnesses.jsonl"))
         log.write_text("".join(json.dumps(w) + "\n" for w in rows))
@@ -437,7 +438,8 @@ class InventoryTest(unittest.TestCase):
         self.assertIn("an older accepted version lacks a same-release witness", result.stderr)
         covered = json.loads(coverage.read_text())
         self.assertEqual(covered["unbound_writer_witnesses"], [
-            "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v2.0.0 seq 1 thing.typed v1", "v5.0.0 seq 4 thing.legacy v1"])
+            "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v1.0.0 seq 6 thing.typed v1", "v2.0.0 seq 1 thing.typed v1",
+            "v5.0.0 seq 4 thing.legacy v1"])
         self.assertEqual(self.shapes(covered)[("thing.constant", 1)]["witnesses"], [])
 
     def test_older_accepted_versions_need_a_witness_from_each_release(self) -> None:
@@ -445,8 +447,8 @@ class InventoryTest(unittest.TestCase):
         # thing.typed and thing.recorded register current 2, flow.plain current 3, each minimum 1.
         self.assertEqual(sorted(older), [("flow.plain", 1), ("flow.plain", 2), ("thing.recorded", 1), ("thing.typed", 1)])
         typed = older[("thing.typed", 1)]
-        # The corpus witness at thing.recorded v1 names no release, so it covers nothing.
         self.assertEqual((typed["covered"], typed["witnesses"], typed["missing_writers"]), (False, [], ["v1.0.0", "v1.0.1"]))
+        # The corpus witness at thing.recorded v1 names no release, so it covers nothing.
         self.assertEqual(older[("thing.recorded", 1)]["witnesses"], [])
         _, coverage = self.generate("older", [writer_witness("v1.0.0", "thing.typed", 1, {"legacy": True})])
         typed = {(o["kind"], o["payload_version"]): o for o in coverage["older_versions"]}[("thing.typed", 1)]

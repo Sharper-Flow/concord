@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -95,6 +96,52 @@ func TestReplayDecoderHoldsWorkItemKinds(t *testing.T) {
 	}
 }
 
+// A confined upcaster site is exempted while the reviewed dispatcher and
+// guard hold, and its finding names the current version of every kind with
+// an older supported version or an upcaster; any drift leaves it held.
+func TestUpcastConfinementHoldsCurrentVersions(t *testing.T) {
+	data, err := json.Marshal(exemptionTable{Schema: exemptionsSchema, Entries: []exemption{
+		{ID: "upcast", Class: "upcast_confinement", Dispatcher: "store.dispatch", DispatcherDigest: "sha256:2222", Guard: "event.PayloadVersion != registration.CurrentVersion", Callers: []namedHash{{"store.prepare", "sha256:3333"}}, Check: "test"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := parseExemptions(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis := func() writerAnalysis {
+		a := findingAnalysis()
+		a.Open = slices.Clone(a.Open)
+		a.Open[1].Confinement = "upcaster"
+		a.Dispatcher = &upcastDispatcher{Function: "store.dispatch", FunctionDigest: "sha256:2222", Guards: []string{"upcaster == nil", "event.PayloadVersion != registration.CurrentVersion"}, Callers: []namedHash{{"store.prepare", "sha256:3333"}}}
+		return a
+	}
+	inv := findingInventory(analysis())
+	inv.Groups["g"] = append(inv.Groups["g"], registration{Kind: "thing.b", CurrentVersion: 1, MinSupported: 1, Type: "t"}, registration{Kind: "thing.c", CurrentVersion: 3, MinSupported: 3, Upcasters: []int{2}, RecordedSchemas: []int{3}, Type: "t"})
+	f := writerFindings(inv, table)[0]
+	if !reflect.DeepEqual(f.Exempted, []exemptedSite{{inv.Analyses["g"].Open[1], "upcast", "upcast_confinement"}}) || !reflect.DeepEqual(f.UpcastHeld, []string{"* v3", "thing.a v2", "thing.c v3"}) {
+		t.Fatalf("exempted %+v upcast held %v", f.Exempted, f.UpcastHeld)
+	}
+	for name, drift := range map[string]func(*writerAnalysis){
+		"dispatcher changed": func(a *writerAnalysis) { a.Dispatcher.FunctionDigest = "sha256:9999" },
+		"dispatcher renamed": func(a *writerAnalysis) { a.Dispatcher.Function = "store.other" },
+		"guard dropped":      func(a *writerAnalysis) { a.Dispatcher.Guards = a.Dispatcher.Guards[:1] },
+		"caller changed":     func(a *writerAnalysis) { a.Dispatcher.Callers = []namedHash{{"store.prepare", "sha256:9999"}} },
+		"caller added": func(a *writerAnalysis) {
+			a.Dispatcher.Callers = append(a.Dispatcher.Callers, namedHash{"store.other", "sha256:4444"})
+		},
+		"no dispatcher":    func(a *writerAnalysis) { a.Dispatcher = nil },
+		"confinement lost": func(a *writerAnalysis) { a.Open[1].Confinement = "" },
+	} {
+		a := analysis()
+		drift(&a)
+		if f := finding(t, a, table); len(f.Exempted) != 0 || f.UpcastHeld != nil || len(f.Held) != 2 {
+			t.Errorf("%s: held %+v exempted %+v upcast held %v", name, f.Held, f.Exempted, f.UpcastHeld)
+		}
+	}
+}
+
 func TestDriftLeavesTheSiteHeld(t *testing.T) {
 	for name, edit := range map[string]func(*writerSite){
 		"function digest changed": func(s *writerSite) { s.FunctionDigest = "sha256:9999" },
@@ -137,6 +184,11 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 		"data after":                   `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
 		"closing after":                `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
 		"repeated key":                 `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
+		"upcast without guard":         `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","check":"c"}]}`,
+		"upcast with a site key":       `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"function":"f","check":"c"}]}`,
+		"read-back with a dispatcher":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"dispatcher":"d","check":"c"`, 1) + `]}`,
+		"repeated upcast key":          `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"u","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"},{"id":"v","class":"upcast_confinement","dispatcher":"d","dispatcher_digest":"g","guard":"x","callers":[{"function":"c","digest":"h"}],"check":"c"}]}`,
+		"site key in two classes":      `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.TrimSuffix(strings.Replace(strings.Replace(entry, "read_back", "replay_decoder", 1), `"x"`, `"y"`, 1), "}") + `,"check_subject_digest":"s"}]}`,
 		"replay without check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, "read_back", "replay_decoder", 1) + `]}`,
 		"read-back with check subject": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + strings.Replace(entry, `"check":"c"`, `"check_subject_digest":"s","check":"c"`, 1) + `]}`,
 	} {

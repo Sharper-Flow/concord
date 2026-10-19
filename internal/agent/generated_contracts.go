@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:3076f61ee1e9f92ebdce92ea87f7f8ce76b484e6ce28669d4a40c0a1929a4c17"
+const ManifestDigest = "sha256:fdf360aadd18ceb9dad9289afb12871f6ff4c1301b59974037eb1022198f2be9"
 
 type OperationKind string
 
@@ -304,7 +304,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_action_variant_checkpoint_refine":      {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_checkpoint_repair":      {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_complete":               {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
-	"work_transition_action_variant_confirm_premise":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "selected_choice", "decision_context_digest"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest"}},
+	"work_transition_action_variant_confirm_premise":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "selected_choice"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest"}},
 	"work_transition_action_variant_cross_context_boundary": {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_declare_impact":         {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_dispatch_worker":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},

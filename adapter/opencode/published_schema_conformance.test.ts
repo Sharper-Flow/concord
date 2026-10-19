@@ -124,8 +124,11 @@ test("the published workflow_action variants state each action's exact required 
     }
     for (const field of ["selected_choice", "decision_context_digest"]) {
       if (input.properties.action_id.const === "confirm_premise") {
+        // Engineering confirmation on a consequence_v1 pin carries no human
+        // digest, so only the closed choice is required at the outer level.
         expect(input.properties[field]).toBeObject()
-        expect(input.required).toContain(field)
+        if (field === "selected_choice") expect(input.required).toContain(field)
+        else expect(input.required).not.toContain(field)
       } else {
         expect(input.properties[field]).toBeObject()
         expect(input.required).not.toContain(field)

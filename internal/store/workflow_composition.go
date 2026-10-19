@@ -94,6 +94,9 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 			actions = append(actions, action)
 		}
 	}
+	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+		actions = withConsequenceConfirmPremise(actions)
+	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -223,6 +226,37 @@ func withConsequencePolicy(composition WorkflowComposition) WorkflowComposition 
 	composition.Version++
 	composition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
 	return composition
+}
+
+// withConsequenceConfirmPremise declares the human decision-context digest
+// optional on a consequence_v1 confirm_premise: engineering confirmation is
+// the coordinator's own confirm choice and carries no human digest, while a
+// decision-bearing confirmation still answers the operator question, whose
+// digest the confirmation validates (CD-0013 D11, CD-0129). The copy leaves
+// the shared catalog declaration unmutated.
+func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
+	selected := slices.Clone(actions)
+	optionalDigest := func(payload WorkflowPayloadDefinition) WorkflowPayloadDefinition {
+		fields := slices.Clone(payload.Fields)
+		for index := range fields {
+			if fields[index].Name == "decision_context_digest" {
+				fields[index].Required = false
+			}
+		}
+		payload.Fields = fields
+		return payload
+	}
+	for index := range selected {
+		if selected[index].ID != "confirm_premise" {
+			continue
+		}
+		selected[index].Payload = optionalDigest(selected[index].Payload)
+		if selected[index].PublicPayload != nil {
+			public := optionalDigest(*selected[index].PublicPayload)
+			selected[index].PublicPayload = &public
+		}
+	}
+	return selected
 }
 
 func implementationConsequenceV34() WorkflowComposition {

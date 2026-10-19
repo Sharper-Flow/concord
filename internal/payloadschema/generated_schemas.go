@@ -16209,8 +16209,7 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "action_id",
         "idempotency_key",
-        "selected_choice",
-        "decision_context_digest"
+        "selected_choice"
       ],
       "type": "object"
     },

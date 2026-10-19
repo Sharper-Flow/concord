@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,12 +108,16 @@ func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
 }
 
 // stubbedDeliveryRunner answers the delivery probe without touching the
-// filesystem: the frontier subtests attribute the authorization frontier, and
-// the real Git behavior is the CLI tests' subject.
+// filesystem: the frontier subtests attribute the authorization frontier,
+// and the real Git behavior is the CLI tests' subject. The measured-delta
+// probe answers with an empty numstat, the clean zero-delta observation.
 type stubbedDeliveryRunner struct{}
 
 func (stubbedDeliveryRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
-	if len(args) > 0 && args[0] == "status" {
+	switch {
+	case len(args) > 0 && args[0] == "status":
+		return nil, nil
+	case slices.Contains(args, "--numstat"):
 		return nil, nil
 	}
 	return []byte(strings.Repeat("a", 40)), nil

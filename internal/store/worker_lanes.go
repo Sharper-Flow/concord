@@ -109,6 +109,17 @@ const (
 	workerFailedTerminalDeliveryVersion    = 3
 )
 
+// workerCompletedJobSizeVersion is the payload version at which
+// worker.completed may first carry the job's measured size surface: the
+// observed delivery's base and per-path counts when the dispatched job
+// records a measurement basis, and the report's production-size members. A
+// stored event whose recorded source version sits below the boundary cannot
+// carry those members: the store never observed or folded them when that
+// version was released, so any bytes that name them are fabricated size
+// content no store ever recorded. Historical payloads replay with no base or
+// counts, never invented ones.
+const workerCompletedJobSizeVersion = 8
+
 // workerFailedAttributionVersion and workerDispatchedAttributionVersion are
 // the payload versions at which each worker event kind may first carry the
 // typed failure_attribution block . A stored event whose recorded
@@ -412,14 +423,31 @@ type WorkerCompletedPayload struct {
 	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
 }
 
+// WorkerObservedPath is one observed path's measured delta between the
+// dispatched job's recorded base and the observed commit. Rename detection
+// stays off, so a rename is one deletion entry beside one addition entry.
+// Numstat's `-\t-` marks a binary path.
+type WorkerObservedPath struct {
+	Path    string `json:"path"`
+	Added   int64  `json:"added"`
+	Deleted int64  `json:"deleted"`
+	Binary  bool   `json:"binary,omitempty"`
+}
+
 // WorkerObservedDelivery is the closed core-owned delivery observation
 // State is clean or dirty only; dirty-but-reachable records
 // dirty and cannot qualify a review subject. There is no unavailable state:
 // a Git failure or deadline refuses the completion with zero effects
-// instead of recording an observation.
+// instead of recording an observation. When the completed attempt's
+// dispatched job records a measurement basis, Base is that recorded
+// base_commit and Paths carries the observed per-path counts; a dirty
+// observation records no paths and cannot establish a size, and a
+// basis-free job records neither member.
 type WorkerObservedDelivery struct {
-	Commit string `json:"commit"`
-	State  string `json:"state"`
+	Commit string               `json:"commit"`
+	State  string               `json:"state"`
+	Base   string               `json:"base,omitempty"`
+	Paths  []WorkerObservedPath `json:"paths,omitempty"`
 }
 
 var workerObservedDeliveryStates = map[string]bool{"clean": true, "dirty": true}
@@ -433,6 +461,28 @@ func validateWorkerObservedDelivery(delivery *WorkerObservedDelivery) error {
 	}
 	if !workerObservedDeliveryStates[delivery.State] {
 		return invalidWorkerPayload("worker.completed observed_delivery.state must be clean or dirty")
+	}
+	if delivery.Base != "" && !worktreeSHAPattern.MatchString(delivery.Base) {
+		return invalidWorkerPayload("worker.completed observed_delivery.base must be one raw commit OID")
+	}
+	if delivery.Base == "" && delivery.Paths != nil {
+		return invalidWorkerPayload("worker.completed observed_delivery paths require the dispatched job's recorded base_commit")
+	}
+	if delivery.State == "dirty" && delivery.Paths != nil {
+		return invalidWorkerPayload("worker.completed observed_delivery of a dirty tree records no paths")
+	}
+	seen := map[string]bool{}
+	for _, path := range delivery.Paths {
+		if path.Path == "" {
+			return invalidWorkerPayload("worker.completed observed_delivery carries a path entry with no path")
+		}
+		if path.Added < 0 || path.Deleted < 0 {
+			return invalidWorkerPayload("worker.completed observed_delivery path " + path.Path + " carries a negative count")
+		}
+		if seen[path.Path] {
+			return invalidWorkerPayload("worker.completed observed_delivery carries path " + path.Path + " twice")
+		}
+		seen[path.Path] = true
 	}
 	return nil
 }
@@ -1524,6 +1574,16 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if (payload.ConsumedContextFrontier != nil || payload.ObservedDelivery != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedTerminalDeliveryVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed consumed_context_frontier and observed_delivery are reserved for payload version >= 7", false, "record the terminal delivery identity on the current completion payload")
 	}
+	// The job's measured size surface is reserved for the size payload
+	// version: the observed delivery's base and per-path counts, and the
+	// report's production-size members beside them. A replayed event whose
+	// recorded source version sits below the boundary cannot carry those
+	// members — the store never observed a measured delta or folded a
+	// production-size report when that version was released, so any bytes
+	// that name them are fabricated size content no store ever recorded.
+	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the measured delta on the current completion payload")
+	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
 	}
@@ -2206,6 +2266,18 @@ func upcastWorkerCompletedV5(event Event) (Event, error) {
 // observation. Recorded history is never re-observed.
 func upcastWorkerCompletedV6(event Event) (Event, error) {
 	event.PayloadVersion = 7
+	return event, nil
+}
+
+// upcastWorkerCompletedV7 carries a v7 completion into the v8 payload that
+// may carry the job's measured size surface: the observed delivery's base
+// and per-path counts, and the report's production-size members beside
+// them. v7 payloads never carried either, so the upcast is the bytes
+// unchanged at the new version: a replayed completion stays the report the
+// store observed, with no fabricated base, no invented counts, and no
+// invented size report. Recorded history is never re-observed.
+func upcastWorkerCompletedV7(event Event) (Event, error) {
+	event.PayloadVersion = 8
 	return event, nil
 }
 

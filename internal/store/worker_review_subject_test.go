@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -639,10 +640,11 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 }
 
 // qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject and the tree is
-// clean. Every other git call — the declared-reading resolution's committed
-// proofs — runs against the real fixture repositories. A preparation over a
-// subject-less view probes nothing.
+// filesystem: HEAD is the work's qualified verify subject, the tree is
+// clean, and the measured-delta probe answers an empty numstat — the clean
+// zero-delta observation. Every other git call — the declared-reading
+// resolution's committed proofs — runs against the real fixture
+// repositories. A preparation over a subject-less view probes nothing.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -651,6 +653,9 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
 		return []byte(r.head), nil
+	}
+	if slices.Contains(args, "--numstat") {
+		return nil, nil
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
 }

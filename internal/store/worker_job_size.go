@@ -419,12 +419,14 @@ func latestWorkerJobSizeRevision(content map[WorkerJobBinding]workerJobSizeRevis
 // workerJobCorrectionStatesTx reports which of the work's jobs are in
 // correction (CD-0225 D1): each carries an implementation-lane attempt that
 // completed or failed since the job's last satisfied revision — or with no
-// satisfied revision at all. The read uses the queryer already
-// in hand and issues no nested query while rows are open.
-func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) (map[string]bool, error) {
+// satisfied revision at all. It also returns, per correction job, the
+// implementation attempt ids dispatched after that cutoff, so the
+// measured-paths union can join their sealed observations. The read uses the
+// queryer already in hand and issues no nested query while rows are open.
+func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) (map[string]bool, map[string][]string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.worker_job.job_id'), json_extract(payload,'$.attempt_id'), seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id') IS NOT NULL ORDER BY seq`, string(SubjectWorkItem), workID, WorkerDispatched)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the work's implementation dispatches", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the work's implementation dispatches", true, "retry once the event log is readable", err)
 	}
 	type dispatchRecord struct {
 		attempt string
@@ -436,38 +438,42 @@ func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) 
 		var seq int64
 		if err := rows.Scan(&jobID, &attemptID, &seq); err != nil {
 			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
+			return nil, nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
 		}
 		byJob[jobID] = append(byJob[jobID], dispatchRecord{attempt: attemptID, seq: seq})
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot close the implementation dispatch read", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot close the implementation dispatch read", true, "retry once the event log is readable", err)
 	}
 	corrections := map[string]bool{}
+	attempts := map[string][]string{}
 	for jobID, dispatches := range byJob {
 		cutoff, err := workerJobSatisfactionSeqTx(ctx, q, workID, jobID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, dispatch := range dispatches {
 			if dispatch.seq <= cutoff {
 				continue
 			}
-			terminal, err := workerAttemptTerminatedTx(ctx, q, workID, dispatch.attempt)
+			lifecycle, err := workerAttemptLifecycleTx(ctx, q, workID, dispatch.attempt)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
-			if terminal {
+			if lifecycle == "" {
+				continue
+			}
+			attempts[jobID] = append(attempts[jobID], dispatch.attempt)
+			if lifecycle == "completed" || lifecycle == "failed" {
 				corrections[jobID] = true
-				break
 			}
 		}
 	}
-	return corrections, nil
+	return corrections, attempts, nil
 }
 
 // workerJobSatisfactionSeqTx returns the highest event seq that satisfied a
@@ -481,29 +487,28 @@ func workerJobSatisfactionSeqTx(ctx context.Context, q queryer, workID, jobID st
 	return cutoff, nil
 }
 
-// workerAttemptTerminatedTx reports whether one attempt reached a terminal
-// state the correction rule counts: completed or failed in the
-// worker-attempt projection. A rejection disposes only a completed result,
-// so it adds no state.
-func workerAttemptTerminatedTx(ctx context.Context, q queryer, workID, attemptID string) (bool, error) {
+// workerAttemptLifecycleTx returns one attempt's lifecycle state, or the
+// empty string when no projection row exists for it.
+func workerAttemptLifecycleTx(ctx context.Context, q queryer, workID, attemptID string) (string, error) {
 	var lifecycle string
 	err := q.QueryRowContext(ctx, `SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&lifecycle)
 	switch {
 	case err == nil:
-		return lifecycle == "completed" || lifecycle == "failed", nil
+		return lifecycle, nil
 	case err == sql.ErrNoRows:
-		return false, nil
+		return "", nil
 	default:
-		return false, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the worker attempt state", true, "retry once the worker-attempt projection is readable", err)
+		return "", wrapFailure(KindUnavailable, "worker_job_size", "cannot read the worker attempt state", true, "retry once the worker-attempt projection is readable", err)
 	}
 }
 
 // workerJobCorrectionMeasuredTx returns the measured paths (CD-0225 D1) of
 // every job in correction, keyed by job_id: the inventory each job's latest
-// recorded revision declared. The recorded content is read once for all
-// jobs.
+// recorded revision declared, unioned with the sealed observed paths of the
+// job's earlier implementation attempts. The recorded content and the
+// observed paths each read once for all jobs — no per-job event scans.
 func workerJobCorrectionMeasuredTx(ctx context.Context, q queryer, workID string) (map[string][]string, error) {
-	corrections, err := workerJobCorrectionStatesTx(ctx, q, workID)
+	corrections, attempts, err := workerJobCorrectionStatesTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -515,16 +520,68 @@ func workerJobCorrectionMeasuredTx(ctx context.Context, q queryer, workID string
 	if err != nil {
 		return nil, err
 	}
+	observed, err := workerAttemptObservedPathsTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
 	for jobID := range corrections {
 		paths := []string{}
+		seen := map[string]bool{}
 		if latest := latestWorkerJobSizeRevision(content, jobID); latest != nil && latest.basis != nil {
 			for _, path := range latest.basis.Paths {
-				paths = append(paths, path.Path)
+				if !seen[path.Path] {
+					seen[path.Path] = true
+					paths = append(paths, path.Path)
+				}
 			}
 		}
+		for _, attemptID := range attempts[jobID] {
+			for _, path := range observed[attemptID] {
+				if !seen[path] {
+					seen[path] = true
+					paths = append(paths, path)
+				}
+			}
+		}
+		slices.Sort(paths)
 		measured[jobID] = paths
 	}
 	return measured, nil
+}
+
+// workerAttemptObservedPathsTx reads, in one scan, the sealed observed paths
+// every completed attempt of the work carries on its terminal event, keyed
+// by attempt id. Paths are core-observed numstat output: the store's own
+// delivery observation sealed them, never a caller's claim.
+func workerAttemptObservedPathsTx(ctx context.Context, q queryer, workID string) (map[string][]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.attempt_id'), json_extract(payload,'$.observed_delivery.paths') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.observed_delivery.paths') IS NOT NULL`, string(SubjectWorkItem), workID, WorkerCompleted)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot read the completed attempts' observed paths", true, "retry once the event log is readable", err)
+	}
+	defer rows.Close()
+	observed := map[string][]string{}
+	for rows.Next() {
+		var attemptID string
+		var rawPaths string
+		if err := rows.Scan(&attemptID, &rawPaths); err != nil {
+			return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the completed attempts' observed paths", true, "retry once the event log is readable", err)
+		}
+		var paths []WorkerObservedPath
+		if err := json.Unmarshal([]byte(rawPaths), &paths); err != nil {
+			return nil, newFailure(KindInvariantViolation, "worker_job_size", "a completed attempt carries observed paths that are not one closed path list", false, "rebuild the worker events from the authoritative log")
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		observed[attemptID] = make([]string, 0, len(paths))
+		for _, path := range paths {
+			observed[attemptID] = append(observed[attemptID], path.Path)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job_size", "cannot scan the completed attempts' observed paths", true, "retry once the event log is readable", err)
+	}
+	return observed, nil
 }
 
 // workerJobCorrectionExclusions returns the measured paths of the jobs in

@@ -11564,8 +11564,17 @@ const GeneratedPayloadSchemaDocument = `{
       "oneOf": [
         {
           "not": {
-            "required": [
-              "external"
+            "anyOf": [
+              {
+                "required": [
+                  "external"
+                ]
+              },
+              {
+                "required": [
+                  "conflict"
+                ]
+              }
             ]
           },
           "required": [
@@ -11574,18 +11583,67 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "not": {
-            "required": [
-              "statement"
+            "anyOf": [
+              {
+                "required": [
+                  "statement"
+                ]
+              },
+              {
+                "required": [
+                  "conflict"
+                ]
+              }
             ]
           },
           "required": [
             "external"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "statement"
+                ]
+              },
+              {
+                "required": [
+                  "external"
+                ]
+              }
+            ]
+          },
+          "required": [
+            "conflict"
           ]
         }
       ],
       "properties": {
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "conflict": {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "rule_id": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule_id",
+            "outcome"
+          ],
+          "type": "object"
         },
         "external": {
           "additionalProperties": false,
@@ -12091,6 +12149,64 @@ const GeneratedPayloadSchemaDocument = `{
               "attempt_id": {
                 "minLength": 1,
                 "type": "string"
+              },
+              "conflict_application": {
+                "additionalProperties": false,
+                "properties": {
+                  "catalog_generation": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "model_version": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "outcome": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "rule_id": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+                    "type": "string"
+                  },
+                  "rule_source_hash": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "settlement_ref": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 256
+                  },
+                  "size": {
+                    "enum": [
+                      "small",
+                      "larger",
+                      "crucial"
+                    ],
+                    "type": "string"
+                  },
+                  "size_assessment_sequence": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "rule_id",
+                  "rule_source_hash",
+                  "catalog_generation",
+                  "size_assessment_sequence",
+                  "model_version",
+                  "size",
+                  "outcome",
+                  "settlement_ref"
+                ],
+                "type": "object"
               },
               "contract_version": {
                 "$ref": "#/$defs/version"

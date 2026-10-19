@@ -1664,6 +1664,9 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		if e.PreviousContractVersion != nil {
 			event["previous_contract_version"] = *e.PreviousContractVersion
 		}
+		if e.ConflictApplication != nil {
+			event["conflict_application"] = e.ConflictApplication
+		}
 		events = append(events, event)
 	}
 	payload := map[string]any{"events": events}

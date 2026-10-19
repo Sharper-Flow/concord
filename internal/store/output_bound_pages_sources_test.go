@@ -1225,6 +1225,12 @@ func init() {
 	// store fold guards the count; the workflow action input admission bounds
 	// the agent surface only, and the correction paths append input unions.
 	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/evidence/maxItems", unboundedOutput("internal/store/query.go:decodeTimelineEvent copies the payload evidence_refs verbatim and no store fold guards the count; the correction record path appends field unions (internal/store/workflow_correction.go), so the stored evidence list is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
+	// decodeTimelineEvent refuses a conflict application that fails the frozen
+	// v1 validator, so its byte guards bound the history output.
+	for _, unit := range []string{"maxLength", "x-maxBytes"} {
+		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/outcome/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.Outcome)", boundBytes))
+		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/settlement_ref/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.SettlementRef)", boundBytes))
+	}
 	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/occurred_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_event_page/properties/events/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 

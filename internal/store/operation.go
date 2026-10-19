@@ -180,8 +180,8 @@ func decodeRegisteredPayload(event Event, target any) error {
 	return nil
 }
 
-// eventKindRegistry is the one registry used by live application, rebuild, and
-// point-in-time reconstruction. Keeping version and fold metadata together
+// eventKindRegistry is the one registry used by live application and
+// rebuild. Keeping version and fold metadata together
 // prevents a reader from accidentally accepting a version that its fold cannot
 // decode.
 var eventKindRegistry = map[string]EventKindRegistration{
@@ -322,14 +322,6 @@ func validateEventKindRegistry(registry map[string]EventKindRegistration) error 
 		}
 	}
 	return nil
-}
-
-func upcastEvent(event Event) (Event, error) {
-	registration, ok := registeredEventKind(event.Kind)
-	if !ok {
-		return Event{}, unknownEventKind(event.Kind)
-	}
-	return upcastEventWithRegistration(event, registration)
 }
 
 func upcastEventWithRegistration(event Event, registration EventKindRegistration) (Event, error) {

@@ -308,13 +308,6 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
-	before, err := store.ReconstructSubjectAt(ctx, r.Store, store.SubjectRef{Type: store.SubjectWorkItem, ID: "work-1"}, watermark, store.PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if workflowReplayIndex(t, r.Store) != indexBefore {
-		t.Fatal("reconstruction modified replay index")
-	}
 	if err := store.RebuildFromLog(ctx, r.Store); err != nil {
 		t.Fatal(err)
 	}
@@ -346,10 +339,6 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	ownerAfter, err := store.Step(ctx, restored, ownerID)
 	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
 		t.Fatalf("durable owner changed: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
-	}
-	after, err := store.ReconstructSubjectAt(ctx, restored, store.SubjectRef{Type: store.SubjectWorkItem, ID: "work-1"}, watermark, store.PurposeAudit)
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("reconstruction changed after recovery: before=%+v after=%+v err=%v", before, after, err)
 	}
 	assertWorkflowReplayIdentity(t, r, grant, raw, first)
 }

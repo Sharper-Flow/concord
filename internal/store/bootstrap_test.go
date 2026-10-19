@@ -1011,11 +1011,7 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		t.Fatal("the reopen and the later reclaim must not touch the first incarnation's recorded reclaim row")
 	}
 
-	var maxSeq int64
-	if err := s.db.QueryRow(`SELECT max(seq) FROM domain_events`).Scan(&maxSeq); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, first.WorkID), maxSeq, PurposeAudit); err != nil {
+	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("replay of the reopened claim history: %v", err)
 	}
 }

@@ -405,8 +405,8 @@ lease and its streams; worktree reclamation alone does not erase access.
 It then replays the retained event log through the same upcasters and fold
 handlers. A poison event quarantines the affected subject sub-log and leaves its
 last known-good state explicitly degraded; it never deletes history. The live and
-rebuilt byte representations must match. `ReconstructSubjectAt(work_id, seq)`
-uses the same fold over the prefix through `seq` and is read-only.
+rebuilt byte representations must match. The core has no point-in-time
+reconstruction (CD-0238); a restored log prefix rebuilds through the same fold.
 
 ## 6. Outcome evaluation and strength
 

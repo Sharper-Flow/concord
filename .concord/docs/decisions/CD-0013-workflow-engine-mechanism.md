@@ -21,8 +21,11 @@ amends D9 (operator approval only for serious law changes);
 external conditions bullet and acceptance criterion 26 (no external-condition
 resolver); [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
 amends D4's strength comparison paragraph (the independent verdict is the outcome
-strength evaluation); and [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
-outcome-contract acceptance criterion 3 (vacuity is judged at review).
+strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
+outcome-contract acceptance criterion 3 (vacuity is judged at review); and
+[CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
+`ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
+reconstruction runs outside the core).
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
 version, negotiation, migration, and deprecation requirements described in D11.
@@ -470,9 +473,8 @@ The workflow projections join the existing rebuild path, `RebuildFromLog(ctx, st
 in `internal/store/operation.go`. Every workflow projection table is added to the set
 that rebuild clears before replay, and every new event family gains a fold handler, so
 a rebuilt database matches the live write path byte-for-byte.
-`ReconstructSubjectAt(ctx, store, subject, asOfSeq, purpose)` in
-`internal/store/reconstruction.go` reconstructs one work item's workflow state at any
-past event sequence for diagnosis (CD-0008 D6).
+The core has no point-in-time reconstruction (CD-0238). A restored prefix of the
+retained log rebuilds through the same path.
 
 Active research remains the only state permitted to survive rebuild through byte-equal
 snapshot and restore rather than replay, because CD-0215 makes it direct-table working
@@ -572,8 +574,8 @@ The implementation acceptance suite must exercise:
 
 35. Rebuilding the workflow projections from the event log produces the same state
     byte-for-byte as the live write path.
-36. `ReconstructSubjectAt(work_id, sequence)` reconstructs a workflow's past
-    state for diagnosis.
+36. A restored prefix of the retained log, rebuilt, yields the workflow state
+    recorded at that sequence (CD-0238).
 
 ### Workflow_action surface
 

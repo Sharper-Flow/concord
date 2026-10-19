@@ -472,10 +472,6 @@
     {
      "kind": "scenario",
      "value": "WF35-rebuild-byte-equal"
-    },
-    {
-     "kind": "scenario",
-     "value": "WF36-point-in-time-reconstruction"
     }
    ]
   },

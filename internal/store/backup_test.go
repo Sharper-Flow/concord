@@ -713,43 +713,6 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		t.Fatalf("rebuilt view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 
-	// As-of reads return the same history on the source and the rebuilt
-	// restored store: the full watermark folds the live subject identity,
-	// and a mid-log watermark folds the state as of the definition pin.
-	full, err := ReconstructSubjectAt(ctx, restored, VersionRef(SubjectWorkItem, workID), watermark, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceFull, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, workID), watermark, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if full.AsOfSeq != watermark || full.Work == nil || full.Work.ID != workID {
-		t.Fatalf("as-of snapshot = %+v, want the work subject at the full watermark", full)
-	}
-	if !reflect.DeepEqual(full.Work, sourceFull.Work) {
-		t.Fatalf("as-of work = %+v, want the source as-of work %+v", full.Work, sourceFull.Work)
-	}
-	var pinSeq int64
-	if err := restored.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE kind=? AND subject_id=? ORDER BY seq LIMIT 1`, WorkflowDefinitionSelected, workID).Scan(&pinSeq); err != nil {
-		t.Fatal(err)
-	}
-	early, err := ReconstructSubjectAt(ctx, restored, VersionRef(SubjectWorkItem, workID), pinSeq, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceEarly, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, workID), pinSeq, PurposeAudit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if early.Work == nil || pinSeq >= watermark || early.Work.UpdatedAt == full.Work.UpdatedAt {
-		t.Fatalf("mid-log as-of work = %+v against full %+v, want a distinct earlier event frontier", early.Work, full.Work)
-	}
-	if !reflect.DeepEqual(early.Work, sourceEarly.Work) {
-		t.Fatalf("mid-log as-of work = %+v, want the source as-of work %+v", early.Work, sourceEarly.Work)
-	}
-	compareFingerprints("after as-of reads", restored.DatabaseForTesting())
-
 	// The preservation boundary: terminate every consumer legally, retire the
 	// pack through the explicit retirement route, and prove the retained
 	// selection reads typed missing while a further rebuild replays the

@@ -23,8 +23,7 @@ type readNeighborCase struct {
 	// kind fails the case.
 	absent FailureKind
 	// scratch marks reads whose remaining completion cost is an independent
-	// scratch artifact: Reconstruction migrates a separate scratch database
-	// and Backup writes a scratch snapshot file. The live read still precedes
+	// scratch artifact: Backup writes a scratch snapshot file. The live read still precedes
 	// a writer release; the wall-clock budget covers only the live read, so
 	// the scratch tail is exempt from it.
 	scratch bool
@@ -710,10 +709,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 
 		// Snapshot and launcher reads.
 		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path(), nil); return err }},
-		{name: "ReconstructSubjectAt", scratch: true, run: func() error {
-			_, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, "blocker"), watermark, PurposeAudit)
-			return err
-		}},
 		{name: "Backup", scratch: true, run: func() error {
 			// The destination persists across modes; each run needs a clean
 			// scratch path, which the entry point refuses to overwrite.

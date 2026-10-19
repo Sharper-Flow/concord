@@ -11,6 +11,7 @@
 > - [`../compaction-retention-policy.md`](../compaction-retention-policy.md) (2026-10-09) fixes bounded lazy projection pruning while retaining `domain_events`.
 > - [`CD-0215-retained-research-context.md`](./CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](./CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
+> - [`CD-0238-point-in-time-reconstruction-runs-outside-the-core.md`](./CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) (2026-10-18) moves point-in-time reconstruction out of the core, onto the operator's machine.
 > **Decided:** 2026-08-05 (operator decision D1, reopened under the simplicity mandate).
 > **Confirmed by operator:** 2026-08-05, as the *revised* set following stack re-validation (see §2a). The re-validation reversed an earlier single-writer-daemon recommendation to library-in-process.
 > **Resolves:** [`../core-architecture.md`](../core-architecture.md) §2; [`../design-constraints.md`](../design-constraints.md) research backlog #8; [`../clarifications.md`](../clarifications.md) C2.
@@ -345,8 +346,8 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
 - **Migrations / schema evolution — resolved by CD-0008 D6 (2026-08-06):** typed,
   ordered, deterministic upcasters; independently versioned projections; complete
   replay tests; fail-closed newer-than-supported events; pinned active workflow
-  versions; point-in-time reconstruction; and snapshots only after a measured replay
-  falsifier.
+  versions; and snapshots only after a measured replay falsifier. CD-0238 moves
+  point-in-time reconstruction out of the core.
 
 **Now closed by CD-0003 + PM3 (2026-08-05):** invocation boundary (short-lived
 CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), generic event authority, and explicit

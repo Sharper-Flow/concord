@@ -292,7 +292,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "takeover_attempt": {"payload", "operation_id", "current_claim"},
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
-        "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},
+        "rebuild": {"payload", "event_stream"},
         "start_execution": {"payload"}, "workflow_action": {"payload"}, "record_delivery": {"payload"},
         "concurrent_reads_and_writes": {"payload"}, "repair_and_rebuild": {"payload", "event_stream"},
         "replay": {"payload", "event_stream"},
@@ -564,8 +564,8 @@ def check_workflow_contracts() -> list[str]:
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         # Numbers run 1..57; a retired number is never reused. 3 and 52 were
-        # retired with CD-0236.
-        retired_numbers = {3, 52}
+        # retired with CD-0236, 36 with CD-0238.
+        retired_numbers = {3, 36, 52}
         expected_numbers = [number for number in range(1, 58) if number not in retired_numbers]
         if len(scenarios) != len(expected_numbers):
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected {len(expected_numbers)} scenarios, got {len(scenarios)}")

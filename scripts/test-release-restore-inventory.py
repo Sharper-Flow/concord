@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the release restore inventory (scripts/release-restore-inventory.go).
+"""Tests for the release restore inventory (scripts/release-restore-inventory/).
 
 The real generator runs as a subprocess against a synthetic Git repository
 whose tags carry each registry form the released history uses:
@@ -35,7 +35,7 @@ import git_environment
 git_environment.scrub_inherited()
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATOR = "scripts/release-restore-inventory.go"
+GENERATOR = "./scripts/release-restore-inventory"
 UNTYPED = "registry entries name no payload type (form A); accepted named exclusion from shape coverage"
 
 GO_MOD = "module example.com/fixture\n\ngo 1.26\n"
@@ -260,7 +260,7 @@ class InventoryTest(unittest.TestCase):
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
         self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v0.40.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
-        self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
+        self.assertEqual(self.first["generator"], "go run ./scripts/release-restore-inventory")
 
     def test_annotated_tag_keeps_tag_object_and_peeled_commit(self) -> None:
         row = self.rows()["v1.0.0"]

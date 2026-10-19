@@ -1159,6 +1159,13 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) && p.DecisionDomains == nil {
 		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
 	}
+	tracksLawChange := workflowApprovalPolicyRequiresDecisionFact(registered.Definition) && workflowContractChangesLaw(p.LawModifies, p.ArchitectureBinding)
+	if p.LawChange != nil && !tracksLawChange {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change is recorded only on a consequence_v1 contract that changes law", false, "omit law_change")
+	}
+	if p.LawChange == nil && tracksLawChange && (event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion >= workflowContractLawChangePayloadVersion) {
+		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
+	}
 	if p.LawChange != nil {
 		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractLawChangePayloadVersion {
 			return newFailure(KindInvalidPayload, "fold_event", "law_change on a payload recorded before the law-change boundary is authored bytes no store ever recorded", false, "replay the recorded contract without law_change")

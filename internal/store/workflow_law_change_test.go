@@ -600,6 +600,44 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 		"spec_mandate": []string{"law-agent"}, "law_modifies": []string{"law-agent"}, "law_revisions": lawChangePins("law-agent"), "law_boundary_version": 1,
 		"decision_domains": []string{}, "law_change": change,
 	})
+	for _, vector := range []struct {
+		name        string
+		source      int
+		omit        bool
+		wantFailure bool
+	}{
+		{name: "current source cannot omit law change", source: 6, omit: true, wantFailure: true},
+		{name: "old source cannot forge law change", source: 5, wantFailure: true},
+		{name: "old source retains historical absence", source: 5, omit: true},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			candidate := event
+			candidate.replaySourcePayloadVersion = vector.source
+			if vector.omit {
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(candidate.Payload, &fields); err != nil {
+					t.Fatal(err)
+				}
+				delete(fields, "law_change")
+				candidate.Payload = mustJSONValue(fields)
+			}
+			tx := lawChangeTx(t, s)
+			scope, err := beginFold(context.Background(), tx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := scope.bindRegistry(tx, registry); err != nil {
+				t.Fatal(err)
+			}
+			err = foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, candidate, scope)
+			_ = tx.Rollback()
+			if vector.wantFailure {
+				requireFailureKind(t, err, KindInvalidPayload, vector.name)
+			} else if err != nil {
+				t.Fatalf("historical absence refused: %v", err)
+			}
+		})
+	}
 	// No mutable approval row exists. The live fold must refuse; replay uses
 	// the proof recorded at the original live admission instead.
 	tx := lawChangeTx(t, s)

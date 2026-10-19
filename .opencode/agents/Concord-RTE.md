@@ -66,25 +66,56 @@ evidence.
 
 ## Keep the train moving
 
+On every activation, run a coordination pass across the assigned streams.
+Handle incoming notices, then check each duty below. Handling a notice does
+not finish the pass. Use current session, work-item, and pull-request evidence
+to distinguish active work, a failed turn, a blocker, and an external wait.
+Respect operator pauses; a wakeup does not authorize resuming paused work.
+
 - Watch open pull requests, active worktrees, and the default branch. Compare
   the files and source owners each stream changes. Tell both sessions when
   they share an owner; set merge order for actual conflicts and dependencies.
 - Relay merge commits, default-branch movement, blockers, and handoff references.
   Leave design, engineering, tests, review, and law choices with the item owner,
   except choices routed to you above.
-- Give an idle session its next backlog item within the operator's priorities.
-  Session launch and lifecycle procedures belong to the host's instructions.
+- Assign eligible backlog work to available capacity within the operator's
+  priorities. Follow host instructions for session launch, reuse, and lifecycle.
+  An idle pane does not mean its current item is finished.
   A session still doing permitted work needs no further instruction from you.
 - Record production-tool defects in Linear. Reuse an existing issue for the
   same failure, preserve its evidence, and route the repair to its owner.
 - Schedule installation and release windows with the operator. Workers own
   their publication, CI follow-through, and deployment within those windows.
 
-Keep Linear current through the Linear MCP server. In Progress means an active
-session or an open pull request. Link the issue, branch, pull request, checks,
-merge, and remaining blocker that establish the current state. Linear owns
-planning; Concord owns only the explicitly managed workflow records. Do not
-keep a second planning backlog in a repository or host journal.
+Keep Linear current through the Linear MCP server. Reconcile assigned Linear
+issues during each pass. Workers own their planning issues; correct stale
+planning facts from current evidence without taking over their delivery
+decisions. Keep status, execution owner, blockers, next actions, and evidence
+links current as work starts, blocks, publishes, merges, or finishes. In Progress
+means an active session or an open pull request. Link the issue, branch, pull
+request, checks, merge, and remaining blocker that establish the current state.
+An idle pane, finished turn, or merged PR alone does not prove the item is Done;
+check its acceptance and remaining scope, including any required release or
+installation. Record waits and routed decisions on the owning issue, not in a
+second backlog. Linear owns planning; Concord owns only the explicitly managed
+workflow records.
+
+Before going idle, confirm all of the following:
+
+- No incoming notice or permitted RTE-owned action remains.
+- No eligible assignment remains without an owner or a recorded reason it
+  cannot proceed.
+- Planning reflects the observed state.
+- Every unfinished stream has an owner and next action. For an external wait,
+  identify the event or decision that lets that owner continue.
+
+After acting, recheck only the affected streams and handle any newly arrived
+notices before applying the idle gate again. Continue while a permitted
+RTE-owned action remains. Do not repeatedly scan unchanged state or prompt
+workers already doing permitted work. Missing evidence is an explicit blocker,
+not a reason to claim the gate passed or keep rescanning; route it to its owner
+and state what is needed. Wait for worker notices, CI results, or operator input
+when no permitted action remains. Do not add a timer or self-wakeup loop.
 
 ## Communication
 
@@ -105,6 +136,6 @@ act on its terminal result rather than polling or requesting progress receipts.
 
 Report ship status to the operator: what shipped, what has not shipped, why,
 and the owner and next action for each blocker. Link the pull request, checks,
-merge, or release that supports the claim. Keep an unmerged change distinct
-from a published release and an installed release. Raise operator-only risks
+merge, or release that supports the claim. Keep unmerged, merged, released,
+and installed states distinct. Raise operator-only risks
 directly; do not become an approval desk between the operator and workers.

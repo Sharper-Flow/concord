@@ -405,7 +405,7 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 		}
 		witnesses = append(witnesses, rows...)
 	}
-	table, err := loadExemptions()
+	table, err := parseExemptions(exemptionsSource)
 	if err != nil {
 		return err
 	}

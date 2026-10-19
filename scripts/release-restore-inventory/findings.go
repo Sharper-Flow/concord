@@ -4,7 +4,9 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 )
 
@@ -43,11 +45,8 @@ type exemptionTable struct {
 	digest  string
 }
 
-// loadExemptions reads the embedded table.
-func loadExemptions() (exemptionTable, error) { return parseExemptions(exemptionsSource) }
-
 // parseExemptions refuses the whole table for an unknown field or class, a
-// missing key, identity, or check record, or a repeated identity.
+// missing key, identity, or check record, or a repeated identity or key.
 func parseExemptions(data []byte) (exemptionTable, error) {
 	var table exemptionTable
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -55,7 +54,7 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	if err := decoder.Decode(&table); err != nil {
 		return table, fmt.Errorf("exemption table: %w", err)
 	}
-	if decoder.More() {
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return table, fmt.Errorf("exemption table: data after the table")
 	}
 	if table.Schema != exemptionsSchema {
@@ -69,10 +68,11 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 		if slices.Contains([]string{e.ID, e.Function, e.Expression, e.FunctionDigest, e.Check}, "") {
 			return table, fmt.Errorf("exemption %q lacks a key, its identity, or its check record", e.ID)
 		}
-		if seen[e.ID] {
+		key := e.Function + "\x00" + e.Expression + "\x00" + e.FunctionDigest
+		if seen[e.ID] || seen[key] {
 			return table, fmt.Errorf("exemption %q is repeated", e.ID)
 		}
-		seen[e.ID] = true
+		seen[e.ID], seen[key] = true, true
 	}
 	table.digest = digest(data)
 	return table, nil

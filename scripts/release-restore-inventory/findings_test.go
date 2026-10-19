@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -37,8 +37,8 @@ func findingTable(t *testing.T) exemptionTable {
 		t.Fatal(err)
 	}
 	table, err := parseExemptions(data)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || table.digest != digest(data) {
+		t.Fatalf("table digest %q: %v", table.digest, err)
 	}
 	return table
 }
@@ -74,7 +74,6 @@ func TestDriftLeavesTheSiteHeld(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			analysis := findingAnalysis()
-			analysis.Open = slices.Clone(analysis.Open)
 			edit(&analysis.Open[0])
 			if f := finding(t, analysis, findingTable(t)); len(f.Exempted) != 0 || !reflect.DeepEqual(f.Held, analysis.Open) {
 				t.Fatalf("held %+v exempted %+v", f.Held, f.Exempted)
@@ -99,15 +98,16 @@ func TestRefusedOrMissingAnalysisIsRecorded(t *testing.T) {
 func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 	const entry = `{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}`
 	for name, data := range map[string]string{
-		"unknown class":   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"other","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
-		"missing key":     `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","check":"c"}]}`,
-		"missing check":   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d"}]}`,
-		"missing id":      `{"schema":"concord.release-writer-exemptions.v1","entries":[{"class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
-		"repeated id":     `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + entry + `]}`,
-		"unknown field":   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c","note":"n"}]}`,
-		"wrong schema":    `{"schema":"other","entries":[]}`,
-		"data after":      `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
-		"valid then more": `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `]}{"schema":"x"}`,
+		"unknown class": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"other","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
+		"missing key":   `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","check":"c"}]}`,
+		"missing check": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d"}]}`,
+		"missing id":    `{"schema":"concord.release-writer-exemptions.v1","entries":[{"class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c"}]}`,
+		"repeated id":   `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + entry + `]}`,
+		"unknown field": `{"schema":"concord.release-writer-exemptions.v1","entries":[{"id":"x","class":"read_back","function":"f","expression":"e","function_digest":"d","check":"c","note":"n"}]}`,
+		"wrong schema":  `{"schema":"other","entries":[]}`,
+		"data after":    `{"schema":"concord.release-writer-exemptions.v1","entries":[]} {}`,
+		"closing after": `{"schema":"concord.release-writer-exemptions.v1","entries":[]}}`,
+		"repeated key":  `{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `,` + strings.Replace(entry, `"x"`, `"y"`, 1) + `]}`,
 	} {
 		if _, err := parseExemptions([]byte(data)); err == nil {
 			t.Errorf("%s: table admitted", name)
@@ -116,7 +116,7 @@ func TestExemptionTableRefusesMalformedEntries(t *testing.T) {
 	if _, err := parseExemptions([]byte(`{"schema":"concord.release-writer-exemptions.v1","entries":[` + entry + `]}`)); err != nil {
 		t.Fatalf("a valid table: %v", err)
 	}
-	if _, err := loadExemptions(); err != nil {
+	if _, err := parseExemptions(exemptionsSource); err != nil {
 		t.Fatalf("the committed table: %v", err)
 	}
 }

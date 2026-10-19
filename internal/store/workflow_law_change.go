@@ -18,10 +18,11 @@ import (
 // from recorded state and writes them into the event, so replay never re-reads
 // the live law projection.
 //
-// The before-state belongs to the work item, not to one contract version. The
-// item's first law-change approval snapshots the Domain registry, and the
-// first approval that names a law snapshots that law; every successor carries
-// both. A law is changed only when it differs from its before-state. LawIDs
+// The before-state belongs to the work item, not to one contract version. On
+// a Product-changing definition the item's first law-change approval snapshots
+// the Domain registry; any other definition edits no registry and records no
+// registry before-state. The first approval that names a law snapshots that
+// law. Every successor carries both. A law is changed only when it differs from its before-state. LawIDs
 // holds the laws the contract declares and every other law the item changed,
 // so a successor drops a declared law only while that law is unchanged.
 // Seriousness carries forward once the item has made a change. A serious
@@ -197,7 +198,8 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 		RemovesUserVisibleBehavior: workflowFieldBool(fields, workflowLawChangeBehaviorField),
 		TouchesSecurityOrDataSafe:  workflowFieldBool(fields, workflowLawChangeSecurityField),
 	}
-	if err := deriveWorkflowLawChangeCountTx(ctx, q, workID, change, baseline, lawModifies, binding); err != nil {
+	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
+	if err := deriveWorkflowLawChangeCountTx(ctx, q, workID, change, baseline, lawModifies, binding, productChanging); err != nil {
 		return nil, err
 	}
 	change.Serious = workflowLawChangeSerious(change, decisionDomains)
@@ -213,10 +215,11 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 
 // deriveWorkflowLawChangeCountTx fills the derived facts of one law change
 // from the item's baseline and current state: the before-states (inherited,
-// or snapshot now for the item's first approval and each newly named law),
-// the laws declared or changed, whether the item edits the registry, the
-// counted child Domains, the size, and the inherited seriousness.
-func deriveWorkflowLawChangeCountTx(ctx context.Context, q queryer, workID string, change, baseline *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding) error {
+// or snapshot now for each newly named law and, on a Product-changing
+// definition, the registry at the item's first approval), the laws declared or
+// changed, whether the item edits the registry, the counted child Domains, the
+// size, and the inherited seriousness.
+func deriveWorkflowLawChangeCountTx(ctx context.Context, q queryer, workID string, change, baseline *WorkflowLawChange, lawModifies []string, binding *WorkflowArchitectureBinding, productChanging bool) error {
 	declared := workflowChangedLawIDs(lawModifies, binding)
 	before := map[string]workflowLawState{}
 	if baseline != nil {
@@ -238,7 +241,7 @@ func deriveWorkflowLawChangeCountTx(ctx context.Context, q queryer, workID strin
 			before[lawID] = states[lawID]
 		}
 	}
-	if change.RegistryBefore == nil {
+	if productChanging && change.RegistryBefore == nil {
 		if change.RegistryBefore, err = readWorkflowLawRegistrySnapshot(ctx, q, workID); err != nil {
 			return err
 		}
@@ -515,8 +518,9 @@ func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID,
 }
 
 // validateWorkflowLawChangeShape holds a recorded fact to its closed form. It
-// reads nothing, so replay folds recorded bytes under it.
-func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding) error {
+// reads nothing, so replay folds recorded bytes under it. productChanging is
+// the pinned definition's Product-changing flag.
+func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, lawModifies []string, binding *WorkflowArchitectureBinding, productChanging bool) error {
 	if strings.TrimSpace(change.Reason) == "" || len(change.Reason) > workflowLawChangeReasonMaxBytes {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change reason must be 1 to 1024 bytes", false, "record why the law changes")
 	}
@@ -554,8 +558,8 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 			return newFailure(KindInvalidPayload, "fold_event", "law_change records no before-state for "+lawID, false, "record the before-state of every counted law")
 		}
 	}
-	if len(change.LawBefore) == 0 && !change.EditsRegistry {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change records no law and no registry edit", false, "omit law_change on a contract whose item changes no law")
+	if len(change.LawBefore) == 0 && change.RegistryBefore == nil {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change records no law and no registry before-state", false, "omit law_change on a contract whose item changes no law")
 	}
 	if change.Serious != workflowLawChangeSerious(change, decisionDomains) {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change seriousness does not follow its recorded facts", false, "record the derived seriousness")
@@ -563,10 +567,13 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 	if workflowContractEditsRegistry(binding) && !change.EditsRegistry {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change edits_registry omits the contract's declared registry edit", false, "record the derived registry edit")
 	}
-	if change.RegistryBefore == nil {
+	if !productChanging {
+		if change.RegistryBefore != nil || change.EditsRegistry {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change on a definition that does not change Product truth records no registry before-state and no registry edit", false, "omit the registry facts")
+		}
+	} else if change.RegistryBefore == nil {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change must record the registry before-state of the item's first law-change approval", false, "derive the registry before-state from the Product projection")
-	}
-	if err := validateWorkflowLawRegistrySnapshot(change.RegistryBefore); err != nil {
+	} else if err := validateWorkflowLawRegistrySnapshot(change.RegistryBefore); err != nil {
 		return err
 	}
 	if err := validateWorkflowLawChangePins(change, "fold_event"); err != nil {
@@ -579,7 +586,7 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 // baseline and current state at a live fold and refuses a recorded fact that
 // differs, so no writer can lower the count the core derives or drop a change
 // a predecessor recorded. Replay folds recorded bytes instead.
-func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload) error {
+func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload, productChanging bool) error {
 	baseline, err := readWorkflowLawChangeBaselineTx(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -591,7 +598,7 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 		return nil
 	}
 	expected := WorkflowLawChange{}
-	if err := deriveWorkflowLawChangeCountTx(ctx, tx, workID, &expected, baseline, p.LawModifies, p.ArchitectureBinding); err != nil {
+	if err := deriveWorkflowLawChangeCountTx(ctx, tx, workID, &expected, baseline, p.LawModifies, p.ArchitectureBinding, productChanging); err != nil {
 		return err
 	}
 	recorded := p.LawChange
@@ -616,9 +623,10 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, workID str
 
 // checkWorkflowLawChangeEnactmentTx is the completion half of CD-0230 D4.
 // Every enacted difference from the item's before-state must lie inside the
-// active contract: each changed law is in LawIDs, and each changed registry
-// Domain is one the contract's binding declares. No merged edit of another
-// item is excluded, because nothing records which item made it. A serious
+// active contract: each changed law is in LawIDs, and on a Product-changing
+// definition each changed registry Domain is one the contract's binding
+// declares. No merged edit of another item is excluded, because nothing
+// records which item made it. A serious
 // change must then enact exactly the text the operator approved. A
 // non-serious change must still be non-serious once enacted: the work is not
 // crucial, the child Domains the counted laws hold now, joined with those
@@ -687,7 +695,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision")
 		}
 		if resolution.tier != "derived" {
-			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s changed without the operator's approval of its exact text must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")
+			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s, counted in a law change without the operator's approval of its exact text, must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")
 		}
 	}
 	return nil

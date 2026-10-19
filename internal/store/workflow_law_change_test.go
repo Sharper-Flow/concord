@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -89,7 +90,14 @@ func lawChangeDomains(t *testing.T, s *Store, workID string, laws []string, bind
 	return domains
 }
 
-var lawChangeV1 = WorkflowDefinition{Ref: "workflow.law-change-test", Version: 1, ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1}
+// lawChangeV1 is a Product-changing consequence_v1 definition: its contracts
+// carry an architecture binding and its law changes snapshot the registry.
+// lawChangeV1Generic changes no Product truth, so its contracts carry no
+// binding and its law changes record no registry before-state.
+var (
+	lawChangeV1        = WorkflowDefinition{Ref: "workflow.law-change-test", Version: 1, ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(true)}
+	lawChangeV1Generic = WorkflowDefinition{Ref: "workflow.law-change-generic-test", Version: 1, ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(false)}
+)
 
 func lawChangeFields(t *testing.T, values map[string]any) map[string]json.RawMessage {
 	t.Helper()
@@ -148,12 +156,12 @@ func deriveLawChange(t *testing.T, s *Store, workID string, definition WorkflowD
 
 // withLawChangeBaseline copies the before-states the core derives now for
 // laws and binding into a hand-built fact, so the live check compares only
-// what the test sets.
-func withLawChangeBaseline(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding) *WorkflowLawChange {
+// what the test sets. productChanging is the pinned definition's flag.
+func withLawChangeBaseline(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding, productChanging bool) *WorkflowLawChange {
 	t.Helper()
 	derived := WorkflowLawChange{}
 	tx := lawChangeTx(t, s)
-	if err := deriveWorkflowLawChangeCountTx(context.Background(), tx, workID, &derived, nil, laws, binding); err != nil {
+	if err := deriveWorkflowLawChangeCountTx(context.Background(), tx, workID, &derived, nil, laws, binding, productChanging); err != nil {
 		t.Fatalf("derive the before-states: %v", err)
 	}
 	_ = tx.Rollback()
@@ -547,11 +555,11 @@ func TestLawChangeShapeValidation(t *testing.T) {
 		return change
 	}
 	well := formed(WorkflowLawChange{Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}})
-	if err := validateWorkflowLawChangeShape(&well, []string{}, agent, nil); err != nil {
+	if err := validateWorkflowLawChangeShape(&well, []string{}, agent, nil, true); err != nil {
 		t.Fatalf("a well-formed fact refused: %v", err)
 	}
 	dropped := formed(WorkflowLawChange{Reason: "revise", LawIDs: []string{}, DomainIDs: []string{}})
-	if err := validateWorkflowLawChangeShape(&dropped, []string{}, nil, nil); err != nil {
+	if err := validateWorkflowLawChangeShape(&dropped, []string{}, nil, nil, true); err != nil {
 		t.Fatalf("a successor that dropped an unchanged law refused: %v", err)
 	}
 	registryEdit := &WorkflowArchitectureBinding{DomainModifies: []string{"agent-surface"}}
@@ -574,22 +582,30 @@ func TestLawChangeShapeValidation(t *testing.T) {
 		if name != "null law_before" {
 			change = formed(change)
 		}
-		if err := validateWorkflowLawChangeShape(&change, []string{}, agent, nil); err == nil {
+		if err := validateWorkflowLawChangeShape(&change, []string{}, agent, nil, true); err == nil {
 			t.Errorf("%s: admitted", name)
 		}
 	}
 	noRegistry := well
 	noRegistry.RegistryBefore = nil
-	if err := validateWorkflowLawChangeShape(&noRegistry, []string{}, agent, nil); err == nil {
+	if err := validateWorkflowLawChangeShape(&noRegistry, []string{}, agent, nil, true); err == nil {
 		t.Error("a fact without the first approval's registry before-state was admitted")
 	}
-	if err := validateWorkflowLawChangeShape(&well, []string{}, agent, registryEdit); err == nil {
+	if err := validateWorkflowLawChangeShape(&well, []string{}, agent, registryEdit, true); err == nil {
 		t.Error("a declared registry edit without edits_registry was admitted")
 	}
+	generic := well
+	generic.RegistryBefore = nil
+	if err := validateWorkflowLawChangeShape(&generic, []string{}, agent, nil, false); err != nil {
+		t.Fatalf("a law-only fact of a non-Product-changing item refused: %v", err)
+	}
+	if err := validateWorkflowLawChangeShape(&well, []string{}, agent, nil, false); err == nil {
+		t.Error("a non-Product-changing fact with a registry before-state was admitted")
+	}
 	pinned := formed(WorkflowLawChange{Reason: "revise", LawIDs: agent, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")})
-	requireFailureKind(t, validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil), KindApprovalRequired, "a pinned serious fact without consumed approval")
+	requireFailureKind(t, validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil, true), KindApprovalRequired, "a pinned serious fact without consumed approval")
 	pinned.Approval = lawChangeApprovalProof()
-	if err := validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil); err != nil {
+	if err := validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil, true); err != nil {
 		t.Fatalf("a pinned serious fact refused: %v", err)
 	}
 }
@@ -615,7 +631,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := WorkflowActionExecutionRequest{OperatorApprovalRef: proof.ApprovalRef, ApprovalOperationDigest: proof.OperationDigest, ApprovalScopeJSON: proof.ScopeJSON, ApprovalVersionsJSON: proof.VersionsJSON, ApprovalConsequence: proof.Consequence}
-	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}, []string{"law-agent"}, nil)
+	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}, []string{"law-agent"}, nil, true)
 	bind := func(request WorkflowActionExecutionRequest) error {
 		tx := lawChangeTx(t, s)
 		err := bindWorkflowLawChangeApprovalTx(context.Background(), tx, request, change)
@@ -641,7 +657,7 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	change.Approval.Operator.PrincipalRef = "principal/other"
 	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
 	tx := lawChangeTx(t, s)
-	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}})
+	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}, true)
 	_ = tx.Rollback()
 	requireFailureKind(t, err, KindUnauthorized, "operator differs from consumed approval")
 }
@@ -653,7 +669,7 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	s, owner := seedResolutionSelection(t, workID, registry, registered)
 	seedIssue31DomainRegistry(t, s)
 	seedLawChangeLaw(t, s, "law-agent", "derived", "root")
-	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}, []string{"law-agent"}, nil)
+	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}, []string{"law-agent"}, nil, false)
 	version := readWorkVersion(t, s, workID)
 	event := workflowTypedEvent("law-replay", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
 		"contract_version": 1, "premise": "The law change preserves its exact approved text.",
@@ -710,7 +726,7 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		t.Fatal(err)
 	}
-	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}), KindApprovalRequired, "live admission without the consumed approval")
+	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}, false), KindApprovalRequired, "live admission without the consumed approval")
 	if err := foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, event, scope); err != nil {
 		t.Fatalf("recorded proof refused during replay: %v", err)
 	}
@@ -829,7 +845,7 @@ func TestLawChangeSuccessorKeepsTheItemBaseline(t *testing.T) {
 			t.Fatalf("a successor naming no law = %+v, %v; want the item's serious change kept", narrowed, err)
 		}
 		tx = lawChangeTx(t, s)
-		err = validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{})
+		err = validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{}, true)
 		_ = tx.Rollback()
 		requireFailureKind(t, err, KindInvalidPayload, "a successor dropping the recorded law change")
 	})
@@ -874,7 +890,7 @@ func TestLawChangeSuccessorKeepsTheItemBaseline(t *testing.T) {
 func liveLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding) error {
 	t.Helper()
 	tx := lawChangeTx(t, s)
-	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: laws, ArchitectureBinding: binding})
+	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: laws, ArchitectureBinding: binding}, true)
 	_ = tx.Rollback()
 	return err
 }
@@ -900,8 +916,9 @@ func editLawChangeLaw(t *testing.T, s *Store, lawID string) {
 }
 
 // TestLawChangeBeforeStateBindsWhatTheItemMade holds that the item's first
-// law-change approval fixes the before-state: the registry is snapshot then
-// even when no contract declares a registry edit, a law is changed only when
+// law-change approval fixes the before-state: on a Product-changing
+// definition the registry is snapshot then even when no contract declares a
+// registry edit, a law is changed only when
 // it differs from its before-state, and a successor drops a declared law only
 // while that law is unchanged.
 func TestLawChangeBeforeStateBindsWhatTheItemMade(t *testing.T) {
@@ -934,6 +951,20 @@ func TestLawChangeBeforeStateBindsWhatTheItemMade(t *testing.T) {
 		v2, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, pinned), []string{"law-agent"}, wide, []string{})
 		if err != nil || !v2.Serious || !v2.EditsRegistry || !reflect.DeepEqual(v2.DomainIDs, []string{"agent-surface", "workflow-engine"}) || !reflect.DeepEqual(v2.RegistryBefore, v1.RegistryBefore) {
 			t.Fatalf("v2 = %+v, %v; want a serious change counting the edited entry against the first snapshot", v2, err)
+		}
+	})
+
+	t.Run("a non-Product-changing item counts laws only", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-before-generic"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, reason), []string{"law-agent"}, nil, []string{})
+		if err != nil || change.RegistryBefore != nil || change.EditsRegistry || !reflect.DeepEqual(change.LawIDs, []string{"law-agent"}) {
+			t.Fatalf("change = %+v, %v; want a law-only change without a registry before-state", change, err)
+		}
+		if err := validateWorkflowLawChangeShape(change, []string{}, []string{"law-agent"}, nil, false); err != nil {
+			t.Fatalf("the law-only fact refused at the fold: %v", err)
 		}
 	})
 
@@ -1044,4 +1075,161 @@ func TestLawChangeLiveGuardHoldsTheBaseline(t *testing.T) {
 		mutate(&candidate)
 		requireFailureKind(t, liveLawChange(t, s, workID, &candidate, laws, nil), KindInvalidPayload, name)
 	}
+}
+
+// lawChangeConstructorFixture initializes a Product-changing consequence_v1
+// item on the law-change fixture, so the real approve_contract and
+// supersede_contract constructors and the live fold run against it.
+func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowDefinition, DefinitionRegistry, string) {
+	t.Helper()
+	s := seedLawChangeFixture(t, workID)
+	live, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(live.Definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var definition WorkflowDefinition
+	if err := json.Unmarshal(raw, &definition); err != nil {
+		t.Fatal(err)
+	}
+	definition.Ref, definition.Version, definition.ApprovalPolicy = "workflow.law-change-constructor-test", 1, WorkflowApprovalPolicyConsequenceV1
+	if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
+		t.Fatal("the constructor fixture needs a Product-changing definition")
+	}
+	registry, registered := newResolutionRegistry(t, definition)
+	actor := WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:law", AgentRef: "agent:law", SessionRef: "session:law", ActorClass: ActorAgent}
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Registry: registry, Actor: actor, Now: time.Unix(10, 0).UTC()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return s, registered.Definition, registry, ownerRefForTest(t, actor)
+}
+
+// lawChangeConstructorFields composes contract fields with the fixture
+// registry's binding: root home, root and agent-surface affected.
+func lawChangeConstructorFields(t *testing.T, s *Store, version int, lawModifies, domainModifies []string) map[string]json.RawMessage {
+	t.Helper()
+	var hash string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"contract_version": version, "premise": "revise the fixture law",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}},
+		"route_conventions":  []string{}, "spec_mandate": lawModifies, "law_modifies": lawModifies, "rigor_class": "prototype_internal", "decision_domains": []string{},
+		"architecture_binding":       map[string]any{"domain_registry_content_hash": hash, "home_domain_id": "root", "affected_domain_ids": []string{"root", "agent-surface"}, "domain_modifies": domainModifies, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}},
+		workflowLawChangeReasonField: "revise the fixture law", workflowLawChangeBehaviorField: false, workflowLawChangeSecurityField: false,
+	}
+	if version > 1 {
+		var evidence string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence FROM workflow_contracts WHERE superseded_by IS NULL`).Scan(&evidence); err != nil {
+			t.Fatal(err)
+		}
+		payload["required_evidence"] = json.RawMessage(evidence)
+		payload["supersede_reason"] = "narrow the contract"
+		payload["audit_evidence"] = []string{"audit:law-change-narrow"}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	return fields
+}
+
+// constructLawChangeContract runs the real constructor for version 1 or its
+// successor and folds its events live; it returns the active law change.
+func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string, fields map[string]json.RawMessage) (*WorkflowLawChange, *WorkflowArchitectureBinding) {
+	t.Helper()
+	ctx := context.Background()
+	expected := readWorkVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []Event
+	eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
+	request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, Now: time.Unix(12, 0).UTC()}
+	if _, successor := fields["supersede_reason"]; successor {
+		request.ActionID = "supersede_contract"
+		raw, _ := json.Marshal(fields)
+		events, err = workflowSupersedeContractEvents(ctx, tx, definition, request, ownerRef, raw, fields, eventID, expected)
+	} else {
+		request.ActionID = "approve_contract"
+		events, err = workflowApproveContractEvents(ctx, tx, definition, request, ownerRef, fields, eventID, expected)
+	}
+	if rollbackErr := tx.Rollback(); rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if err != nil {
+		t.Fatalf("%s constructor refused: %v", request.ActionID, err)
+	}
+	if err := tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
+		t.Fatalf("the live fold refused the constructed %s: %v", request.ActionID, err)
+	}
+	var changeJSON sql.NullString
+	if err := s.DatabaseForTesting().QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&changeJSON); err != nil {
+		t.Fatal(err)
+	}
+	var change WorkflowLawChange
+	if err := json.Unmarshal([]byte(changeJSON.String), &change); err != nil {
+		t.Fatalf("the active contract recorded no law change: %v", err)
+	}
+	binding, err := parseWorkflowArchitectureBinding(fields["architecture_binding"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &change, binding
+}
+
+// TestLawChangeThroughTheRealConstructors drives the approve_contract and
+// supersede_contract constructors and the live fold of a Product-changing
+// item, then the completion check on the recorded contract.
+func TestLawChangeThroughTheRealConstructors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a registry-only item narrows to no change before any edit", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-ctor-registry-narrow"
+		s, definition, registry, ownerRef := lawChangeConstructorFixture(t, workID)
+		v1, _ := constructLawChangeContract(t, s, definition, registry, workID, ownerRef, lawChangeConstructorFields(t, s, 1, []string{}, []string{"agent-surface"}))
+		if !v1.EditsRegistry || v1.RegistryBefore == nil || len(v1.LawBefore) != 0 {
+			t.Fatalf("v1 = %+v; want a registry-only edit with its before-state", v1)
+		}
+		v2, binding := constructLawChangeContract(t, s, definition, registry, workID, ownerRef, lawChangeConstructorFields(t, s, 2, []string{}, []string{}))
+		if v2.EditsRegistry || len(v2.LawIDs) != 0 || !reflect.DeepEqual(v2.RegistryBefore, v1.RegistryBefore) {
+			t.Fatalf("v2 = %+v; want the unmade registry edit dropped against the first before-state", v2)
+		}
+		tx := lawChangeTx(t, s)
+		err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, v2, binding)
+		_ = tx.Rollback()
+		if err != nil {
+			t.Fatalf("the narrowed item refused at completion: %v", err)
+		}
+	})
+
+	t.Run("the derived-tier refusal does not call an unchanged law changed", func(t *testing.T) {
+		t.Parallel()
+		workID := "law-change-ctor-tier-wording"
+		s, definition, registry, ownerRef := lawChangeConstructorFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-legislated", "legislated", "agent-surface")
+		change, binding := constructLawChangeContract(t, s, definition, registry, workID, ownerRef, lawChangeConstructorFields(t, s, 1, []string{"law-legislated"}, []string{}))
+		if change.Serious || !reflect.DeepEqual(change.LawIDs, []string{"law-legislated"}) {
+			t.Fatalf("change = %+v; want a non-serious change counting the declared law", change)
+		}
+		tx := lawChangeTx(t, s)
+		err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, change, binding)
+		_ = tx.Rollback()
+		requireFailureKind(t, err, KindMissingEvidence, "a counted legislated law at completion")
+		if strings.Contains(err.Error(), "changed without") {
+			t.Fatalf("the refusal calls the unchanged law changed: %v", err)
+		}
+	})
 }

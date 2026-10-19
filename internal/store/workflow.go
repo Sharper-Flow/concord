@@ -1172,12 +1172,12 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractLawChangePayloadVersion {
 			return newFailure(KindInvalidPayload, "fold_event", "law_change on a payload recorded before the law-change boundary is authored bytes no store ever recorded", false, "replay the recorded contract without law_change")
 		}
-		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding); err != nil {
+		if err := validateWorkflowLawChangeShape(p.LawChange, p.DecisionDomains, p.LawModifies, p.ArchitectureBinding, changesProductTruth); err != nil {
 			return err
 		}
 	}
 	if !isWorkflowReplay(ctx) {
-		if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p); err != nil {
+		if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
 			return err
 		}
 	}

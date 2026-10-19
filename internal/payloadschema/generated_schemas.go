@@ -3115,7 +3115,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "native_oracle_preparation": {
       "additionalProperties": false,
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -3420,6 +3420,17 @@ const GeneratedPayloadSchemaDocument = `{
                   "const": "check"
                 }
               }
+            },
+            {
+              "description": "bun materializes the pinned bun.lock closure offline from integrity-verified cached npm tarballs, with no package manager or lifecycle script; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "bun"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
             }
           ],
           "properties": {
@@ -3564,7 +3575,8 @@ const GeneratedPayloadSchemaDocument = `{
             "target_materializer": {
               "enum": [
                 "none",
-                "uv"
+                "uv",
+                "bun"
               ],
               "type": "string"
             },
@@ -3824,7 +3836,8 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe.",
           "enum": [
             "none",
-            "uv"
+            "uv",
+            "bun"
           ],
           "type": "string"
         },
@@ -4114,7 +4127,7 @@ const GeneratedPayloadSchemaDocument = `{
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
           "oneOf": [
             {
               "additionalProperties": false,
@@ -4446,6 +4459,17 @@ const GeneratedPayloadSchemaDocument = `{
                       "const": "check"
                     }
                   }
+                },
+                {
+                  "description": "bun materializes the pinned bun.lock closure offline from integrity-verified cached npm tarballs, with no package manager or lifecycle script; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "bun"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
+                  }
                 }
               ],
               "properties": {
@@ -4615,7 +4639,8 @@ const GeneratedPayloadSchemaDocument = `{
                 "target_materializer": {
                   "enum": [
                     "none",
-                    "uv"
+                    "uv",
+                    "bun"
                   ],
                   "type": "string"
                 },
@@ -4902,7 +4927,8 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe.",
               "enum": [
                 "none",
-                "uv"
+                "uv",
+                "bun"
               ],
               "type": "string"
             },
@@ -4955,7 +4981,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "additionalProperties": false,
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, uv+check, and bun+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
           "if": {
             "properties": {
               "qualification": {
@@ -5359,6 +5385,17 @@ const GeneratedPayloadSchemaDocument = `{
                       "const": "check"
                     }
                   }
+                },
+                {
+                  "description": "bun materializes the pinned bun.lock closure offline from integrity-verified cached npm tarballs, with no package manager or lifecycle script; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "bun"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
+                  }
                 }
               ],
               "properties": {
@@ -5576,7 +5613,8 @@ const GeneratedPayloadSchemaDocument = `{
                 "target_materializer": {
                   "enum": [
                     "none",
-                    "uv"
+                    "uv",
+                    "bun"
                   ],
                   "type": "string"
                 },
@@ -5925,7 +5963,8 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe.",
               "enum": [
                 "none",
-                "uv"
+                "uv",
+                "bun"
               ],
               "type": "string"
             },

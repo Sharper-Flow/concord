@@ -341,7 +341,7 @@ export interface NativeOracleGoPreparation extends NativeOraclePreparationCommon
 
 export interface NativeOracleTargetPreparation extends NativeOraclePreparationCommon {
   recipe_kind: "target_runner_v1"
-  target_materializer: "none" | "uv"
+  target_materializer: "none" | "uv" | "bun"
   target_runner: "pytest" | "check"
   selected_witness_ids: string[]
   case_to_witness_map: Record<string, string[]>

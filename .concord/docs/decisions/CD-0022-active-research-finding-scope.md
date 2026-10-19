@@ -79,8 +79,10 @@ imply a tool, writer, durable `research` knowledge kind, or retention change.
 ## Consequences
 
 - Active and durable knowledge now share one applies-to vocabulary while retaining
-  their distinct lifecycles: active packs delete at archive; durable knowledge stays
-  Git-authoritative.
+  their distinct lifecycles: publication retains research packs; only authorized
+  explicit retirement deletes them under
+  [CD-0215 D7/D8](CD-0215-retained-research-context.md#d7-publication-and-retirement-are-separate).
+  Durable knowledge stays Git-authoritative.
 - Archive promotion has typed applicability available for selection. It remains a
   human-reviewed decision, not automatic conversion to durable knowledge.
 - A future reader or writer must use this shape rather than invent another context

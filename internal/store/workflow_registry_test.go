@@ -209,3 +209,25 @@ func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 		t.Fatalf("product truth=%v, want boolean true", manifest["changes_product_truth"])
 	}
 }
+
+// TestRegistryKeyKeepsItsFormat pins the registry key to the ref, a NUL
+// byte, and the decimal version, the format every registry map and
+// composition table is keyed on.
+func TestRegistryKeyKeepsItsFormat(t *testing.T) {
+	for _, test := range []struct {
+		ref     string
+		version int64
+		want    string
+	}{
+		{"workflow.implementation", 1, "workflow.implementation\x001"},
+		{"workflow.implementation", 33, "workflow.implementation\x0033"},
+		{"workflow.break_fix", 30, "workflow.break_fix\x0030"},
+		{"workflow.research", 120, "workflow.research\x00120"},
+		{"workflow.ops_runbook", 9223372036854775807, "workflow.ops_runbook\x009223372036854775807"},
+		{"", 0, "\x000"},
+	} {
+		if got := registryKey(test.ref, test.version); got != test.want {
+			t.Errorf("registryKey(%q, %d) = %q, want %q", test.ref, test.version, got, test.want)
+		}
+	}
+}

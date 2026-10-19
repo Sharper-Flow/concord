@@ -345,7 +345,12 @@ class TierRoutingTest(unittest.TestCase):
 class FileSizeLimitTest(unittest.TestCase):
     run_wrapper = TierRoutingTest.run_wrapper
 
+    def require_hard_limit(self, minimum):
+        if _INHERITED_HARD != resource.RLIM_INFINITY and _INHERITED_HARD < minimum:
+            self.skipTest(f"the inherited RLIMIT_FSIZE hard limit is below this fixture's {minimum} bytes")
+
     def test_runaway_write_is_stopped_at_the_limit_and_reported(self):
+        self.require_hard_limit(1024 * 1024)
         result = self.run_wrapper("targeted", "--", *RUNAWAY_WRITER, env_extra={"OC_TEST_MAX_FILE_MIB": "1"})
         self.assertEqual(result.runaway_size, 1024 * 1024)
         self.assertEqual(result.returncode, 153, result.stderr)
@@ -369,11 +374,13 @@ class FileSizeLimitTest(unittest.TestCase):
         self.assertIn("FAIL targeted", result.stderr)
 
     def test_one_run_sets_the_limit_to_its_stated_size(self):
+        self.require_hard_limit(2 * 1024 * 1024)
         result = self.run_wrapper("targeted", "--", "probe", env_extra={"OC_TEST_MAX_FILE_MIB": "2"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.calls[0]["fsize"], [2 * 1024 * 1024] * 2)
 
     def test_a_stricter_inherited_limit_is_kept(self):
+        self.require_hard_limit(1024 * 1024)
         stricter = 512 * 1024
         result = self.run_wrapper("targeted", "--", "probe", preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (stricter, stricter)))
         self.assertEqual(result.returncode, 0, result.stderr)

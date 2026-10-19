@@ -33,13 +33,14 @@
 #
 # Every tier runs under a kernel file-size limit (RLIMIT_FSIZE), set as both
 # the soft and the hard limit so no test process can raise it. The default is
-# 1024 MiB per file. A process that writes past it receives SIGXFSZ and the
-# tier fails (exit 153 for a process the signal kills). Raise it for one run,
-# never to unlimited, with OC_TEST_MAX_FILE_MIB:
+# 1024 MiB per file. The kernel stops the file growing past it and sends the
+# writer SIGXFSZ, which kills it unless the writer handles or ignores it. The
+# tier reports its command's exit status, 153 when SIGXFSZ killed that command.
+# Raise the limit for one run, never to unlimited, with OC_TEST_MAX_FILE_MIB:
 #
 #   OC_TEST_MAX_FILE_MIB=4096 bin/oc-test targeted -- <command>
 #
-# A stricter limit inherited from the caller is kept.
+# A stricter hard limit inherited from the caller is kept.
 
 set -euo pipefail
 # POSIX mode counts `ulimit -f` in 512-byte blocks; the limit below is KiB.

@@ -754,7 +754,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")
-    const args: JSONRecord = {}
+    const args: JSONRecord = { subagent_type: "concord-implement" }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task" }, { args })
     host.taskCalls++
     const packet = JSON.parse(args.prompt)

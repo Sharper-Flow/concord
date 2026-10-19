@@ -21,7 +21,6 @@
         "webfetch": "allow"
       },
       "bash": [
-        {"pattern": "*", "action": "allow"},
         {"pattern": "sudo *", "action": "deny"},
         {"pattern": "rm -rf / *", "action": "deny"}
       ],
@@ -48,7 +47,6 @@
         "webfetch": "allow"
       },
       "bash": [
-        {"pattern": "*", "action": "allow"},
         {"pattern": "sudo *", "action": "deny"},
         {"pattern": "rm -rf / *", "action": "deny"}
       ],

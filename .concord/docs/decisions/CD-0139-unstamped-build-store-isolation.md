@@ -6,6 +6,9 @@
 - **Approval:** The operator approved this decision for the development-store isolation fix.
 - **Related:** CD-0002, CD-0082, CD-0111
 - **Preserves:** Stamped release migration behavior and the existing repository-path refusal
+- **Amended by:** [CD-0240](CD-0240-a-binary-the-installer-did-not-place-never-opens-the-installed-store.md)
+  at D3 and D5: only a core the installer placed in a data root it manages
+  opens a store there, whatever its stamp. D1, D2, and D4 stand.
 
 ## Context
 
@@ -34,7 +37,8 @@ development-store route.
 ### D3. An up-to-date existing store remains usable
 
 An unstamped build may operate an existing store when every migration known to
-the build is already applied. It does not run a migration pass in that case.
+the build is already applied and CD-0240 D1 admits the build to that store.
+It does not run a migration pass in that case.
 
 ### D4. The refusal names the isolation route
 
@@ -45,7 +49,8 @@ repository-path refusal itself remains unchanged.
 
 A stamped release keeps the migration behavior defined by CD-0111 D3. It
 continues to apply additive migrations at open and breaking migrations through
-`concord upgrade`.
+`concord upgrade`. On a store in a data root the installer manages, it does so
+only as a core the installer placed there (CD-0240 D1).
 
 ## Verification
 

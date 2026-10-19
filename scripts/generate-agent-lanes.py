@@ -32,6 +32,12 @@ AGENT_DIR = ROOT / ".opencode/agents"
 # name it by this lead sentence, so the rule has one statement.
 CONDUCT_CHANGE = ROOT / ".concord/instructions/change.md"
 COMMITTED_CONTENT_LEAD = "Commit only durable content."
+# The host's trailing " *" also matches a command without arguments. Cover
+# Git's global options and explicit executable paths as well as plain git.
+STASH_DENIALS = tuple(
+    f"    {json.dumps(pattern)}: deny"
+    for pattern in ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
+)
 
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
@@ -915,7 +921,11 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         *(f"  {tool_id}: false" for tool_id, allowed in lane_tool_grants(lane).items() if not allowed),
         concord_denies,
     ])
-    edit_denies = "" if edits_scoped_files(lane) else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
+    edit_denies = (
+        "  bash:\n" + "\n".join(STASH_DENIALS) + "\n"
+        if edits_scoped_files(lane)
+        else "  bash: deny\n  edit: deny\n  morph_edit: deny\n"
+    )
     if discharged:
         obligation_rule = (
             "A successful report must carry at least one entry for every obligation below "
@@ -1158,6 +1168,7 @@ def utility_projection(utility: dict) -> str:
         raise ValueError(f"utility registry has no body template for {utility['id']!r}")
     tools = [f"  {key}: {'true' if key in utility['allowed_tools'] else 'false'}" for key in UTILITY_TOOL_KEYS]
     permissions = ["    \"*\": deny"] + [f"    \"{command}\": allow" for command in utility["allowed_commands"]]
+    permissions.extend(STASH_DENIALS)
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     body_text = body.format(duration=duration).rstrip()
@@ -1221,6 +1232,8 @@ def primary_projection(profile: dict, role_source: str) -> str:
     for key in ("bash", "task"):
         lines.append(f"  {key}:")
         lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
+        if key == "bash":
+            lines.extend(STASH_DENIALS)
     lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
     lines.extend(["---", "", role_source.rstrip("\n")])
     return "\n".join(lines) + "\n"

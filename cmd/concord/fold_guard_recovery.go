@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -56,7 +55,7 @@ func runRecoverFoldGuardCommand(args []string, in io.Reader, out, errOut io.Writ
 	}
 	report, err := store.RecoverFoldGuard(context.Background(), path)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "recover-fold-guard", diagnosticText(unstampedRefusalDiagnostic(err, filepath.Dir(path))))
+		writeOperatorDiagnostic(errOut, "recover-fold-guard", diagnosticText(err))
 		return 1
 	}
 	_, _ = fmt.Fprintf(out, "recover-fold-guard: cleared the stranded guard; rebuilt %d event(s) of projections at %s\n", report.Events, path)

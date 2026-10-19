@@ -41,6 +41,9 @@ func RecoverFoldGuard(ctx context.Context, path string) (_ RecoverFoldGuardRepor
 			return report, err
 		}
 	}
+	if err := AdmitStorePath(path); err != nil {
+		return report, err
+	}
 	lock, err := acquireRecoveryLock(path)
 	if err != nil {
 		return report, err

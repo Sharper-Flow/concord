@@ -6733,11 +6733,10 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
-// UnstampedMigrationRefusal is what an unstamped build read before it refused
-// to migrate an existing store (CD-0139): the applied head and the pending
-// tail this build defines. No manifest row names the release that applied it,
-// so the refusal carries no owner.
-type UnstampedMigrationRefusal struct {
+// unstampedRefusal is what an unstamped build read before it refused to
+// migrate an existing store (CD-0139): the applied head and the pending tail
+// this build defines. No manifest row names the release that applied it.
+type unstampedRefusal struct {
 	SchemaVersion    int
 	HeadName         string
 	FirstPending     int
@@ -6752,19 +6751,16 @@ type UnstampedMigrationRefusal struct {
 const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
 
 func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
-	refusal := unstampedRefusalFacts(applied)
-	return refusal.failure(fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
-		refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking))
+	return unstampedRefusalFacts(applied).failure("unstamped development build refuses schema migration for an existing store")
 }
 
-func (refusal UnstampedMigrationRefusal) failure(detail string) *Failure {
-	failure := newFailure(KindInvalidOperation, "open", detail, true, UnstampedRecovery)
-	failure.UnstampedMigration = &refusal
-	return failure
+func (refusal unstampedRefusal) failure(lead string) *Failure {
+	return newFailure(KindInvalidOperation, "open", fmt.Sprintf("%s at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
+		lead, refusal.SchemaVersion, refusal.HeadName, refusal.Pending, refusal.FirstPending, refusal.FirstPendingName, refusal.PendingBreaking), true, UnstampedRecovery)
 }
 
-func unstampedRefusalFacts(applied map[int]appliedMigration) UnstampedMigrationRefusal {
-	var refusal UnstampedMigrationRefusal
+func unstampedRefusalFacts(applied map[int]appliedMigration) unstampedRefusal {
+	var refusal unstampedRefusal
 	for recorded := range applied {
 		refusal.SchemaVersion = max(refusal.SchemaVersion, recorded)
 	}

@@ -338,6 +338,16 @@ func NewWorkflowDefinitionRegistry() DefinitionRegistry {
 func registryKey(ref string, version int64) string { return fmt.Sprintf("%s\x00%d", ref, version) }
 
 func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
+	registered, err := r.register(definition)
+	if err != nil {
+		return RegisteredDefinition{}, err
+	}
+	return cloneRegisteredDefinition(registered), nil
+}
+
+// register stores a frozen copy of definition and returns the stored entry
+// itself, so only callers that discard the result may skip Register's clone.
+func (r *workflowDefinitionRegistry) register(definition WorkflowDefinition) (RegisteredDefinition, error) {
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return RegisteredDefinition{}, err
 	}
@@ -359,7 +369,7 @@ func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (Re
 		if prior.Digest != digest {
 			return RegisteredDefinition{}, definitionFailure(KindDefinitionVersionConflict, "definition version is already registered with another digest")
 		}
-		return cloneRegisteredDefinition(prior), nil
+		return prior, nil
 	}
 	for existingKey, prior := range r.entries {
 		if prior.Definition.Ref == definition.Ref && existingKey != key && definition.Version <= prior.Definition.Version {
@@ -367,7 +377,7 @@ func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (Re
 		}
 	}
 	r.entries[key] = registered
-	return cloneRegisteredDefinition(registered), nil
+	return registered, nil
 }
 
 func (r *workflowDefinitionRegistry) Lookup(ref string, version int64) (RegisteredDefinition, bool) {
@@ -397,18 +407,6 @@ func (r *workflowDefinitionRegistry) Verify(ref string, version int64, digest st
 
 func definitionFailure(kind FailureKind, detail string) error {
 	return newFailure(kind, "workflow_definition", detail, false, "reread_entities")
-}
-
-func cloneWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
-	raw, _ := json.Marshal(definition)
-	var cloned WorkflowDefinition
-	_ = json.Unmarshal(raw, &cloned)
-	return cloned
-}
-
-func cloneRegisteredDefinition(registered RegisteredDefinition) RegisteredDefinition {
-	registered.Definition = cloneWorkflowDefinition(registered.Definition)
-	return registered
 }
 
 var workflowIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,63}$`)
@@ -746,7 +744,7 @@ func validateBuiltinWorkflowVersionContinuity(definitions []WorkflowDefinition) 
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
-	registry := NewWorkflowDefinitionRegistry()
+	registry := NewWorkflowDefinitionRegistry().(*workflowDefinitionRegistry)
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if err := validateBuiltinWorkflowVersionContinuity(definitions); err != nil {
 		panic(err)
@@ -755,7 +753,7 @@ func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 		panic(err)
 	}
 	for _, definition := range definitions {
-		if _, err := registry.Register(definition); err != nil {
+		if _, err := registry.register(definition); err != nil {
 			panic(err)
 		}
 	}

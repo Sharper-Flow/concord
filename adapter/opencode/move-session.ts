@@ -176,11 +176,13 @@ export class HostControlPlane {
       throw new MoveSessionRefused(`the host refused the native subtask with status ${result.response.status}: ${await refusalText(result)}`)
     }
     const value = result.data
-    if (!isRecord(value) || !isRecord(value.info) || value.info.sessionID !== sessionID || value.info.agent !== parentAgent || typeof value.info.id !== "string" || value.info.id.length === 0 || !Array.isArray(value.parts) || value.parts.length !== 1) {
+    if (!isRecord(value) || !isRecord(value.info) || value.info.sessionID !== sessionID || value.info.agent !== parentAgent || typeof value.info.id !== "string" || value.info.id.length === 0 || !Array.isArray(value.parts)) {
       throw new MoveSessionRefused("the host did not acknowledge the intended parent and native subtask")
     }
-    const queued = value.parts[0]
-    if (!isRecord(queued) || queued.type !== "subtask" || queued.agent !== task.agent || queued.description !== task.description || queued.prompt !== task.prompt) {
+    // Host hooks may append context, but only one subtask can carry this launch.
+    const subtasks = value.parts.filter(part => isRecord(part) && part.type === "subtask")
+    const queued = subtasks[0]
+    if (subtasks.length !== 1 || queued.agent !== task.agent || queued.description !== task.description || queued.prompt !== task.prompt) {
       throw new MoveSessionRefused("the host did not acknowledge the exact native subtask")
     }
   }

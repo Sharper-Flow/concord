@@ -602,7 +602,8 @@ func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, wor
 
 // workflowUnsettledWorkerAttempt reports a worker attempt that still holds
 // the work: a dispatched attempt, a completed report without an accepted or
-// rejected disposition, or a failed attempt without a recorded failure.
+// rejected disposition or split replacement, or a failed attempt without a
+// recorded failure.
 // Correction at the complete step never strands one.
 func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var unsettled int
@@ -610,7 +611,7 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
-      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result')
+      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN (`+workerAttemptDisposalActions+`)
       AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?))) +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id

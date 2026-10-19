@@ -84,7 +84,7 @@ func admitWorkerJobSplitReplacementTx(ctx context.Context, tx *sql.Tx, workID, a
 	}
 	reported, unavailable := workerJobReportedLineCount(content.MeasurementBasis, completed.observed)
 	if unavailable != "" || completed.size == nil || completed.size.Count != reported {
-		return nil, workerJobSplitFailure("replaced_attempt report and sealed observation do not establish an agreed size: "+unavailable, "reject a report without agreed size evidence instead of replacing it as an overrun")
+		return nil, workerJobSplitFailure(strings.TrimSpace("replaced_attempt report and sealed observation do not establish an agreed size "+unavailable), "reject a report without agreed size evidence instead of replacing it as an overrun")
 	}
 	supplemental, err := admitWorkerSupplementalClassifications("record_worker_job split.replaced_attempt", fields, content.MeasurementBasis, completed, foreign)
 	if err != nil {
@@ -201,6 +201,9 @@ func verifyWorkerJobSplitReplacementTx(ctx context.Context, tx *sql.Tx, event Ev
 	}
 	foreign := map[string]bool{}
 	for _, path := range replacement.ForeignAcceptedPaths {
+		if !slices.ContainsFunc(completed.observed.Paths, func(observed WorkerObservedPath) bool { return observed.Path == path }) {
+			return invalidWorkerPayload("worker.job_split replaced_attempt foreign path is not in its sealed observation")
+		}
 		foreign[path] = true
 	}
 	fields := map[string]json.RawMessage{}
@@ -213,7 +216,7 @@ func verifyWorkerJobSplitReplacementTx(ctx context.Context, tx *sql.Tx, event Ev
 	}
 	count, unavailable := workerJobProductionSize(predecessor.MeasurementBasis, supplemental, completed.observed, foreign)
 	if unavailable != "" || count != replacement.ObservedCount {
-		return invalidWorkerPayload("worker.job_split replaced_attempt count does not match the retained overrun evidence: " + unavailable)
+		return invalidWorkerPayload(strings.TrimSpace("worker.job_split replaced_attempt count does not match the retained overrun evidence " + unavailable))
 	}
 	return nil
 }

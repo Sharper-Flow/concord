@@ -256,7 +256,7 @@ func workerJobSplitFailure(detail, recovery string) error {
 
 // admitWorkerJobSplitPredecessorTx admits the named predecessor: the job's
 // latest recorded revision under its digest, not satisfied, not already
-// split, and with no attempt still in flight or awaiting disposition.
+// split, and with no other attempt still in flight or awaiting disposition.
 func admitWorkerJobSplitPredecessorTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding, splits []WorkerJobSplitPayload, replacement *workerJobSplitReplacementInput) (*WorkerJobRecordedPayload, error) {
 	if workerJobSplitReplacing(splits, binding.JobID) != nil {
 		return nil, workerJobSplitFailure("names predecessor job "+binding.JobID+", which an earlier split already replaced", "split one of that split's successor jobs instead")
@@ -282,16 +282,17 @@ func admitWorkerJobSplitPredecessorTx(ctx context.Context, tx *sql.Tx, workID st
 	if predecessor == nil {
 		return nil, workerJobSplitFailure("names predecessor job "+binding.JobID+" under a digest its current revision does not carry", "name the predecessor's current revision and digest")
 	}
+	replaced := ""
+	if replacement != nil {
+		replaced = replacement.AttemptID
+	}
 	var attemptID, lifecycle string
 	switch err := tx.QueryRowContext(ctx, `SELECT a.attempt_id, a.lifecycle_state FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id
-		WHERE a.work_id=? AND json_extract(d.payload,'$.worker_job.job_id')=? AND (a.lifecycle_state IN ('in_flight','dispatched') OR (a.lifecycle_state='completed' AND NOT EXISTS (
+		WHERE a.work_id=? AND a.attempt_id<>? AND json_extract(d.payload,'$.worker_job.job_id')=? AND (a.lifecycle_state IN ('in_flight','dispatched') OR (a.lifecycle_state='completed' AND NOT EXISTS (
 			SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result') AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)))
-		ORDER BY d.seq LIMIT 1`, string(SubjectWorkItem), WorkflowActionCompleted, workID, binding.JobID, string(SubjectWorkItem), WorkflowActionCompleted).Scan(&attemptID, &lifecycle); {
+		ORDER BY d.seq LIMIT 1`, string(SubjectWorkItem), WorkflowActionCompleted, workID, replaced, binding.JobID, string(SubjectWorkItem), WorkflowActionCompleted).Scan(&attemptID, &lifecycle); {
 	case err == nil:
 		if lifecycle == "completed" {
-			if replacement != nil && replacement.AttemptID == attemptID {
-				return predecessor, nil
-			}
 			return nil, workerJobSplitFailure("cannot replace predecessor job "+binding.JobID+": its completed attempt "+attemptID+" awaits disposition", "accept or reject attempt "+attemptID+" before splitting the job")
 		}
 		return nil, workerJobSplitFailure("cannot replace predecessor job "+binding.JobID+" while its attempt "+attemptID+" is active", "wait for attempt "+attemptID+" to finish and dispose of it before splitting the job")

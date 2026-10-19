@@ -12,8 +12,14 @@ import (
 // dispatch events use the registered workflow folds and can be replayed.
 func seedSplitReplacementAcceptance(t *testing.T, workID string, mutate func(*WorkerCompletedPayload)) sizeAcceptance {
 	t.Helper()
-	fixture := sizeDispatchFixture(t, workID)
+	return seedSplitReplacementAcceptanceAtStep(t, workID, "repair", mutate)
+}
+
+func seedSplitReplacementAcceptanceAtStep(t *testing.T, workID, step string, mutate func(*WorkerCompletedPayload)) sizeAcceptance {
+	t.Helper()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", step)
 	s := workerJobSizeStore(fixture)
+	bootstrapOracleFixtureSubject(t, s, workID)
 	fields := workerJobSizeEditingFields(t, workID, fixture)
 	fields["production_size_max"] = 10
 	job := &WorkerJobBinding{JobID: "job:split-replacement", Revision: 1}
@@ -23,7 +29,7 @@ func seedSplitReplacementAcceptance(t *testing.T, workID string, mutate func(*Wo
 		t.Fatal(err)
 	}
 	var epoch int64
-	if err := s.db.QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, step).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
@@ -33,11 +39,11 @@ func seedSplitReplacementAcceptance(t *testing.T, workID string, mutate func(*Wo
 	}
 	version := readWorkVersion(t, s, workID)
 	started := workflowTypedEvent(workID+":replacement-start", WorkflowActionStarted, workID, actor, time.Unix(20, 0).UTC(), version, map[string]any{
-		"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actor,
+		"step_id": step, "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actor,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "replacement-dispatch",
 	})
 	authorized := workflowTypedEvent(workID+":replacement-authorized", WorkflowActionCompleted, workID, actor, time.Unix(20, 0).UTC(), version+1, map[string]any{
-		"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actor,
+		"step_id": step, "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actor,
 		"worker_attempt_id": attemptID, "worker_job": job, "changed_refs": []string{workID}, "result_evidence_refs": []string{},
 		"worker_worktree_identity": workerWorktreeIdentity(directory),
 	})
@@ -138,6 +144,19 @@ func TestWorkerJobSplitReplacesOverrunWithoutRejectingIt(t *testing.T) {
 	if err := a.s.db.QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, a.attemptID).Scan(&lifecycle); err != nil || lifecycle != "completed" {
 		t.Fatalf("replaced attempt lifecycle=%s, error=%v; want completed", lifecycle, err)
 	}
+	if unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), a.s.db, a.workID, "test", 0); err != nil || unsettled {
+		t.Fatalf("replaced attempt unsettled=%v, error=%v; want settled by its split", unsettled, err)
+	}
+	var dispositionSeq int64
+	if err := a.s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_job' AND json_extract(payload,'$.worker_attempt_id')=?`, a.workID, WorkflowActionCompleted, a.attemptID).Scan(&dispositionSeq); err != nil {
+		t.Fatal(err)
+	}
+	for _, beforeSeq := range []int64{dispositionSeq, dispositionSeq + 1} {
+		wantUnsettled := beforeSeq == dispositionSeq
+		if unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), a.s.db, a.workID, "test", beforeSeq); err != nil || unsettled != wantUnsettled {
+			t.Fatalf("replaced attempt before seq %d: unsettled=%v, error=%v; want %v", beforeSeq, unsettled, err, wantUnsettled)
+		}
+	}
 	var failures int
 	if err := a.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.action_id') IN ('reject_worker_result','record_worker_failure')`, a.workID, WorkflowActionCompleted, a.attemptID).Scan(&failures); err != nil || failures != 0 {
 		t.Fatalf("failure/rejection records=%d, error=%v; want neither", failures, err)
@@ -219,6 +238,26 @@ func TestWorkerJobSplitExecutorCannotSupplyOverrunClassifications(t *testing.T) 
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
 		t.Fatalf("executor's overrun classification = %v; want unauthorized", err)
 	}
+	executorRef, err := WorkflowActorRef(executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := a.s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	input := fields["split"].(map[string]any)["replaced_attempt"].(map[string]any)
+	_, err = admitWorkerJobSplitReplacementTx(context.Background(), tx, a.workID, executorRef, a.job, &workerJobSplitReplacementInput{
+		AttemptID: a.attemptID, AttemptEpoch: input["attempt_epoch"].(int64),
+		SupplementalClassifications: []WorkerJobMeasuredPath{{Path: "internal/store/new_test.go", Class: "test"}},
+	})
+	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(err.Error(), "executing actor cannot author its own verdict") {
+		t.Fatalf("replacement admission by executor = %v; want executor-distinctness refusal", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
 	if splits, err := readWorkerJobSplitsTx(context.Background(), a.s.db, a.workID); err != nil || len(splits) != 0 {
 		t.Fatalf("executor-authored splits = %+v, error = %v; want none", splits, err)
 	}
@@ -256,5 +295,99 @@ func TestWorkerJobSplitReplacementVersionBoundaries(t *testing.T) {
 	event := Event{SubjectType: SubjectWorkItem, SubjectID: workID, replaySourcePayloadVersion: 1}
 	if err := validateWorkerJobSplitPayload(event, payload); err == nil || !strings.Contains(err.Error(), "requires payload version >= 2") {
 		t.Fatalf("v1 replacement split refusal = %v; want source-version refusal", err)
+	}
+}
+
+func TestWorkerJobSplitReplacementRefusesAnotherUnsettledAttempt(t *testing.T) {
+	for _, lifecycle := range []string{"dispatched", "completed"} {
+		t.Run(lifecycle, func(t *testing.T) {
+			a := seedSplitReplacementAcceptance(t, "split-replacement-other-"+lifecycle, func(p *WorkerCompletedPayload) {
+				p.ObservedDelivery.Paths = []WorkerObservedPath{{Path: "internal/store/worker_jobs.go", Added: 15}}
+				p.ProductionSize.Count = 15
+			})
+			fields := replacementSplitFields(t, a, nil)
+			db := a.s.DatabaseForTesting()
+			var completedAt any
+			if lifecycle == "completed" {
+				completedAt = "2026-10-19T00:01:00Z"
+			}
+			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, 'attempt:second', 'lane:review', 1, ?, 'review', 'provider/model', '1.0', '1.0', ?, '2026-10-19T00:00:00Z', ?); DELETE FROM fold_guard`, a.workID, "sha256:"+strings.Repeat("a", 64), lifecycle, completedAt); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "split-replacement-second-dispatch", WorkflowActionCompleted, SubjectWorkItem, a.workID, a.fixture.owner.PrincipalRef, "2026-10-19T00:00:00Z", 6, `{"action_id":"dispatch_worker","worker_attempt_id":"attempt:second","worker_job":`+string(mustJSONValue(a.job))+`}`); err != nil {
+				t.Fatal(err)
+			}
+			want := "attempt attempt:second is active"
+			if lifecycle == "completed" {
+				want = "attempt attempt:second awaits disposition"
+			}
+			if err := recordWorkerJobActionForTest(t, a.s, a.workID, a.fixture.owner, fields); err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("replacement beside another %s attempt = %v; want %q", lifecycle, err, want)
+			}
+		})
+	}
+}
+
+func TestWorkerJobSplitReplacementSettlesRefineCorrection(t *testing.T) {
+	a := seedSplitReplacementAcceptanceAtStep(t, "split-replacement-refine", "refine", func(p *WorkerCompletedPayload) {
+		p.ObservedDelivery.Paths = []WorkerObservedPath{{Path: "internal/store/worker_jobs.go", Added: 15}}
+		p.ProductionSize.Count = 15
+	})
+	if err := recordWorkerJobActionForTest(t, a.s, a.workID, a.fixture.owner, replacementSplitFields(t, a, nil)); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := WorkflowActorRef(a.fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID := "attempt:split-replacement-refine-review"
+	epoch := reviewGateRunAttemptWithVerdict(t, a.s, a.workID, reviewID, reviewGateLane(t, "review"), owner, "ship", 100)
+	if err := runVerdictActionAs(t, a.s, a.workID, "accept_worker_evidence", mustJSONValue(map[string]any{"attempt_id": reviewID, "attempt_epoch": epoch}), 0, reviewGateAcceptor(a.workID)); err != nil {
+		t.Fatal(err)
+	}
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	for _, replay := range []bool{false, true} {
+		if replay {
+			if err := RebuildFromLog(context.Background(), a.s); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if decision, err := workflowRefineReviewCorrectionDecision(context.Background(), a.s.db, a.workID, definition, "refine", "test", 0); err != nil || decision != workflowRefineReviewCorrectionOpen {
+			t.Fatalf("refine correction after split replacement (replay=%v) = %v, error = %v; want open", replay, decision, err)
+		}
+	}
+}
+
+func TestWorkerJobSplitReplacementFoldRefusesUnobservedForeignPath(t *testing.T) {
+	a := seedSplitReplacementAcceptance(t, "split-replacement-foreign-path", func(p *WorkerCompletedPayload) {
+		p.ObservedDelivery.Paths = []WorkerObservedPath{{Path: "internal/store/worker_jobs.go", Added: 15}}
+		p.ProductionSize.Count = 15
+	})
+	if err := recordWorkerJobActionForTest(t, a.s, a.workID, a.fixture.owner, replacementSplitFields(t, a, nil)); err != nil {
+		t.Fatal(err)
+	}
+	splits, err := readWorkerJobSplitsTx(context.Background(), a.s.db, a.workID)
+	if err != nil || len(splits) != 1 {
+		t.Fatalf("splits=%v, error=%v; want one replacement", splits, err)
+	}
+	event := Event{SubjectID: a.workID}
+	if err := a.s.db.QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=?`, a.workID, WorkerJobSplit).Scan(&event.Seq); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := a.s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	predecessor, err := readWorkerJobRecordedTx(context.Background(), tx, a.workID, a.job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyWorkerJobSplitReplacementTx(context.Background(), tx, event, splits[0], predecessor); err != nil {
+		t.Fatalf("original replacement evidence: %v", err)
+	}
+	splits[0].ReplacedAttempt.ForeignAcceptedPaths = []string{"internal/store/unobserved.go"}
+	if err := verifyWorkerJobSplitReplacementTx(context.Background(), tx, event, splits[0], predecessor); err == nil || !strings.Contains(err.Error(), "foreign path is not in its sealed observation") {
+		t.Fatalf("unobserved foreign path = %v; want sealed-observation refusal", err)
 	}
 }

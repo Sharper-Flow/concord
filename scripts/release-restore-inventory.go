@@ -402,8 +402,12 @@ func cover(inv inventory, witnessLog string) ([]shapeCoverage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("witness log: %w", err)
 	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil, errors.New("witness log is empty: the corpus run recorded no rows")
+	}
 	var rows []witness
-	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
+	for _, line := range bytes.Split(data, []byte("\n")) {
 		var w witness
 		if err := json.Unmarshal(line, &w); err != nil || w.Test == "" || w.Kind == "" {
 			return nil, fmt.Errorf("witness log line %q is not a witness row", line)

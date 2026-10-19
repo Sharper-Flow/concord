@@ -270,7 +270,7 @@ class InventoryTest(unittest.TestCase):
         fetched = run(["git", "fetch", "-q", str(self.repo), "refs/tags/v0.1.0:refs/tags/v0.1.0", "refs/tags/v1.0.0:refs/tags/v1.0.0"], repo)
         self.assertEqual(fetched.returncode, 0, fetched.stderr)
         output, log = self.scratch / "approved.json", self.scratch / "approved.jsonl"
-        log.write_text("")
+        log.write_text(json.dumps(WITNESSES[0]) + "\n")
         result = run([str(self.binary), "-out", str(output), "-coverage", str(self.scratch / "approved.cov"), "-witnesses", str(log)], repo)
         # Only the unwitnessed v1.0.0 shapes hold; the exclusion does not.
         self.assertEqual(result.returncode, 1, result.stderr)
@@ -384,10 +384,11 @@ class InventoryTest(unittest.TestCase):
 
     def test_malformed_witness_log_refuses(self) -> None:
         log = self.scratch / "malformed.jsonl"
-        log.write_text("not json\n")
-        result = run([str(self.binary), "-out", str(self.scratch / "m.json"), "-coverage", str(self.scratch / "m.cov"), "-witnesses", str(log)], self.repo)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("is not a witness row", result.stderr)
+        for content, refusal in (("not json\n", "is not a witness row"), ("\n", "witness log is empty")):
+            log.write_text(content)
+            result = run([str(self.binary), "-out", str(self.scratch / "m.json"), "-coverage", str(self.scratch / "m.cov"), "-witnesses", str(log)], self.repo)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(refusal, result.stderr)
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

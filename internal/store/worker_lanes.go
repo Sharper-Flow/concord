@@ -1805,19 +1805,6 @@ func validateWorkerCompletedSourceVersion(event Event, payload WorkerCompletedPa
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed context_findings are reserved for payload version >= 5", false, "record the context_findings on the current completion payload")
 	}
-	// The job's measured size surface is reserved for the size payload
-	// version: the observed delivery's base and per-path counts, and the
-	// report's production-size members beside them. A replayed event whose
-	// recorded source version sits below the boundary cannot carry those
-	// members — the store never observed a measured delta or folded a
-	// production-size report when that version was released, so any bytes
-	// that name them are fabricated size content no store ever recorded.
-	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the measured delta on the current completion payload")
-	}
-	if (payload.ProductionSize != nil || payload.DirectCallerRepairs != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
-		return newFailure(KindInvalidPayload, "fold_event", "worker.completed production_size and direct_caller_repairs are reserved for payload version >= 8", false, "record the size report on the current completion payload")
-	}
 	// The typed oracle report members are reserved for the
 	// oracle-capable payload version. A replayed event whose recorded
 	// source version sits below the boundary cannot carry oracle report
@@ -1841,6 +1828,19 @@ func validateWorkerCompletedSourceVersion(event Event, payload WorkerCompletedPa
 	// that version was released, and recorded history is never re-observed.
 	if (payload.ConsumedContextFrontier != nil || payload.ObservedDelivery != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedTerminalDeliveryVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed consumed_context_frontier and observed_delivery are reserved for payload version >= 7", false, "record the terminal delivery identity on the current completion payload")
+	}
+	// The job's measured size surface is reserved for the size payload
+	// version: the observed delivery's base and per-path counts, and the
+	// report's production-size members beside them. A replayed event whose
+	// recorded source version sits below the boundary cannot carry those
+	// members — the store never observed a measured delta or folded a
+	// production-size report when that version was released, so any bytes
+	// that name them are fabricated size content no store ever recorded.
+	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the measured delta on the current completion payload")
+	}
+	if (payload.ProductionSize != nil || payload.DirectCallerRepairs != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed production_size and direct_caller_repairs are reserved for payload version >= 8", false, "record the size report on the current completion payload")
 	}
 	return nil
 }

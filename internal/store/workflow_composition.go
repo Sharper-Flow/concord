@@ -21,6 +21,7 @@ type WorkflowComposition struct {
 	StalenessRules        []WorkflowStalenessRule
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
+	ApprovalPolicy        string
 	ActionCatalogVersion  int
 	Parts                 []WorkflowPartUse
 }
@@ -100,7 +101,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -120,7 +121,11 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
-	return []WorkflowComposition{implementationCompositionV33(), breakFixCompositionV30(), researchCompositionV20()}
+	return []WorkflowComposition{
+		implementationCompositionV33(), implementationConsequenceV34(),
+		breakFixCompositionV30(), breakFixConsequenceV31(),
+		researchCompositionV20(), researchConsequenceV21(),
+	}
 }
 
 // workflowCompositionCapabilities answers which capabilities a released
@@ -207,4 +212,27 @@ func researchCompositionV20() WorkflowComposition {
 			{Ref: "part.close", Version: 1, StepID: "complete", RecoveryTo: "investigate"},
 		},
 	}
+}
+
+// withConsequencePolicy promotes a released composition to the next version
+// under the consequence_v1 approval policy (CD-0230 D5). Engineering
+// contract approval, premise confirmation, and completion admit without an
+// operator challenge; the declared decision domains, a serious law change,
+// crucial size, and destructive effects still reach the operator.
+func withConsequencePolicy(composition WorkflowComposition) WorkflowComposition {
+	composition.Version++
+	composition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
+	return composition
+}
+
+func implementationConsequenceV34() WorkflowComposition {
+	return withConsequencePolicy(implementationCompositionV33())
+}
+
+func breakFixConsequenceV31() WorkflowComposition {
+	return withConsequencePolicy(breakFixCompositionV30())
+}
+
+func researchConsequenceV21() WorkflowComposition {
+	return withConsequencePolicy(researchCompositionV20())
 }

@@ -213,6 +213,12 @@ func closeGitWorkflowEvent(t *testing.T, s *Store, actor, kind string, fields ma
 		t.Fatalf("unregistered fixture event %s", kind)
 	}
 	event.PayloadVersion = registration.CurrentVersion
+	if kind == WorkflowContractApproved {
+		if _, declared := fields["decision_domains"]; !declared {
+			fields["decision_domains"] = []string{}
+			event.Payload = mustJSONValue(fields)
+		}
+	}
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("seed %s: %v", kind, err)
 	}

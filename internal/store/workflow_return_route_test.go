@@ -48,10 +48,9 @@ func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdict
 // can demand a kind no captured record has satisfied yet.
 func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The fixture's verdicts and corrections run under the operator
+	// substitution the legacy policy keeps.
+	registered := legacyApprovalPolicyDefinitionForRef(t, definitionRef)
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, requiredEvidence, boundKinds)
 }
 
@@ -144,7 +143,7 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	}
 	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractPayload)
 	contract.PayloadVersion = 3
-	events = append(events, nextEvent(contract))
+	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
 	for _, kind := range boundKinds {
 		evidenceRef := "evidence:return-route-" + kind
 		seedWorkflowAuthority(t, s, "return-authority-"+kind+"-"+workID, workID, "principal/return-route-"+kind, "request/return-route-"+kind, []string{evidenceRef})

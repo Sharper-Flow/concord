@@ -25,7 +25,8 @@ that set a synthetic path per session was the only guard, and it is retired.
 The version stamp cannot tell an installed release from a test build: the
 release-pair and black-box tests stamp their builds with release versions. The
 location can. The installer marks a data root it manages with the `current`
-entry, and it places every core it runs at one of two paths under that root: a
+entry, and it places every core it runs against the store at one of two paths
+under that root: a
 release tree, `<data_root>/<version>/bin/concord`, and a staged candidate,
 `<data_root>/.concord-transactions/<id>/stage/version/bin/concord`. Being under
 the root is not enough, because Concord's managed worktrees also live there, so
@@ -37,13 +38,14 @@ a build made in one would pass.
 
 A data root is managed when it holds a `current` entry of any kind. A binary
 opens, migrates, plans, backs up into, verifies, restores into, or recovers a
-store in a managed data root only when its resolved executable is a core the
-installer placed there: `<version>/bin/concord`, where `<version>` has the
-installer's release form `vMAJOR.MINOR.PATCH`, or
+store whose directory is a managed data root only when its resolved
+executable is a core the installer placed there: `<version>/bin/concord`,
+where `<version>` has the installer's release form `vMAJOR.MINOR.PATCH`, or
 `.concord-transactions/<id>/stage/version/bin/concord`. Any other binary
 refuses, whatever its version stamp, before it touches the store or the root's
 leases, locks, and fences. A store reached through a symbolic link belongs to
-the directory of the link and to the directory of the file it names. A data
+the directory of the link and to the directory of the file it names, even
+when that file does not exist yet. A data
 root or executable that cannot be resolved refuses.
 
 ### D2. The refusal names the installed release and the isolation route
@@ -80,7 +82,7 @@ as a downloaded archive or a build in a managed worktree, refuses the installed
 store until the installer places it. The unstamped migration refusal no longer
 names an owning release or the live sessions beside it. The installer places
 only stamped release builds, so an unstamped build reaches that refusal only on
-an unmanaged store, where the owner line read "none found".
+an unmanaged store, which has no owning release.
 
 ## Verification
 
@@ -90,7 +92,7 @@ an unmanaged store, where the owner line read "none found".
   outside the root, a build in a managed worktree, a tree without the release
   form, another file in a release tree, a transaction backup, a sibling whose
   name extends the root, a relative path, a database symbolic link into the
-  root, and an unlocatable binary.
+  root, a dangling one, and an unlocatable binary.
 - `internal/store.TestAdmitStorePathFailsClosedOnAnUnexplainedCurrentEntry`
   refuses a regular file and a dangling link.
 - `internal/store.TestReleaseManagedStoreRefusesEveryPathEntryPoint` refuses

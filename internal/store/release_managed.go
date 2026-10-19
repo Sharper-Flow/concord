@@ -40,8 +40,18 @@ func admitStorePath(path string, executable func() (string, error)) error {
 	}
 	// A database reached through a symlink belongs to the directory of the
 	// file it names as well as to the directory that holds the link.
+	// A dangling link still names where SQLite would create the file.
 	directories := []string{filepath.Dir(absolute)}
-	if resolved, err := filepath.EvalSymlinks(absolute); err == nil && filepath.Dir(resolved) != directories[0] {
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		if target, linkErr := os.Readlink(absolute); linkErr == nil {
+			resolved, err = filepath.Join(filepath.Dir(absolute), target), nil
+			if filepath.IsAbs(target) {
+				resolved = target
+			}
+		}
+	}
+	if err == nil && filepath.Dir(resolved) != directories[0] {
 		directories = append(directories, filepath.Dir(resolved))
 	}
 	for _, dataRoot := range directories {
@@ -96,8 +106,7 @@ func installerPlaced(root, binary string) bool {
 	case 3:
 		return installerReleaseName.MatchString(parts[0]) && parts[1] == "bin" && parts[2] == "concord"
 	case 6:
-		return parts[0] == ".concord-transactions" && parts[1] != ".." && parts[1] != "." &&
-			parts[2] == "stage" && parts[3] == "version" && parts[4] == "bin" && parts[5] == "concord"
+		return parts[0] == ".concord-transactions" && parts[2] == "stage" && parts[3] == "version" && parts[4] == "bin" && parts[5] == "concord"
 	}
 	return false
 }

@@ -113,11 +113,7 @@ func TestAdmitStorePathAdmitsOnlyInstallerPlacedBinaries(t *testing.T) {
 		{"a sibling whose name extends the data root", filepath.Join(root+"-branch", "v9.9.9", "bin", "concord")},
 	} {
 		t.Run("refuses "+tc.name, func(t *testing.T) {
-			binary := tc.binary
-			if binary != outside {
-				binary = writeBinary(t, binary)
-				t.Cleanup(func() { _ = os.Remove(binary) })
-			}
+			binary := writeBinary(t, tc.binary)
 			resolved, err := filepath.EvalSymlinks(binary)
 			if err != nil {
 				t.Fatal(err)
@@ -134,6 +130,13 @@ func TestAdmitStorePathAdmitsOnlyInstallerPlacedBinaries(t *testing.T) {
 	t.Run("refuses a database symlink into the managed root", func(t *testing.T) {
 		link := filepath.Join(t.TempDir(), "concord.db")
 		if err := os.Symlink(dbPath, link); err != nil {
+			t.Fatal(err)
+		}
+		assertReleaseManagedRefusal(t, admitStorePath(link, fixedExecutable(outside)), "is not a release the installer placed")
+	})
+	t.Run("refuses a dangling database symlink into the managed root", func(t *testing.T) {
+		link := filepath.Join(t.TempDir(), "concord.db")
+		if err := os.Symlink(filepath.Join(root, "absent.db"), link); err != nil {
 			t.Fatal(err)
 		}
 		assertReleaseManagedRefusal(t, admitStorePath(link, fixedExecutable(outside)), "is not a release the installer placed")

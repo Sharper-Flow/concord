@@ -138,9 +138,12 @@ Concord uses several distinct graphs, not one universal directed acyclic graph
 - **Work relations describe coordination.** The typed
   [relation vocabulary](contracts/relation-vocabulary.v1.json) defines stored
   relations and inverse query labels, such as `blocks` and `blocked_by`.
-  `blocks` bars the target from starting until the source is terminal;
-  `depends_on` records a requirement whose transitive closure can be read. They
-  are not interchangeable scheduling rules.
+  For actionable work, `blocks` excludes the target from the
+  [ready queue](internal/store/query.go) while the source is `needed` or
+  `in_progress`; `depends_on` records a requirement whose transitive closure can
+  be read. Neither refuses a lifecycle start by itself. A resolved
+  [Domain overlap](internal/store/workflow_domain_overlap.go) can sequence
+  execution entry through either kind.
 - **Workflow edges govern execution.** A definition connects workflow steps,
   with cycle checks that exclude declared retry and failure edges. Recovery is
   explicit, not an assumption that execution only moves forward. Inspect the

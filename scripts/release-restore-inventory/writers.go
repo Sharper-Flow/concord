@@ -48,7 +48,16 @@ import (
 // of a function that defers, whose deferred call may recover a panic into
 // zero results, a method expression call,
 // a receiver, a global, a call through a value, or a local whose address
-// escapes is "*". A site whose pairs all resolve to finite
+// escapes is "*". A tuple assignment takes one result of a static call or
+// the entry of an event kind registry read.
+//
+// The event kind registry is a fact only when it is a package-level map
+// literal the binary only reads by index, range, or len. A read of kind K is
+// "reg:K", and its CurrentVersion is "cur:K": K's registered current version,
+// or 0 when K is not registered. A comma-ok read is constantly true for a key
+// of the literal. Such values are never compared, and a
+// registry read local whose fields are written, or whose address is taken, is
+// "*". A site whose pairs all resolve to finite
 // values adds them to the release's writes; any other site is open. Pairs are
 // "kind vVERSION", and "*" is any value. A zero kind or version is a value like any other: a
 // recognized insert can write an Event that append never validated.
@@ -111,16 +120,18 @@ var (
 const resolveBudget = 200000
 
 // assignment is one write of a local: the whole variable (field "") or one
-// Event field of it. A nil rhs is a var declaration's zero value. path lists
-// its enclosing if arms; list and pos place its statement, pos -1 when it is
-// not in a statement list.
+// Event field of it. A nil rhs is a var declaration's zero value; result is
+// the value of a multi-value rhs it takes, or -1. path lists its enclosing if
+// arms; list and pos place its statement, pos -1 when it is not in a
+// statement list.
 type assignment struct {
-	rhs   ast.Expr
-	field string
-	pkg   *checkedPackage
-	path  []branch
-	list  []ast.Stmt
-	pos   int
+	rhs    ast.Expr
+	result int
+	field  string
+	pkg    *checkedPackage
+	path   []branch
+	list   []ast.Stmt
+	pos    int
 }
 
 // branch is one enclosing if statement and the arm the node sits in.
@@ -188,23 +199,25 @@ type callSite struct {
 // resolver reads, and the sites found. typeArgs lists, per type parameter
 // key, every type argument the binary instantiates it with.
 type analyzer struct {
-	fset     *token.FileSet
-	store    string
-	sources  map[string][]byte
-	sites    []writerSite
-	writes   map[string]bool
-	params   map[*types.TypeParam]string
-	typeArgs map[string][]types.Type
-	assigns  map[types.Object][]assignment
-	declared map[types.Object]bool
-	unknown  map[types.Object]bool
-	captured map[types.Object]bool
-	formals  map[types.Object]formal
-	funcs    map[string]*function
-	callees  map[*ast.Ident]bool
-	dynamic  map[string]bool
-	steps    int
-	cuts     int
+	fset       *token.FileSet
+	store      string
+	sources    map[string][]byte
+	sites      []writerSite
+	writes     map[string]bool
+	params     map[*types.TypeParam]string
+	typeArgs   map[string][]types.Type
+	assigns    map[types.Object][]assignment
+	declared   map[types.Object]bool
+	unknown    map[types.Object]bool
+	captured   map[types.Object]bool
+	formals    map[types.Object]formal
+	funcs      map[string]*function
+	callees    map[*ast.Ident]bool
+	dynamic    map[string]bool
+	registry   types.Object
+	registered map[string]bool
+	steps      int
+	cuts       int
 }
 
 func analyzerVersion() string { return "release-writer-sites.v1 " + digest([]byte(generatorSource)) }
@@ -314,6 +327,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 		a.instances(p)
 		a.index(p)
 	}
+	a.registry, a.registered = readRegistry(store)
 	result := writerAnalysis{Analyzer: analyzerVersion()}
 	for _, p := range packages {
 		a.collect(p)
@@ -329,8 +343,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 
 // index records each local's declaration and assignments. A local declared by
 // a var statement or := is resolvable; one whose address escapes, which is
-// incremented, or which a range, op-assignment, or tuple result writes is
-// unknown.
+// incremented, or which a range or op-assignment writes is unknown.
 func (a *analyzer) index(p *checkedPackage) {
 	for _, file := range p.files {
 		var stack []ast.Node
@@ -485,7 +498,7 @@ func (a *analyzer) contextual(name string) bool {
 // place records where stmt sits: its statement list and position, and its
 // enclosing if arms up to the function or closure.
 func place(p *checkedPackage, stack []ast.Node, stmt ast.Stmt) assignment {
-	record := assignment{pkg: p}
+	record := assignment{pkg: p, result: -1}
 	switch parent := stack[len(stack)-1].(type) {
 	case *ast.BlockStmt:
 		record.list = parent.List
@@ -527,6 +540,9 @@ func (a *analyzer) indexAssign(p *checkedPackage, v *ast.AssignStmt, at assignme
 		target := ast.Unparen(lhs)
 		if selector, ok := target.(*ast.SelectorExpr); ok {
 			if record.field = a.eventField(p, selector); record.field == "" {
+				if a.isNamed(p.info.Types[selector.X].Type, "EventKindRegistration") {
+					a.markUnknown(p, selector.X)
+				}
 				continue
 			}
 			target = ast.Unparen(selector.X)
@@ -543,8 +559,11 @@ func (a *analyzer) indexAssign(p *checkedPackage, v *ast.AssignStmt, at assignme
 		}
 		switch {
 		case obj == nil:
-		case len(v.Lhs) != len(v.Rhs) || v.Tok != token.ASSIGN && v.Tok != token.DEFINE:
+		case v.Tok != token.ASSIGN && v.Tok != token.DEFINE || len(v.Lhs) != len(v.Rhs) && len(v.Rhs) != 1:
 			a.unknown[obj] = true
+		case len(v.Lhs) != len(v.Rhs):
+			record.rhs, record.result = v.Rhs[0], i
+			a.assigns[obj] = append(a.assigns[obj], record)
 		default:
 			record.rhs = v.Rhs[i]
 			a.assigns[obj] = append(a.assigns[obj], record)
@@ -564,6 +583,8 @@ func (a *analyzer) indexSpec(p *checkedPackage, v *ast.ValueSpec, at assignment)
 		case 0:
 		case len(v.Names):
 			record.rhs = v.Values[i]
+		case 1:
+			record.rhs, record.result = v.Values[0], i
 		default:
 			a.unknown[obj] = true
 		}
@@ -1189,13 +1210,26 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, sc *scope) []string
 	case *ast.CallExpr:
 		// A conversion keeps its value only between identical basic types:
 		// string(n) of an integer and a narrowing integer conversion do not.
-		if target := p.info.Types[v.Fun]; target.IsType() && len(v.Args) == 1 && types.Identical(target.Type.Underlying(), under(p.info.Types[v.Args[0]].Type)) {
+		_, basic := under(p.info.Types[v.Fun].Type).(*types.Basic)
+		if target := p.info.Types[v.Fun]; basic && target.IsType() && len(v.Args) == 1 && types.Identical(target.Type.Underlying(), under(p.info.Types[v.Args[0]].Type)) {
 			return a.resolve(p, v.Args[0], sc)
 		}
-		return a.resolveCall(p, v, "", sc)
+		return a.resolveCall(p, v, 0, "", sc)
+	case *ast.IndexExpr:
+		if a.isRegistry(p, v.X) {
+			return tagValues(a.resolve(p, v.Index, sc), func(kind string) string { return "reg:" + kind })
+		}
 	case *ast.SelectorExpr:
 		if field := a.eventField(p, v); field != "" {
 			return a.resolveField(p, v.X, field, sc)
+		}
+		if v.Sel.Name == "CurrentVersion" && a.isNamed(p.info.Types[v.X].Type, "EventKindRegistration") {
+			return tagValues(a.resolve(p, v.X, sc), func(value string) string {
+				if kind, ok := strings.CutPrefix(value, "reg:"); ok {
+					return "cur:" + kind
+				}
+				return "*"
+			})
 		}
 	case *ast.BinaryExpr:
 		return a.resolveBinary(p, v, sc)
@@ -1214,7 +1248,10 @@ func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, sc *scope
 		return anyValue
 	}
 	x, y := a.resolve(p, v.X, sc), a.resolve(p, v.Y, sc)
-	if slices.Contains(x, "*") || slices.Contains(y, "*") {
+	symbolic := func(value string) bool {
+		return value == "*" || strings.HasPrefix(value, "reg:") || strings.HasPrefix(value, "cur:")
+	}
+	if slices.ContainsFunc(x, symbolic) || slices.ContainsFunc(y, symbolic) {
 		return anyValue
 	}
 	if slices.Contains(x, "?") || slices.Contains(y, "?") {
@@ -1281,6 +1318,26 @@ func zeroField(field string) []string {
 }
 
 func (a *analyzer) resolveAssigned(assign assignment, field string, sc *scope) []string {
+	if assign.result >= 0 {
+		// A field target takes the result itself.
+		of := field
+		if assign.field != "" {
+			of = ""
+		}
+		switch rhs := ast.Unparen(assign.rhs).(type) {
+		case *ast.CallExpr:
+			return a.resolveCall(assign.pkg, rhs, assign.result, of, sc)
+		case *ast.IndexExpr:
+			if of != "" || !a.isRegistry(assign.pkg, rhs.X) {
+				return anyValue
+			}
+			if assign.result == 0 {
+				return a.resolve(assign.pkg, rhs, sc)
+			}
+			return a.registeredAll(a.resolve(assign.pkg, rhs.Index, sc))
+		}
+		return anyValue
+	}
 	switch {
 	case field != "" && assign.field == field:
 		return a.resolve(assign.pkg, assign.rhs, sc)
@@ -1314,7 +1371,7 @@ func (a *analyzer) resolveField(p *checkedPackage, expr ast.Expr, field string, 
 		}
 		return zeroField(field)
 	case *ast.CallExpr:
-		return a.resolveCall(p, v, field, sc)
+		return a.resolveCall(p, v, 0, field, sc)
 	case *ast.Ident:
 		return a.resolveVar(p, v, field, sc)
 	}
@@ -1358,10 +1415,10 @@ func (a *analyzer) resolveExpr(p *checkedPackage, expr ast.Expr, field string, s
 // callDepth bounds the call bindings one resolution nests.
 const callDepth = 8
 
-// resolveCall resolves the first result of a static call, or with a field
-// that Event field of it, through the callee's returns, with the callee's
+// resolveCall resolves one result of a static call, or with a field that
+// Event field of it, through the callee's returns, with the callee's
 // parameters bound to this call's arguments.
-func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, field string, sc *scope) []string {
+func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, result int, field string, sc *scope) []string {
 	f, ok := p.info.Uses[calleeIdent(call.Fun)].(*types.Func)
 	sel, isSel := ast.Unparen(call.Fun).(*ast.SelectorExpr)
 	if !ok || isSel && p.info.Selections[sel] != nil && p.info.Selections[sel].Kind() == types.MethodExpr {
@@ -1379,7 +1436,7 @@ func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, field stri
 	if depth > callDepth {
 		return anyValue
 	}
-	key := seenKey{call, field, sc.env}
+	key := seenKey{call, field + "#" + strconv.Itoa(result), sc.env}
 	if sc.seen[key] {
 		a.cuts++
 		return nil
@@ -1392,12 +1449,16 @@ func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, field stri
 		if !a.armsRun(ret.at, inner) {
 			continue
 		}
-		// A bare return yields named results. return g() spreads g's results,
-		// so either way the first result is the first expression's.
-		if len(ret.results) == 0 {
+		// A bare return yields named results. return g() spreads g's
+		// results.
+		switch {
+		case len(ret.results) == 0:
 			return anyValue
+		case len(ret.results) > result:
+			values = append(values, a.resolveExpr(fn.pkg, ret.results[result], field, inner))
+		default:
+			values = append(values, a.resolveCall(fn.pkg, ast.Unparen(ret.results[0]).(*ast.CallExpr), result, field, inner))
 		}
-		values = append(values, a.resolveExpr(fn.pkg, ret.results[0], field, inner))
 	}
 	return union(values...)
 }
@@ -1510,4 +1571,124 @@ func (a *analyzer) mentions(p *checkedPackage, node ast.Node, obj types.Object) 
 		})
 	}
 	return found
+}
+
+// readRegistry returns the store's event kind registry and its literal's
+// constant keys when it is a package-level map literal of
+// EventKindRegistration values that the binary only reads by index, range, or
+// len; otherwise nil.
+func readRegistry(store *checkedPackage) (types.Object, map[string]bool) {
+	registry, ok := store.types.Scope().Lookup("eventKindRegistry").(*types.Var)
+	if !ok {
+		return nil, nil
+	}
+	if m, ok := registry.Type().Underlying().(*types.Map); !ok || !types.Identical(m.Key(), types.Typ[types.String]) {
+		return nil, nil
+	} else if named, ok := types.Unalias(m.Elem()).(*types.Named); !ok || named.Obj().Name() != "EventKindRegistration" || named.Obj().Pkg() != store.types {
+		return nil, nil
+	}
+	var literal *ast.CompositeLit
+	for _, file := range store.files {
+		var stack []ast.Node
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			defer func() { stack = append(stack, n) }()
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if store.info.Defs[id] == registry {
+				if spec, ok := stack[len(stack)-1].(*ast.ValueSpec); ok && len(spec.Names) == 1 && len(spec.Values) == 1 {
+					literal, _ = ast.Unparen(spec.Values[0]).(*ast.CompositeLit)
+				}
+			}
+			if store.info.Uses[id] == registry && !registryRead(store, id, stack) {
+				registry = nil
+			}
+			return true
+		})
+	}
+	if literal == nil || registry == nil {
+		return nil, nil
+	}
+	keys := map[string]bool{}
+	for _, element := range literal.Elts {
+		if pair, ok := element.(*ast.KeyValueExpr); ok {
+			if key := store.info.Types[pair.Key].Value; key != nil && key.Kind() == constant.String {
+				keys[constant.StringVal(key)] = true
+			}
+		}
+	}
+	return registry, keys
+}
+
+// registeredAll resolves a registry read's ok: "true" when every kind is a
+// key of the registry literal, else "*".
+func (a *analyzer) registeredAll(kinds []string) []string {
+	for _, kind := range kinds {
+		if !a.registered[kind] {
+			return anyValue
+		}
+	}
+	return []string{"true"}
+}
+
+// registryRead reports whether a use of the registry only reads it.
+func registryRead(p *checkedPackage, id *ast.Ident, stack []ast.Node) bool {
+	parents := outsideParens(stack)
+	if len(parents) == 0 {
+		return false
+	}
+	switch parent := parents[len(parents)-1].(type) {
+	case *ast.IndexExpr:
+		if ast.Unparen(parent.X) != id {
+			return false
+		}
+		if outer := outsideParens(parents[:len(parents)-1]); len(outer) > 0 {
+			switch target := outer[len(outer)-1].(type) {
+			case *ast.AssignStmt:
+				return !slices.ContainsFunc(target.Lhs, func(lhs ast.Expr) bool { return ast.Unparen(lhs) == parent })
+			case *ast.RangeStmt:
+				return ast.Unparen(target.Key) != parent && ast.Unparen(target.Value) != parent
+			}
+		}
+		return true
+	case *ast.RangeStmt:
+		return ast.Unparen(parent.X) == id
+	case *ast.CallExpr:
+		builtin, ok := p.info.Uses[calleeIdent(parent.Fun)].(*types.Builtin)
+		return ok && builtin.Name() == "len" && len(parent.Args) == 1
+	}
+	return false
+}
+
+// outsideParens drops the parentheses that close a stack of ancestors.
+func outsideParens(stack []ast.Node) []ast.Node {
+	for len(stack) > 0 {
+		if _, ok := stack[len(stack)-1].(*ast.ParenExpr); !ok {
+			break
+		}
+		stack = stack[:len(stack)-1]
+	}
+	return stack
+}
+
+func (a *analyzer) isRegistry(p *checkedPackage, expr ast.Expr) bool {
+	id, ok := ast.Unparen(expr).(*ast.Ident)
+	return ok && a.registry != nil && p.info.Uses[id] == a.registry
+}
+
+// tagValues maps each value through f, keeping "*" and "?".
+func tagValues(values []string, f func(string) string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "*" && value != "?" {
+			value = f(value)
+		}
+		out = append(out, value)
+	}
+	return union(out)
 }

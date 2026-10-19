@@ -509,7 +509,7 @@ func F() Event {
 	return event
 }
 
-func pairEvent() (Event, error) { return Event{}, nil }`, nil, []string{"thing.b v*"}},
+func pairEvent() (Event, error) { return Event{}, nil }`, []string{"thing.b v0"}, nil},
 		"embedded event": {`type wrapped struct{ Event }
 
 func F() Event {
@@ -523,7 +523,40 @@ func F() Event {
 	return Event{Kind: kind, PayloadVersion: version}
 }
 
-func pair() (string, int) { return "thing.a", 1 }`, nil, []string{"* v*"}},
+func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil},
+		"spread tuple result": {`func F() Event {
+	kind, version := via()
+	return Event{Kind: kind, PayloadVersion: version}
+}
+
+func via() (string, int) { return pair() }
+
+func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil},
+		"bare return": {`func F() Event { return Event{Kind: namedKind(), PayloadVersion: 1} }
+
+func namedKind() (kind string) {
+	kind = "thing.a"
+	return
+}`, nil, []string{"* v1"}},
+		"tuple field target": {`func F() Event {
+	var event Event
+	event.Kind, event.PayloadVersion = pair()
+	return Event{Kind: event.Kind, PayloadVersion: 1}
+}
+
+func pair() (string, int) { return "thing.a", 1 }`, []string{" v1", "thing.a v1"}, []string{"* v*"}},
+		"each result of one call": {`func F(n int) []Event {
+	kind := "thing.a"
+	var out []Event
+	for range n {
+		var next string
+		next, kind = pass(kind)
+		out = append(out, Event{Kind: next, PayloadVersion: 1})
+	}
+	return out
+}
+
+func pass(kind string) (string, string) { return kind, "thing.c" }`, []string{"thing.a v1", "thing.c v1"}, nil},
 		"range value": {`func F(kinds []string) Event {
 	kind := "thing.a"
 	for _, kind = range kinds {
@@ -812,6 +845,82 @@ func F(n namer) Event { return Event{Kind: n.kind(), PayloadVersion: 1} }`, nil,
 		t.Run(name, func(t *testing.T) {
 			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
 			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return pair == "thing.a v2" })
+			var open []string
+			for _, s := range analysis.Open {
+				if !known[s.Function+" "+s.Expression] {
+					open = append(open, s.Pairs...)
+				}
+			}
+			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
+				t.Fatalf("writes %q, open %q", writes, open)
+			}
+		})
+	}
+}
+
+// A registry read resolves to the kind's registered current version only
+// while the binary never writes the registry or the read value, and that
+// version is never compared.
+func TestSitePairsThroughRegistry(t *testing.T) {
+	const anchor = "func ReadEvent("
+	const typed = `func registered(kind string) (EventKindRegistration, bool) {
+	registration, ok := eventKindRegistry[kind]
+	return registration, ok
+}
+
+func F(kind string) Event {
+	version := 1
+	if registration, ok := registered(kind); ok {
+		version = registration.CurrentVersion
+	}
+	return Event{Kind: kind, PayloadVersion: version}
+}
+
+func G() { F("thing.a"); F("thing.z") }`
+	resolved := []string{"thing.a vcur:thing.a", "thing.z v1", "thing.z vcur:thing.z"}
+	base := analyzeFixture(t)
+	known := map[string]bool{}
+	for _, s := range base.Open {
+		known[s.Function+" "+s.Expression] = true
+	}
+	for name, c := range map[string]struct {
+		code   string
+		extra  []mutation
+		writes []string
+		open   []string
+	}{
+		"current version": {typed, nil, resolved, nil},
+		"spread result": {strings.Replace(typed, "registered(kind); ok", "via(kind); ok", 1) + `
+
+func via(kind string) (EventKindRegistration, bool) { return registered(kind) }`, nil, resolved, nil},
+		"registry written":      {typed + "\n\nfunc H() { eventKindRegistry[\"thing.a\"] = EventKindRegistration{CurrentVersion: 5} }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry deleted":      {typed + "\n\nfunc H() { delete(eventKindRegistry, \"thing.a\") }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry reassigned":   {typed + "\n\nfunc H() { eventKindRegistry = nil }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry range target": {typed + "\n\nfunc H(k string) {\n\tfor _, eventKindRegistry[k] = range []EventKindRegistration{{}} {\n\t}\n}", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry from a call":  {typed, []mutation{{"internal/store/store.go", "var eventKindRegistry = map[string]EventKindRegistration{", "var eventKindRegistry = registryOf(map[string]EventKindRegistration{"}, {"internal/store/store.go", "Fold: foldB},\n}", "Fold: foldB},\n})\n\nfunc registryOf(m map[string]EventKindRegistration) map[string]EventKindRegistration { return m }"}}, nil, []string{"thing.a v*", "thing.z v*"}},
+		"read value written":    {strings.Replace(typed, "\t\tversion = registration.CurrentVersion", "\t\tregistration.CurrentVersion = 9\n\t\tversion = registration.CurrentVersion", 1), nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"read value address": {strings.Replace(typed, "\t\tversion = registration.CurrentVersion", "\t\tbump(&registration)\n\t\tversion = registration.CurrentVersion", 1) + `
+
+func bump(r *EventKindRegistration) { r.CurrentVersion = 9 }`, nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry parenthesized target": {typed + "\n\nfunc H() { (eventKindRegistry[\"thing.a\"]) = EventKindRegistration{CurrentVersion: 5} }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"converted copy written": {`type registrationCopy EventKindRegistration
+
+func F() Event {
+	changed := registrationCopy(eventKindRegistry["thing.a"])
+	changed.CurrentVersion = 9
+	return Event{Kind: "thing.a", PayloadVersion: EventKindRegistration(changed).CurrentVersion}
+}`, nil, nil, []string{"thing.a v*"}},
+		"current version compared": {`func F() Event {
+	version := 1
+	if eventKindRegistry["thing.a"].CurrentVersion == 2 {
+		version = 3
+	}
+	return Event{Kind: "thing.a", PayloadVersion: version}
+}`, nil, []string{"thing.a v1", "thing.a v3"}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, append([]mutation{{"internal/store/store.go", anchor, c.code + "\n\n" + anchor}}, c.extra...)...)
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return slices.Contains(base.Writes, pair) })
 			var open []string
 			for _, s := range analysis.Open {
 				if !known[s.Function+" "+s.Expression] {

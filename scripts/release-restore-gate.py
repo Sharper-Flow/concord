@@ -24,7 +24,7 @@ A passing case emits one writer-produced witness per source event row to
 recipe hash, and snapshot checksum that produced it. A row is emitted only
 after it survived both candidate restores, and the recipe is a closed list of
 domain commands, so no imported or synthesized row can become a witness.
-scripts/release-restore-inventory.go binds each one to its own release's
+scripts/release-restore-inventory/ binds each one to its own release's
 registered shape or older accepted version. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
 held, 1 otherwise. Coverage closes only when the committed shape census
@@ -454,7 +454,7 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
 
 
 def shape_coverage(census: Path, writers: list[Writer]) -> dict:
-    """Close coverage only when the committed census (scripts/release-restore-inventory.go)
+    """Close coverage only when the committed census (scripts/release-restore-inventory/)
     inventories every writer outside the approved exclusion, witnesses every shape and older
     accepted version, and binds every writer-produced row."""
     try:

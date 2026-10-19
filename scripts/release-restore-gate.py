@@ -202,8 +202,14 @@ def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: f
     return binary
 
 
-def snapshot_fixture(source: Path, destination: Path, writer: str) -> dict:
-    """Online Backup snapshot of an exited writer's store, with its PM10 manifest."""
+def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 1 << 62, guard=lambda: None) -> dict:
+    """Online Backup snapshot of an exited writer's store, with its PM10 manifest.
+
+    The copy is refused before it starts when the source would not fit the case's
+    remaining scratch, and the case guard runs again once it is written.
+    """
+    if source.stat().st_size > room():
+        raise CaseFailure("unknown", "disk", f"snapshot of {source.stat().st_size} bytes exceeds the case's remaining scratch")
     reader = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
     target = sqlite3.connect(destination)
     try:
@@ -231,6 +237,7 @@ def snapshot_fixture(source: Path, destination: Path, writer: str) -> dict:
         raise CaseFailure("fail", "snapshot", "writer store fails SQLite integrity verification")
     if manifest["event_watermark"] < 1:
         raise CaseFailure("fail", "snapshot", "writer journal is empty")
+    guard()
     manifest["db_checksum"] = sha256_file(destination)
     Path(f"{destination}.manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return manifest
@@ -303,11 +310,11 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
             if rc != 0:
                 raise CaseFailure("unknown", verb, f"writer refused recipe step {verb} with exit {rc}")
         snapshot = case / "snapshot.db"
-        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag)
+        manifest = snapshot_fixture(Path(env["CONCORD_DB_PATH"]), snapshot, writer.tag, room, guard)
         row["source"] = {key: manifest[key] for key in ("schema_version", "event_watermark", "db_checksum")}
         row["restored"] = restore(candidate, snapshot, case / "restored.db", case, deadline, streams, "restore", guard)
         again = case / "restored-snapshot.db"
-        snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored")
+        snapshot_fixture(case / "restored.db", again, f"{writer.tag}-restored", room, guard)
         row["rebuilt"] = restore(candidate, again, case / "rebuilt.db", case, deadline, streams, "rebuild", guard)
         if row["rebuilt"]["appended_events"] or row["rebuilt"]["event_watermark"] != row["restored"]["event_watermark"]:
             raise CaseFailure("fail", "rebuild", "a second restore of the restored store changed its event log")
@@ -333,16 +340,26 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
     output = Path(args.output_dir).resolve()
     candidate = Path(args.candidate).resolve()
     candidate_sha256 = sha256_file(candidate)
+    if time.monotonic() >= wall_deadline:
+        raise GateError("the wall budget ran out during enumeration")
+    transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
+    preflight = output / "candidate"
+
+    def guard() -> None:
+        if tree_bytes(preflight) > scratch.allowance():
+            raise CaseFailure("unknown", "disk", "candidate preflight exceeds its scratch share")
+
     try:
-        rc, version = run_bounded([str(candidate), "--version"], sandbox_env(output / "candidate"), "",
-                                  min(wall_deadline, time.monotonic() + NETWORK_SECONDS), output / "streams" / "candidate", "version")
+        rc, version = run_bounded([str(candidate), "--version"], sandbox_env(preflight), "",
+                                  min(wall_deadline, time.monotonic() + NETWORK_SECONDS), preflight / "streams", "version", guard)
+        guard()
     except CaseFailure as failure:
         raise GateError(f"candidate preflight: {failure.detail}") from None
+    scratch.retain(tree_bytes(preflight))
     if rc != 0 or version.strip() != args.candidate_version:
         raise GateError(f"candidate reports {version.strip()!r}, want {args.candidate_version}")
     writers, unknown, unavailable, excluded = enumerate_writers(releases, tags, args.candidate_version, args.target_sha)
     population = [dataclasses.asdict(writer) for writer in writers] + unknown + unavailable
-    transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(run_writer_case, args.repository, writer, candidate, output / "cases", output / "streams" / writer.tag,
                                args.case_seconds, wall_deadline, scratch, transfer) for writer in writers]

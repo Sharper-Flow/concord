@@ -67,6 +67,12 @@ import json, sqlite3, sys
 VERSION = {version!r}
 MODE = {mode!r}
 if sys.argv[1:] == ["--version"]:
+    if MODE == "grow-preflight":
+        import os
+        with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
+            while True:
+                handle.write(b"x" * 65536)
+                handle.flush()
     print(VERSION)
     sys.exit(0)
 if MODE == "refuse":
@@ -274,6 +280,20 @@ class CaseTests(unittest.TestCase):
         self.assertEqual((status, report["result"], report["counts"]), (1, "fail", {"pass": 1, "fail": 1, "unknown": 0}))
         report, status = gate.run_gate(self.args(self.fixture.candidate()), [], {})
         self.assertEqual((status, report["result"]), (1, "unknown"))
+
+    def test_preflight_bounds_scratch_and_the_wall(self) -> None:
+        args = self.args(self.fixture.candidate("grow-preflight"))
+        args.disk_bytes = 1 << 20
+        with self.assertRaisesRegex(gate.GateError, "preflight exceeds its scratch"):
+            gate.run_gate(args, [], {})
+        with self.assertRaisesRegex(gate.GateError, "during enumeration"):
+            gate.run_gate(self.args(self.fixture.candidate()), [], {}, time.monotonic() - 1)
+
+    def test_snapshot_refuses_a_store_beyond_the_remaining_scratch(self) -> None:
+        store = self.fixture.root / "store.db"
+        store.write_bytes(b"x" * 4096)
+        with self.assertRaisesRegex(gate.CaseFailure, "exceeds the case's remaining scratch"):
+            gate.snapshot_fixture(store, self.fixture.root / "snap.db", "v1.0.0", room=lambda: 100)
 
     def test_candidate_identity_is_bound(self) -> None:
         with self.assertRaisesRegex(gate.GateError, "candidate reports"):

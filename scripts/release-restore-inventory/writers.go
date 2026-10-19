@@ -35,7 +35,9 @@ import (
 // parameter, result, receiver, global, call result, or local whose address
 // escapes is "*". A site whose pairs all resolve to finite values adds them to
 // the release's writes; any other site is open. Pairs are "kind vVERSION",
-// and "*" is any value. A zero kind or version pairs with nothing.
+// and "*" is any value. A zero kind or version pairs with nothing: every
+// release's append refuses an event with no kind or a version below 1, and a
+// SQL write is always open.
 //
 // The analysis sees only what ./cmd/concord compiles at the tag, with the local
 // toolchain. A tree that does not list or type-check, or whose binary compiles

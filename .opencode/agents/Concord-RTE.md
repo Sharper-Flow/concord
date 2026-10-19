@@ -13,9 +13,12 @@ permission:
   skill: allow
   webfetch: allow
   bash:
-    "*": allow
     "sudo *": deny
     "rm -rf / *": deny
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
   task:
     "*": allow
 ---

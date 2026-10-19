@@ -42,6 +42,10 @@ permission:
     "git status *": allow
     "git ls-files *": allow
     "git rev-parse *": allow
+    "git stash *": deny
+    "git * stash *": deny
+    "*/git stash *": deny
+    "*/git * stash *": deny
 ---
 
 # concord-advisor

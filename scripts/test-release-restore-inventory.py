@@ -433,7 +433,8 @@ class InventoryTest(unittest.TestCase):
         log.write_text("".join(json.dumps(w) + "\n" for w in rows))
         result = run([str(self.binary), "-out", str(output), "-coverage", str(coverage), "-witnesses", str(log)], self.repo)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("binds to no registered shape of its release", result.stderr)
+        self.assertIn("binds to no registered shape or accepted version of its release", result.stderr)
+        self.assertIn("an older accepted version lacks a same-release witness", result.stderr)
         covered = json.loads(coverage.read_text())
         self.assertEqual(covered["unbound_writer_witnesses"], [
             "v1.0.0 seq 2 thing.typed v1", "v1.0.0 seq 3 thing.constant v1", "v2.0.0 seq 1 thing.typed v1", "v5.0.0 seq 4 thing.legacy v1"])

@@ -384,7 +384,7 @@ func run(output, coverageOut string, witnessLogs []string) error {
 		}
 	}
 	if len(coverage.Unbound) > 0 {
-		held = append(held, errors.New("coverage held: a writer-produced row binds to no registered shape of its release; see coverage"))
+		held = append(held, errors.New("coverage held: a writer-produced row binds to no registered shape or accepted version of its release; see coverage"))
 	}
 	for _, older := range coverage.Older {
 		if !older.Covered {
@@ -527,7 +527,7 @@ func cover(inv inventory, rows []witness) (coverageReport, error) {
 				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}}
 			}
 			shapes[key].Writers = append(shapes[key].Writers, result.Tag)
-			for version := max(r.MinSupported, 1); version < r.CurrentVersion; version++ {
+			for version := r.MinSupported; version < r.CurrentVersion; version++ {
 				accepted[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, version)] = true
 				key := fmt.Sprintf("%s\x00%d", r.Kind, version)
 				if older[key] == nil {

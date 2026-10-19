@@ -360,6 +360,7 @@ class CaseTests(unittest.TestCase):
             (self.census(covered=True, unbound=("v1.0.0 seq 3 work.created v1",)), "held", "1 unbound writer witnesses, first v1.0.0 seq 3"),
             (self.fixture.root / "absent", "held", "is unreadable"),
             (self.census_without("older_versions"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses"), "held", "is unreadable"),
         )
         for census, status, detail in cases:
             coverage = gate.shape_coverage(census, writers)

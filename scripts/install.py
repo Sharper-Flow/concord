@@ -2215,7 +2215,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         if destination.exists() or destination.is_symlink():
             expected = agent_records[name]
             if not destination.is_file() or sha256(destination) != expected:
-                failures.append(f"refusing to overwrite user-authored agent file {destination}")
+                failures.append(f"refusing to overwrite user-authored agent file {destination}{AGENT_CUSTOMIZATION_GUIDANCE}")
     if old_manifest:
         old_version = old_manifest.get("version")
         if not isinstance(old_version, str):
@@ -2407,6 +2407,13 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
     if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
         raise InstallerError("existing installer manifest has invalid adapter file records")
     return value  # type: ignore[return-value]
+
+
+AGENT_CUSTOMIZATION_GUIDANCE = (
+    "; keep machine agent overrides in ~/.opencode/opencode.json[c], "
+    "project settings in .opencode/opencode.json[c], and extra instructions "
+    "in user-owned files listed in instructions[]; restore the shipped agent before retrying"
+)
 
 
 def managed_agent_records(manifest: dict[str, object] | None) -> dict[str, str]:
@@ -2789,7 +2796,7 @@ def make_transaction(
                 else:
                     raise InstallerError(f"refusing to overwrite user-authored agent file {target}")
             if expected is not None and (not target.is_file() or sha256(target) != expected):
-                raise InstallerError(f"refusing to overwrite modified managed agent file {target}")
+                raise InstallerError(f"refusing to overwrite modified managed agent file {target}{AGENT_CUSTOMIZATION_GUIDANCE}")
         old_agents[name] = capture_file(
             target,
             backup / "agents" / name,
@@ -3772,7 +3779,7 @@ def install(args: argparse.Namespace) -> int:
         for name, expected in agent_records.items():
             destination = paths.agents_dir / name
             if not destination.is_file() or sha256(destination) != expected:
-                raise InstallerError(f"refusing to overwrite modified managed agent file {destination}")
+                raise InstallerError(f"refusing to overwrite modified managed agent file {destination}{AGENT_CUSTOMIZATION_GUIDANCE}")
         if not paths.launcher.is_symlink() or os.readlink(paths.launcher) != manifest.get("launcher_target"):
             raise InstallerError(f"refusing to repair modified managed launcher {paths.launcher}")
         if not paths.stable_root.is_symlink() or os.readlink(paths.stable_root) != str(paths.data_root / version):
@@ -4290,7 +4297,7 @@ def plan_repair(
         if digest == manifest_agents.get(name):
             repairs.add(f"restored agent {name}")
             continue
-        raise InstallerError(f"refusing to repair modified managed file {target}")
+        raise InstallerError(f"refusing to repair modified managed file {target}{AGENT_CUSTOMIZATION_GUIDANCE}")
     if not paths.launcher.exists() and not paths.launcher.is_symlink():
         repairs.add("restored the launcher")
     if not paths.stable_root.exists() and not paths.stable_root.is_symlink():

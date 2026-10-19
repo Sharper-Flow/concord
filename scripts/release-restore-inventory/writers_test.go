@@ -299,6 +299,83 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 	if !slices.Equal(analysis.WorkItemFolds, []string{"thing.b"}) || analysis.CheckSubject == "" {
 		t.Fatalf("work-item folds %q, check subject %q", analysis.WorkItemFolds, analysis.CheckSubject)
 	}
+	if d := analysis.Dispatcher; d == nil || d.Function != storePkg+".upcastEventWithRegistration" || !slices.Equal(d.Guards, []string{"event.PayloadVersion < registration.MinSupported || event.PayloadVersion > registration.CurrentVersion", "upcaster == nil", "err != nil"}) {
+		t.Fatalf("dispatcher %+v", analysis.Dispatcher)
+	}
+	// upcastB2 is also a recorded-schema adapt value: a function value.
+	var confined []string
+	for _, s := range analysis.Open {
+		if s.Confinement != "" {
+			confined = append(confined, strings.TrimPrefix(s.Function, storePkg+".")+" "+s.Confinement)
+		}
+	}
+	if !slices.Equal(confined, []string{"upcastA1 upcaster", "upcastB1 upcaster"}) {
+		t.Fatalf("confined %q", confined)
+	}
+}
+
+// An upcaster is called through Upcaster values, so a static call does not
+// bind its parameter: its site stays open.
+func TestUpcasterIsNotContextual(t *testing.T) {
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "func ReadEvent(", "func Stray() (Event, error) { return upcastA1(Event{Kind: \"thing.a\", PayloadVersion: 1}) }\n\nfunc ReadEvent("})
+	i := slices.IndexFunc(analysis.Open, func(s writerSite) bool {
+		return s.Function == storePkg+".upcastA1" && s.Expression == "event.PayloadVersion = 2"
+	})
+	if i < 0 || !slices.Equal(analysis.Open[i].Pairs, []string{"* v2"}) || analysis.Open[i].Confinement != "" {
+		t.Fatalf("open %+v", analysis.Open)
+	}
+}
+
+// An upcaster site stays confined only while the function is reachable only
+// as an Upcaster value through the one dispatcher, and its own Event
+// parameter keeps its kind and after the site is only returned.
+func TestUpcasterConfinement(t *testing.T) {
+	const store = "internal/store/store.go"
+	const upcastA1 = "func upcastA1(event Event) (Event, error) {\n\tevent.PayloadVersion = 2\n\treturn event, nil\n}"
+	body := func(code string) mutation {
+		return mutation{store, upcastA1, "func upcastA1(event Event) (Event, error) {\n" + code + "\n}"}
+	}
+	declare := func(code string) mutation { return mutation{store, "func ReadEvent(", code + "\n\nfunc ReadEvent("} }
+	for name, c := range map[string]struct {
+		mutations  []mutation
+		expression string
+		confined   bool
+	}{
+		"payload beside the version":  {[]mutation{body("\tevent.Payload, event.PayloadVersion = nil, 2\n\t_ = event.Kind\n\treturn event, nil")}, "event.Payload, event.PayloadVersion = nil, 2", true},
+		"call outside the dispatcher": {[]mutation{declare("func Stray(event Event) (Event, error) { return eventKindRegistry[\"thing.a\"].Upcasters[1](event) }")}, "", false},
+		"upcaster handed on":          {[]mutation{declare("func Stray() Upcaster { return eventKindRegistry[\"thing.a\"].Upcasters[1] }")}, "", false},
+		"function used as a value":    {[]mutation{declare("var stray = upcastA1")}, "", false},
+		"function also called":        {[]mutation{declare("func Stray(event Event) (Event, error) { return upcastA1(event) }")}, "", false},
+		"kind assigned":               {[]mutation{body("\tevent.Kind = \"thing.b\"\n\tevent.PayloadVersion = 2\n\treturn event, nil")}, "", false},
+		"kind beside the version":     {[]mutation{body("\tevent.Kind, event.PayloadVersion = \"thing.b\", 2\n\treturn event, nil")}, "event.Kind, event.PayloadVersion = \"thing.b\", 2", false},
+		"parameter replaced":          {[]mutation{body("\tevent = Event{Payload: event.Payload}\n\tevent.PayloadVersion = 2\n\treturn event, nil")}, "", false},
+		"parameter addressed":         {[]mutation{body("\tevent.PayloadVersion = 2\n\tkeep(&event)\n\treturn event, nil"), declare("func keep(*Event) {}")}, "", false},
+		"parameter captured":          {[]mutation{body("\tevent.PayloadVersion = 2\n\tfunc() { _ = event }()\n\treturn event, nil")}, "", false},
+		"site in a loop":              {[]mutation{body("\tfor range 1 {\n\t\tevent.PayloadVersion = 2\n\t}\n\treturn event, nil")}, "", false},
+		"handed on after the site":    {[]mutation{body("\tevent.PayloadVersion = 2\n\tsink(event)\n\treturn event, nil"), declare("func sink(Event) {}")}, "", false},
+		"returned through a call":     {[]mutation{body("\tevent.PayloadVersion = 2\n\treturn pick(event, event)"), declare("func pick(a, b Event) (Event, error) { return a, nil }")}, "", false},
+		"addressed before the site":   {[]mutation{body("\tp := &event\n\tevent.PayloadVersion = 2\n\tsink(*p)\n\treturn event, nil"), declare("func sink(Event) {}")}, "", false},
+		"captured before the site":    {[]mutation{body("\tf := func() Event { return event }\n\tevent.PayloadVersion = 2\n\tsink(f())\n\treturn event, nil"), declare("func sink(Event) {}")}, "", false},
+		"another local":               {[]mutation{body("\tother := event\n\tother.PayloadVersion = 2\n\treturn other, nil")}, "other.PayloadVersion = 2", false},
+		"no dispatcher":               {[]mutation{declare("func Stray(u Upcaster, event Event) (Event, error) { return u(event) }")}, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			expression := c.expression
+			if expression == "" {
+				expression = "event.PayloadVersion = 2"
+			}
+			analysis := analyzeFixture(t, c.mutations...)
+			got := ""
+			for _, s := range analysis.Open {
+				if s.Function == storePkg+".upcastA1" && s.Expression == expression {
+					got = s.Confinement
+				}
+			}
+			if (got == "upcaster") != c.confined {
+				t.Fatalf("confinement %q; dispatcher %+v; open %+v", got, analysis.Dispatcher, analysis.Open)
+			}
+		})
+	}
 }
 
 // A fold refuses a work_item subject only when the registration sets it,

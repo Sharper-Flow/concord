@@ -74,18 +74,35 @@ type writerSite struct {
 	Expression     string   `json:"expression"`
 	FunctionDigest string   `json:"function_digest"`
 	Pairs          []string `json:"pairs"`
+	// Confinement is "upcaster" on an assignment, outside any loop or
+	// closure, of fields of the site function's own Event parameter, when
+	// the function is reachable only as an Upcaster value through the one
+	// dispatcher, the parameter's Kind and whole value are never assigned, it
+	// is never captured or addressed, and after the site it is only returned
+	// or the base of a field selector.
+	Confinement string `json:"confinement,omitempty"`
+}
+
+// upcastDispatcher is the one declaration that calls Upcaster values and
+// holds every other expression of the Upcaster type, with the conditions of
+// its if statements whose body ends in a return.
+type upcastDispatcher struct {
+	Function       string   `json:"function"`
+	FunctionDigest string   `json:"function_digest"`
+	Guards         []string `json:"guards"`
 }
 
 // writerAnalysis is one release binary's event writers. Writes are the pairs
 // fully resolved sites produce.
 // WorkItemFolds and CheckSubject are workItemFolds' result.
 type writerAnalysis struct {
-	Analyzer      string       `json:"analyzer"`
-	Refused       string       `json:"refused,omitempty"`
-	Writes        []string     `json:"writes,omitempty"`
-	Open          []writerSite `json:"open_sites,omitempty"`
-	WorkItemFolds []string     `json:"work_item_folds,omitempty"`
-	CheckSubject  string       `json:"check_subject,omitempty"`
+	Analyzer      string            `json:"analyzer"`
+	Refused       string            `json:"refused,omitempty"`
+	Writes        []string          `json:"writes,omitempty"`
+	Open          []writerSite      `json:"open_sites,omitempty"`
+	Dispatcher    *upcastDispatcher `json:"upcast_dispatcher,omitempty"`
+	WorkItemFolds []string          `json:"work_item_folds,omitempty"`
+	CheckSubject  string            `json:"check_subject,omitempty"`
 }
 
 type listedPackage struct {
@@ -176,14 +193,15 @@ type formal struct {
 }
 
 // function is one declared function: its static calls, its returns with
-// their enclosing if arms, and whether it is used other than by a call or
-// defers.
+// their enclosing if arms, whether it is used other than by a call, whether
+// it is an element of an Upcaster container literal, and whether it defers.
 type function struct {
 	decl     *ast.FuncDecl
 	pkg      *checkedPackage
 	calls    []callSite
 	returns  []returned
 	value    bool
+	upcaster bool
 	deferred bool
 }
 
@@ -221,6 +239,13 @@ type analyzer struct {
 	registered map[string]bool
 	steps      int
 	cuts       int
+	// upcastValues are the function identifiers listed as elements of an
+	// Upcaster container literal; upcasterExprs and upcasterCalls the
+	// top-level declarations holding an Upcaster-typed expression or call.
+	upcastValues  map[*ast.Ident]bool
+	upcasterExprs map[ast.Decl]*checkedPackage
+	upcasterCalls map[ast.Decl]*checkedPackage
+	dispatcher    *upcastDispatcher
 }
 
 func analyzerVersion() string { return "release-writer-sites.v1 " + digest([]byte(generatorSource)) }
@@ -326,13 +351,15 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	a.params, a.typeArgs = map[*types.TypeParam]string{}, map[string][]types.Type{}
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
 	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
+	a.upcastValues, a.upcasterExprs, a.upcasterCalls = map[*ast.Ident]bool{}, map[ast.Decl]*checkedPackage{}, map[ast.Decl]*checkedPackage{}
 	for _, p := range packages {
 		a.instances(p)
 		a.index(p)
 	}
 	var literal *ast.CompositeLit
 	a.registry, a.registered, literal = readRegistry(store)
-	result := writerAnalysis{Analyzer: analyzerVersion()}
+	a.dispatcher = a.findDispatcher()
+	result := writerAnalysis{Analyzer: analyzerVersion(), Dispatcher: a.dispatcher}
 	for _, p := range packages {
 		a.collect(p)
 	}
@@ -358,6 +385,7 @@ func (a *analyzer) index(p *checkedPackage) {
 				return true
 			}
 			defer func() { stack = append(stack, n) }()
+			a.indexUpcaster(p, n, stack)
 			switch v := n.(type) {
 			case *ast.AssignStmt:
 				a.indexAssign(p, v, place(p, stack, v))
@@ -373,7 +401,11 @@ func (a *analyzer) index(p *checkedPackage) {
 					a.dynamic[f.Name()] = true
 				}
 				if f, ok := p.info.Uses[v].(*types.Func); ok && !a.callees[v] {
-					a.function(f).value = true
+					if a.upcastValues[v] {
+						a.function(f).upcaster = true
+					} else {
+						a.function(f).value = true
+					}
 				}
 			case *ast.FuncDecl:
 				a.indexFunc(p, v)
@@ -494,7 +526,7 @@ func (a *analyzer) enclosingFunc(p *checkedPackage, stack []ast.Node) *function 
 // there is one: a function with none is dead code, which still counts.
 func (a *analyzer) contextual(name string) bool {
 	fn := a.funcs[name]
-	if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.value || len(fn.calls) == 0 {
+	if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.value || fn.upcaster || len(fn.calls) == 0 {
 		return false
 	}
 	return fn.decl.Recv == nil || !ast.IsExported(fn.decl.Name.Name) && !a.dynamic[fn.decl.Name.Name]
@@ -806,7 +838,11 @@ func (a *analyzer) collect(p *checkedPackage) {
 					pairs = a.evaluate(a.siteFunction(p, d), resolve)
 				}
 				if slices.ContainsFunc(pairs, func(pair string) bool { return strings.Contains(pair, "*") }) {
-					a.sites = append(a.sites, writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: pairs})
+					open := writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: pairs}
+					if assign, ok := node.(*ast.AssignStmt); ok && a.confinedSite(p, d, assign) {
+						open.Confinement = "upcaster"
+					}
+					a.sites = append(a.sites, open)
 					return
 				}
 				for _, pair := range pairs {
@@ -964,6 +1000,140 @@ func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site
 			return pairs(a.resolve(p, kind, newScope(e)), a.resolve(p, version, newScope(e)))
 		})
 	}
+}
+
+// indexUpcaster records an Upcaster container literal's function elements,
+// and the top-level declaration of every Upcaster-typed expression and call.
+// An operand of a comparison with nil neither calls nor hands on a value.
+func (a *analyzer) indexUpcaster(p *checkedPackage, n ast.Node, stack []ast.Node) {
+	if lit, ok := n.(*ast.CompositeLit); ok && a.isNamed(elementType(p.info.Types[lit].Type), "Upcaster") {
+		for _, element := range lit.Elts {
+			if pair, ok := element.(*ast.KeyValueExpr); ok {
+				element = pair.Value
+			}
+			if id, ok := ast.Unparen(element).(*ast.Ident); ok {
+				a.upcastValues[id] = true
+			}
+		}
+	}
+	expr, ok := n.(ast.Expr)
+	if tv, typed := p.info.Types[expr]; !ok || !typed || tv.IsType() || !a.isNamed(tv.Type, "Upcaster") || len(stack) < 2 {
+		return
+	}
+	if binary, ok := stack[len(stack)-1].(*ast.BinaryExpr); ok && (binary.Op == token.EQL || binary.Op == token.NEQ) && (isNil(p, binary.X) || isNil(p, binary.Y)) {
+		return
+	}
+	decl, _ := stack[1].(ast.Decl)
+	a.upcasterExprs[decl] = p
+	if call, ok := stack[len(stack)-1].(*ast.CallExpr); ok && call.Fun == expr {
+		a.upcasterCalls[decl] = p
+	}
+}
+
+func isNil(p *checkedPackage, expr ast.Expr) bool {
+	id, ok := ast.Unparen(expr).(*ast.Ident)
+	_, isNil := p.info.Uses[id].(*types.Nil)
+	return ok && isNil
+}
+
+// findDispatcher returns the one function declaration that calls Upcaster
+// values when it also holds every other Upcaster-typed expression, or nil.
+func (a *analyzer) findDispatcher() *upcastDispatcher {
+	if len(a.upcasterCalls) != 1 || len(a.upcasterExprs) != 1 {
+		return nil
+	}
+	var decl ast.Decl
+	var p *checkedPackage
+	for decl, p = range a.upcasterCalls {
+	}
+	fn, ok := decl.(*ast.FuncDecl)
+	if a.upcasterExprs[decl] == nil || !ok || fn.Body == nil {
+		return nil
+	}
+	guards := []string{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if stmt, ok := n.(*ast.IfStmt); ok && len(stmt.Body.List) > 0 {
+			if _, returns := stmt.Body.List[len(stmt.Body.List)-1].(*ast.ReturnStmt); returns {
+				guards = append(guards, types.ExprString(stmt.Cond))
+			}
+		}
+		return true
+	})
+	name, body := a.declName(p, fn)
+	return &upcastDispatcher{Function: name, FunctionDigest: body, Guards: guards}
+}
+
+// confinedSite reports whether an assignment meets writerSite.Confinement.
+func (a *analyzer) confinedSite(p *checkedPackage, d ast.Decl, assign *ast.AssignStmt) bool {
+	decl, ok := d.(*ast.FuncDecl)
+	if !ok || a.dispatcher == nil || decl.Recv != nil {
+		return false
+	}
+	if fn := a.funcs[a.siteFunction(p, d)]; fn == nil || !fn.upcaster || fn.value || len(fn.calls) > 0 {
+		return false
+	}
+	var param types.Object
+	for _, lhs := range assign.Lhs {
+		selector, ok := ast.Unparen(lhs).(*ast.SelectorExpr)
+		if !ok || p.info.Selections[selector] == nil || p.info.Selections[selector].Kind() != types.FieldVal {
+			return false
+		}
+		id, ok := ast.Unparen(selector.X).(*ast.Ident)
+		if !ok || param != nil && p.info.Uses[id] != param {
+			return false
+		}
+		param = p.info.Uses[id]
+	}
+	if _, ok := a.formals[param]; !ok || !a.isEvent(param.Type()) || a.unknown[param] || a.captured[param] {
+		return false
+	}
+	for _, at := range a.assigns[param] {
+		if at.field != "PayloadVersion" {
+			return false
+		}
+	}
+	return a.returnsOnly(p, decl, param, assign)
+}
+
+// returnsOnly reports whether stmt is in no loop or closure of fn, and every
+// read of obj after stmt is a returned result, which for an upcaster is its
+// Event, or the base of a field selector.
+func (a *analyzer) returnsOnly(p *checkedPackage, fn *ast.FuncDecl, obj types.Object, stmt ast.Stmt) bool {
+	parents := map[ast.Node]ast.Node{}
+	var stack []ast.Node
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		if len(stack) > 0 {
+			parents[n] = stack[len(stack)-1]
+		}
+		stack = append(stack, n)
+		return true
+	})
+	for at := parents[stmt]; at != fn; at = parents[at] {
+		switch at.(type) {
+		case *ast.ForStmt, *ast.RangeStmt, *ast.FuncLit:
+			return false
+		}
+	}
+	only := true
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || id.Pos() < stmt.End() || p.info.Uses[id] != obj {
+			return only
+		}
+		switch parent := parents[id].(type) {
+		case *ast.ReturnStmt:
+		case *ast.SelectorExpr:
+			only = p.info.Selections[parent] != nil && p.info.Selections[parent].Kind() == types.FieldVal
+		default:
+			only = false
+		}
+		return only
+	})
+	return only
 }
 
 // pairs crosses kinds with versions.

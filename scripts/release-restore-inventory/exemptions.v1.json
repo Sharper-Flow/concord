@@ -289,6 +289,22 @@
    "function_digest": "sha256:e4271e89107976f07c7536471d4003945596d60b117d777cee2a1be1ed61c35f",
    "check_subject_digest": "sha256:721efe113e7706a5bfb8c7dbf0657e1a3f524ca35132e6d960a33f7fc00aa52b",
    "check": "reviewed source: the workflow replay decoder builds work_item events from caller input; it holds every kind whose fold does not begin by refusing a work_item subject through checkSubject, the reviewed function a fold refusal rolls the import back through"
+  },
+  {
+   "id": "upcast:2ce9aa22493f",
+   "class": "upcast_confinement",
+   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
+   "dispatcher_digest": "sha256:2ce9aa22493fea284a8be2fdb18ac0419e89864908588a7b95de1827dc1f6a1d",
+   "guard": "event.PayloadVersion != registration.CurrentVersion",
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; a confined site never assigns Kind"
+  },
+  {
+   "id": "upcast:cb77c84ae9c8",
+   "class": "upcast_confinement",
+   "dispatcher": "github.com/sharper-flow/concord/internal/store.upcastEventWithRegistration",
+   "dispatcher_digest": "sha256:cb77c84ae9c864adc12bb3f418ab73b9547d39c00db9503c56a063d38dc0aa7a",
+   "guard": "event.PayloadVersion != registration.CurrentVersion",
+   "check": "analyzer-checked confinement; reviewed dispatcher calls Upcaster values only inside its loop and returns an upcast result only after refusing any version that is not registration.CurrentVersion; a confined site never assigns Kind"
   }
  ]
 }

@@ -22,13 +22,6 @@ const unstampedRecoveryLine = "recovery: set CONCORD_DB_PATH to a fresh path out
 
 const unstampedRefusalLead = "unstamped development build refuses schema migration for an existing store"
 
-func useUnstampedBuild(t *testing.T) {
-	t.Helper()
-	previous := version.Value
-	version.Value = version.Development
-	t.Cleanup(func() { version.Value = previous })
-}
-
 func useStamp(t *testing.T, stamp string) {
 	t.Helper()
 	previous := version.Value
@@ -191,7 +184,7 @@ func TestReleaseManagedRestoreDestinationRefuses(t *testing.T) {
 // restore refuses a backup file, not a data root's store, so its unstamped
 // migration refusal names the one recovery line.
 func TestUnstampedRestoreRefusalNamesTheRecovery(t *testing.T) {
-	useUnstampedBuild(t)
+	useStamp(t, version.Development)
 	freshMigratedCLIDatabase(t)
 	backups := t.TempDir()
 	snapshot := filepath.Join(backups, "snapshot.db")

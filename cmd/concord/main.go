@@ -1479,8 +1479,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		}
 		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
-			// The source is a backup file, not a data root's store, so the
-			// refusal names no owner.
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}

@@ -50,15 +50,29 @@ func assertReleaseManagedRefusal(t *testing.T, err error, want string) {
 	}
 }
 
-// Only a binary under the data root opens a store the installer manages; the
-// version stamp plays no part. A store without the installer's link is not
-// managed, and anything the check cannot resolve refuses.
-func TestAdmitStorePathAdmitsOnlyBinariesUnderAManagedDataRoot(t *testing.T) {
-	root, dbPath := managedDataRoot(t, "v9.9.9")
-	installed := filepath.Join(root, "v9.9.9", "bin", "concord")
-	if err := os.WriteFile(installed, nil, 0o700); err != nil {
+// writeBinary writes an empty file at path, creating its directories.
+func writeBinary(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(path, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Only a core the installer placed opens a store it manages: a release tree
+// or a staged transaction candidate. The version stamp plays no part, and a
+// binary elsewhere under the data root, such as one built in a managed
+// worktree, refuses. A store without the installer's link is not managed,
+// and anything the check cannot resolve refuses.
+func TestAdmitStorePathAdmitsOnlyInstallerPlacedBinaries(t *testing.T) {
+	root, dbPath := managedDataRoot(t, "v9.9.9")
+	installed := writeBinary(t, filepath.Join(root, "v9.9.9", "bin", "concord"))
+	older := writeBinary(t, filepath.Join(root, "v9.8.0", "bin", "concord"))
+	staged := writeBinary(t, filepath.Join(root, ".concord-transactions", "0123abcd", "stage", "version", "bin", "concord"))
+	outside := writeBinary(t, filepath.Join(t.TempDir(), "concord"))
 	launcher := filepath.Join(t.TempDir(), "concord")
 	if err := os.Symlink(installed, launcher); err != nil {
 		t.Fatal(err)
@@ -67,21 +81,12 @@ func TestAdmitStorePathAdmitsOnlyBinariesUnderAManagedDataRoot(t *testing.T) {
 	if err := os.Symlink(root, aliasedRoot); err != nil {
 		t.Fatal(err)
 	}
-	staged := filepath.Join(root, ".transactions", "tx", "stage", "version", "bin", "concord")
-	outside := filepath.Join(t.TempDir(), "concord")
-	for _, binary := range []string{staged, outside} {
-		if err := os.MkdirAll(filepath.Dir(binary), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(binary, nil, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
 
 	for _, tc := range []struct {
 		name, path, binary string
 	}{
 		{"installed release", dbPath, installed},
+		{"retained older release", dbPath, older},
 		{"symlinked launcher", dbPath, launcher},
 		{"transaction stage", dbPath, staged},
 		{"aliased data root", filepath.Join(aliasedRoot, "concord.db"), installed},
@@ -95,30 +100,43 @@ func TestAdmitStorePathAdmitsOnlyBinariesUnderAManagedDataRoot(t *testing.T) {
 		})
 	}
 
-	t.Run("refuses a binary outside the data root", func(t *testing.T) {
-		resolved, err := filepath.EvalSymlinks(outside)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertReleaseManagedRefusal(t, admitStorePath(dbPath, fixedExecutable(outside)),
-			"the running binary "+resolved+" is not under the data root")
-		assertReleaseManagedRefusal(t, admitStorePath(dbPath, fixedExecutable(outside)), "whose installed release is v9.9.9")
-	})
-	t.Run("refuses a sibling whose name extends the data root", func(t *testing.T) {
-		sibling := root + "-branch"
-		if err := os.MkdirAll(sibling, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		binary := filepath.Join(sibling, "concord")
-		if err := os.WriteFile(binary, nil, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(sibling) })
-		assertReleaseManagedRefusal(t, admitStorePath(dbPath, fixedExecutable(binary)), "is not under the data root")
-	})
+	for _, tc := range []struct {
+		name, binary string
+	}{
+		{"a binary outside the data root", outside},
+		{"a build in a managed worktree", filepath.Join(root, "worktrees", "concord", "work-1", "concord")},
+		{"a build in a worktree's bin directory", filepath.Join(root, "worktrees", "concord", "work-1", "bin", "concord")},
+		{"a tree whose name is not a release", filepath.Join(root, "worktrees", "bin", "concord")},
+		{"a prerelease-named tree", filepath.Join(root, "v9.9.9-dev", "bin", "concord")},
+		{"another file in a release tree", filepath.Join(root, "v9.9.9", "bin", "concord-dev")},
+		{"a transaction backup", filepath.Join(root, ".concord-transactions", "0123abcd", "backup", "version", "bin", "concord")},
+		{"a sibling whose name extends the data root", filepath.Join(root+"-branch", "v9.9.9", "bin", "concord")},
+	} {
+		t.Run("refuses "+tc.name, func(t *testing.T) {
+			binary := tc.binary
+			if binary != outside {
+				binary = writeBinary(t, binary)
+				t.Cleanup(func() { _ = os.Remove(binary) })
+			}
+			resolved, err := filepath.EvalSymlinks(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertReleaseManagedRefusal(t, admitStorePath(dbPath, fixedExecutable(binary)),
+				"the running binary "+resolved+" is not a release the installer placed in the data root")
+			assertReleaseManagedRefusal(t, admitStorePath(dbPath, fixedExecutable(binary)), "whose installed release is v9.9.9")
+		})
+	}
 	t.Run("refuses a relative path to the managed store", func(t *testing.T) {
 		t.Chdir(filepath.Dir(root))
-		assertReleaseManagedRefusal(t, admitStorePath(filepath.Join(filepath.Base(root), "concord.db"), fixedExecutable(outside)), "is not under the data root")
+		assertReleaseManagedRefusal(t, admitStorePath(filepath.Join(filepath.Base(root), "concord.db"), fixedExecutable(outside)), "is not a release the installer placed")
+	})
+	t.Run("refuses a database symlink into the managed root", func(t *testing.T) {
+		link := filepath.Join(t.TempDir(), "concord.db")
+		if err := os.Symlink(dbPath, link); err != nil {
+			t.Fatal(err)
+		}
+		assertReleaseManagedRefusal(t, admitStorePath(link, fixedExecutable(outside)), "is not a release the installer placed")
 	})
 	t.Run("refuses an unlocatable binary", func(t *testing.T) {
 		assertReleaseManagedRefusal(t, admitStorePath(dbPath, func() (string, error) { return "", errors.New("no executable") }),
@@ -129,10 +147,7 @@ func TestAdmitStorePathAdmitsOnlyBinariesUnderAManagedDataRoot(t *testing.T) {
 // Any current entry marks the data root as managed, so a link the installer
 // layout does not explain refuses instead of admitting.
 func TestAdmitStorePathFailsClosedOnAnUnexplainedCurrentEntry(t *testing.T) {
-	outside := filepath.Join(t.TempDir(), "concord")
-	if err := os.WriteFile(outside, nil, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	outside := writeBinary(t, filepath.Join(t.TempDir(), "concord"))
 	for _, tc := range []struct {
 		name    string
 		prepare func(t *testing.T, link string)
@@ -226,6 +241,15 @@ func TestReleaseManagedStoreRefusesEveryPathEntryPoint(t *testing.T) {
 				{"RecoverFoldGuard", func(_, dbPath string) error { _, err := RecoverFoldGuard(ctx, dbPath); return err }},
 				{"BackupDatabase source", func(_, dbPath string) error {
 					_, err := BackupDatabase(ctx, dbPath, filepath.Join(t.TempDir(), "copy.db"))
+					return err
+				}},
+				{"Backup destination", func(root, _ string) error {
+					s, err := Open(ctx, filepath.Join(t.TempDir(), "unmanaged.db"))
+					if err != nil {
+						return err
+					}
+					defer func() { _ = s.Close() }()
+					_, err = Backup(ctx, s, filepath.Join(root, "copy.db"))
 					return err
 				}},
 				{"VerifyBackup", func(_, dbPath string) error { _, err := VerifyBackup(ctx, dbPath); return err }},

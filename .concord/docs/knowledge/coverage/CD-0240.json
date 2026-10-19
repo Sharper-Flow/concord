@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAdmitStorePathAdmitsOnlyBinariesUnderAManagedDataRoot"
+      "value": "internal/store.TestAdmitStorePathAdmitsOnlyInstallerPlacedBinaries"
     },
     {
       "kind": "go_test",

@@ -117,6 +117,9 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if err := validateBackupDestination(s.Path(), destination); err != nil {
 		return manifest, err
 	}
+	if err := AdmitStorePath(destination); err != nil {
+		return manifest, err
+	}
 	if _, err := os.Stat(destination); err == nil {
 		return manifest, newFailure(KindInvalidOperation, "backup", "backup destination already exists", false, "choose a new explicit destination")
 	} else if !os.IsNotExist(err) {

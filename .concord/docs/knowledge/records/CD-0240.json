@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5a9c83e1b1c1cc6d6f5fdb3e16ce25ffd78bb29f2c3d1a140cd6aced5e4bacb6",
+  "sha256": "sha256:137e1ae1356a24ad8b0b127760110f5652b5c20ae514defe5d40badb3b8787fd",
   "status": "accepted",
-  "summary": "Only a binary whose resolved executable lies under a data root the installer manages (one holding a current entry) opens, migrates, plans, backs up, verifies, restores into, or recovers a store in that root; any other binary refuses before touching the store, leases, locks, or fences, whatever its version stamp, and names the installed release and the isolation route.",
+  "summary": "Only a core the installer placed in a managed data root (one holding a current entry), at <version>/bin/concord or .concord-transactions/<id>/stage/version/bin/concord, opens, migrates, plans, backs up into, verifies, restores into, or recovers a store there; any other binary, including a build in a managed worktree, refuses before touching the store, leases, locks, or fences, whatever its version stamp, and names the installed release and the isolation route.",
   "tags": [
     "storage",
     "development",

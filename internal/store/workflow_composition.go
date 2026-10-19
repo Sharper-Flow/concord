@@ -12,8 +12,11 @@ import (
 // digest are unchanged in shape. A released composition is frozen like the
 // definition it compiles to (D3).
 type WorkflowComposition struct {
-	Ref                   string
-	Version               int64
+	Ref     string
+	Version int64
+	// Size is the work size this composition serves (D5). Empty serves every
+	// size and unsized work; the family head is always such a composition.
+	Size                  WorkSize
 	WorkKind              WorkKind
 	RequiredEvidenceKinds []EvidenceKind
 	OutcomeSchema         WorkflowOutcomeSchema
@@ -126,6 +129,7 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
 		implementationCompositionV33(), implementationConsequenceV34(),
+		implementationSmallV35(), implementationConsequenceV36(),
 		breakFixCompositionV30(), breakFixConsequenceV31(),
 		researchCompositionV20(), researchConsequenceV21(),
 	}
@@ -148,6 +152,41 @@ var workflowCompositionCapabilities = sync.OnceValue(func() map[string]workflowC
 	}
 	return capabilities
 })
+
+// workflowCompositionSize answers the size a registered version serves.
+// Chain-built versions and the full compositions serve every size: empty.
+func workflowCompositionSize(ref string, version int64) WorkSize {
+	for _, composition := range builtinWorkflowCompositions() {
+		if composition.Ref == ref && composition.Version == version {
+			return composition.Size
+		}
+	}
+	return ""
+}
+
+// builtinWorkflowDefinitionForSize resolves the latest version of a family
+// that serves size. A size no composition of the family declares resolves
+// the family head, which serves every size.
+func builtinWorkflowDefinitionForSize(ref string, size WorkSize) (RegisteredDefinition, error) {
+	head, err := BuiltinWorkflowDefinitionForRef(ref)
+	if err != nil || size == "" {
+		return head, err
+	}
+	var version int64
+	for _, composition := range builtinWorkflowCompositions() {
+		if composition.Ref == ref && composition.Size == size && composition.Version > version {
+			version = composition.Version
+		}
+	}
+	if version == 0 {
+		return head, nil
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
+	}
+	return registered, nil
+}
 
 func workflowPrototypeRigorRules() []WorkflowRigorRule {
 	return []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}
@@ -261,6 +300,31 @@ func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []Workflo
 
 func implementationConsequenceV34() WorkflowComposition {
 	return withConsequencePolicy(implementationCompositionV33())
+}
+
+// implementationSmallV35 is the small implementation composition (CD-0229
+// D5): define is alignment and planning, then implement, review, and ship.
+// It keeps the full composition's outcome contract, evidence, and approval
+// policy; a review finding returns to execution, which fixes it in scope.
+func implementationSmallV35() WorkflowComposition {
+	composition := implementationConsequenceV34()
+	composition.Version, composition.Size = 35, WorkSizeSmall
+	composition.Parts = []WorkflowPartUse{
+		{Ref: "part.alignment", Version: 1},
+		{Ref: "part.planning", Version: 1, StepID: "planning"},
+		{Ref: "part.execution", Version: 2},
+		{Ref: "part.verdict", Version: 1, StepID: "acceptance", FailureTo: "execution", RecoveryTo: "execution"},
+		{Ref: "part.close", Version: 1, StepID: "release", RecoveryTo: "execution", DisprovedPremiseRoute: true},
+	}
+	return composition
+}
+
+// implementationConsequenceV36 keeps the full composition the family head
+// above the small composition.
+func implementationConsequenceV36() WorkflowComposition {
+	composition := implementationConsequenceV34()
+	composition.Version = 36
+	return composition
 }
 
 func breakFixConsequenceV31() WorkflowComposition {

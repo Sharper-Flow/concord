@@ -1,7 +1,7 @@
 package store
 
 // WorkflowCapability names a versioned behavior a workflow definition enables.
-type WorkflowCapability uint8
+type WorkflowCapability uint16
 
 const (
 	WorkflowCapabilityDerivedStepStart WorkflowCapability = 1 << iota
@@ -12,9 +12,12 @@ const (
 	WorkflowCapabilityRefineProof
 	WorkflowCapabilityProducesDelivery
 	WorkflowCapabilityRootCauseAnalysis
+	// WorkflowCapabilitySmallProof gates the small composition's proof: its
+	// footprint checks and one independent review (CD-0229 D5).
+	WorkflowCapabilitySmallProof
 )
 
-type workflowCapabilitySet uint8
+type workflowCapabilitySet uint16
 
 func (set workflowCapabilitySet) has(capability WorkflowCapability) bool {
 	return set&workflowCapabilitySet(capability) != 0

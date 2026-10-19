@@ -85,6 +85,7 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 		composed, release int64
 	}{
 		{"workflow.implementation", 33, 32},
+		{"workflow.implementation", 36, 34},
 		{"workflow.break_fix", 30, 29},
 		{"workflow.research", 20, 19},
 	} {
@@ -100,6 +101,58 @@ func TestComposedHeadsMatchTheReleasedHeadsTheySucceed(t *testing.T) {
 		if workflowCapabilities(head) != workflowCapabilities(previous.Definition) {
 			t.Errorf("%s v%d enables different capabilities than v%d", head.Ref, head.Version, previous.Definition.Version)
 		}
+	}
+}
+
+// CD-0229 D5: the small implementation composition is define (alignment and
+// planning), implement, review, and ship. Full stays the family head, so
+// every other size and unsized work resolve to it.
+func TestSmallImplementationComposesDefineImplementReviewShip(t *testing.T) {
+	t.Parallel()
+	const ref = "workflow.implementation"
+	head, err := BuiltinWorkflowDefinitionForRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, err := builtinWorkflowDefinitionForSize(ref, WorkSizeSmall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := small.Definition
+	if definition.Version >= head.Definition.Version || workflowCompositionSize(ref, definition.Version) != WorkSizeSmall {
+		t.Fatalf("small v%d must be a sized composition below the full head v%d", definition.Version, head.Definition.Version)
+	}
+	var steps []string
+	for _, step := range definition.StepGraph.Steps {
+		steps = append(steps, step.ID)
+	}
+	if want := []string{"alignment", "planning", "execution", "acceptance", "release"}; !slices.Equal(steps, want) {
+		t.Fatalf("small steps = %v, want %v", steps, want)
+	}
+	if !slices.Contains(definition.StepGraph.Edges, WorkflowEdge{From: "acceptance", To: "execution", Kind: WorkflowEdgeFailure}) {
+		t.Fatalf("a small review finding must return to execution: %+v", definition.StepGraph.Edges)
+	}
+	if definition.ApprovalPolicy != head.Definition.ApprovalPolicy || !slices.Equal(definition.RequiredEvidenceKinds, head.Definition.RequiredEvidenceKinds) {
+		t.Fatal("small must keep the full head's approval policy and evidence: no size ships with zero proof")
+	}
+	for _, size := range []WorkSize{"", WorkSizeLarger, WorkSizeCrucial} {
+		selected, err := builtinWorkflowDefinitionForSize(ref, size)
+		if err != nil || selected.Definition.Version != head.Definition.Version {
+			t.Fatalf("size %q selected v%d, %v; want the full head v%d", size, selected.Definition.Version, err, head.Definition.Version)
+		}
+	}
+	for _, family := range []string{"workflow.break_fix", "workflow.research"} {
+		familyHead, err := BuiltinWorkflowDefinitionForRef(family)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, err := builtinWorkflowDefinitionForSize(family, WorkSizeSmall)
+		if err != nil || selected.Definition.Version != familyHead.Definition.Version {
+			t.Fatalf("%s small selected v%d, %v; a family without a small composition keeps its head", family, selected.Definition.Version, err)
+		}
+	}
+	if _, err := builtinWorkflowDefinitionForSize("workflow.unknown_family", WorkSizeSmall); !hasFailureKind(err, KindDefinitionDigestMismatch) {
+		t.Fatalf("an unregistered family = %v, want the registry refusal", err)
 	}
 }
 
@@ -140,6 +193,7 @@ var workflowPartVersionPins = map[string]string{
 	"part.diagnosis v1":   "sha256:cb38a8dd66e16d105f76331ab9b6ef1577df1d2ea9e44a6029bb0f5cdf0467cb",
 	"part.planning v1":    "sha256:728d3f2d09030a90521e04b1d3f85313dcb53985500dcf0eb12e951716b51c94",
 	"part.execution v1":   "sha256:b49ffd7600b17b4f84614b0ef3a523b0d0ba4186166f566543655f15770ddd0c",
+	"part.execution v2":   "sha256:05dabd5ea52a9aa4bdab5f12ef4f9b9ff5d34bc5ee9f4eabc31afda1ecb85eed",
 	"part.repair v1":      "sha256:a6aea7c89c648eb273384f2df934008a989634ce8fa08ca7d704886346d79725",
 	"part.investigate v1": "sha256:d6588623b7a7bfcc252558a6088233b09a6a5da07555d00fb0bc7d6e3aac324d",
 	"part.findings v1":    "sha256:2335e131f433452f678c5636caa5d87b199f2362cad6ead11a11514053274f5b",

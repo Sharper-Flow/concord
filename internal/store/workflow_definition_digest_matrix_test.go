@@ -67,6 +67,8 @@ var releasedDefinitionDigests = map[string]string{
 	"workflow.implementation v32":     "sha256:96e8b3f6bb0f5e157132512f476354e30f59e981e6b183135b3a371aa52831ff",
 	"workflow.implementation v33":     "sha256:b5771bcb5a796249e7e090228d86947b193c3134d7ba30736bcc1909953157d3",
 	"workflow.implementation v34":     "sha256:7055412eb83264cddd99e1cb51bdf675f3299fd380c4910a1623353776aeb49c",
+	"workflow.implementation v35":     "sha256:62bbe235417c56507d8bddd62f335a8319ca9d75d9074c77e2e48b057fbbdd97",
+	"workflow.implementation v36":     "sha256:979f42719606ba64067f0722d3a0fe11fa3f72cb56cfddf237bc7071c21117d8",
 	"workflow.break_fix v1":           "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	"workflow.break_fix v2":           "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
 	"workflow.break_fix v3":           "sha256:3a406e35712a33dcab245ab93c77d51e0811ef51fbefb1a54c2fb40ae6b1f8b6",

@@ -9,19 +9,24 @@ import (
 
 // Each position holds one released gate's Ref/version predicate, independent
 // of the capability owner. Step-local conditions remain in the gate callers.
-func releasedWorkflowGateExpectations(d WorkflowDefinition) [8]bool {
+func releasedWorkflowGateExpectations(d WorkflowDefinition) [9]bool {
 	implementation := d.Ref == "workflow.implementation"
 	breakFix := d.Ref == "workflow.break_fix"
 	research := d.Ref == "workflow.research"
-	return [8]bool{
-		implementation && d.Version >= 28 || breakFix && d.Version >= 25,
+	// The small composition has no refine step, so it enables none of the
+	// refine gates; its execution step carries the small proof.
+	small := implementation && d.Version == 35
+	refined := implementation && !small
+	return [9]bool{
+		refined && d.Version >= 28 || breakFix && d.Version >= 25,
 		implementation && d.Version >= 29 || breakFix && d.Version >= 26 || research && d.Version >= 17,
 		implementation && d.Version >= 31 || breakFix && d.Version >= 28 || research && d.Version >= 18,
 		implementation && d.Version >= 24 || breakFix && d.Version >= 21,
-		implementation && d.Version >= 21 || breakFix && d.Version >= 19,
-		implementation && d.Version >= 18 || breakFix && d.Version >= 16,
+		refined && d.Version >= 21 || breakFix && d.Version >= 19,
+		refined && d.Version >= 18 || breakFix && d.Version >= 16,
 		implementation || breakFix,
 		research,
+		small,
 	}
 }
 
@@ -39,6 +44,7 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 				WorkflowCapabilityRefineProof,
 				WorkflowCapabilityProducesDelivery,
 				WorkflowCapabilityRootCauseAnalysis,
+				WorkflowCapabilitySmallProof,
 			}
 			var wantCapabilities workflowCapabilitySet
 			for i, active := range want {
@@ -47,7 +53,7 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 				}
 			}
 			if got := workflowCapabilities(definition); got != wantCapabilities {
-				t.Errorf("capabilities = %08b, want %08b", got, wantCapabilities)
+				t.Errorf("capabilities = %016b, want %016b", got, wantCapabilities)
 			}
 			got := [4]bool{
 				workflowDerivedStepStartActive(definition),

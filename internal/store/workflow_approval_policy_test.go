@@ -264,20 +264,23 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("exactly the live engineering heads declare consequence_v1", func(t *testing.T) {
+	t.Run("live engineering families declare consequence_v1 from their first consequence version", func(t *testing.T) {
 		t.Parallel()
 		live := map[string]int64{}
 		for _, head := range BuiltinWorkflowDefinitions() {
 			live[head.Ref] = head.Version
 		}
-		for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
-			if _, ok := live[ref]; !ok {
-				t.Fatalf("%s is not a live authoring head", ref)
+		// Each engineering family's first consequence_v1 version; every later
+		// version, sized or full, keeps the policy and every earlier one has none.
+		firstConsequence := map[string]int64{"workflow.implementation": 34, "workflow.break_fix": 31, "workflow.research": 21}
+		for ref, first := range firstConsequence {
+			if head, ok := live[ref]; !ok || head < first {
+				t.Fatalf("%s is not a live authoring head at or above v%d", ref, first)
 			}
 		}
 		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 			want := ""
-			if version, ok := live[definition.Ref]; ok && definition.Version == version {
+			if first, ok := firstConsequence[definition.Ref]; ok && definition.Version >= first {
 				want = WorkflowApprovalPolicyConsequenceV1
 			}
 			if definition.ApprovalPolicy != want {

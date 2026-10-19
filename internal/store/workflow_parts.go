@@ -88,6 +88,12 @@ func builtinWorkflowParts() []WorkflowPart {
 			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
 			Capabilities: workflowJobCapabilities},
+		// The small composition has no delivery or refine step: its execution
+		// step produces the delivery and carries the small proof.
+		{Ref: "part.execution", Version: 2, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"execution"},
+			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Retry:        true,
+			Capabilities: workflowJobCapabilities | workflowCapabilitySet(WorkflowCapabilityProducesDelivery|WorkflowCapabilitySmallProof)},
 		{Ref: "part.repair", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"repair"},
 			Actions:      []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,

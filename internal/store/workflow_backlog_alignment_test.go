@@ -40,23 +40,35 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	// merged diagnosis step, whose shape the CD-0198 tests hold. The
 	// canonical implementation head removes the discovery step, so the
 	// alignment step's single forward exit lands on design.
+	// The small composition (CD-0229 D5) starts at alignment, so no step
+	// before it can route around the search.
 	cases := []struct {
 		ref       string
+		size      WorkSize
 		afterStep string
 		nextStep  string
 	}{
-		{"workflow.implementation", "proposal", "design"},
+		{"workflow.implementation", "", "proposal", "design"},
+		{"workflow.implementation", WorkSizeSmall, "", "planning"},
 	}
 	for _, testCase := range cases {
-		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
+		registered, err := builtinWorkflowDefinitionForSize(testCase.ref, testCase.size)
 		if err != nil {
 			t.Fatalf("%s does not resolve: %v", testCase.ref, err)
 		}
 		definition := registered.Definition
-		if want := builtinWorkflowCurrentVersions[testCase.ref]; definition.Version != want {
-			t.Fatalf("%s resolved version %d, want %d", testCase.ref, definition.Version, want)
+		if testCase.size == "" {
+			if want := builtinWorkflowCurrentVersions[testCase.ref]; definition.Version != want {
+				t.Fatalf("%s resolved version %d, want %d", testCase.ref, definition.Version, want)
+			}
+		} else if workflowCompositionSize(testCase.ref, definition.Version) != testCase.size {
+			t.Fatalf("%s %s resolved v%d, which does not serve that size", testCase.ref, testCase.size, definition.Version)
 		}
-		if got := workflowNextStep(definition, testCase.afterStep); got != "alignment" {
+		if testCase.afterStep == "" {
+			if definition.StepGraph.StartStep != "alignment" {
+				t.Fatalf("%s v%d starts at %q, want alignment", testCase.ref, definition.Version, definition.StepGraph.StartStep)
+			}
+		} else if got := workflowNextStep(definition, testCase.afterStep); got != "alignment" {
 			t.Fatalf("%s routes %s to %q, want alignment", testCase.ref, testCase.afterStep, got)
 		}
 		if got := workflowNextStep(definition, "alignment"); got != testCase.nextStep {

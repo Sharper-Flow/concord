@@ -361,7 +361,8 @@ func workerJobSplitCoverageProblem(predecessor WorkerJobRecordedPayload, success
 }
 
 // workerJobOracleItem is one oracle owner, case, or control: its identifier
-// and its exact serialized content, so equality is byte equality.
+// and exact serialized obligation content. Subject-bound preparation receipts
+// are validated separately and must be refreshed for each candidate.
 type workerJobOracleItem struct {
 	id, content string
 }
@@ -382,6 +383,7 @@ func workerJobOracleItems(oracle *AcceptanceOracle) []workerJobOracleItem {
 		add(oracleCase.CaseID, oracleCase)
 	}
 	for _, control := range oracle.Controls {
+		control.ReadinessEvidenceRefs = nil
 		add(control.ControlID, control)
 	}
 	return items

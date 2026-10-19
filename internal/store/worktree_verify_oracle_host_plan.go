@@ -211,7 +211,8 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 	}
 	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
 	var depDigest string
-	if pair.Materializer == nativeTargetMaterializerUV {
+	depRaw := map[string][]byte{}
+	if pair.Materializer != nativeTargetMaterializerNone {
 		var depBytes []byte
 		for _, name := range []string{m.Pin.DepManifest, m.Pin.DepLock} {
 			depPath, ok := nativeTargetRootedPath(m.Root, name)
@@ -230,6 +231,7 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 				return p, nativeUnavailable("candidate dependency inputs differ from pinned preparation")
 			}
 			target.DependencyFiles = append(target.DependencyFiles, recipeFile)
+			depRaw[name] = recipeBytes
 			depBytes = append(append(depBytes, []byte(recipeFile.SHA256)...), 0)
 		}
 		depDigest = nativeDigest(depBytes)
@@ -256,6 +258,22 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 			return p, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
 		}
 		target.Environment.UVCacheDir = out
+	case nativeTargetMaterializerBun:
+		// Lock verification and cache presence decide availability before
+		// any lease; the run re-derives the same install list from the
+		// same pinned bytes and proves every cached byte.
+		installs, err := nativeBunPlanInstalls(depRaw[m.Pin.DepManifest], depRaw[m.Pin.DepLock])
+		if err != nil {
+			return p, err
+		}
+		cache, err := nativeBunCacheDir()
+		if err != nil {
+			return p, err
+		}
+		if err := nativeBunMissing(cache, installs); err != nil {
+			return p, err
+		}
+		target.Environment.NPMCacheDir = cache
 	case nativeTargetMaterializerNone:
 	}
 	tools, err := nativeTargetToolDigests(target.Environment)
@@ -313,7 +331,7 @@ func nativeTargetHostPath(ctx context.Context, tool string, args ...string) (str
 func nativeTargetToolDigests(e nativeTargetEnvironment) ([]NativeOracleFile, error) {
 	var tools []NativeOracleFile
 	for _, slot := range []struct{ role, path string }{
-		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash},
+		{"uv", e.UV}, {"python", e.Python}, {"bash", e.Bash}, {"bun", e.Bun},
 	} {
 		if slot.path == "" {
 			continue

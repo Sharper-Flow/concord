@@ -68,7 +68,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (!reader) throw new WorkerCapabilityError("cannot authenticate a resume target while the host session reader is unavailable")
     const result = await reader.get(sessionID, signal)
     const info = checkedSessionInfo(result.data, result.response.ok, sessionID)
-    if (info.parentID !== parentSessionID || isLaneAgent(info.agent)) return false
+    if (info.parentID !== parentSessionID) return false
     return (await opening(sessionID, parentSessionID, result, reader, signal)).kind === "native"
   }
 

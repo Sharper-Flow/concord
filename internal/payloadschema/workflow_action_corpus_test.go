@@ -402,6 +402,18 @@ func corpusMutants(document map[string]any, variantName string, sample map[strin
 					if !ok || corpusBranchConstField(otherBranch) != "" {
 						continue
 					}
+					// A branch that only extends another closed shape is not
+					// an exclusive alternative group. Adding its required field
+					// can legitimately switch the sample to that branch.
+					exclusiveBase := false
+					for _, required := range corpusRequired(branch) {
+						if _, declared := corpusProperty(otherBranch, required); !declared {
+							exclusiveBase = true
+						}
+					}
+					if !exclusiveBase {
+						continue
+					}
 					for _, exclusive := range corpusRequired(otherBranch) {
 						if _, declared := corpusProperty(branch, exclusive); declared {
 							continue

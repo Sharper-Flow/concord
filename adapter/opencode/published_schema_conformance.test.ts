@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
 import { contractOperations, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
-import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
+import { expandedPublishedRequestSchema, validateGeneratedPayload, actionFieldsBranches } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./dispatch"
 
 const adapter = await import("./concord")
@@ -157,11 +157,18 @@ test("the published workflow_action variants state each action's exact required 
 // the same validateAgainstSchema the request conformance suite uses.
 test("published string bounds admit and refuse with the core in both directions on multibyte boundaries", () => {
   const schema = publishedSchema("concord_work_transition")
-  const premise = actionVariantInput(schema, "approve_contract").properties.fields.properties.premise
-  expect(premise["x-maxBytes"]).toBe(4096)
-  expect(premise["x-minBytes"]).toBe(2)
-  expect(premise.minLength).toBe(1)
-  expect(premise.maxLength).toBe(4096)
+  // The premise lives on every branch of the fields union, so the bound
+  // check reads each branch, never the factored parent view alone.
+  const premises = actionFieldsBranches(actionVariantInput(schema, "approve_contract"))
+    .filter((fields: any) => fields.properties?.premise)
+    .map((fields: any) => fields.properties.premise)
+  expect(premises.length).toBeGreaterThan(0)
+  for (const premise of premises) {
+    expect(premise["x-maxBytes"]).toBe(4096)
+    expect(premise["x-minBytes"]).toBe(2)
+    expect(premise.minLength).toBe(1)
+    expect(premise.maxLength).toBe(4096)
+  }
   const approveCall = (value: string) => ({
     operation: "workflow_action",
     input: {
@@ -251,7 +258,11 @@ test("published outcome kinds refuse outcome_kind and outcome_payload.kind disag
   retiredPair.outcome_payload = { kind: "check", check_ref: "check:kind-parity", immutable_subject_ref: "commit:kind-parity", expected_result: "pass" }
   expect(validateAgainstSchema(schema, supersedeFields(retiredPair), failures)).toBe(false)
   // Mismatched approve item refuses: outcome_kind exists with a check payload.
-  const approveFields = actionVariantInput(schema, "approve_contract").properties.fields.properties
+  // The items count holds on every branch of the fields union, not only the
+  // factored parent view.
+  const approveFieldsBranches = actionFieldsBranches(actionVariantInput(schema, "approve_contract"))
+    .filter((fields: any) => fields.properties?.outcome_predicates)
+  expect(approveFieldsBranches.length).toBeGreaterThan(0)
   const itemMismatch = {
     work_id: "work-kind-parity",
     expected_version: 4,
@@ -272,7 +283,9 @@ test("published outcome kinds refuse outcome_kind and outcome_payload.kind disag
       rigor_class: "prototype_internal",
     },
   }
-  expect(approveFields.outcome_predicates.items.oneOf.length).toBe(4)
+  for (const fields of approveFieldsBranches) {
+    expect(fields.properties.outcome_predicates.items.oneOf.length).toBe(4)
+  }
   expect(validateAgainstSchema(schema, { operation: "workflow_action", input: itemMismatch }, failures)).toBe(false)
   expect(validateAgainstSchema(schema, {
     operation: "workflow_action",

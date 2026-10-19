@@ -149,30 +149,31 @@ func observeWorktreeGoSuite(reader io.Reader, wanted map[string]bool) (*Worktree
 	return result, nil
 }
 
-func worktreeGoSuiteCommand() []string {
-	return []string{"go", "test", "-race", "-count=1", "-json", "-p=4", "-timeout=20m", "./..."}
-}
-
-func worktreeGoSuiteWanted(ctx context.Context, q queryer, workID string) (map[string]bool, error) {
+func worktreeGoSuiteWanted(ctx context.Context, q queryer, workID string, command []string) (map[string]bool, bool, error) {
 	record, _, err := readWorkSize(ctx, q, workID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	checks, _ := workflowFootprintChecks(record.Footprint)
 	wanted := map[string]bool{}
+	selected := false
 	for _, check := range checks {
+		if derived, ok := workflowGoCheckCommand(check); ok && slices.Equal(derived, command) {
+			selected = true
+		}
 		if check.Kind == "go_test" {
 			if _, name, ok := workflowTestCheckParts(check.Value); ok {
 				wanted[name] = true
 			}
 		}
 	}
-	return wanted, nil
+	return wanted, selected, nil
 }
 
-func runWorktreeGoSuite(ctx context.Context, dir string, wanted map[string]bool, maxOutput int) (WorktreeVerifyResult, error) {
+func runWorktreeGoSuite(ctx context.Context, dir string, command []string, wanted map[string]bool, maxOutput int) (WorktreeVerifyResult, error) {
 	environment, fixed := worktreeGoSuiteEnvironment()
-	beforeClosure, beforeErr := observeWorktreeGoSources(ctx, dir, environment)
+	packagePattern := command[len(command)-1]
+	beforeClosure, beforeErr := observeWorktreeGoSources(ctx, dir, environment, packagePattern)
 	reader, writer := io.Pipe()
 	var observation *WorktreeGoSuiteResult
 	var observeErr error
@@ -186,7 +187,6 @@ func runWorktreeGoSuite(ctx context.Context, dir string, wanted map[string]bool,
 		close(done)
 	}()
 	capture := &nativeStreamCapture{complete: true, stdoutObserver: writer, discardStdout: true}
-	command := worktreeGoSuiteCommand()
 	code, err := runNativeOracleStage(ctx, dir, command, environment, nil, capture, nil)
 	_ = writer.Close()
 	<-done
@@ -194,7 +194,7 @@ func runWorktreeGoSuite(ctx context.Context, dir string, wanted map[string]bool,
 		observation = &WorktreeGoSuiteResult{Protocol: "native_go_suite_v1"}
 	}
 	observation.Command, observation.Environment = command, fixed
-	afterClosure, afterErr := observeWorktreeGoSources(ctx, dir, environment)
+	afterClosure, afterErr := observeWorktreeGoSources(ctx, dir, environment, packagePattern)
 	observation.Closure = &WorktreeGoSourceClosure{Reason: goSourceInputsUnproved, Residual: goSourceRuntimeResidual}
 	if beforeClosure != nil && !beforeClosure.Complete {
 		observation.Closure = beforeClosure

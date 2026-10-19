@@ -103,6 +103,17 @@ func worktreeGoSuiteJSON(t *testing.T, events ...[3]string) string {
 	return result.String()
 }
 
+// worktreeGoSuiteNamedCommand derives the canonical stored per-check argv for
+// one named footprint check, refusing anything the core builder refuses.
+func worktreeGoSuiteNamedCommand(t *testing.T, value string) []string {
+	t.Helper()
+	command, ok := workflowGoCheckCommand(FootprintCheck{Kind: "go_test", Value: value})
+	if !ok {
+		t.Fatalf("workflowGoCheckCommand refused named check %q", value)
+	}
+	return command
+}
+
 func TestWorktreeGoSuiteReceiptComesFromItsNativeProducer(t *testing.T) {
 	ctx := context.Background()
 	const workID = "go-suite-receipt"
@@ -121,7 +132,7 @@ func TestWorktreeGoSuiteReceiptComesFromItsNativeProducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := verifyEvidenceRun(git, workID, verifyLeaseID(workID), 0)
-	req.Command, req.RunCommand = worktreeGoSuiteCommand(), nil
+	req.Command, req.RunCommand = worktreeGoSuiteNamedCommand(t, "internal/store.TestBody"), nil
 	result, err := s.VerifyWorktree(ctx, req)
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("native verify=%+v error=%v", result, err)
@@ -155,6 +166,27 @@ func TestWorktreeGoSuiteReceiptComesFromItsNativeProducer(t *testing.T) {
 	}
 }
 
+// A broad race argv on sized work is not derived from any stored footprint
+// check, so it stays on the legacy route and records no GoSuite observation.
+func TestWorktreeVerifyBroadGoArgvStaysLegacy(t *testing.T) {
+	ctx := context.Background()
+	const workID = "go-suite-route-legacy"
+	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	defer s.Close()
+	recordWorktreeGoSuiteFootprint(t, s, workID, []FootprintCheck{{Kind: "go_test", Value: "internal/store.TestBody"}})
+	worktreeGoSuiteEnvironmentFixture(t)
+	broadRace := []string{"go", "test", "-race", "-count=1", "-json", "-p=4", "-timeout=20m", "./..."}
+	req := verifyEvidenceRun(git, workID, verifyLeaseID(workID), 0)
+	req.Command, req.RunCommand = broadRace, nil
+	result, err := s.VerifyWorktree(ctx, req)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("broad race argv legacy verify failed: %+v, %v", result, err)
+	}
+	if result.GoSuite != nil {
+		t.Fatalf("broad race argv acquired GoSuite facts: %+v", result.GoSuite)
+	}
+}
+
 func TestWorktreeGoSuiteConsumesBeyondRetainedOutput(t *testing.T) {
 	dir := worktreeGoSuiteEnvironmentFixture(t)
 	start := worktreeGoSuiteJSON(t, [3]string{"start", "example.test/p", ""})
@@ -165,13 +197,50 @@ func TestWorktreeGoSuiteConsumesBeyondRetainedOutput(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\nprintf '%s' '"+raw+"'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runWorktreeGoSuite(t.Context(), dir, map[string]bool{"TestBody": true}, 64)
+	result, err := runWorktreeGoSuite(t.Context(), dir, worktreeGoSuiteNamedCommand(t, "example.test/p.TestBody"), map[string]bool{"TestBody": true}, 64)
 	if err != nil || result.ExitCode != 0 || !result.OutputTruncated || len(result.Output) > 64 {
 		t.Fatalf("preview bounds: %+v, %v", result, err)
 	}
 	if result.GoSuite == nil || !result.GoSuite.Complete || result.GoSuite.StreamDigest != nativeDigest([]byte(raw)) ||
 		len(result.GoSuite.Packages) != 1 || !slices.Equal(result.GoSuite.Packages[0].ObservedTestNames, []string{"TestBody"}) {
 		t.Fatalf("full observation lost after preview/raw-retention limits: %+v", result.GoSuite)
+	}
+}
+
+// A synthetic native child that fails after emitting fully passing events
+// supplies no proof: partial or failed execution never earns credit.
+func TestWorktreeGoSuiteFailedNativeExecutionSuppliesNoProof(t *testing.T) {
+	dir := worktreeGoSuiteEnvironmentFixture(t)
+	raw := worktreeGoSuiteJSON(t, [3]string{"start", "example.test/p", ""},
+		[3]string{"run", "example.test/p", "TestBody"}, [3]string{"pass", "example.test/p", "TestBody"},
+		[3]string{"pass", "example.test/p", ""})
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\nprintf '%s' '"+raw+"'\nexit 3\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runWorktreeGoSuite(t.Context(), dir, worktreeGoSuiteNamedCommand(t, "example.test/p.TestBody"), map[string]bool{"TestBody": true}, 4096)
+	if err == nil && result.ExitCode == 0 {
+		t.Fatalf("failed native execution passed: %+v, %v", result, err)
+	}
+	if result.GoSuite != nil && (result.GoSuite.Complete || len(result.GoSuite.Packages) != 0) {
+		t.Fatalf("failed native execution left proof credit: %+v", result.GoSuite)
+	}
+}
+
+// A synthetic native child that outlives the caller's deadline supplies no
+// proof: timed-out execution never earns credit.
+func TestWorktreeGoSuiteTimedOutNativeExecutionSuppliesNoProof(t *testing.T) {
+	dir := worktreeGoSuiteEnvironmentFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\nsleep 30\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	result, err := runWorktreeGoSuite(ctx, dir, worktreeGoSuiteNamedCommand(t, "example.test/p.TestBody"), map[string]bool{"TestBody": true}, 4096)
+	if err == nil && result.ExitCode == 0 {
+		t.Fatalf("timed-out native execution passed: %+v, %v", result, err)
+	}
+	if result.GoSuite != nil && (result.GoSuite.Complete || len(result.GoSuite.Packages) != 0) {
+		t.Fatalf("timed-out native execution left proof credit: %+v", result.GoSuite)
 	}
 }
 
@@ -191,7 +260,7 @@ func TestWorktreeGoSuiteOversizedMetadataCannotLeavePartialCredit(t *testing.T) 
 func TestWorktreeGoSuiteRunsRealBodiesWithoutCacheOrInheritedSelectors(t *testing.T) {
 	dir := t.TempDir()
 	module := "module example.test/observed\n\ngo 1.26.0\n"
-	source := `package observed
+	source := `package pkg
 import ("os"; "runtime"; "testing")
 func TestBody(t *testing.T) {
  if os.Getenv("GOFLAGS") != "-mod=readonly" || runtime.GOMAXPROCS(0) != 4 || testing.Short() { t.Fatal("inherited selection") }
@@ -205,8 +274,11 @@ func TestBody(t *testing.T) {
 }
 func TestSkipped(t *testing.T) { t.Skip("synthetic skip") }
 `
-	for name, content := range map[string]string{"go.mod": module, "body_test.go": source} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, "pkg"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"go.mod": module, "pkg/body_test.go": source} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,15 +292,18 @@ func TestSkipped(t *testing.T) { t.Skip("synthetic skip") }
 	t.Setenv("GOENV", filepath.Join(dir, "absent.env"))
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
+	command := worktreeGoSuiteNamedCommand(t, "pkg.TestBody")
 	for range 2 {
 		started := time.Now()
-		result, err := runWorktreeGoSuite(ctx, dir, map[string]bool{"TestBody": true, "TestSkipped": true}, 4096)
+		result, err := runWorktreeGoSuite(ctx, dir, command, map[string]bool{"TestBody": true, "TestSkipped": true}, 4096)
 		t.Logf("real uncached fixture duration=%s", time.Since(started))
 		if err != nil || result.ExitCode != 0 || result.GoSuite == nil || !result.GoSuite.Complete || len(result.GoSuite.Packages) != 1 {
 			t.Fatalf("real execution=%+v observation=%+v error=%v", result, result.GoSuite, err)
 		}
 		pkg := result.GoSuite.Packages[0]
-		if pkg.Package != "example.test/observed" || !pkg.Passed || pkg.PassedCount != 1 || pkg.SkippedCount != 1 || !slices.Equal(pkg.ObservedTestNames, []string{"TestBody"}) {
+		// The named check selects only TestBody: the unselected skip earns no
+		// counts and no named credit.
+		if pkg.Package != "example.test/observed/pkg" || !pkg.Passed || pkg.PassedCount != 1 || pkg.SkippedCount != 0 || !slices.Equal(pkg.ObservedTestNames, []string{"TestBody"}) {
 			t.Fatalf("wrong real body observation: %+v", pkg)
 		}
 		closure := result.GoSuite.Closure
@@ -241,15 +316,60 @@ func TestSkipped(t *testing.T) { t.Skip("synthetic skip") }
 		t.Fatalf("bodies did not execute twice: %q, %v", raw, err)
 	}
 	t.Setenv("GO_SUITE_MUTATE_SOURCE", "1")
-	mutated, err := runWorktreeGoSuite(ctx, dir, map[string]bool{"TestBody": true}, 4096)
+	mutated, err := runWorktreeGoSuite(ctx, dir, command, map[string]bool{"TestBody": true}, 4096)
 	if err != nil || mutated.ExitCode != 0 || mutated.GoSuite == nil || !mutated.GoSuite.Complete || mutated.GoSuite.Closure == nil || mutated.GoSuite.Closure.Complete {
 		t.Fatalf("post-execution source mutation retained closure: %+v, %v", mutated.GoSuite, err)
 	}
 }
 
+// A go_package check has no named test: the canonical package command must
+// produce a complete stream and closure with zero named passes and no
+// invented test credit.
+func TestWorktreeGoSuitePackageOnlyCheckObservesCompleteStreamWithoutNamedPasses(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":     "module example.test/pkgonly\n\ngo 1.26.0\n",
+		"pkg/pkg.go": "package pkg\n\n// Answer returns the package-only fixture answer.\nfunc Answer() string { return \"pkg-only\" }\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commitWorktreeGoSourceFixture(t, dir)
+	command, ok := workflowGoCheckCommand(FootprintCheck{Kind: "go_package", Value: "./pkg"})
+	if !ok {
+		t.Fatal("workflowGoCheckCommand refused the package-only check")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	defer cancel()
+	result, err := runWorktreeGoSuite(ctx, dir, command, nil, 4096)
+	if err != nil || result.ExitCode != 0 || result.OutputTruncated {
+		t.Fatalf("package-only run=%+v error=%v", result, err)
+	}
+	if result.GoSuite == nil || !result.GoSuite.Complete || len(result.GoSuite.Packages) != 1 {
+		t.Fatalf("package-only check earned no complete observation: %+v", result.GoSuite)
+	}
+	pkg := result.GoSuite.Packages[0]
+	// go test reports a package without test files as a terminal skip after
+	// building it; the observer records that truthfully, never as a pass.
+	if pkg.Package != "example.test/pkgonly/pkg" || pkg.Passed || pkg.PassedCount != 0 || pkg.SkippedCount != 0 || len(pkg.ObservedTestNames) != 0 {
+		t.Fatalf("package-only observation invented test credit: %+v", pkg)
+	}
+	closure := result.GoSuite.Closure
+	if closure == nil || !closure.Complete || closure.SelectedCount != 2 || closure.Digest == "" ||
+		closure.ModulePath != "example.test/pkgonly" || closure.SubjectRef != "commit:"+worktreeGoSourceFixtureHead(t, dir) {
+		t.Fatalf("package-only closure is not the exact two-input proof: %+v", closure)
+	}
+}
+
 func TestWorktreeGoSuiteProducerFixesSelectionEnvironment(t *testing.T) {
 	dir := worktreeGoSuiteEnvironmentFixture(t)
-	result, err := runWorktreeGoSuite(context.Background(), dir, nil, 4096)
+	result, err := runWorktreeGoSuite(context.Background(), dir, worktreeGoSuiteNamedCommand(t, "internal/store.TestBody"), map[string]bool{"TestBody": true}, 4096)
 	if err != nil || result.ExitCode != 0 || result.OutputTruncated {
 		t.Fatalf("run=%+v error=%v", result, err)
 	}
@@ -265,10 +385,15 @@ func TestWorktreeGoSuiteProducerFixesSelectionEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"GOFLAGS=-mod=readonly|", "GOENV=off|", "GOWORK=off|", "GOTOOLCHAIN=local|",
 		"GOMAXPROCS=4|", "CGO_ENABLED=1|", "GOOS=" + runtime.GOOS + "|",
-		"GOARCH=" + runtime.GOARCH + "|", "ARGV=test -race -count=1 -json -p=4 -timeout=20m ./...|",
+		"GOARCH=" + runtime.GOARCH + "|", "ARGV=test -json -count=1 -run ^TestBody$ ./internal/store|",
 	} {
 		if !strings.Contains(observed, want) {
 			t.Errorf("producer environment lacks %q: %s", want, observed)
+		}
+	}
+	for _, banned := range []string{"-race", "-p=", "-timeout"} {
+		if strings.Contains(observed, banned) {
+			t.Errorf("producer command carries an unrequested flag %q: %s", banned, observed)
 		}
 	}
 }
@@ -309,6 +434,7 @@ printf '{"Action":"skip","Package":"example.test/proof"}\n'
 }
 
 func TestWorktreeGoSuiteWantsStoredFootprintTestNames(t *testing.T) {
+	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, "go-suite-wanted")
 	recordWorktreeGoSuiteFootprint(t, s, "go-suite-wanted", []FootprintCheck{
@@ -316,9 +442,32 @@ func TestWorktreeGoSuiteWantsStoredFootprintTestNames(t *testing.T) {
 		{Kind: "go_test", Value: "internal/store.helper"},
 		{Kind: "go_package", Value: "./internal/store"},
 	})
-	wanted, err := worktreeGoSuiteWanted(context.Background(), s.DatabaseForTesting(), "go-suite-wanted")
-	if err != nil || len(wanted) != 1 || !wanted["TestRequired"] {
-		t.Fatalf("stored footprint names=%v error=%v", wanted, err)
+	command, ok := workflowGoCheckCommand(FootprintCheck{Kind: "go_test", Value: "internal/store.TestRequired"})
+	if !ok {
+		t.Fatal("workflowGoCheckCommand refused the stored named check")
+	}
+	wanted, selected, err := worktreeGoSuiteWanted(ctx, s.DatabaseForTesting(), "go-suite-wanted", command)
+	if err != nil || !selected || len(wanted) != 1 || !wanted["TestRequired"] {
+		t.Fatalf("stored footprint names=%v selected=%v error=%v", wanted, selected, err)
+	}
+	unrelated, ok := workflowGoCheckCommand(FootprintCheck{Kind: "go_test", Value: "internal/store.TestUnstored"})
+	if !ok {
+		t.Fatal("workflowGoCheckCommand refused the unrelated named check")
+	}
+	otherPackage, ok := workflowGoCheckCommand(FootprintCheck{Kind: "go_package", Value: "./internal/other"})
+	if !ok {
+		t.Fatal("workflowGoCheckCommand refused the unrelated package check")
+	}
+	for name, variant := range map[string][]string{
+		"unrelated test": unrelated,
+		"package":        otherPackage,
+		"broad":          {"go", "test", "-json", "-count=1", "./..."},
+		"race":           {"go", "test", "-race", "-count=1", "-run", "^TestRequired$", "./internal/store"},
+	} {
+		variantWanted, variantSelected, variantErr := worktreeGoSuiteWanted(ctx, s.DatabaseForTesting(), "go-suite-wanted", variant)
+		if variantErr != nil || variantSelected {
+			t.Fatalf("%s variant selected the stored check: wanted=%v selected=%v error=%v", name, variantWanted, variantSelected, variantErr)
+		}
 	}
 }
 
@@ -335,27 +484,4 @@ func recordWorktreeGoSuiteFootprint(t *testing.T, s *Store, workID string, check
 	if err := applyWorkEvent(t, s, workSizedEventWith(workID+"-size", workID, WorkSizeModelVersion, size, inputs, footprint), nil); err != nil {
 		t.Fatal(err)
 	}
-
-}
-
-func TestWorktreeGoSuiteCommandMatchesDeclaredTool(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", ".concord", "tooling.v1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest struct {
-		Tools []struct{ ID, Invocation string }
-	}
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	for _, tool := range manifest.Tools {
-		if tool.ID == "go-test-proof" {
-			if tool.Invocation != strings.Join(worktreeGoSuiteCommand(), " ") {
-				t.Fatalf("declared Go proof command %q differs from producer argv %q", tool.Invocation, worktreeGoSuiteCommand())
-			}
-			return
-		}
-	}
-	t.Fatal("Go proof tool declaration is absent")
 }

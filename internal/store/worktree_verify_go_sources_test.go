@@ -155,12 +155,14 @@ func assertWorktreeGoSourceFixtureHidden(t *testing.T, dir, name string) {
 // observeWorktreeGoSourceClosureSuccess demands full proof: the
 // commit-prefixed exact HEAD subject, the intact fixture's exact selected
 // count, and a present digest. It never accepts a partial or unbound
-// observation as success.
+// observation as success. These source-only tests pass ./... to inventory
+// the fixture's whole package tree; that pattern is not an executing suite
+// and not a supported producer command.
 func observeWorktreeGoSourceClosureSuccess(t *testing.T, dir string) *WorktreeGoSourceClosure {
 	t.Helper()
 	environment, _ := worktreeGoSuiteEnvironment()
 	subject := worktreeGoSourceFixtureHead(t, dir)
-	closure, err := observeWorktreeGoSources(t.Context(), dir, environment)
+	closure, err := observeWorktreeGoSources(t.Context(), dir, environment, "./...")
 	if err != nil || closure == nil || !closure.Complete {
 		t.Fatalf("intact fixture earned no closure proof: %+v, %v", closure, err)
 	}
@@ -188,7 +190,7 @@ func observeWorktreeGoSourceClosureSuccess(t *testing.T, dir string) *WorktreeGo
 func observeWorktreeGoSourceClosureFailure(t *testing.T, dir string) {
 	t.Helper()
 	environment, _ := worktreeGoSuiteEnvironment()
-	closure, err := observeWorktreeGoSources(t.Context(), dir, environment)
+	closure, err := observeWorktreeGoSources(t.Context(), dir, environment, "./...")
 	if err == nil {
 		t.Fatalf("mutated fixture earned closure proof: %+v", closure)
 	}
@@ -203,7 +205,7 @@ func observeWorktreeGoSourceClosureFailure(t *testing.T, dir string) {
 func observeWorktreeGoSourceNativeRefusal(t *testing.T, dir string) {
 	t.Helper()
 	environment, _ := worktreeGoSuiteEnvironment()
-	closure, err := observeWorktreeGoSources(t.Context(), dir, environment)
+	closure, err := observeWorktreeGoSources(t.Context(), dir, environment, "./...")
 	if err == nil {
 		t.Fatalf("native fixture earned closure proof: %+v", closure)
 	}
@@ -299,7 +301,7 @@ func TestWorktreeGoSourceClosureRefusesStatusHiddenGoSourceChange(t *testing.T) 
 	}
 	assertWorktreeGoSourceFixtureStatusClean(t, dir)
 	environment, _ := worktreeGoSuiteEnvironment()
-	closure, err := observeWorktreeGoSources(t.Context(), dir, environment)
+	closure, err := observeWorktreeGoSources(t.Context(), dir, environment, "./...")
 	if err == nil || !strings.Contains(err.Error(), "Go selected input differs from its pinned blob: dep/dep.go") || closure != nil && closure.Complete {
 		t.Fatalf("stat-hidden mutation did not reach the blob comparison: %+v, %v", closure, err)
 	}

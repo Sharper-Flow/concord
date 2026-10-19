@@ -20,14 +20,6 @@
       "automation_path": ".github/workflows/ci.yml"
     },
     {
-      "id": "go-test-proof",
-      "purpose": "Uncached Go suite with core-observed package and test execution.",
-      "invocation": "go test -race -count=1 -json -p=4 -timeout=20m ./...",
-      "tier": "slow",
-      "cost_hint": "Uncached tests; four build workers and four Go scheduler threads.",
-      "config_path": "internal/store/worktree_verify_go_suite.go"
-    },
-    {
       "id": "go-vet",
       "purpose": "Standard Go static analysis over every package.",
       "invocation": "go vet ./...",

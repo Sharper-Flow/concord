@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -5505,10 +5504,10 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	observingGo := req.RunCommand == nil && slices.Equal(req.Command, worktreeGoSuiteCommand())
+	observingGo := false
 	var wanted map[string]bool
-	if observingGo {
-		wanted, err = worktreeGoSuiteWanted(ctx, s.db, req.WorkID)
+	if req.RunCommand == nil && len(req.Command) >= 2 && req.Command[0] == "go" && req.Command[1] == "test" {
+		wanted, observingGo, err = worktreeGoSuiteWanted(ctx, s.db, req.WorkID, req.Command)
 		if err != nil {
 			return WorktreeVerifyResult{}, err
 		}
@@ -5550,7 +5549,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	var commandResult WorktreeVerifyResult
 	var runErr error
 	if observingGo {
-		commandResult, runErr = runWorktreeGoSuite(ctx, entry.Path, wanted, maxOutput)
+		commandResult, runErr = runWorktreeGoSuite(ctx, entry.Path, req.Command, wanted, maxOutput)
 	} else {
 		var output []byte
 		commandResult.ExitCode, output, commandResult.OutputTruncated, runErr = runCommand(ctx, entry.Path, req.Command, maxOutput)

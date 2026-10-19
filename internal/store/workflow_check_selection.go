@@ -37,6 +37,24 @@ func workflowFootprintChecks(footprint WorkSizeFootprint) ([]FootprintCheck, boo
 	return checks, footprint.ChecksComplete
 }
 
+func workflowGoCheckCommand(check FootprintCheck) ([]string, bool) {
+	command := []string{"go", "test", "-json", "-count=1"}
+	switch check.Kind {
+	case "go_test":
+		pkg, name, ok := workflowTestCheckParts(check.Value)
+		if !ok {
+			return nil, false
+		}
+		return append(command, "-run", "^"+regexp.QuoteMeta(name)+"$", "./"+pkg), true
+	case "go_package":
+		pkg, ok := workflowPackageCheckPackage(check.Value)
+		if ok {
+			return append(command, "./"+pkg), true
+		}
+	}
+	return nil, false
+}
+
 // workflowCommandSelectsCheck recognizes selection, not proof. The caller owns
 // exact tooling declaration, native execution, immutable subject and source
 // ownership, including build selection and module boundaries under the actual

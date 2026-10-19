@@ -30,7 +30,7 @@ const (
 	goSourceRuntimeResidual   string                = "runtime_reads_outside_HEAD_package_trees_unproved"
 )
 
-func observeWorktreeGoSources(ctx context.Context, dir string, environment []string) (*WorktreeGoSourceClosure, error) {
+func observeWorktreeGoSources(ctx context.Context, dir string, environment []string, packagePattern string) (*WorktreeGoSourceClosure, error) {
 	root, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func observeWorktreeGoSources(ctx context.Context, dir string, environment []str
 	commit := strings.TrimSpace(string(head))
 	fields := "Dir,Module,Error,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SysoFiles,SwigFiles,SwigCXXFiles"
 	capture := &nativeStreamCapture{complete: true}
-	code, err := runNativeOracleStage(ctx, root, []string{"go", "list", "-race", "-p=4", "-mod=readonly", "-deps", "-test", "-json=" + fields, "./..."}, environment, nil, capture, nil)
+	code, err := runNativeOracleStage(ctx, root, []string{"go", "list", "-p=4", "-mod=readonly", "-deps", "-test", "-json=" + fields, packagePattern}, environment, nil, capture, nil)
 	if err != nil || code != 0 || !capture.complete {
 		return nil, nativeUnavailable("Go selected-input metadata is unavailable")
 	}

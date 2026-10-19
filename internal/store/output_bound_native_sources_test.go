@@ -34,10 +34,6 @@ import (
 //
 // Known, reported producer mismatches this file registers honestly rather
 // than hides:
-//   - worktree_inspect content: the file-mode read publishes maxBytes+1 =
-//     16385 bytes against the 16384-character consumer (the max composite
-//     over both writers below); the consumer must rise or the read be
-//     sliced to maxBytes.
 //   - the ambient Project identity has no admission guard anywhere, so the
 //     project_id rows are unbounded, byte-ceiling only and fail while their
 //     schema caps stand.
@@ -128,16 +124,9 @@ func init() {
 	registerOutputBound("/$defs/worktree_inspect_result/oneOf/0/properties/path/maxLength", pathBound)
 	registerOutputBound("/$defs/worktree_inspect_result/oneOf/1/properties/path/maxLength", inspectVacuous)
 
-	// Status and diff content is capped by boundText at the 16384-byte
-	// default, but file mode assigns readBoundedFile's untrimmed maxBytes+1
-	// read, so a boundary file publishes 16385 bytes against the
-	// 16384-character consumer. Both writers are registered honestly: the
-	// row fails bound-not-admitted until the consumer rises or the file read
-	// is sliced to maxBytes.
-	inspectContent := maxBound(
-		goConstantBound("internal/store/worktrees.go", "defaultWorktreeInspectBytes", boundBytes),
-		nativeInspectFileReadDerived(),
-	)
+	// Every inspect mode slices content with boundText at the 16384-byte
+	// default.
+	inspectContent := nativeInspectContentDerived()
 	registerOutputBound("/$defs/worktree_inspect_result/properties/content/maxLength", inspectContent)
 	registerOutputBound("/$defs/worktree_inspect_result/oneOf/0/properties/content/maxLength", inspectContent)
 	registerOutputBound("/$defs/worktree_inspect_result/oneOf/1/properties/content/maxLength", inspectVacuous)
@@ -1761,18 +1750,16 @@ func nativeFixedShapeDerived(what string) outputBoundSource {
 	}}
 }
 
-// nativeInspectFileReadDerived proves the inspect file mode reads maxBytes+1
-// bytes untrimmed (readBoundedFile) and that the sole production caller of
-// InspectWorktree omits MaxBytes, so the effective cap is
-// defaultWorktreeInspectBytes + 1. The +1 read is a real producer capacity
-// the 16384-character consumer refuses at the envelope.
-func nativeInspectFileReadDerived() outputBoundSource {
+// nativeInspectContentDerived proves every InspectWorktree mode publishes
+// content through boundText(..., maxBytes) and that the sole production
+// caller omits MaxBytes, so the effective cap is defaultWorktreeInspectBytes.
+func nativeInspectContentDerived() outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		inspect, err := nativeFuncDecl(rt, nativeWorktreesFile, "InspectWorktree")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		fallbackFound, defineFound, assignFound := false, false, false
+		fallbackFound, bounded, unbounded := false, 0, 0
 		ast.Inspect(inspect, func(n ast.Node) bool {
 			if branch, ok := n.(*ast.IfStmt); ok && branch.Cond != nil {
 				if be, ok := branch.Cond.(*ast.BinaryExpr); ok && be.Op == token.LEQ {
@@ -1798,68 +1785,42 @@ func nativeInspectFileReadDerived() outputBoundSource {
 			if !ok {
 				return true
 			}
-			// File mode defines the content variable from readBoundedFile and
-			// then assigns result.Content from that variable.
-			contentDefined := false
 			for _, lhs := range assign.Lhs {
-				if ident, ok := lhs.(*ast.Ident); ok && ident.Name == "content" {
-					contentDefined = true
+				if name, ok := nativeSelectorName(lhs); !ok || name != "Content" {
+					continue
 				}
-			}
-			if contentDefined {
-				for _, rhs := range assign.Rhs {
-					for _, call := range nativeCalls(rhs, "readBoundedFile") {
-						if len(call.Args) == 2 {
-							if ident, ok := call.Args[1].(*ast.Ident); ok && ident.Name == "maxBytes" {
-								defineFound = true
-							}
-						}
+				// result.Content, result.Truncated = boundText(text, maxBytes)
+				call, ok := assign.Rhs[0].(*ast.CallExpr)
+				if len(assign.Rhs) == 1 && ok && ledgerCalleeMatches(call, "boundText") && len(call.Args) == 2 {
+					if ident, ok := call.Args[1].(*ast.Ident); ok && ident.Name == "maxBytes" {
+						bounded++
+						continue
 					}
 				}
-			}
-			contentAssigned := false
-			for _, lhs := range assign.Lhs {
-				if name, ok := nativeSelectorName(lhs); ok && name == "Content" {
-					contentAssigned = true
-				}
-			}
-			if contentAssigned {
-				for _, rhs := range assign.Rhs {
-					if ident, ok := rhs.(*ast.Ident); ok && ident.Name == "content" {
-						assignFound = true
-					}
-				}
+				unbounded++
 			}
 			return true
 		})
-		if !fallbackFound || !defineFound || !assignFound {
-			return evaluatedBound{}, fmt.Errorf("native bound: InspectWorktree no longer falls back to defaultWorktreeInspectBytes, defines content through readBoundedFile(..., maxBytes), and assigns result.Content from it")
+		if !fallbackFound || bounded == 0 || unbounded != 0 {
+			return evaluatedBound{}, fmt.Errorf("native bound: InspectWorktree must fall back to defaultWorktreeInspectBytes and assign result.Content only from boundText(..., maxBytes); found %d bounded and %d other assignments", bounded, unbounded)
 		}
-		reader, err := nativeFuncDecl(rt, nativeWorktreesFile, "readBoundedFile")
+		reader, err := nativeFuncDecl(rt, nativeWorktreesFile, "boundText")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		plusOne := false
+		sliced := false
 		ast.Inspect(reader, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "make") || len(call.Args) != 2 {
+			slice, ok := n.(*ast.SliceExpr)
+			if !ok || slice.Low != nil || slice.Slice3 {
 				return true
 			}
-			be, ok := call.Args[1].(*ast.BinaryExpr)
-			if !ok || be.Op != token.ADD {
-				return true
-			}
-			ident, ok := be.X.(*ast.Ident)
-			if !ok || ident.Name != "maxBytes" {
-				return true
-			}
-			if value, ok := nativeIntLit(be.Y); ok && value == 1 {
-				plusOne = true
+			if ident, ok := slice.High.(*ast.Ident); ok && ident.Name == "maxBytes" {
+				sliced = true
 			}
 			return true
 		})
-		if !plusOne {
-			return evaluatedBound{}, fmt.Errorf("native bound: readBoundedFile no longer reads maxBytes+1 bytes untrimmed")
+		if !sliced {
+			return evaluatedBound{}, fmt.Errorf("native bound: boundText no longer slices text to [:maxBytes]")
 		}
 		callerSites := 0
 		for _, dir := range []string{"internal/agent", "internal/store"} {
@@ -1913,8 +1874,8 @@ func nativeInspectFileReadDerived() outputBoundSource {
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		width := capValue + 1
-		describe := fmt.Sprintf("derived file-mode inspect read: readBoundedFile(maxBytes+1) under the defaultWorktreeInspectBytes fallback publishes %d bytes", width)
+		width := capValue
+		describe := fmt.Sprintf("derived inspect content: boundText(..., maxBytes) under the defaultWorktreeInspectBytes fallback publishes %d bytes", width)
 		return evaluatedBound{
 			kind:        "derived",
 			describe:    describe,

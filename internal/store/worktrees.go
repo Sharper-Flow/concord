@@ -5343,7 +5343,7 @@ func (s *Store) InspectWorktree(ctx context.Context, req WorktreeInspectRequest)
 		if readErr != nil {
 			return WorktreeInspectResult{}, readErr
 		}
-		result.Content, result.Truncated = content, len(content) > maxBytes
+		result.Content, result.Truncated = boundText(content, maxBytes)
 	}
 	return result, nil
 }

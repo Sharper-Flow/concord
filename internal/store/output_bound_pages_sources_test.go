@@ -1903,24 +1903,45 @@ func pkPlanEffectWorkPinsBound(file string) outputBoundSource {
 		largest, effects := int64(0), 0
 		var inspectEffect func(lit *ast.FuncLit) error
 		inspectEffect = func(lit *ast.FuncLit) error {
-			width := int64(0)
+			width, appended := int64(0), int64(0)
 			changedAssigned := false
+			var loops []ast.Node
+			ast.Inspect(lit.Body, func(n ast.Node) bool {
+				switch n.(type) {
+				case *ast.ForStmt, *ast.RangeStmt:
+					loops = append(loops, n)
+				}
+				return true
+			})
+			inLoop := func(node ast.Node) bool {
+				for _, loop := range loops {
+					if node.Pos() >= loop.Pos() && node.End() <= loop.End() {
+						return true
+					}
+				}
+				return false
+			}
 			var visit func(node ast.Node) error
 			visit = func(node ast.Node) error {
 				switch inner := node.(type) {
 				case *ast.AssignStmt:
-					call, isCall := inner.Rhs[0].(*ast.CallExpr)
-					if isCall && ledgerCalleeMatches(call, "append") && len(call.Args) > 0 {
-						if ident, ok := call.Args[0].(*ast.Ident); ok && ident.Name == "changed" {
-							return fmt.Errorf("changed is grown by an append")
-						}
-					}
 					for i, lhs := range inner.Lhs {
 						ident, ok := lhs.(*ast.Ident)
 						if !ok || ident.Name != "changed" || i >= len(inner.Rhs) {
 							continue
 						}
 						changedAssigned = true
+						// changed = append(changed, x...) outside any loop adds
+						// exactly its listed elements; any other append grows
+						// the slice by an amount the construction does not fix.
+						if call, ok := inner.Rhs[i].(*ast.CallExpr); ok && ledgerCalleeMatches(call, "append") {
+							self, ok := call.Args[0].(*ast.Ident)
+							if !ok || self.Name != "changed" || call.Ellipsis.IsValid() || inLoop(inner) {
+								return fmt.Errorf("changed is grown by an append")
+							}
+							appended += int64(len(call.Args) - 1)
+							continue
+						}
 						elementWidth, ok := pkLiteralRefWidth(inner.Rhs[i])
 						if !ok {
 							return fmt.Errorf("changed is assigned a non-literal value")
@@ -1933,7 +1954,9 @@ func pkPlanEffectWorkPinsBound(file string) outputBoundSource {
 					if len(inner.Results) != 4 {
 						return nil
 					}
-					if ident, ok := inner.Results[2].(*ast.Ident); ok && ident.Name == "nil" {
+					// nil, or the changed variable whose every assignment
+					// was already measured above, adds no width.
+					if ident, ok := inner.Results[2].(*ast.Ident); ok && (ident.Name == "nil" || ident.Name == "changed" && changedAssigned) {
 						return nil
 					}
 					elementWidth, ok := pkLiteralRefWidth(inner.Results[2])
@@ -1949,6 +1972,7 @@ func pkPlanEffectWorkPinsBound(file string) outputBoundSource {
 			if err := pkWalkStatements(lit.Body, visit); err != nil {
 				return err
 			}
+			width += appended
 			if !changedAssigned && width == 0 {
 				return nil
 			}
@@ -2059,7 +2083,15 @@ func pkHexDigestConstructionBound(file, function string) outputBoundSource {
 		if len(fns) != 1 || fns[0].Body == nil {
 			return evaluatedBound{}, fmt.Errorf("hex digest: function %s is not declared exactly once with a body in %s", function, file)
 		}
-		digestVar := ""
+		digestVar, digests := "", 0
+		ast.Inspect(fns[0].Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !ledgerCalleeMatches(call, "sha256.Sum256") {
+				return true
+			}
+			digests++
+			return true
+		})
 		ast.Inspect(fns[0].Body, func(n ast.Node) bool {
 			assign, ok := n.(*ast.AssignStmt)
 			if !ok || len(assign.Rhs) != 1 || len(assign.Lhs) != 1 {
@@ -2074,24 +2106,27 @@ func pkHexDigestConstructionBound(file, function string) outputBoundSource {
 			}
 			return true
 		})
-		if digestVar == "" {
-			return evaluatedBound{}, fmt.Errorf("hex digest: %s:%s assigns no sha256.Sum256 digest variable", file, function)
+		if digests != 1 || digestVar == "" {
+			return evaluatedBound{}, fmt.Errorf("hex digest: %s:%s computes %d sha256.Sum256 digests; exactly one assigned digest is required", file, function, digests)
 		}
-		encodings := 0
+		// Every hex encoding in the function must encode that digest whole;
+		// an encoding of anything else widens or blurs the construction.
+		encodings, foreign := 0, 0
 		ast.Inspect(fns[0].Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "hex.EncodeToString") || len(call.Args) != 1 {
+			if !ok || !ledgerCalleeMatches(call, "hex.EncodeToString") {
 				return true
 			}
 			slice, ok := call.Args[0].(*ast.SliceExpr)
-			if !ok || slice.Slice3 || ledgerExprText(slice.X) != digestVar {
-				return true
+			if len(call.Args) == 1 && ok && !slice.Slice3 && slice.Low == nil && slice.High == nil && ledgerExprText(slice.X) == digestVar {
+				encodings++
+			} else {
+				foreign++
 			}
-			encodings++
 			return true
 		})
-		if encodings != 1 {
-			return evaluatedBound{}, fmt.Errorf("hex digest: %s:%s encodes the digest %d times; the construction is absent or ambiguous", file, function, encodings)
+		if encodings != 1 || foreign != 0 {
+			return evaluatedBound{}, fmt.Errorf("hex digest: %s:%s encodes the digest %d times beside %d other encodings; the construction is absent or ambiguous", file, function, encodings, foreign)
 		}
 		width := int64(64)
 		ast.Inspect(fns[0].Body, func(n ast.Node) bool {
@@ -2511,6 +2546,12 @@ func TestPkDerivations(t *testing.T) {
 	wantFailure("plan effect append mutation", err, "grown by an append")
 	_, err = evaluate("pk_agg3.go", preamble+"type effect func() (int, []string, []string, error)\n\ntype plan struct{ effect effect }\n\nfunc build() []string { return nil }\n\nfunc siteA(p *plan) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := build()\n\t\treturn 0, nil, changed, nil\n\t}\n\treturn\n}\n", pkPlanEffectWorkPinsBound("pk_agg3.go"))
 	wantFailure("plan effect call-derived mutation", err, "non-literal value")
+	// A conditional self-append outside any loop adds its listed elements to
+	// the literal width; the same append inside a loop is unbounded.
+	agg4, err := evaluate("pk_agg4.go", preamble+"type effect func() (int, []string, []string, error)\n\ntype plan struct{ effect effect }\n\nfunc siteA(p *plan, extra string) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := []string{{\"a\"}}\n\t\tif extra != \"\" {\n\t\t\tchanged = append(changed, extra)\n\t\t}\n\t\treturn 0, nil, changed, nil\n\t}\n}\n", pkPlanEffectWorkPinsBound("pk_agg4.go"))
+	firstValue("plan effect bounded self-append", agg4, err, 2)
+	_, err = evaluate("pk_agg5.go", preamble+"type effect func() (int, []string, []string, error)\n\ntype plan struct{ effect effect }\n\nfunc siteA(p *plan, extra []string) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := []string{{\"a\"}}\n\t\tfor _, e := range extra {\n\t\t\tchanged = append(changed, e)\n\t\t}\n\t\treturn 0, nil, changed, nil\n\t}\n}\n", pkPlanEffectWorkPinsBound("pk_agg5.go"))
+	wantFailure("plan effect loop self-append", err, "grown by an append")
 	_, err = evaluate("pk_ret_arity.go", effectFixture("return 0, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret_arity.go", "site", 2))
 	wantFailure("empty returns arity filter", err, "actual returns produce elements")
 
@@ -2530,7 +2571,7 @@ func TestPkDerivations(t *testing.T) {
 	wantFailure("typed vocabulary mutation", err, "not a string literal")
 
 	evaluated, err = evaluate("pk_text.go", preamble+"type retained struct{ Reason string }\n\nfunc site(cond bool) retained {\n\tif cond {\n\t\treturn retained{Reason: \"stored claim content is not proven durable; the ref was retained\"}\n\t}\n\treturn retained{Reason: \"the default ref is never deleted\"}\n}\n", pkFieldTextBound("pk_text.go", "site", "retained", "Reason"))
-	oneConstraint("field text", evaluated, err, boundCharacters, 65)
+	oneConstraint("field text", evaluated, err, boundCharacters, 64)
 	_, err = evaluate("pk_text2.go", preamble+"type retained struct{ Reason string }\n\nfunc site(via string) retained {\n\treturn retained{Reason: \"durable: \" + via}\n}\n", pkFieldTextBound("pk_text2.go", "site", "retained", "Reason"))
 	wantFailure("field text ident mutation", err, "no in-function literal assignment")
 	_, err = evaluate("pk_text3.go", preamble+"type retained struct{ Reason string }\n\nfunc site(n int) retained {\n\treturn retained{Reason: \"durable\" + \"x\" + 3}\n}\n", pkFieldTextBound("pk_text3.go", "site", "retained", "Reason"))
@@ -2619,7 +2660,7 @@ func TestPkDerivations(t *testing.T) {
 	hx, err := evaluate("pk_hex.go", preamble+"import (\"crypto/sha256\"\n\t\"encoding/hex\"\n)\n\nfunc site(key string) string {\n\tsum := sha256.Sum256([]byte(key))\n\treturn hex.EncodeToString(sum[:])\n}\n", pkHexDigestConstructionBound("pk_hex.go", "site"))
 	oneConstraint("hex digest", hx, err, boundCharacters, 64)
 	_, err = evaluate("pk_hex2.go", preamble+"import (\"crypto/sha256\"\n\t\"encoding/hex\"\n)\n\nfunc site(key string) string {\n\tsum := sha256.Sum256([]byte(key))\n\tsum2 := sha256.Sum256([]byte(key + key))\n\treturn hex.EncodeToString(append(sum[:], sum2[:]...))\n}\n", pkHexDigestConstructionBound("pk_hex2.go", "site"))
-	wantFailure("hex digest ambiguous", err, "encodes the digest 2 times")
+	wantFailure("hex digest ambiguous", err, "computes 2 sha256.Sum256 digests")
 	hxPrefix, err := evaluate("pk_hex3.go", preamble+"import (\"crypto/sha256\"\n\t\"encoding/hex\"\n)\n\nfunc site(key string) string {\n\tsum := sha256.Sum256([]byte(key))\n\treturn \"sha256:\" + hex.EncodeToString(sum[:])\n}\n", pkHexDigestConstructionBound("pk_hex3.go", "site"))
 	oneConstraint("hex digest prefixed", hxPrefix, err, boundCharacters, 71)
 

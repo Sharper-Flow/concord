@@ -184,6 +184,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
 		}
+		if capabilityClass == "implementation" {
+			deliverAgentFixtureChange(t, s, "work-1", attemptID)
+		}
 		deliveryRecoveryCompletion(t, s, grant, attemptID, capabilityClass)
 	}
 

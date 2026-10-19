@@ -27,6 +27,7 @@ package store
 
 import (
 	"fmt"
+	"iter"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -1124,7 +1125,7 @@ func admissionStepIndex(definition WorkflowDefinition, stepID string) int {
 // no fold reads them, they shape only the successor model's reachable walk.
 // The review debt exists only on a definition that declares the refinement
 // shape's review steps, and a ready review implies the debt.
-func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelState {
+func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admissionModelState] {
 	contractIndex := -1
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
 		contractIndex = admissionStepIndex(definition, contractStep)
@@ -1150,93 +1151,168 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 	if workflowWorkerJobsActive(definition) {
 		jobShapes = append(jobShapes, "required", "satisfied")
 	}
-	var states []admissionModelState
-	for i, step := range definition.StepGraph.Steps {
-		stepJobShapes := jobShapes
-		if !slices.Contains(step.Actions, "record_worker_job") {
-			stepJobShapes = []string{""}
-		}
-		contracts := []int64{0}
-		if contractIndex < 0 {
-			contracts = []int64{0, 1, 2}
-		} else if i > contractIndex {
-			contracts = []int64{1, 2}
-		}
-		walls := []int64{0}
-		starts := slices.Contains(step.Actions, "dispatch_worker")
-		for _, actionID := range step.Actions {
-			if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
-				starts = true
+	return func(yield func(admissionModelState) bool) {
+		// Each base state expands in place into its evidence, size-stop, and
+		// attempt-origin variants, in that nesting order, so a walk never
+		// holds the whole state space in memory.
+		withOrigins := func(state admissionModelState) bool {
+			if state.attempt != "completed" {
+				return yield(state)
 			}
-		}
-		if starts {
-			walls = []int64{0, workflowCorrectionAttemptLimit}
-		}
-		// attemptDispatched pairs each attempt value with whether a dispatch
-		// happened since the step's latest pass boundary. Only the empty
-		// attempt splits: a live attempt implies its own dispatch, and a
-		// held local acceptance clears the attempt while the pass keeps its
-		// dispatch (CD-0205 D3).
-		type attemptDispatched struct {
-			attempt    string
-			dispatched bool
-		}
-		attemptDispatches := []attemptDispatched{{"", false}}
-		if starts {
-			attemptDispatches = []attemptDispatched{{"", false}, {"", true}, {"completed", true}, {"failed", true}, {"failure_recorded", true}, {"rejected", true}}
-		}
-		type debtShape struct {
-			debt  WorkflowReviewDebt
-			ready string
-		}
-		debts := []debtShape{{ReviewDebtNone, ""}}
-		if refinement && workflowPostRejectionReviewStep(definition, step.ID) {
-			debts = append(debts, debtShape{ReviewDebtOutstanding, ""}, debtShape{ReviewDebtOutstanding, "ship"}, debtShape{ReviewDebtOutstanding, "absent"}, debtShape{ReviewDebtOutstanding, "no_ship"})
-		}
-		for _, count := range contracts {
-			stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
-			if count > 0 {
-				stales = []string{"", "law", "registry"}
-				if design {
-					designs = []bool{false, true}
-				}
-				if verdictIndex >= 0 && i >= verdictIndex {
-					verdicts = []string{"", "ok", "bad"}
-				}
-				if workflowStepJudgesStaleArtifact(definition, step.ID) {
-					artifacts = []bool{false, true}
+			for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
+				for _, fresh := range []bool{false, true} {
+					next := state
+					next.attemptProduces, next.attemptFresh = produces, fresh
+					if !yield(next) {
+						return false
+					}
 				}
 			}
-			for _, stale := range stales {
-				for _, designStale := range designs {
-					for _, verdict := range verdicts {
-						for _, artifactStale := range artifacts {
-							for _, attemptDispatch := range attemptDispatches {
-								for _, wall := range walls {
-									// The convergence basis is folded exactly
-									// at the escalated wall — the loader derives
-									// a basis nowhere else — so the well-formed
-									// enumeration carries each basis family and
-									// the missing-basis refusal at the wall, and
-									// nothing below it: a standing basis below
-									// the wall is inert history the fold does
-									// not read.
-									convergences := []string{""}
-									if wall == workflowCorrectionAttemptLimit {
-										convergences = []string{"", "approach", "findings"}
-									}
-									for _, convergence := range convergences {
-										for _, shape := range debts {
-											for _, jobs := range stepJobShapes {
-												for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-													states = append(states, admissionModelState{
-														step: step.ID, debt: shape.debt, ready: shape.ready,
-														attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
-														nonprogress: wall, convergence: convergence, contracts: count, stale: stale,
-														designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-														artifact: observation[0], observed: observation[1],
-														jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
-													})
+			return true
+		}
+		// The size stop exists only under one active contract: its proof needs
+		// two accepted reviews of the contracted work.
+		withStops := func(state admissionModelState) bool {
+			if !withOrigins(state) {
+				return false
+			}
+			if state.contracts != 1 {
+				return true
+			}
+			stopped := state
+			stopped.sizeStop = true
+			return withOrigins(stopped)
+		}
+		withEvidence := func(state admissionModelState) bool {
+			starts := []bool{false}
+			if workflowStepIsDeliveryGate(workflowStep(definition, state.step)) || state.attempt != "" {
+				// The gate is entered from its delivery-bearing predecessor; a
+				// dispatched attempt also records a fenced action start.
+				starts = []bool{true}
+			} else {
+				for _, action := range workflowStep(definition, state.step).Actions {
+					if mode, ok := workflowActionExecutionMode(definition, action); ok && mode == ActionFenced {
+						starts = []bool{false, true}
+						break
+					}
+				}
+			}
+			mandates := []string{""}
+			if state.contracts == 1 {
+				mandates = []string{"", "missing", "bound"}
+			}
+			for _, started := range starts {
+				proofs := []bool{false}
+				if started && workflowRefineProofGateActive(definition, state.step) {
+					proofs = []bool{false, true}
+				}
+				integrations := []bool{false}
+				if started && state.jobs == "satisfied" {
+					integrations = []bool{false, true}
+				}
+				for _, proof := range proofs {
+					for _, integration := range integrations {
+						for _, mandate := range mandates {
+							next := state
+							next.started, next.proof, next.mandate, next.integration = started, proof, mandate, integration
+							if !withStops(next) {
+								return false
+							}
+						}
+					}
+				}
+			}
+			return true
+		}
+		for i, step := range definition.StepGraph.Steps {
+			stepJobShapes := jobShapes
+			if !slices.Contains(step.Actions, "record_worker_job") {
+				stepJobShapes = []string{""}
+			}
+			contracts := []int64{0}
+			if contractIndex < 0 {
+				contracts = []int64{0, 1, 2}
+			} else if i > contractIndex {
+				contracts = []int64{1, 2}
+			}
+			walls := []int64{0}
+			starts := slices.Contains(step.Actions, "dispatch_worker")
+			for _, actionID := range step.Actions {
+				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
+					starts = true
+				}
+			}
+			if starts {
+				walls = []int64{0, workflowCorrectionAttemptLimit}
+			}
+			// attemptDispatched pairs each attempt value with whether a dispatch
+			// happened since the step's latest pass boundary. Only the empty
+			// attempt splits: a live attempt implies its own dispatch, and a
+			// held local acceptance clears the attempt while the pass keeps its
+			// dispatch (CD-0205 D3).
+			type attemptDispatched struct {
+				attempt    string
+				dispatched bool
+			}
+			attemptDispatches := []attemptDispatched{{"", false}}
+			if starts {
+				attemptDispatches = []attemptDispatched{{"", false}, {"", true}, {"completed", true}, {"failed", true}, {"failure_recorded", true}, {"rejected", true}}
+			}
+			type debtShape struct {
+				debt  WorkflowReviewDebt
+				ready string
+			}
+			debts := []debtShape{{ReviewDebtNone, ""}}
+			if refinement && workflowPostRejectionReviewStep(definition, step.ID) {
+				debts = append(debts, debtShape{ReviewDebtOutstanding, ""}, debtShape{ReviewDebtOutstanding, "ship"}, debtShape{ReviewDebtOutstanding, "absent"}, debtShape{ReviewDebtOutstanding, "no_ship"})
+			}
+			for _, count := range contracts {
+				stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
+				if count > 0 {
+					stales = []string{"", "law", "registry"}
+					if design {
+						designs = []bool{false, true}
+					}
+					if verdictIndex >= 0 && i >= verdictIndex {
+						verdicts = []string{"", "ok", "bad"}
+					}
+					if workflowStepJudgesStaleArtifact(definition, step.ID) {
+						artifacts = []bool{false, true}
+					}
+				}
+				for _, stale := range stales {
+					for _, designStale := range designs {
+						for _, verdict := range verdicts {
+							for _, artifactStale := range artifacts {
+								for _, attemptDispatch := range attemptDispatches {
+									for _, wall := range walls {
+										// The convergence basis is folded exactly
+										// at the escalated wall — the loader derives
+										// a basis nowhere else — so the well-formed
+										// enumeration carries each basis family and
+										// the missing-basis refusal at the wall, and
+										// nothing below it: a standing basis below
+										// the wall is inert history the fold does
+										// not read.
+										convergences := []string{""}
+										if wall == workflowCorrectionAttemptLimit {
+											convergences = []string{"", "approach", "findings"}
+										}
+										for _, convergence := range convergences {
+											for _, shape := range debts {
+												for _, jobs := range stepJobShapes {
+													for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+														if !withEvidence(admissionModelState{
+															step: step.ID, debt: shape.debt, ready: shape.ready,
+															attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
+															nonprogress: wall, convergence: convergence, contracts: count, stale: stale,
+															designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+															artifact: observation[0], observed: observation[1],
+															jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
+														}) {
+															return
+														}
+													}
 												}
 											}
 										}
@@ -1249,71 +1325,6 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			}
 		}
 	}
-	var withEvidence []admissionModelState
-	for _, state := range states {
-		starts := []bool{false}
-		if workflowStepIsDeliveryGate(workflowStep(definition, state.step)) || state.attempt != "" {
-			// The gate is entered from its delivery-bearing predecessor; a
-			// dispatched attempt also records a fenced action start.
-			starts = []bool{true}
-		} else {
-			for _, action := range workflowStep(definition, state.step).Actions {
-				if mode, ok := workflowActionExecutionMode(definition, action); ok && mode == ActionFenced {
-					starts = []bool{false, true}
-					break
-				}
-			}
-		}
-		mandates := []string{""}
-		if state.contracts == 1 {
-			mandates = []string{"", "missing", "bound"}
-		}
-		for _, started := range starts {
-			proofs := []bool{false}
-			if started && workflowRefineProofGateActive(definition, state.step) {
-				proofs = []bool{false, true}
-			}
-			integrations := []bool{false}
-			if started && state.jobs == "satisfied" {
-				integrations = []bool{false, true}
-			}
-			for _, proof := range proofs {
-				for _, integration := range integrations {
-					for _, mandate := range mandates {
-						next := state
-						next.started, next.proof, next.mandate, next.integration = started, proof, mandate, integration
-						withEvidence = append(withEvidence, next)
-					}
-				}
-			}
-		}
-	}
-	// The size stop exists only under one active contract: its proof needs
-	// two accepted reviews of the contracted work.
-	var withStops []admissionModelState
-	for _, state := range withEvidence {
-		withStops = append(withStops, state)
-		if state.contracts == 1 {
-			stopped := state
-			stopped.sizeStop = true
-			withStops = append(withStops, stopped)
-		}
-	}
-	var withOrigins []admissionModelState
-	for _, state := range withStops {
-		if state.attempt != "completed" {
-			withOrigins = append(withOrigins, state)
-			continue
-		}
-		for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
-			for _, fresh := range []bool{false, true} {
-				next := state
-				next.attemptProduces, next.attemptFresh = produces, fresh
-				withOrigins = append(withOrigins, next)
-			}
-		}
-	}
-	return withOrigins
 }
 
 // admissionModelJobKeys and admissionModelJobScope derive the canonical
@@ -1382,7 +1393,7 @@ func admissionHasExit(definition WorkflowDefinition, state admissionModelState) 
 // admits no exit.
 func wellFormedAdmissionExitWitnesses(definition WorkflowDefinition) []string {
 	var witnesses []string
-	for _, state := range wellFormedAdmissionStates(definition) {
+	for state := range wellFormedAdmissionStates(definition) {
 		if !admissionHasExit(definition, state) {
 			witnesses = append(witnesses, fmt.Sprintf("well-formed nonterminal state %s admits no exit; admitted: %s",
 				state, strings.Join(admissionModelMoves(definition, state), ", ")))
@@ -1412,7 +1423,7 @@ func archivedFamilyRefusalHolds(definition WorkflowDefinition, folded WorkflowAd
 // witness the seeded detector test proves this walk can name.
 func archivedRefusalWitnesses(definition WorkflowDefinition) []string {
 	var witnesses []string
-	for _, state := range wellFormedAdmissionStates(definition) {
+	for state := range wellFormedAdmissionStates(definition) {
 		folded := admissionWorkflowState(definition, state)
 		for _, actionID := range admissionStateActions(definition, state) {
 			if archivedFamilyRefusalHolds(definition, folded, actionID) {
@@ -1427,7 +1438,7 @@ func archivedRefusalWitnesses(definition WorkflowDefinition) []string {
 // admissionSeededArchivedProbe returns the first well-formed state and
 // candidate action whose admission a definition admits.
 func admissionSeededArchivedProbe(definition WorkflowDefinition) (admissionModelState, string, bool) {
-	for _, state := range wellFormedAdmissionStates(definition) {
+	for state := range wellFormedAdmissionStates(definition) {
 		for _, actionID := range admissionStateActions(definition, state) {
 			if decision := workflowAdmit(definition, admissionWorkflowState(definition, state), actionID); decision.Admitted {
 				return state, actionID, true
@@ -1742,7 +1753,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		for _, step := range definition.StepGraph.Steps {
 			steps = append(steps, step.ID)
 		}
-		states := wellFormedAdmissionStates(definition)
+		states := slices.Collect(wellFormedAdmissionStates(definition))
 		for range 2000 {
 			states = append(states, admissionModelState{
 				step: pick(steps), findingsSeen: pick(steps), unboundRejectionStep: pick(steps),
@@ -1970,8 +1981,12 @@ func admissionDerivedCheckpointSuccessor(definition WorkflowDefinition, state ad
 // silently.
 func admissionBadToOkWitnesses(definition WorkflowDefinition, enforce bool) []string {
 	var witnesses []string
-	for _, state := range wellFormedAdmissionStates(definition) {
-		if !state.artifactStale || state.contracts == 0 || !workflowStepJudgesStaleArtifact(definition, state.step) {
+	judges := map[string]bool{}
+	for _, step := range definition.StepGraph.Steps {
+		judges[step.ID] = workflowStepJudgesStaleArtifact(definition, step.ID)
+	}
+	for state := range wellFormedAdmissionStates(definition) {
+		if !state.artifactStale || state.contracts == 0 || !judges[state.step] {
 			// Staleness bites only inside a declared route's
 			// producer-to-evaluator span; elsewhere the fold reads it
 			// unstale.
@@ -1981,14 +1996,15 @@ func admissionBadToOkWitnesses(definition WorkflowDefinition, enforce bool) []st
 		if !enforce {
 			probe.artifactStale = false
 		}
-		if workflowAdmit(definition, admissionWorkflowState(definition, probe), "record_verdict").Admitted {
+		folded := admissionWorkflowState(definition, probe)
+		if workflowAdmit(definition, folded, "record_verdict").Admitted {
 			for _, successor := range admissionSuccessors(definition, probe, "record_verdict") {
 				if successor.verdict == "ok" && !successor.artifactStale && successor.step == state.step {
 					witnesses = append(witnesses, fmt.Sprintf("stale state %s records an ok verdict without re-production", state))
 				}
 			}
 		}
-		if workflowAdmit(definition, admissionWorkflowState(definition, probe), "confirm_premise").Admitted && stepDeclaresAction(definition, state.step, "confirm_premise") {
+		if workflowAdmit(definition, folded, "confirm_premise").Admitted && stepDeclaresAction(definition, state.step, "confirm_premise") {
 			witnesses = append(witnesses, fmt.Sprintf("stale state %s confirms its premise past the verdict without re-production", state))
 		}
 	}

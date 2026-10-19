@@ -156,6 +156,16 @@ func firstCallActionInput(t *testing.T, defs map[string]any, variant string, wor
 			for key, value := range overrides {
 				fields[key] = value
 			}
+			// The binding fixtures declare a law addition. Supply its
+			// bounded reason and P12 declarations so each mutant reaches
+			// the guard it is intended to exercise.
+			if binding, ok := fields["architecture_binding"].(map[string]any); ok {
+				if additions, ok := binding["law_additions"].([]map[string]any); ok && len(additions) > 0 {
+					fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
+					fields[workflowLawChangeBehaviorField] = false
+					fields[workflowLawChangeSecurityField] = false
+				}
+			}
 			input[name] = fields
 			continue
 		}
@@ -681,8 +691,12 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	}
 	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(pairMismatch), 0, owner)
 	firstCallRequireRefusal(t, err, "successor contract contains an undeclared or invalid field")
-	// A retained pin predates the decision fact, so its replay shape omits it.
+	// A retained pin predates decision and law-change facts, so its replay
+	// shape omits both.
 	delete(pairFields, "decision_domains")
+	for _, field := range workflowLawChangeFields() {
+		delete(pairFields, field.Name)
+	}
 	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, fieldsOf(pairMismatch)); err == nil {
 		t.Fatal("the engine recovery validator admitted a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
 	} else {

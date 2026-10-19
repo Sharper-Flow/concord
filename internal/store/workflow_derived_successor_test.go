@@ -30,9 +30,16 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			seedWorkflowLaw(t, s)
 			seedDerivedLawExtension(t, s)
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
+			// The initial contract declares spec:one in every scenario, so the
+			// CD-0230 D4 law-change inputs ride on the shared map; the
+			// successor action consumes the same fields, and a legislated
+			// successor still refuses at the tier guard before they are read.
 			fields := map[string]any{
 				"premise":      "Revise the derived record inside this contract.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
+				"law_change_reason":                          "Move the derived revision into this contract.",
+				"law_change_removes_user_visible_behavior":   false,
+				"law_change_touches_security_or_data_safety": false,
 				"outcome_predicates": []map[string]any{{
 					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
 					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},

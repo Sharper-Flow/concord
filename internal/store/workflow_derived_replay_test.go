@@ -35,6 +35,14 @@ func TestNonProductChangingLawRevisionSurvivesReplay(t *testing.T) {
 					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
 				}},
 			}
+			// A contract that declares a modification records why (CD-0230 D4);
+			// an empty law_modifies changes no law and must not declare the
+			// law-change inputs.
+			if len(scenario.modifies) != 0 {
+				fields["law_change_reason"] = "Preserve the approved derived-law revision."
+				fields["law_change_removes_user_visible_behavior"] = false
+				fields["law_change_touches_security_or_data_safety"] = false
+			}
 			payload, err := json.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
@@ -59,6 +67,31 @@ func TestNonProductChangingLawRevisionSurvivesReplay(t *testing.T) {
 				fields["route_conventions"] = []string{}
 				fields["rigor_class"] = "prototype_internal"
 				fields["consequence_class"] = "internal_sqlite"
+				// The successor declares spec:one, so its recorded contract
+				// carries the canonical law_change fact the constructor would
+				// derive: build it through the production derive helper rather
+				// than authoring bytes, and keep the raw law-change inputs off
+				// the successor contract, whose payload shape is closed.
+				lawChangeInputs := map[string]json.RawMessage{
+					workflowLawChangeReasonField:   json.RawMessage(`"Carry the derived revision into the successor contract."`),
+					workflowLawChangeBehaviorField: json.RawMessage(`false`),
+					workflowLawChangeSecurityField: json.RawMessage(`false`),
+				}
+				// The store pools one connection: resolve the pinned definition
+				// before the derive transaction parks it.
+				definition := pinnedWorkflowDefinitionForTest(t, s, workID)
+				tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lawChange, err := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, lawChangeInputs, modifies, nil, []string{})
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					t.Fatal(rollbackErr)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				fields["law_change"] = lawChange
 				version = readWorkVersion(t, s, workID)
 				actorRef, err := WorkflowActorRef(actor)
 				if err != nil {

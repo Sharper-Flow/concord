@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -136,9 +137,22 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
 		t.Fatal(err)
 	}
-	subject, subjectErr := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID)
-	if subjectErr != nil || subject == "" {
-		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
+	entry, err := activeWorktreeEntryForProject(ctx, s.DatabaseForTesting(), "verify_worktree", workID, "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entry.Path+"/implementation.txt", []byte("implementation delivery\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, entry.Path, "add", "implementation.txt")
+	runTestGit(t, entry.Path, "commit", "-m", "implementation delivery")
+	subject := runTestGit(t, entry.Path, "rev-parse", "HEAD")
+	git := newFakeWorktreeGit(entry.Path)
+	git.worktrees[entry.Path], git.worktreeRepos[entry.Path], git.branches[entry.Branch] = entry.Branch, entry.Path, subject
+	req := verifyRequest(git, "verify-accepted-delivery-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID = workID, "project"
+	if _, err := s.VerifyWorktree(ctx, req); err != nil {
+		t.Fatal(err)
 	}
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,

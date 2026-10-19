@@ -166,7 +166,9 @@ it, here shard 1 of the 5 `internal/store` shards:
 bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
 ```
 
-See [`bin/oc-test`](bin/oc-test) for workload and host admission details, and the
+Every tier limits each file a test writes to 1024 MiB; a process that writes
+past it is killed and the tier fails. See [`bin/oc-test`](bin/oc-test) for
+the limit's per-run override, workload, and host admission details, and the
 [CI workflow](.github/workflows/ci.yml) for the required repository checks.
 
 ## Roadmap

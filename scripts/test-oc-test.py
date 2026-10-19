@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ FAKE_COMMAND = f"""#!{sys.executable}
 import json
 import os
 from pathlib import Path
+import resource
 import sys
 
 name = Path(sys.argv[0]).name
@@ -48,6 +50,7 @@ with open(os.environ["COMMAND_RECORD"], "a") as record:
         "selected_product": os.environ.get("CONCORD_SELECTED_PRODUCT_ID"),
         "require_bun": os.environ.get("CONCORD_REQUIRE_BUN"),
         "conformance_long": os.environ.get("CONCORD_CONFORMANCE_LONG"),
+        "fsize": resource.getrlimit(resource.RLIMIT_FSIZE),
     }}) + "\\n")
 if os.environ.get("FAIL_COMMAND") == name:
     sys.exit(7)
@@ -62,6 +65,12 @@ MODULE = "github.com/sharper-flow/concord"
 GO_LIST_OUTPUT = "\n".join(f"{MODULE}/{package}" for package in (
     "cmd/concord", "internal/agent", "internal/store", "scripts/support",
 ))
+# The wrapper keeps a stricter limit inherited from whatever runs this suite.
+_INHERITED_HARD = resource.getrlimit(resource.RLIMIT_FSIZE)[1]
+DEFAULT_FILE_LIMIT = [1024 * 1024 * 1024 if _INHERITED_HARD == resource.RLIM_INFINITY
+                      else min(1024 * 1024 * 1024, _INHERITED_HARD)] * 2
+# Writes 3 MiB, then exits 0: past a 1 MiB limit, yet bounded if no limit holds.
+RUNAWAY_WRITER = ["/bin/bash", "-c", 'for _ in $(seq 3072); do printf "%1024s" ""; done >"$SCRATCH/runaway"']
 UNSHARDED_PACKAGES = [f"{MODULE}/internal/agent", f"{MODULE}/scripts/support"]
 CI_UNSHARDED_STEP = "Test every package without its own shard job"
 
@@ -142,7 +151,8 @@ class PhaseReportingTest(unittest.TestCase):
 
 
 class TierRoutingTest(unittest.TestCase):
-    def run_wrapper(self, *args, failure="", with_gate=True, commands=("go", "bun", "python3", "probe", "lefthook")):
+    def run_wrapper(self, *args, failure="", with_gate=True, commands=("go", "bun", "python3", "probe", "lefthook"),
+                    env_extra=None, preexec_fn=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "bin").mkdir()
@@ -164,14 +174,17 @@ class TierRoutingTest(unittest.TestCase):
                        COMMAND_RECORD=str(command_record),
                        GO_LIST_OUTPUT=GO_LIST_OUTPUT,
                        CONCORD_SELECTED_PRODUCT_ID="poison-product")
-            for key in ("CONCORD_REQUIRE_BUN", "CONCORD_CONFORMANCE_LONG"):
+            for key in ("CONCORD_REQUIRE_BUN", "CONCORD_CONFORMANCE_LONG", "OC_TEST_MAX_FILE_MIB"):
                 env.pop(key, None)
+            env.update(env_extra or {}, SCRATCH=str(root))
             result = subprocess.run(["/bin/bash", str(root / "bin/oc-test"), *args],
                                     cwd=root / "bin", env=env, text=True,
-                                    capture_output=True, check=False)
+                                    capture_output=True, check=False, preexec_fn=preexec_fn)
             result.gate_class = gate_record.read_text() if gate_record.exists() else ""
             result.calls = [json.loads(line) for line in command_record.read_text().splitlines()] if command_record.exists() else []
             result.repo_root = str(root)
+            runaway = root / "runaway"
+            result.runaway_size = runaway.stat().st_size if runaway.exists() else None
             return result
 
     def test_smoke_runs_go_adapter_and_json_under_smoke_admission(self):
@@ -327,6 +340,53 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertIn("FAIL preflight (exit 7)", result.stderr)
         self.assertNotIn("PASS preflight", result.stdout)
+
+
+class FileSizeLimitTest(unittest.TestCase):
+    run_wrapper = TierRoutingTest.run_wrapper
+
+    def test_runaway_write_is_stopped_at_the_limit_and_reported(self):
+        result = self.run_wrapper("targeted", "--", *RUNAWAY_WRITER, env_extra={"OC_TEST_MAX_FILE_MIB": "1"})
+        self.assertEqual(result.runaway_size, 1024 * 1024)
+        self.assertEqual(result.returncode, 153, result.stderr)
+        self.assertIn("FAIL targeted (exit 153)", result.stderr)
+        self.assertIn("SIGXFSZ", result.stderr)
+        self.assertIn("1024 KiB per-file limit", result.stderr)
+        self.assertNotIn("PASS targeted", result.stdout)
+
+    def test_every_tier_runs_under_the_default_limit_with_and_without_the_gate(self):
+        for args in (("smoke",), ("conformance",), ("preflight",), ("targeted", "--", "probe")):
+            for with_gate in (True, False):
+                with self.subTest(args=args, with_gate=with_gate):
+                    result = self.run_wrapper(*args, with_gate=with_gate)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(result.calls)
+                    self.assertEqual({tuple(call["fsize"]) for call in result.calls}, {tuple(DEFAULT_FILE_LIMIT)})
+
+    def test_a_test_process_cannot_raise_the_limit(self):
+        result = self.run_wrapper("targeted", "--", "/bin/bash", "-c", "ulimit -f unlimited")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("FAIL targeted", result.stderr)
+
+    def test_one_run_sets_the_limit_to_its_stated_size(self):
+        result = self.run_wrapper("targeted", "--", "probe", env_extra={"OC_TEST_MAX_FILE_MIB": "2"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.calls[0]["fsize"], [2 * 1024 * 1024] * 2)
+
+    def test_a_stricter_inherited_limit_is_kept(self):
+        stricter = 512 * 1024
+        result = self.run_wrapper("targeted", "--", "probe", preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (stricter, stricter)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.calls[0]["fsize"], [stricter, stricter])
+
+    def test_an_invalid_limit_refuses_before_any_command_or_admission(self):
+        for value in ("0", "-1", "1.5", "abc", "unlimited", "10000000", "1 "):
+            with self.subTest(value=value):
+                result = self.run_wrapper("targeted", "--", "probe", env_extra={"OC_TEST_MAX_FILE_MIB": value})
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertIn("OC_TEST_MAX_FILE_MIB", result.stderr)
+                self.assertEqual(result.calls, [])
+                self.assertEqual(result.gate_class, "")
 
 
 if __name__ == "__main__":

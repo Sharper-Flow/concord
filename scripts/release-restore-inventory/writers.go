@@ -343,8 +343,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 
 // index records each local's declaration and assignments. A local declared by
 // a var statement or := is resolvable; one whose address escapes, which is
-// incremented, or which a range, op-assignment, or tuple result writes is
-// unknown.
+// incremented, or which a range or op-assignment writes is unknown.
 func (a *analyzer) index(p *checkedPackage) {
 	for _, file := range p.files {
 		var stack []ast.Node
@@ -1211,7 +1210,8 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, sc *scope) []string
 	case *ast.CallExpr:
 		// A conversion keeps its value only between identical basic types:
 		// string(n) of an integer and a narrowing integer conversion do not.
-		if target := p.info.Types[v.Fun]; target.IsType() && len(v.Args) == 1 && types.Identical(target.Type.Underlying(), under(p.info.Types[v.Args[0]].Type)) {
+		_, basic := under(p.info.Types[v.Fun].Type).(*types.Basic)
+		if target := p.info.Types[v.Fun]; basic && target.IsType() && len(v.Args) == 1 && types.Identical(target.Type.Underlying(), under(p.info.Types[v.Args[0]].Type)) {
 			return a.resolve(p, v.Args[0], sc)
 		}
 		return a.resolveCall(p, v, 0, "", sc)
@@ -1451,15 +1451,13 @@ func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, result int
 		}
 		// A bare return yields named results. return g() spreads g's
 		// results.
-		switch spread, isCall := ast.Unparen(ret.results[0]).(*ast.CallExpr); {
+		switch {
 		case len(ret.results) == 0:
 			return anyValue
 		case len(ret.results) > result:
 			values = append(values, a.resolveExpr(fn.pkg, ret.results[result], field, inner))
-		case isCall:
-			values = append(values, a.resolveCall(fn.pkg, spread, result, field, inner))
 		default:
-			return anyValue
+			values = append(values, a.resolveCall(fn.pkg, ast.Unparen(ret.results[0]).(*ast.CallExpr), result, field, inner))
 		}
 	}
 	return union(values...)
@@ -1640,13 +1638,7 @@ func (a *analyzer) registeredAll(kinds []string) []string {
 
 // registryRead reports whether a use of the registry only reads it.
 func registryRead(p *checkedPackage, id *ast.Ident, stack []ast.Node) bool {
-	parents := slices.Clone(stack)
-	for len(parents) > 0 {
-		if _, ok := parents[len(parents)-1].(*ast.ParenExpr); !ok {
-			break
-		}
-		parents = parents[:len(parents)-1]
-	}
+	parents := outsideParens(stack)
 	if len(parents) == 0 {
 		return false
 	}
@@ -1655,12 +1647,12 @@ func registryRead(p *checkedPackage, id *ast.Ident, stack []ast.Node) bool {
 		if ast.Unparen(parent.X) != id {
 			return false
 		}
-		if len(parents) > 1 {
-			switch target := parents[len(parents)-2].(type) {
+		if outer := outsideParens(parents[:len(parents)-1]); len(outer) > 0 {
+			switch target := outer[len(outer)-1].(type) {
 			case *ast.AssignStmt:
 				return !slices.ContainsFunc(target.Lhs, func(lhs ast.Expr) bool { return ast.Unparen(lhs) == parent })
 			case *ast.RangeStmt:
-				return target.Key != parent && target.Value != parent
+				return ast.Unparen(target.Key) != parent && ast.Unparen(target.Value) != parent
 			}
 		}
 		return true
@@ -1671,6 +1663,17 @@ func registryRead(p *checkedPackage, id *ast.Ident, stack []ast.Node) bool {
 		return ok && builtin.Name() == "len" && len(parent.Args) == 1
 	}
 	return false
+}
+
+// outsideParens drops the parentheses that close a stack of ancestors.
+func outsideParens(stack []ast.Node) []ast.Node {
+	for len(stack) > 0 {
+		if _, ok := stack[len(stack)-1].(*ast.ParenExpr); !ok {
+			break
+		}
+		stack = stack[:len(stack)-1]
+	}
+	return stack
 }
 
 func (a *analyzer) isRegistry(p *checkedPackage, expr ast.Expr) bool {

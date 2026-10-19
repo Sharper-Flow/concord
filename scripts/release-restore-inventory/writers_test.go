@@ -532,6 +532,12 @@ func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil}
 func via() (string, int) { return pair() }
 
 func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil},
+		"bare return": {`func F() Event { return Event{Kind: namedKind(), PayloadVersion: 1} }
+
+func namedKind() (kind string) {
+	kind = "thing.a"
+	return
+}`, nil, []string{"* v1"}},
 		"tuple field target": {`func F() Event {
 	var event Event
 	event.Kind, event.PayloadVersion = pair()
@@ -896,6 +902,14 @@ func via(kind string) (EventKindRegistration, bool) { return registered(kind) }`
 		"read value address": {strings.Replace(typed, "\t\tversion = registration.CurrentVersion", "\t\tbump(&registration)\n\t\tversion = registration.CurrentVersion", 1) + `
 
 func bump(r *EventKindRegistration) { r.CurrentVersion = 9 }`, nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry parenthesized target": {typed + "\n\nfunc H() { (eventKindRegistry[\"thing.a\"]) = EventKindRegistration{CurrentVersion: 5} }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"converted copy written": {`type registrationCopy EventKindRegistration
+
+func F() Event {
+	changed := registrationCopy(eventKindRegistry["thing.a"])
+	changed.CurrentVersion = 9
+	return Event{Kind: "thing.a", PayloadVersion: EventKindRegistration(changed).CurrentVersion}
+}`, nil, nil, []string{"thing.a v*"}},
 		"current version compared": {`func F() Event {
 	version := 1
 	if eventKindRegistry["thing.a"].CurrentVersion == 2 {

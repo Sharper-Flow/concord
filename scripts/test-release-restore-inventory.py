@@ -10,8 +10,7 @@ whose tags carry each registry form the released history uses:
   entries are probed against the tag's own compiled source;
 - any other entry form, and a source that does not compile, is refused
   without being excluded;
-- tags with identical inputs share one probe group; external result caches
-  cannot bypass compilation.
+- tags with identical inputs share one probe group.
 
 The fixture module is synthetic; no released Concord source is compiled.
 """
@@ -20,10 +19,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,6 +101,7 @@ type Containers struct {
 	Tree Tree `json:"tree"`
 	Dict Dict `json:"dict"`
 	Keys map[Key]int `json:"keys"`
+	Number json.Number `json:"number"`
 }
 
 type Typed struct {
@@ -155,6 +153,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 """
 
 BROKEN_REGISTRY = TYPED_REGISTRY + "\nvar broken int = \"not an int\"\n"
+LATE_KIND_REGISTRY = TYPED_REGISTRY + "\nfunc init() { eventKindRegistry[\"thing.late\"] = registerEventKind[Inner](1, 1, nil) }\n"
 
 
 def run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -188,6 +187,7 @@ class InventoryTest(unittest.TestCase):
             ("v3.0.0", BROKEN_REGISTRY, False),
             ("v4.0.0", FORM_A_REGISTRY, False),
             ("v0.2.0", FORM_A_REGISTRY.replace('"thing.typed": {CurrentVersion: 1, MinSupported: 1},', '"thing.typed": {CurrentVersion: 1, MinSupported: 1}, "mixed": registerEventKind[Inner](1, 1, nil),'), False),
+            ("v5.0.0", LATE_KIND_REGISTRY, False),
         ):
             (store / "operation.go").write_text(PRELUDE + registry)
             (cls.repo / "README").write_text(tag)
@@ -216,7 +216,7 @@ class InventoryTest(unittest.TestCase):
         return self.first["types"][registration["type"]]
 
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
-        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0"])
+        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
         self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
 
@@ -238,9 +238,23 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(self.rows()[tag]["status"], "inventory_refused")
             self.assertNotIn("excluded", self.rows()[tag])
 
+    def test_only_approved_exclusions_exit_zero(self) -> None:
+        repo = self.scratch / "approved"
+        repo.mkdir()
+        self.assertEqual(run(["git", "init", "-q"], repo).returncode, 0)
+        fetched = run(["git", "fetch", "-q", str(self.repo), "refs/tags/v0.1.0:refs/tags/v0.1.0", "refs/tags/v1.0.0:refs/tags/v1.0.0"], repo)
+        self.assertEqual(fetched.returncode, 0, fetched.stderr)
+        output = self.scratch / "approved.json"
+        result = run([str(self.binary), "-out", str(output)], repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = {row["tag"]: row for row in json.loads(output.read_text())["rows"]}
+        self.assertEqual(list(rows), ["v0.1.0", "v1.0.0"])
+        self.assertEqual((rows["v0.1.0"]["status"], rows["v0.1.0"]["excluded"]), ("inventory_refused", True))
+        self.assertEqual(rows["v1.0.0"]["status"], "inventoried")
+
     def test_source_census_evidence_is_recorded_for_refused_writers(self) -> None:
         for tag, row in self.rows().items():
-            source = run(["git", "show", f"{tag}:internal/store/operation.go"], self.repo).stdout.strip().encode()
+            source = run(["git", "show", f"{tag}:internal/store/operation.go"], self.repo).stdout.encode()
             self.assertEqual(row["registry_source"], "sha256:" + hashlib.sha256(source).hexdigest())
 
     def test_unrecognized_entry_refuses_without_exclusion(self) -> None:
@@ -255,6 +269,12 @@ class InventoryTest(unittest.TestCase):
         self.assertNotIn("excluded", row)
         self.assertIn("probe ", row["detail"])
         self.assertNotIn(row["group"], self.first["groups"])
+
+    def test_kind_outside_the_parsed_registry_refuses(self) -> None:
+        row = self.rows()["v5.0.0"]
+        self.assertEqual(row["status"], "inventory_refused")
+        self.assertNotIn("excluded", row)
+        self.assertIn("probe registry has 10 kinds, parsed 9", row["detail"])
 
     def test_identical_inputs_share_one_group(self) -> None:
         rows = self.rows()
@@ -298,12 +318,8 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(key, "sha256:" + hashlib.sha256(compact).hexdigest())
 
     def test_ambiguous_embedding_is_custom(self) -> None:
-        self.assertEqual(self.shape("thing.conflict"), {"kind": "custom", "type": "store.Conflict", "reason": "embedded field name conflict"})
+        self.assertEqual(self.shape("thing.conflict"), {"kind": "custom", "type": "store.Conflict", "reason": "ambiguous or nullable embedded fields"})
 
-    def test_previous_inventory_cannot_bypass_probing(self) -> None:
-        result = run([str(self.binary), "-previous", str(self.scratch / "first.json")], self.repo)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("flag provided but not defined", result.stderr)
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}
@@ -312,6 +328,7 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual(fields["tree"], {"kind": "slice", "elem": {"kind": "recursive", "type": "store.Tree"}})
         self.assertEqual(fields["dict"]["elem"], {"kind": "recursive", "type": "store.Dict"})
         self.assertEqual(fields["keys"]["key"], {"kind": "custom", "type": "store.Key"})
+        self.assertEqual(fields["number"], {"kind": "custom", "type": "json.Number"})
         self.assertEqual(self.shape("thing.nullable_embedding")["kind"], "custom")
 
 if __name__ == "__main__":

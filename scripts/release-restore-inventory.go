@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -24,11 +25,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
 	schemaID = "concord.release-restore-writers.v1"
 	workers  = 4
+	// commandTimeout bounds one git, tar, or probe compile-and-run step.
+	commandTimeout = 10 * time.Minute
 	// A recorded ruling accepts form A (v0.1.0..v0.37.1) as a named exclusion.
 	untypedReason = "registry entries name no payload type (form A); accepted named exclusion from shape coverage"
 )
@@ -50,7 +54,7 @@ type row struct {
 	Status    string `json:"status"`
 	Excluded  bool   `json:"excluded,omitempty"`
 	Detail    string `json:"detail,omitempty"`
-	Registry  string `json:"registry_source"`
+	Registry  string `json:"registry_source,omitempty"`
 }
 
 type registration struct {
@@ -73,7 +77,9 @@ type inventory struct {
 
 // command runs a fixed program in dir and returns its standard output.
 func command(dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...) //nolint:gosec // G204: name is a fixed program, argv values stay separate, and no shell runs.
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: name is a fixed program, argv values stay separate, and no shell runs.
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=-mod=readonly -trimpath -p=2", "CGO_ENABLED=0", "GOMAXPROCS=2")
 	var stderr bytes.Buffer
@@ -253,11 +259,11 @@ func listTags() ([]row, error) {
 // inspect parses one tag's registry and names its probe group: the exact
 // internal tree, go.mod, go.sum, and probe source.
 func inspect(result row) (row, []string) {
-	src, err := git("show", result.Commit+":internal/store/operation.go")
-	result.Registry = digest([]byte(src))
+	src, err := command("", "git", "show", result.Commit+":internal/store/operation.go")
 	var entries []string
 	if err == nil {
-		entries, err = registryEntries([]byte(src))
+		result.Registry = digest(src)
+		entries, err = registryEntries(src)
 	}
 	var inputs string
 	if err == nil {
@@ -352,6 +358,7 @@ const probeTemplate = `package store
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"sort"
 	"strings"
@@ -372,10 +379,12 @@ func ReleaseRestoreProbe() ([]byte, error) {
 		meta := map[string]any{"payload_type": payload.Name(), "current_version": registration.CurrentVersion, "min_supported": registration.MinSupported}
 		for name, field := range map[string]string{"upcasters": "Upcasters", "recorded_schemas": "RecordedSchemas"} {
 			keys := []int{}
-			if value := reflect.ValueOf(registration).FieldByName(field); value.IsValid() {
-				for _, key := range value.MapKeys() {
-					keys = append(keys, int(key.Int()))
-				}
+			value := reflect.ValueOf(registration).FieldByName(field)
+			if !value.IsValid() {
+				return nil, errors.New("event kind registration has no " + field + " field")
+			}
+			for _, key := range value.MapKeys() {
+				keys = append(keys, int(key.Int()))
 			}
 			sort.Ints(keys)
 			meta[name] = keys
@@ -391,7 +400,7 @@ func releaseRestoreShape(t reflect.Type, seen map[reflect.Type]bool) map[string]
 	}
 	seen[t] = true
 	defer delete(seen, t)
-	custom := t.Kind() == reflect.Interface
+	custom := t.Kind() == reflect.Interface || t == reflect.TypeOf(json.Number(""))
 	for _, method := range []string{"MarshalJSON", "UnmarshalJSON", "MarshalText", "UnmarshalText"} {
 		_, owns := reflect.PointerTo(t).MethodByName(method)
 		custom = custom || owns
@@ -416,7 +425,7 @@ func releaseRestoreShape(t reflect.Type, seen map[reflect.Type]bool) map[string]
 	case reflect.Struct:
 		fields, names := []map[string]any{}, map[string]bool{}
 		if !releaseRestoreFields(t, seen, &fields, names) {
-			return map[string]any{"kind": "custom", "type": t.String(), "reason": "embedded field name conflict"}
+			return map[string]any{"kind": "custom", "type": t.String(), "reason": "ambiguous or nullable embedded fields"}
 		}
 		return map[string]any{"kind": "object", "fields": fields}
 	default:

@@ -1122,7 +1122,14 @@ func loadWorkflowVerifyRun(ctx context.Context, q queryer, workID, reference str
 	var acquiredAt string
 	var commandJSON string
 	var projectID string
-	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json,project_id FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON, &projectID)
+	leaseQuery := `SELECT outcome,exit_code,acquired_at,command_json,project_id FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`
+	if isWorkflowReplay(ctx) {
+		// Rebuild stages this same operational authority before clearing the
+		// projections (worker_failure_integration.go). The fold reads the
+		// retained snapshot under the identical validation.
+		leaseQuery = strings.Replace(leaseQuery, "FROM worktree_verify_leases", "FROM temp.rebuild_operational_worktree_verify_leases", 1)
+	}
+	err = q.QueryRowContext(ctx, leaseQuery, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON, &projectID)
 	if err == sql.ErrNoRows {
 		return nil, "", "the bound worktree.verify run names no verify lease for this work item", nil
 	}
@@ -1493,6 +1500,15 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			return out, semanticErr
 		}
 		events = append(events, semantic...)
+		// CD-0225 D3: after the semantic events, the action's pending
+		// verification bindings may complete a split's integration. The
+		// derivation appends the typed discharge events before the generic
+		// completion, whose version arithmetic adjusts already.
+		discharges, dischargeErr := workerJobSplitDischargeEventsTx(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, semantic, len(events))
+		if dischargeErr != nil {
+			return out, dischargeErr
+		}
+		events = append(events, discharges...)
 	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {

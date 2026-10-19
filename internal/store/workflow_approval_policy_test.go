@@ -45,7 +45,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 
 	t.Run("legacy policy preserves declared metadata and overrides", func(t *testing.T) {
 		t.Parallel()
-		for _, definition := range BuiltinWorkflowDefinitions() {
+		for _, definition := range legacyApprovalPolicyHeads(t) {
 			for _, action := range definition.ActionDefinitions {
 				result, err := ClassifyWorkflowApproval(definition, action.ID, WorkflowApprovalFacts{})
 				if err != nil {
@@ -63,7 +63,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				}
 			}
 		}
-		legacy := BuiltinWorkflowDefinitions()[0]
+		legacy := legacyApprovalPolicyHeads(t)[0]
 		overrides := map[string]WorkflowApprovalConsent{}
 		for _, action := range legacy.ActionDefinitions {
 			result, err := ClassifyWorkflowApproval(legacy, action.ID, WorkflowApprovalFacts{OperatorRequired: true})
@@ -264,18 +264,31 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("no registered current definition promotes the discriminator", func(t *testing.T) {
+	t.Run("exactly the live engineering heads declare consequence_v1", func(t *testing.T) {
 		t.Parallel()
+		live := map[string]int64{}
+		for _, head := range BuiltinWorkflowDefinitions() {
+			live[head.Ref] = head.Version
+		}
+		for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
+			if _, ok := live[ref]; !ok {
+				t.Fatalf("%s is not a live authoring head", ref)
+			}
+		}
 		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-			if definition.ApprovalPolicy != "" {
-				t.Fatalf("registered %s v%d carries approval policy %q, want absence", definition.Ref, definition.Version, definition.ApprovalPolicy)
+			want := ""
+			if version, ok := live[definition.Ref]; ok && definition.Version == version {
+				want = WorkflowApprovalPolicyConsequenceV1
+			}
+			if definition.ApprovalPolicy != want {
+				t.Errorf("registered %s v%d carries approval policy %q, want %q", definition.Ref, definition.Version, definition.ApprovalPolicy, want)
 			}
 		}
 	})
 
 	t.Run("registry refuses unknown policy and digests the declared value", func(t *testing.T) {
 		t.Parallel()
-		head := BuiltinWorkflowDefinitions()[0]
+		head := legacyApprovalPolicyHeads(t)[0]
 		invalid := head
 		invalid.ApprovalPolicy = "consequence_v2"
 		if err := ValidateWorkflowDefinition(invalid); err == nil {
@@ -328,6 +341,17 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 // headDigestForTest looks up the pinned digest of one builtin head through the
 // builtin registry, so the digest-neutrality witness compares against the
 // recorded pin rather than a recomputation.
+// legacyApprovalPolicyHeads returns, for each live authoring family, the
+// newest version that answers consent under the released legacy policy.
+func legacyApprovalPolicyHeads(t *testing.T) []WorkflowDefinition {
+	t.Helper()
+	var heads []WorkflowDefinition
+	for _, head := range BuiltinWorkflowDefinitions() {
+		heads = append(heads, legacyApprovalPolicyDefinitionForRef(t, head.Ref).Definition)
+	}
+	return heads
+}
+
 func headDigestForTest(t *testing.T, definition WorkflowDefinition) string {
 	t.Helper()
 	registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)

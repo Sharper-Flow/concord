@@ -260,11 +260,44 @@ class CaseTests(unittest.TestCase):
     def args(self, candidate: Path, version: str = "v9.0.0") -> argparse.Namespace:
         return argparse.Namespace(repository="owner/repo", target_sha=TARGET, candidate=str(candidate), candidate_version=version,
                                   output_dir=str(self.fixture.root / "out"), workers=2, wall_seconds=600, case_seconds=60,
-                                  disk_bytes=1 << 30, transfer_bytes=1 << 30)
+                                  disk_bytes=1 << 30, transfer_bytes=1 << 30, census_dir=str(self.census()))
+
+    def census(self, rows: dict[str, dict] | None = None, covered: bool = False) -> Path:
+        """Write a shape census; by default it inventories v1.0.0 and v1.2.0 with one unwitnessed shape."""
+        census = self.fixture.root / f"census-{len(list(self.fixture.root.glob('census-*')))}"
+        census.mkdir()
+        rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.2.0")}
+        (census / "writers.json").write_text(json.dumps({"rows": list(rows.values())}))
+        (census / "coverage.json").write_text(json.dumps({"shapes": [{"kind": "work.created", "payload_version": 2, "covered": covered}]}))
+        return census
 
     def gate_run(self, candidate: Path, *writers: gate.Writer) -> tuple[dict, int]:
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         return gate.run_gate(self.args(candidate), releases, tag_map(*(writer.tag for writer in writers)))
+
+    def test_gate_passes_only_with_a_closed_census(self) -> None:
+        args = self.args(self.fixture.candidate())
+        args.census_dir = str(self.census(covered=True))
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
+        report, status = gate.run_gate(args, releases, tag_map(*(writer.tag for writer in writers)))
+        self.assertEqual((status, report["result"], report["coverage"]), (0, "pass", {"status": "closed", "writers": 2, "shapes": 1}))
+
+    def test_coverage_holds_on_every_census_gap(self) -> None:
+        writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.2.0")]
+        excluded = {"tag": "v0.1.0", "status": "inventory_refused", "excluded": True}
+        cases = (
+            (self.census(covered=True), "closed", None),
+            (self.census({"v0.1.0": excluded, "v1.0.0": {"tag": "v1.0.0", "status": "inventoried"}}, covered=True), "held", "1 uninventoried writers, first v1.2.0"),
+            (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.2.0": {"tag": "v1.2.0", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
+            (self.census(), "held", "1 unwitnessed shapes, first work.created v2"),
+            (self.fixture.root / "absent", "held", "is unreadable"),
+        )
+        for census, status, detail in cases:
+            coverage = gate.shape_coverage(census, writers)
+            self.assertEqual(coverage["status"], status, coverage)
+            if detail:
+                self.assertIn(detail, coverage["detail"])
 
     def test_gate_holds_coverage_when_every_writer_passes(self) -> None:
         report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))

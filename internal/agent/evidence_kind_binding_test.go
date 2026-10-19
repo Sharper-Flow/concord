@@ -66,6 +66,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 		"required_evidence":    []string{"artifact"},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
+		"decision_domains":     []string{},
 	}, nil, "ekb-approve-"+key)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)

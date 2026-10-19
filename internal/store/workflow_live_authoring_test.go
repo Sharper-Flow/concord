@@ -23,9 +23,9 @@ import (
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
 	heads := map[string]int64{
-		"workflow.implementation": 33,
-		"workflow.break_fix":      30,
-		"workflow.research":       20,
+		"workflow.implementation": 34,
+		"workflow.break_fix":      31,
+		"workflow.research":       21,
 	}
 	for ref, want := range heads {
 		registered, err := LiveWorkflowDefinitionForRef(ref)
@@ -428,6 +428,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},
+		"decision_domains": []string{},
 	}
 	encoded, err := json.Marshal(approval)
 	if err != nil {
@@ -506,14 +507,18 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	base := `{"contract_version":2,"premise":"the corrected successor premise",` +
 		`"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],` +
 		`"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:canonical-supersede"],`
-	valid := json.RawMessage(base + predicates() + "}")
+	// The live head answers consent under consequence_v1, so its successor
+	// declares the explicit engineering decision fact; the historical head
+	// below never declared it.
+	live := base + `"decision_domains":[],`
+	valid := json.RawMessage(live + predicates() + "}")
 	if err := validateWorkflowContractRecoveryPayload(canonical.Definition, valid); err != nil {
 		t.Fatalf("canonical successor with explicit predicates: %v", err)
 	}
 	for name, raw := range map[string]json.RawMessage{
-		"outcome pair": json.RawMessage(base + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`),
-		"no outcome":   json.RawMessage(base + "}"),
-		"empty array":  json.RawMessage(base + `"outcome_predicates":[]}`),
+		"outcome pair": json.RawMessage(live + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`),
+		"no outcome":   json.RawMessage(live + "}"),
+		"empty array":  json.RawMessage(live + `"outcome_predicates":[]}`),
 	} {
 		if err := validateWorkflowContractRecoveryPayload(canonical.Definition, raw); !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("canonical successor with %s = %v, want %s", name, err, KindInvalidPayload)
@@ -603,9 +608,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     33,
-		"workflow.break_fix":          30,
-		"workflow.research":           20,
+		"workflow.implementation":     34,
+		"workflow.break_fix":          31,
+		"workflow.research":           21,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,
@@ -832,6 +837,9 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 		{"workflow.implementation", 33, "canonical-impl-33"},
 		{"workflow.break_fix", 30, "canonical-break-30"},
 		{"workflow.research", 20, "canonical-research-20"},
+		{"workflow.implementation", 34, "canonical-impl-34"},
+		{"workflow.break_fix", 31, "canonical-break-31"},
+		{"workflow.research", 21, "canonical-research-21"},
 	} {
 		pinned, ok := BuiltinWorkflowRegistry().Lookup(head.ref, head.version)
 		if !ok {

@@ -49,10 +49,10 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 	for _, ref := range []string{"workflow.break_fix", "workflow.implementation"} {
 		t.Run(ref, func(t *testing.T) {
 			workID := "review-disposition-" + ref
-			definition, err := BuiltinWorkflowDefinitionForRef(ref)
-			if err != nil {
-				t.Fatal(err)
-			}
+			// The correction answers to the verified operator: the gate a
+			// legacy approval-policy pin keeps. consequence_v1 corrects
+			// routinely under the coordinator.
+			definition := legacyApprovalPolicyDefinitionForRef(t, ref)
 			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
 			s := fixture.store
 			var productVersion int64

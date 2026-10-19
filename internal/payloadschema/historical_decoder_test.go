@@ -237,7 +237,8 @@ var frozenBaselineDefs = map[string]string{
 // of every addition this branch made. A definition here that the baseline
 // already carried, or an unlisted new definition, fails the witness.
 var newlyFrozenHistoricalDefs = map[string]string{
-	"reject_retry": "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
+	"workflow_law_text_pin": "the exact law text identity carried by consequence_v1 contract approvals",
+	"reject_retry":          "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
 	// The versioned packet2 identity the derived-failure heads declare, so
 	// their recorded 2.0 history replays here; the versioned view and group
 	// it anchors are the current nav-free shapes, and the frozen 1.0/1.1

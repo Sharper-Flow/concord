@@ -49,6 +49,7 @@ func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Sto
 	t.Helper()
 	if event.Kind == WorkerCompleted {
 		event = workerCompletionAtClaim(t, s, event)
+		event = workerCompletionWithReportedSize(t, ctx, s, event)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, event)
@@ -56,6 +57,60 @@ func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Sto
 	}); err != nil {
 		t.Fatalf("terminal ingest refused %s: %v", event.EventID, err)
 	}
+}
+
+// unobservedTreeForTest is the synthetic delivered tree a completion built
+// for the direct fold route reports: that route seals no observation, so
+// the tree binds nothing there.
+var unobservedTreeForTest = strings.Repeat("e", 40)
+
+// workerCompletionWithReportedSize gives a completion routed through the
+// sealed-observation seam the production_size a compliant worker reports,
+// bound to the sealed observed tree. A builder's synthetic unobserved tree
+// is rebound to the sealed one; an authored tree stays as written.
+func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Store, event Event) Event {
+	t.Helper()
+	prepared := workerTerminalPreparationFrom(ctx)
+	if prepared == nil || prepared.proof.observation == nil {
+		return event
+	}
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ProductionSize != nil && payload.ProductionSize.Tree == unobservedTreeForTest {
+		payload.ProductionSize.Tree = prepared.proof.observation.Commit
+		event.Payload = mustJSONValue(payload)
+		return event
+	}
+	return withReportedSizeForTest(t, s, event, prepared.proof.observation.Commit)
+}
+
+// withReportedSizeForTest gives a capped implementation job's completion the
+// production_size a compliant worker reports: the job's recorded base and
+// the named delivered tree. A completion that already carries the member,
+// another lane, or an uncapped job passes unchanged, so binding tests keep
+// their authored bytes.
+func withReportedSizeForTest(t *testing.T, s *Store, event Event, tree string) Event {
+	t.Helper()
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ProductionSize != nil || payload.WorkerJob == nil {
+		return event
+	}
+	var class string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, event.SubjectID, payload.AttemptID).Scan(&class); err != nil || class != "implementation" {
+		return event
+	}
+	job, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, payload.AttemptID)
+	if err != nil || job == nil {
+		return event
+	}
+	payload.ProductionSize = completionProductionSizeForTest(t, s, event.SubjectID, job, tree)
+	event.Payload = mustJSONValue(payload)
+	return event
 }
 
 func workerCompletionAtClaim(t *testing.T, s *Store, event Event) Event {
@@ -250,9 +305,12 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 		}
 		boundJob := job
+		// The stubbed runner answers HEAD with the synthetic a-OID, so the
+		// capped job's folded size report binds that observed tree.
 		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence, WorkerJob: &boundJob,
+			ProductionSize: completionProductionSizeForTest(t, s, fixture.workID, &boundJob, strings.Repeat("a", 40)),
 		})}
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-f")

@@ -393,6 +393,7 @@ func recordObservedCorrectionAttempt(t *testing.T, s *Store, workID, attemptID s
 	paths := make([]WorkerObservedPath, len(observed))
 	copy(paths, observed)
 	payload.ObservedDelivery = &WorkerObservedDelivery{Commit: strings.Repeat("9", 40), State: "clean", Base: strings.Repeat("a", 40), Paths: paths}
+	payload.ProductionSize = &WorkerProductionSize{Base: strings.Repeat("a", 40), Tree: strings.Repeat("9", 40), Count: 0}
 	completed.Payload = mustJSONValue(payload)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatalf("complete observed attempt %s: %v", attemptID, err)

@@ -421,6 +421,77 @@ type WorkerCompletedPayload struct {
 	// read-only Git observation can produce it; a report, request, or
 	// adapter value can neither supply nor alter it.
 	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
+	// ProductionSize is the report's declared production size (CD-0225 D2):
+	// the counted delta between the dispatched job's recorded base and the
+	// delivered tree. Required on a capped implementation job's completed
+	// report and refused everywhere else; the fold binds both commits to
+	// the recorded basis and the observed delivery before acceptance.
+	ProductionSize *WorkerProductionSize `json:"production_size,omitempty"`
+	// DirectCallerRepairs are the evidenced direct-caller repairs the
+	// worker made under the dispatched job's allowance (CD-0227 D2).
+	// Reserved for a capped implementation job's report; every other
+	// completion refuses the member.
+	DirectCallerRepairs []WorkerDirectCallerRepair `json:"direct_caller_repairs,omitempty"`
+}
+
+// WorkerCallerRepairsMax and WorkerCallerRepairPathsMax are the closed
+// bounds the report schema declares for the caller-repair list and each
+// repair's changed paths. An over-bound report refuses whole; content is
+// never truncated to fit.
+const (
+	WorkerCallerRepairsMax     = 8
+	WorkerCallerRepairPathsMax = 64
+)
+
+// WorkerProductionSize is the report's declared production size (CD-0225
+// D2): the added-plus-deleted production lines between the dispatched job's
+// recorded base and the delivered tree.
+type WorkerProductionSize struct {
+	Base  string `json:"base"`
+	Tree  string `json:"tree"`
+	Count int64  `json:"count"`
+}
+
+// WorkerCallerMechanism names one repair endpoint: the source file and the
+// entry point that owns the behavior (CD-0227 D2).
+type WorkerCallerMechanism struct {
+	Path       string `json:"path"`
+	EntryPoint string `json:"entry_point"`
+}
+
+// WorkerCallerRepairCheck is one verification signal of a direct-caller
+// repair: the recorded output reference, kept apart from the optional
+// inferred cause so the report distinguishes observed output from an
+// inferred cause (CD-0227 D2).
+type WorkerCallerRepairCheck struct {
+	Observed      string `json:"observed"`
+	InferredCause string `json:"inferred_cause,omitempty"`
+}
+
+// WorkerCallerRepairChecks carries the three signals: the same request
+// passes on the baseline, fails with the owner change alone, and passes
+// with the combined change. A compile-time break names the compile check
+// in all three.
+type WorkerCallerRepairChecks struct {
+	BaselinePass  WorkerCallerRepairCheck `json:"baseline_pass"`
+	OwnerOnlyFail WorkerCallerRepairCheck `json:"owner_only_fail"`
+	CombinedPass  WorkerCallerRepairCheck `json:"combined_pass"`
+}
+
+// WorkerDirectCallerRepair is one evidenced direct-caller repair (CD-0227
+// D2): the changed owner mechanism, the direct caller whose request behavior
+// it preserves, the direct edge between them, the request or fixture that
+// exposes the break, the changed paths, and the three check signals. A
+// repair that changes a generated path names its owning generator_ref input
+// among its changed paths.
+type WorkerDirectCallerRepair struct {
+	Owner        WorkerCallerMechanism    `json:"owner"`
+	Caller       WorkerCallerMechanism    `json:"caller"`
+	Edge         string                   `json:"edge"`
+	Exposing     string                   `json:"exposing"`
+	ChangedPaths []string                 `json:"changed_paths"`
+	Checks       WorkerCallerRepairChecks `json:"checks"`
+	GeneratorRef []string                 `json:"generator_ref,omitempty"`
 }
 
 // WorkerObservedPath is one observed path's measured delta between the
@@ -483,6 +554,95 @@ func validateWorkerObservedDelivery(delivery *WorkerObservedDelivery) error {
 			return invalidWorkerPayload("worker.completed observed_delivery carries path " + path.Path + " twice")
 		}
 		seen[path.Path] = true
+	}
+	return nil
+}
+
+// validateWorkerProductionSize mirrors the closed shape the report schema
+// gives production_size: two raw commit OIDs and a bounded count.
+func validateWorkerProductionSize(size *WorkerProductionSize) error {
+	if size == nil {
+		return nil
+	}
+	if !worktreeSHAPattern.MatchString(size.Base) || !worktreeSHAPattern.MatchString(size.Tree) {
+		return invalidWorkerPayload("worker.completed production_size base and tree must each be one raw commit OID")
+	}
+	if size.Count < 0 || size.Count > WorkerJobSizeCapMax {
+		return invalidWorkerPayload("worker.completed production_size count must be between 0 and " + fmt.Sprint(WorkerJobSizeCapMax))
+	}
+	return nil
+}
+
+// validateWorkerDirectCallerRepairs mirrors the closed shape the report
+// schema gives direct_caller_repairs (CD-0227 D2): at most 8 bounded
+// repairs, each naming its owner and caller mechanisms, the direct edge,
+// the exposing request or fixture, at most 64 changed paths, and the three
+// check signals each carrying its observed output reference apart from the
+// optional inferred cause. Every generator_ref input appears among the
+// repair's changed paths, because a generated output is never hand-edited.
+func validateWorkerDirectCallerRepairs(repairs []WorkerDirectCallerRepair) error {
+	if repairs == nil {
+		return nil
+	}
+	if len(repairs) < 1 || len(repairs) > WorkerCallerRepairsMax {
+		return invalidWorkerPayload("worker.completed direct_caller_repairs must carry between 1 and " + fmt.Sprint(WorkerCallerRepairsMax) + " repairs")
+	}
+	for _, repair := range repairs {
+		for _, mechanism := range []struct {
+			role      string
+			mechanism WorkerCallerMechanism
+		}{
+			{"owner", repair.Owner}, {"caller", repair.Caller},
+		} {
+			if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs "+mechanism.role+" path", mechanism.mechanism.Path); problem != "" {
+				return invalidWorkerPayload(problem)
+			}
+			if err := oracleBoundedText(mechanism.mechanism.EntryPoint, "worker.completed direct_caller_repairs "+mechanism.role+" entry_point"); err != nil {
+				return invalidWorkerPayload("worker.completed direct_caller_repairs " + mechanism.role + " entry_point must be between 1 and 512 bytes without control characters")
+			}
+		}
+		if len(repair.Edge) < 1 || len(repair.Edge) > 256 {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs edge must be between 1 and 256 bytes")
+		}
+		if len(repair.Exposing) < 1 || len(repair.Exposing) > 512 {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs exposing request must be between 1 and 512 bytes")
+		}
+		if len(repair.ChangedPaths) < 1 || len(repair.ChangedPaths) > WorkerCallerRepairPathsMax {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs must carry between 1 and " + fmt.Sprint(WorkerCallerRepairPathsMax) + " changed paths")
+		}
+		changed := map[string]bool{}
+		for _, path := range repair.ChangedPaths {
+			if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs changed paths", path); problem != "" {
+				return invalidWorkerPayload(problem)
+			}
+			if changed[path] {
+				return invalidWorkerPayload("worker.completed direct_caller_repairs names changed path " + path + " twice")
+			}
+			changed[path] = true
+		}
+		for _, check := range []struct {
+			role  string
+			check WorkerCallerRepairCheck
+		}{
+			{"baseline_pass", repair.Checks.BaselinePass},
+			{"owner_only_fail", repair.Checks.OwnerOnlyFail},
+			{"combined_pass", repair.Checks.CombinedPass},
+		} {
+			if len(check.check.Observed) < 1 || len(check.check.Observed) > 512 {
+				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " must carry its observed output reference of 1 to 512 bytes")
+			}
+			if check.check.InferredCause != "" && len(check.check.InferredCause) > 512 {
+				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " inferred cause must be at most 512 bytes")
+			}
+		}
+		if repair.GeneratorRef != nil && (len(repair.GeneratorRef) < 1 || len(repair.GeneratorRef) > 8) {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs generator_ref must name between 1 and 8 inputs when present")
+		}
+		for _, generator := range repair.GeneratorRef {
+			if !changed[generator] {
+				return invalidWorkerPayload("worker.completed direct_caller_repairs names generator_ref input " + generator + " outside its changed paths; a generated output changes only through its owning input among the changed paths")
+			}
+		}
 	}
 	return nil
 }
@@ -587,6 +747,12 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 		return err
 	}
 	if err := validateWorkerObservedDelivery(payload.ObservedDelivery); err != nil {
+		return err
+	}
+	if err := validateWorkerProductionSize(payload.ProductionSize); err != nil {
+		return err
+	}
+	if err := validateWorkerDirectCallerRepairs(payload.DirectCallerRepairs); err != nil {
 		return err
 	}
 	if payload.ConsumedContextFrontier != nil && *payload.ConsumedContextFrontier < 0 {
@@ -1584,6 +1750,9 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.ObservedDelivery != nil && (payload.ObservedDelivery.Base != "" || payload.ObservedDelivery.Paths != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed observed_delivery base and paths are reserved for payload version >= 8", false, "record the measured delta on the current completion payload")
 	}
+	if (payload.ProductionSize != nil || payload.DirectCallerRepairs != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedJobSizeVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed production_size and direct_caller_repairs are reserved for payload version >= 8", false, "record the size report on the current completion payload")
+	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
 	}
@@ -1658,6 +1827,18 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
+		// The report's size members bind the dispatched job's recorded
+		// measurement (CD-0225 D2, CD-0227 D2). The live fold holds every
+		// completion to it: a capped implementation job's report carries
+		// production_size bound to the job's base and the observed tree —
+		// a missing member is malformed output — and every other report
+		// carries neither member. Replay trusts the recorded log: the live
+		// fold already held it when it landed.
+		if live {
+			if err := bindWorkerCompletedReportSizeTx(ctx, tx, attempt, dispatchedJob, lane, event.replaySourcePayloadVersion, &payload); err != nil {
+				return err
+			}
+		}
 		if payload.EvidenceOrigin == WorkerEvidenceReported {
 			if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence, payload.Review); err != nil {
 				return err
@@ -1717,6 +1898,47 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := verifyWorkerTerminalUpdate(result, "cannot verify worker completion projection", "record worker.dispatched before worker.completed"); err != nil {
 		return err
+	}
+	return nil
+}
+
+// bindWorkerCompletedReportSizeTx is the live fold's size binding (CD-0225
+// D2, CD-0227 D2): a completed implementation attempt whose dispatched job
+// records a measurement basis must report production_size with that
+// recorded base — a missing member is malformed output — and with the
+// observed delivered tree whenever the core sealed an observation. A
+// payload version below the size boundary cannot carry the member, so it
+// owes none. Every other completion carries neither size member. A capped
+// completion without a sealed observation has no measured delta, which
+// acceptance refuses as unavailable evidence.
+func bindWorkerCompletedReportSizeTx(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, dispatchedJob *WorkerJobBinding, lane LaneDefinition, sourceVersion int, payload *WorkerCompletedPayload) error {
+	var basis *WorkerJobMeasurementBasis
+	if dispatchedJob != nil {
+		content, err := readWorkerJobSizeContentTx(ctx, tx, attempt.WorkID)
+		if err != nil {
+			return err
+		}
+		if entry, recorded := content[*dispatchedJob]; recorded {
+			basis = entry.basis
+		}
+	}
+	if basis != nil && lane.CapabilityClass == "implementation" {
+		if sourceVersion != 0 && sourceVersion < workerCompletedJobSizeVersion {
+			return nil
+		}
+		if payload.ProductionSize == nil {
+			return invalidWorkerPayload("worker.completed production_size is required for a completed report of a capped implementation job: missing production_size is malformed output")
+		}
+		if payload.ProductionSize.Base != basis.BaseCommit {
+			return invalidWorkerPayload("worker.completed production_size base " + payload.ProductionSize.Base + " does not equal the dispatched job's recorded base_commit " + basis.BaseCommit)
+		}
+		if payload.ObservedDelivery != nil && payload.ProductionSize.Tree != payload.ObservedDelivery.Commit {
+			return invalidWorkerPayload("worker.completed production_size tree must equal the observed delivery commit")
+		}
+		return nil
+	}
+	if payload.ProductionSize != nil || payload.DirectCallerRepairs != nil {
+		return invalidWorkerPayload("worker.completed production_size and direct_caller_repairs are reserved for a capped implementation job's report; an uncapped job or another lane carries neither member")
 	}
 	return nil
 }

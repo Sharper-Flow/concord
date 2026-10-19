@@ -487,7 +487,15 @@ func recordJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 
 func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding) error {
 	t.Helper()
-	lane := reviewGateLane(t, "implementation")
+	return appendLaneBoundWorkerDispatch(t, s, workID, attemptID, reviewGateLane(t, "implementation"), job)
+}
+
+// appendLaneBoundWorkerDispatch records the worker.dispatched evidence of the
+// named lane through the authoritative lane-actor dispatch route, carrying
+// the packet digest and the worker-job binding the dispatch_worker
+// authorization recorded.
+func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, job *WorkerJobBinding) error {
+	t.Helper()
 	var packetDigest string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
@@ -746,7 +754,64 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 		return err
 	}
 	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job, directory)
+	if err := attachCompletedReportSizeForTest(context.Background(), s, workID, attemptID, job, &completed); err != nil {
+		return err
+	}
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
+}
+
+// attachCompletedReportSizeForTest carries the folded size binding on a
+// completed report whose dispatched job is capped (CD-0225 D2): the
+// production size between the job's recorded base and the observed tree.
+// The generic append route owns no delivery observation, so the fixture
+// authors the observation the terminal ingest derives on the live route,
+// with the job's recorded base as the observed tree.
+func attachCompletedReportSizeForTest(ctx context.Context, s *Store, workID, attemptID string, job *WorkerJobBinding, event *Event) error {
+	if job == nil {
+		return nil
+	}
+	var class string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&class); err != nil {
+		return err
+	}
+	if class != "implementation" {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(ctx, s.db, workID)
+	if err != nil {
+		return err
+	}
+	entry, recorded := content[*job]
+	if !recorded || entry.basis == nil {
+		return nil
+	}
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	payload.ObservedDelivery = &WorkerObservedDelivery{Commit: entry.basis.BaseCommit, State: "clean"}
+	payload.ProductionSize = &WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: entry.basis.BaseCommit, Count: 0}
+	event.Payload = mustJSONValue(payload)
+	return nil
+}
+
+// completionProductionSizeForTest authors the production_size member a
+// completed report of a capped job owes, with the named tree commit; nil
+// when the job records no measurement basis.
+func completionProductionSizeForTest(t *testing.T, s *Store, workID string, job *WorkerJobBinding, treeCommit string) *WorkerProductionSize {
+	t.Helper()
+	if job == nil {
+		return nil
+	}
+	content, err := readWorkerJobSizeContentTx(context.Background(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, recorded := content[*job]
+	if !recorded || entry.basis == nil {
+		return nil
+	}
+	return &WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: treeCommit, Count: 0}
 }
 
 // attachReadyWorkerJobIfJobCapable records one ready worker-job revision on

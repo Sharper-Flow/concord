@@ -19,7 +19,7 @@ import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { jobSizeFields } from "./job-size.fixture"
+import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -790,7 +790,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(packet.inputs.work_record).toEqual({ value_statement: "The bounded handoff crosses Projects without operator copying.", task: "Exercise the handoff route." })
     const lane = agentLanes.find((candidate) => candidate.id === "implement")!
     const workerJob = packet.inputs.worker_job
-    const report = { schema_version: packet.schema_version, readback_model: "openai/gpt-5.6-luna", status: "completed", worker_job: { job_id: workerJob.job_id, revision: workerJob.revision, digest: workerJob.digest }, evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original handoff ${obligation}`, ...(index === 0 ? { predicate_ids: [HANDOFF_PREDICATE.predicate_id] } : {}) })) }
+    const report = { schema_version: packet.schema_version, readback_model: "openai/gpt-5.6-luna", status: "completed", worker_job: { job_id: workerJob.job_id, revision: workerJob.revision, digest: workerJob.digest }, ...reportedProductionSize(packet, headCommit(fixture.receiveWorktree)), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original handoff ${obligation}`, ...(index === 0 ? { predicate_ids: [HANDOFF_PREDICATE.predicate_id] } : {}) })) }
     const reportText = `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
     const workerID = "worker-handoff-original"
     host.sessions[workerID] = { directory: fixture.receiveWorktree, parentID: RECEIVE_SESSION, metadata: {}, messages: [

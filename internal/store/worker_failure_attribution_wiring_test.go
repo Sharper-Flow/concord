@@ -500,7 +500,7 @@ func TestWorkerPredicateTiesResolveFromTheJobRevisionOnAttributionPins(t *testin
 	// refuses and names pB.
 	tiedEvidence := workerEvidenceForLane(lane)
 	tiedEvidence[0].PredicateIDs = []string{"predicate:pB-tie"}
-	completion := jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID))
+	completion := withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, "ties-completed-pb", attempt, lane, time.Unix(16, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -920,6 +920,7 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
+	completion = workerCompletionWithReportedSize(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(WithWorkerTerminalPreparation(context.Background(), prepared), transaction, completion)
 		return err
@@ -1235,7 +1236,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	earlier := "attempt:" + workID + ":earlier"
 	dispatchJobBoundAttempt(t, s, workID, "repair", earlier, nil, fixture.owner, 0, "attribution-sources-dispatch-earlier", job)
 	earlierCompleted := "completed-" + workID + "-earlier"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, earlierCompleted, earlier, lane, time.Unix(24, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)}}); err != nil {
 		t.Fatalf("the earlier completion refused: %v", err)
 	}
 	var earlierPayload string
@@ -1259,6 +1260,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	if prepErr != nil {
 		t.Fatalf("the terminal delivery preparation refused: %v", prepErr)
 	}
+	completion = workerCompletionWithReportedSize(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(WithWorkerTerminalPreparation(context.Background(), prepared), transaction, completion)
 		return err
@@ -1349,7 +1351,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	}
 	dispatchJobBoundAttempt(t, s, workID, "repair", later, correction, fixture.owner, 0, "attribution-sources-dispatch-later", job)
 	laterCompleted := "completed-" + workID + "-later"
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withReportedSizeForTest(t, s, jobBoundCompletionEvent(workID, laterCompleted, later, lane, time.Unix(45, 0).UTC(), job, workerFixtureDirectory(t, s, workID)), unobservedTreeForTest)}}); err != nil {
 		t.Fatalf("the later completion refused: %v", err)
 	}
 	var raw string

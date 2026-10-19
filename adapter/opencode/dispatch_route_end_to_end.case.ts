@@ -22,7 +22,7 @@ import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { jobSizeFields } from "./job-size.fixture"
+import { headCommit, jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -465,6 +465,7 @@ function routeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord
     readback_model: READBACK_MODEL,
     status: "completed",
     ...((packet.inputs as JSONRecord).worker_job ? { worker_job: reportWorkerJob(packet) } : {}),
+    ...reportedProductionSize(packet, subjectCommit),
     ...(review ? { review } : {}),
     evidence: lane.evidence_obligations
       .filter((obligation: string) => !(review && obligation === "severity"))
@@ -1700,7 +1701,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       // The synthetic original completed report claims exactly the binding
       // the authorized packet carries (CD-0205): the packet's schema version
       // and its dispatched worker-job revision, never invented job metadata.
-      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
+      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), ...reportedProductionSize(packet, headCommit(worktree)), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
       const output = { title: "task", output: taskResult(report), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "recovery-task-call", args: taskArgs }, output, { windows, credentials, runner, concordBinary: binary })
       const pending = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
@@ -1882,6 +1883,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
+      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -1963,6 +1965,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
+      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -2045,6 +2048,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
+      ...reportedProductionSize(packet as JSONRecord, headCommit(worktree)),
       evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
     }
     const completionOutput = { title: "task", output: taskResult(report), metadata: {} }

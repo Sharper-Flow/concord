@@ -69,10 +69,10 @@ func recordSizeDispatchAttempt(t *testing.T, fixture workflowReturnRouteFixture,
 	}
 }
 
-// recordSizeDispatchAuthorization records the dispatch_worker completion the
-// worker.dispatched evidence must match, under the recorded-history route
-// the review-subject fixture uses for folded accept completions.
-func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID string, job WorkerJobBinding) {
+// recordSizeDispatchAuthorizationClass records the dispatch_worker
+// completion of the named capability class, so a review or verification
+// attempt can bind the same capped job the implementation lane binds.
+func recordSizeDispatchAuthorizationClass(t *testing.T, s *Store, workID, attemptID string, job WorkerJobBinding, class string) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	// The authorization binds the active claimed worktree, the Project the
@@ -84,7 +84,7 @@ func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID s
 	authorization := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"action_id": "dispatch_worker", "step_id": "repair", "attempt_epoch": 1, "worker_attempt_id": attemptID,
-		"worker_capability_class":  "implementation",
+		"worker_capability_class":  class,
 		"worker_job":               map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
 		"worker_worktree_identity": workerWorktreeIdentity(filepath.Clean(directory)),
 	}
@@ -112,6 +112,13 @@ func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID s
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// recordSizeDispatchAuthorization records the dispatch_worker completion the
+// worker.dispatched evidence must match, under the recorded-history route
+// the review-subject fixture uses for folded accept completions.
+func recordSizeDispatchAuthorization(t *testing.T, s *Store, workID, attemptID string, job WorkerJobBinding) {
+	recordSizeDispatchAuthorizationClass(t, s, workID, attemptID, job, "implementation")
 }
 
 // recordEditingJobForTest records one ready editing job from the caller's

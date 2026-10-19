@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -320,6 +322,9 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	if payload.EvidenceOrigin == store.WorkerEvidenceReported && len(payload.Evidence) == 0 {
 		payload.Evidence = agentEvidenceForLane(t, s, workID, attemptID)
 	}
+	if payload.ProductionSize == nil {
+		payload.ProductionSize = agentReportedProductionSize(t, s, workID, attemptID, payload.WorkerDirectory)
+	}
 	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
 	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: eventID})
 	if err != nil {
@@ -332,6 +337,26 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	}); err != nil {
 		t.Fatalf("completed report through the seam for %s: %v", attemptID, err)
 	}
+}
+
+// agentReportedProductionSize is the production_size a compliant worker
+// reports for a capped implementation job: the recorded base its packet
+// carries and its delivered HEAD. Any other attempt reports none.
+func agentReportedProductionSize(t *testing.T, s *store.Store, workID, attemptID, directory string) *store.WorkerProductionSize {
+	t.Helper()
+	var base string
+	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(r.payload,'$.measurement_basis.base_commit') FROM domain_events d JOIN domain_events r ON r.subject_id=d.subject_id AND r.kind=? AND json_extract(r.payload,'$.job_id')=json_extract(d.payload,'$.worker_job.job_id') AND json_extract(r.payload,'$.revision')=json_extract(d.payload,'$.worker_job.revision') WHERE d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND json_extract(d.payload,'$.worker_capability_class')='implementation' AND json_extract(r.payload,'$.measurement_basis.base_commit') IS NOT NULL ORDER BY d.seq DESC LIMIT 1`, store.WorkerJobRecorded, workID, store.WorkflowActionCompleted, attemptID).Scan(&base)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := exec.Command("git", "-C", directory, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("read the delivered HEAD of %s: %v", directory, err)
+	}
+	return &store.WorkerProductionSize{Base: base, Tree: strings.TrimSpace(string(head)), Count: 0}
 }
 
 func agentWorkerDirectory(t *testing.T, s *store.Store, workID string) string {

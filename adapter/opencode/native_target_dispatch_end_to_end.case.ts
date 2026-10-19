@@ -27,7 +27,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 import { acknowledgeNativeSubtask } from "./native-subtask.fixture"
-import { jobSizeFields } from "./job-size.fixture"
+import { jobSizeFields, reportedProductionSize } from "./job-size.fixture"
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
 
@@ -519,6 +519,7 @@ function nativeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecor
     readback_model: READBACK_MODEL,
     status: "completed",
     worker_job: reportWorkerJob(packet),
+    ...reportedProductionSize(packet, subjectCommit),
     evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
       obligation,
       detail: `verified ${obligation} on commit:${subjectCommit}`,

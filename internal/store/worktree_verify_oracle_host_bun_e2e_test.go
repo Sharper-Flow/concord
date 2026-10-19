@@ -173,10 +173,10 @@ func (f *bunFixtureForTest) executeErr(t *testing.T, id string) error {
 func TestNativeTargetAxisBunCheck(t *testing.T) {
 	var observed [][]string
 	f := newNativeTargetBunFixture(t, nil, map[string]string{
-		"plugin/bunfig.toml":       "preload = [\"./scripts/poison.js\"]\n",
-		"plugin/.env":              "CANDIDATE_ENV=1\n",
-		"plugin/sub/.env.local":    "CANDIDATE_ENV=1\n",
-		"plugin/scripts/poison.js": "process.exit(3);\n",
+		"plugin/bunfig.toml":         "preload = [\"./scripts/poison.js\"]\n",
+		"plugin/.env":                "CANDIDATE_ENV=1\n",
+		"plugin/sub/.env.production": "CANDIDATE_ENV=1\n",
+		"plugin/scripts/poison.js":   "process.exit(3);\n",
 	})
 	before := f.cacheDigest(t)
 	f.s.nativeOracleStageObserved = func(_ string, _ string, _ []string, env []string) { observed = append(observed, env) }

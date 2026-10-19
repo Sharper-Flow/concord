@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Go conflict-rule catalog from the checked table (CON-1094 S1).
+"""Generate the Go conflict-rule catalog from the checked table.
 
 The generated file is metadata consumed by tests and the conflict recorder:
 the pinned goals.md source hash, the catalog generation, and the closed set of

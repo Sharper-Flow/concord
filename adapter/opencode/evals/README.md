@@ -22,6 +22,7 @@ not a broken build.
 | Path | Role |
 |---|---|
 | `promptfooconfig.yaml` | Harness configuration: packets, lane providers, assertions. |
+| `native-lane.mjs` | Native Task provider with exact child executor readback. |
 | `packets/` | Real `agent-lane-packet.v1` documents, two per lane. |
 | `assertions/lane-report.js` | Shared structural check that the returned report satisfies `agent-lane-report.v1` and binds to its packet. |
 
@@ -34,11 +35,17 @@ evidence record containing a known defect, and a passing review names it in its
 findings. The seeded markers live in `assertions/lane-report.js` as the
 seeded-eval contract.
 
-Providers wrap the same argv shape that
-[`dispatch.ts`](../dispatch.ts) uses, so a run exercises the real lane through
-the real host path rather than a paraphrase of it. Each lane is evaluated
-through whatever model the host selects — Concord no longer asserts a model
-identifier on dispatch (CD-0058).
+Providers send a native subtask part to an ephemeral OpenCode server. Every
+target must resolve as a hidden subagent. The provider checks the child session
+and assistant agent identities, then projects only that child's persisted parts
+into the shared assertion's event stream. The parent dispatch is not worker
+delegation and never enters that stream; any nested child task still does.
+
+This advisory provider disables external plugins. It does not create a managed
+dispatch, authorize a worker attempt, or record Concord evidence. Packets and
+assertions measure lane behavior only. Each lane uses the model selected by its
+host configuration (CD-0058). Run editing-lane evals only in a disposable fixture
+checkout, never a live Product worktree.
 
 All assertions are deterministic JavaScript. No external grading API runs in
 this harness: a baseline whose judgement depended on one would not reproduce
@@ -60,6 +67,12 @@ Validate the configuration without calling any model:
 ```sh
 npx promptfoo@0.122.0 validate config -c adapter/opencode/evals/promptfooconfig.yaml
 ```
+
+The opt-in `adapter/opencode/evals/native-lane.native.case.ts` check runs hidden
+subagents and this provider against a deterministic local fixture model. It
+requires the public host checkout at the pin stated in that file through
+`CONCORD_NATIVE_HOST_SOURCE`, plus OpenCode 1.18.35. It uses no live credentials
+and establishes host compatibility, not lane behavioral acceptance.
 
 ## Recording a baseline
 

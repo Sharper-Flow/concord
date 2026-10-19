@@ -115,15 +115,13 @@ class AgentProjectionTests(unittest.TestCase):
     }
 
     def test_projection_hides_the_lane_from_the_operator_agent_cycle(self):
-        # CD-0070 D1. The host cycles every agent whose mode is not subagent
-        # and whose hidden flag is unset, so mode alone cannot keep a worker
-        # lane out of the operator's session-agent cycle.
         self.assertIn("\nhidden: true\n", lane_projection(self.LANE, REPORT_SCHEMA))
 
-    def test_projection_stays_selectable_by_run_mode(self):
-        # CD-0070 D2. Run mode refuses a subagent-mode target and substitutes
-        # the default agent, so CD-0064 D1's mode survives the hidden flag.
-        self.assertIn("\nmode: all\n", lane_projection(self.LANE, REPORT_SCHEMA))
+    def test_every_lane_is_subagent_only(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                self.assertIn("\nmode: subagent\n", lane_projection(lane).split("---\n", 2)[1])
 
     def test_projection_denies_task_dispatch(self):
         # CD-0070 Invariant 3, carrying CD-0064 Invariant 3 forward.
@@ -993,6 +991,17 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             profile = self.profile(agent_id)
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
+
+    def test_concord_retry_guidance_states_the_three_attempt_wall(self):
+        text = " ".join(self.projection("Concord").split())
+        sentence = (
+            "At the three-attempt limit, `dispatch_worker` needs a store-derived basis: "
+            "shrinking `open_finding_ids` or an approved `supersede_contract` that changes "
+            "the approach. An approval cannot open the wall."
+        )
+        self.assertTrue(sentence in text, "generated Concord prompt must state the exact retry-wall exception")
+        for agent_id in ("Concord", "Concord-RTE"):
+            self.assertNotIn("To retry it, call `dispatch_worker` with the unchanged approved contract", " ".join(self.projection(agent_id).split()))
 
     def test_retired_primary_profiles_and_role_sources_are_gone(self):
         # Zero tolerance: the retired profiles and their role sources survive

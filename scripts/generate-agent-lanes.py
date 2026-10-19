@@ -921,7 +921,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict) -> st
         block_rule = ""
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
-mode: all
+mode: subagent
 hidden: true
 tools:
 {tool_denies}

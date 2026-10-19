@@ -46,7 +46,7 @@ other aliases are accepted:
 | Hyphenated form | Two-word form |
 |---|---|
 | `client-register` | `client register` |
-| `client-show` | — |
+| `client-show` | `client show` |
 | `client-policy-update` | `client policy-update` |
 | `client-policy-expand` | `client policy-expand` |
 | `client-key-rotate` | `client key-rotate` |

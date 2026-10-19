@@ -186,6 +186,11 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("Concord.md" in finding and "cross-repository boundary phrase" in finding for finding in findings))
 
+    def test_concord_lost_repository_local_session_rule_reports(self) -> None:
+        phrase = "Keep a work-item session in each repository"
+        self.rewrite("Concord.md", lambda text: text.replace(phrase, "Share one session across repositories"))
+        self.assertTrue(any("Concord.md" in finding and phrase in finding for finding in self.findings()))
+
     def test_concord_lost_delegation_anchor_reports(self) -> None:
         self.rewrite("Concord.md", lambda text: text.replace("Size is not an exemption", "Size decides"))
         findings = self.findings()

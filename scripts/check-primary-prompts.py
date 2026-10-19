@@ -245,7 +245,12 @@ def check_named_profiles(root: Path) -> list[str]:
             )
             findings.extend(
                 f"{name} lost the cross-repository boundary phrase {phrase!r}"
-                for phrase in REQUIRED_BOUNDARY_PHRASES
+                for phrase in (
+                    "Keep a work-item session in each repository",
+                    "a second Project in another git repository",
+                    "never claim or move across the boundary",
+                    "this session stops driving the other repository",
+                )
                 if phrase not in flat_body
             )
     return findings

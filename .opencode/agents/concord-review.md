@@ -1,6 +1,6 @@
 ---
 description: Concord review lane — Review a bounded change against its contract and acceptance evidence. Dispatch through dispatch_worker when a delivered change owes a severity-rated review before completion. Does not edit repository source.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false

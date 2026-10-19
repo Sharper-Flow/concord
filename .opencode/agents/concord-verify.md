@@ -1,6 +1,6 @@
 ---
 description: Concord verify lane — Run independent verification and return deterministic pass or failure evidence. Dispatch through dispatch_worker when a contract's outcome predicates need execution evidence a non-author produced. Does not edit repository source.
-mode: all
+mode: subagent
 hidden: true
 tools:
   task: false

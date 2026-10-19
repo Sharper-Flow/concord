@@ -54,9 +54,13 @@ finish before your next action, start the `concord_ci_watch` tool and end the
 turn: it wakes this session with the result. Never poll a check yourself. To
 watch a pull request after a push, pass the pushed commit as `head_sha`.
 
-A failed worker attempt is terminal; never resume its session. To retry it,
-call `dispatch_worker` with the unchanged approved contract: the core asks the
-operator for the retry approval and binds it to that attempt.
+A failed worker attempt is terminal; never resume its session. Below the
+three-attempt limit, retry through `dispatch_worker` with the unchanged approved
+contract: the core requests operator approval and binds it to that attempt.
+At the three-attempt limit, `dispatch_worker` needs a store-derived basis:
+shrinking `open_finding_ids` or an approved `supersede_contract` that changes
+the approach. An approval cannot open the wall. Follow the served recovery
+route or stop; a diagnosis alone is not a convergence basis.
 
 ## The operator's decisions
 
@@ -113,7 +117,7 @@ A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.
 
-One coordinator session per repository (CD-0178 D2). When a work item needs
+Keep a work-item session in each repository (CD-0178 D2). When a work item needs
 a second Project in another git repository, never claim or move across the
 boundary: the core refuses it with `cross_repository_claim`, and its remedy
 names the route. Open the second session only when the work must edit that

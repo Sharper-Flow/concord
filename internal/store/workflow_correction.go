@@ -481,7 +481,7 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 // projections use this history's obligation discharge rule (CD-0205 D4), not
 // the current attempt lifecycle, so historical reads keep replay parity.
 func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted)
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted, WorkflowContractSuperseded)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
@@ -592,6 +592,18 @@ type workflowCorrectionHistoryRow struct {
 
 func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, subject string) error {
 	switch row.kind {
+	case string(WorkflowContractSuperseded):
+		var successor struct {
+			ContractVersion int64 `json:"new_contract_version"`
+		}
+		if err := json.Unmarshal([]byte(row.payload), &successor); err != nil {
+			return newFailure(KindInvariantViolation, subject, "contract supersession payload is malformed", false, "rebuild workflow projections from the event log")
+		}
+		for _, repair := range h.checksRepairs {
+			if !repair.confirmed && repair.contractVersion != successor.ContractVersion {
+				repair.voided = true
+			}
+		}
 	case string(WorkerCompleted):
 		var report WorkerCompletedPayload
 		if err := json.Unmarshal([]byte(row.payload), &report); err != nil {

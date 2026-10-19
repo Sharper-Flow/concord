@@ -167,6 +167,21 @@ func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testi
 	if ready, err := readyWorkerJobRevisions(ctx, s.db, workID); err != nil || len(ready) != 0 {
 		t.Fatalf("ready revisions behind the unconfirmed repair = %#v, %v, want none", ready, err)
 	}
+	// A later ordinary revision cannot hide an accepted repair's review debt.
+	later := jobFields("go test ./internal/store/ -run TestChecksRepair", nil)
+	later["ready"] = false
+	record(later, "later ordinary revision")
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var delivery workflowDeliveryAdmission
+	if _, err := loadWorkflowDeliveryJobAdmission(ctx, s.db, workID, definition.Definition, 0, false, &delivery); err != nil {
+		t.Fatal(err)
+	}
+	if !delivery.ChecksRepairReviewDebt {
+		t.Fatal("a later ordinary revision hid the unconfirmed repair's review debt")
+	}
 	// The named revisions resolve prerequisite readiness through the
 	// accepted repairing result: each records the repairing acceptance as
 	// its satisfaction reference (CD-0205 D4), so a later job's prerequisite
@@ -663,6 +678,17 @@ func TestChecksRepairSupersessionVoidsUnconfirmedRepair(t *testing.T) {
 	// supersession voids the unconfirmed repair, the named revision loses its
 	// provisional readiness, and the review stays unfunded.
 	checksRepairSupersedeContract(t, s, workID)
+	watermark, err := workerChecksRepairWatermarkTx(ctx, s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := workerChecksRepairWalkTx(ctx, s.db, workID, watermark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair := history.repairOfBinding(repairing.JobID, repairing.Revision); repair == nil || !repair.voided {
+		t.Fatal("the correction walk did not void the superseded repair")
+	}
 	if fundings, err := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(fundings) != 0 {
 		t.Fatalf("fundings after the supersession = (%#v, %v), want none", fundings, err)
 	}
@@ -685,7 +711,22 @@ func TestChecksRepairSupersessionVoidsUnconfirmedRepair(t *testing.T) {
 	if anchor, anchorErr = workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", ""); anchorErr != nil || anchor == nil {
 		t.Fatalf("rebuilt correction anchor = (%#v, %v), want the open window", anchor, anchorErr)
 	}
-	_ = acceptor
+}
+
+func TestChecksRepairPendingAcceptanceCannotAssertDelivery(t *testing.T) {
+	state := workflowDeliveryAdmission{
+		JobsRecorded: true, JobsIntegrated: true,
+		ChecksRepairPendingKeys: workerJobKey("job:pending-repair", 2),
+	}
+	if failure := workflowDeliveryJobsFailure(state, nil); failure != nil {
+		t.Fatalf("an unaccepted nonlatest repair opened delivery debt: %v", failure)
+	}
+	if failure := workflowDeliveryJobsFailure(state, &WorkerJobBinding{JobID: "job:other", Revision: 1}); failure != nil {
+		t.Fatalf("an unrelated acceptance opened repair debt: %v", failure)
+	}
+	if failure := workflowDeliveryJobsFailure(state, &WorkerJobBinding{JobID: "job:pending-repair", Revision: 2}); failure == nil {
+		t.Fatal("the combined acceptance asserted delivery while opening an unconfirmed repair")
+	}
 }
 
 // completeChecksRepairAttemptObserved completes an implementation attempt

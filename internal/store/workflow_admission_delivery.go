@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 )
@@ -35,7 +35,8 @@ type workflowDeliveryAdmission struct {
 	// ChecksRepairReviewDebt reports an open unconfirmed checks repair
 	// (CD-0205 D4): delivery refuses while the funded confirming review's
 	// debt stands, whatever the required jobs' dispositions read.
-	ChecksRepairReviewDebt bool
+	ChecksRepairReviewDebt  bool
+	ChecksRepairPendingKeys string
 }
 
 // Runs retain binding order: a malformed operation refuses when reached,
@@ -185,14 +186,8 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if !state.JobsRecorded {
 		return nil, nil
 	}
-	// The unconfirmed checks repair's review debt (CD-0205 D4): delivery
-	// refuses while one stands, on both delivery routes alike. A latest
-	// revision that carries checks repair metadata counts while its walked
-	// repair is neither confirmed nor voided — an open repair's debt stands,
-	// and the combined accept's own pending repairing disposition opens the
-	// debt in the same event that asserts delivery, so the assertion cannot
-	// outrun the review it owes. The live delivery admission reads the
-	// current watermark.
+	// Re-recording a job cannot hide an accepted repair's review debt.
+	// Pending repairs matter only when the combined route accepts them.
 	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
@@ -201,32 +196,16 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	repairs, repairsErr := readWorkerJobChecksRepairsTx(ctx, q, workID)
-	if repairsErr != nil {
-		return nil, repairsErr
-	}
-	for _, key := range requiredRevisions {
-		jobID, revisionText, _ := strings.Cut(key, "|")
-		revision, parseErr := strconv.ParseInt(revisionText, 10, 64)
-		if parseErr != nil {
-			continue
-		}
-		var carriesMetadata bool
-		for binding := range repairs {
-			if binding.JobID == jobID && binding.Revision == revision {
-				carriesMetadata = true
-				break
-			}
-		}
-		if !carriesMetadata {
-			continue
-		}
-		walked := history.checksRepairs[key]
-		if walked == nil || (!walked.confirmed && !walked.voided) {
+	pendingRepairs := make([]string, 0)
+	for key, repair := range history.checksRepairs {
+		if repair.openUnconfirmed() {
 			state.ChecksRepairReviewDebt = true
-			break
+		} else if repair.acceptanceSeq == 0 && !repair.voided {
+			pendingRepairs = append(pendingRepairs, key)
 		}
 	}
+	sort.Strings(pendingRepairs)
+	state.ChecksRepairPendingKeys = strings.Join(pendingRepairs, ",")
 	// The integration epoch opens at the latest of the phase start, every
 	// required job's recorded acceptance, and every required job's recorded
 	// result population: the latest worker.completed event of an attempt
@@ -366,7 +345,13 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 			fmt.Sprintf("the delivery assertion requires every recorded worker job satisfied: %d required job revision(s) remain unsatisfied", len(unsatisfied)),
 			false, "satisfy or re-record the unsatisfied worker jobs before asserting whole-work delivery")
 	}
-	if state.ChecksRepairReviewDebt {
+	repairDebt := state.ChecksRepairReviewDebt
+	if accepting != nil {
+		for _, key := range splitKeyJoin(state.ChecksRepairPendingKeys) {
+			repairDebt = repairDebt || key == workerJobKey(accepting.JobID, accepting.Revision)
+		}
+	}
+	if repairDebt {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			"the delivery assertion refuses while an unconfirmed checks repair's confirming review debt stands",
 			false, "let the funded confirming review end and accept its ship verdict before asserting whole-work delivery")

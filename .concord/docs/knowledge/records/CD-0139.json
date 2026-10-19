@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bdbc27d889097991bcc54682919317b92886cd5a0caac35b92c43031927ac11a",
+  "sha256": "sha256:8f58e05d61acbfa48c4bb76fc75f831ccbad970c1accb367b21edefb7fbf797a",
   "status": "accepted",
-  "summary": "An unstamped development build migrates only a fresh store, admits an up-to-date existing store, and refuses migration of an existing store without changing its manifest or omitting the isolated CONCORD_DB_PATH route. Stamped release behavior remains unchanged.",
+  "summary": "An unstamped development build migrates only a fresh store, admits an up-to-date existing store that CD-0240 admits it to, and refuses migration of an existing store without changing its manifest or omitting the isolated CONCORD_DB_PATH route. Stamped release behavior remains unchanged inside the CD-0240 boundary.",
   "tags": [
     "storage",
     "migration",

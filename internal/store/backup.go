@@ -86,6 +86,9 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 	if strings.TrimSpace(path) == "" {
 		return BackupManifest{}, newFailure(KindInvalidOperation, "backup", "source database path is empty", false, "supply an existing database path")
 	}
+	if err := AdmitStorePath(path); err != nil {
+		return BackupManifest{}, err
+	}
 	db, err := sql.Open(driverName, readOnlyDataSource(path))
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "cannot open the source database read-only", false, "supply a readable database", err)
@@ -249,6 +252,9 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if err := validateBackupDestination("", destination); err != nil {
 		return BackupManifest{}, err
 	}
+	if err := AdmitStorePath(destination); err != nil {
+		return BackupManifest{}, err
+	}
 	maxSupported := CurrentSchemaVersion()
 	if len(supportedMax) > 0 {
 		maxSupported = supportedMax[0]
@@ -305,6 +311,9 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 		return RestoreReport{}, err
 	}
 	if err := validateBackupDestination(source, destination); err != nil {
+		return RestoreReport{}, err
+	}
+	if err := AdmitStorePath(destination); err != nil {
 		return RestoreReport{}, err
 	}
 	manifest, err := VerifyBackup(ctx, source)

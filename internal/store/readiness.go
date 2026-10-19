@@ -43,6 +43,9 @@ func PlanUpgradeReadiness(ctx context.Context, path string, options ...UpgradeOp
 		return UpgradeReadiness{}, newFailure(KindReadinessUnknown, "readiness",
 			"empty database path", false, "pass the store path to plan against")
 	}
+	if err := AdmitStorePath(path); err != nil {
+		return UpgradeReadiness{}, err
+	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// An absent store is a known state, not unknown readiness: it

@@ -1,0 +1,34 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-19T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "durable-authority",
+  "id": "CD-0240",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0139"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0240-a-binary-the-installer-did-not-place-never-opens-the-installed-store.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5a9c83e1b1c1cc6d6f5fdb3e16ce25ffd78bb29f2c3d1a140cd6aced5e4bacb6",
+  "status": "accepted",
+  "summary": "Only a binary whose resolved executable lies under a data root the installer manages (one holding a current entry) opens, migrates, plans, backs up, verifies, restores into, or recovers a store in that root; any other binary refuses before touching the store, leases, locks, or fences, whatever its version stamp, and names the installed release and the isolation route.",
+  "tags": [
+    "storage",
+    "development",
+    "isolation",
+    "release"
+  ],
+  "title": "A binary the installer did not place never opens the installed store"
+}

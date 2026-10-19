@@ -653,6 +653,7 @@ type federatedLawResolution struct {
 	source KnowledgeHome
 	status string
 	tier   string
+	hash   string
 	lawID  string
 }
 
@@ -675,8 +676,8 @@ func resolveFederatedLawReferences(ctx context.Context, q queryer, op string, so
 			if qualified && source.HomeProjectID != projectID {
 				continue
 			}
-			var status, tier string
-			scanErr := q.QueryRowContext(ctx, `SELECT status,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, source.HomeProjectID, source.HomeLocatorID, lawID).Scan(&status, &tier)
+			var status, tier, hash string
+			scanErr := q.QueryRowContext(ctx, `SELECT status,authority_tier,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, source.HomeProjectID, source.HomeLocatorID, lawID).Scan(&status, &tier, &hash)
 			if scanErr == sql.ErrNoRows {
 				continue
 			}
@@ -688,7 +689,7 @@ func resolveFederatedLawReferences(ctx context.Context, q queryer, op string, so
 				failure.CandidateIDs = []string{source.HomeProjectID + "/" + lawID}
 				return nil, nil, failure
 			}
-			match = &federatedLawResolution{source: source, status: status, tier: tier, lawID: lawID}
+			match = &federatedLawResolution{source: source, status: status, tier: tier, hash: hash, lawID: lawID}
 		}
 		if match == nil {
 			missing = append(missing, reference)

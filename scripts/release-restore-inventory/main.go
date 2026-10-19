@@ -1,13 +1,20 @@
-// Command release-restore-inventory records each release tag's event registry
-// and payload shapes: it parses the registry literal, then compiles a reflection
-// probe against that tag's own source. Tags with identical internal trees,
-// go.mod, and go.sum share one probe. An unrecognized
-// registry entry refuses the tag. Each written (kind, version, type) is then
+// Command release-restore-inventory records each release tag's event registry,
+// payload shapes, and event writers: it parses the registry literal, compiles a
+// reflection probe against that tag's own source, and type-checks the binary's
+// writer sites (writers.go). Tags with identical internal and cmd trees,
+// go.mod, go.sum, toolchain, and generator share one group. An unrecognized
+// registry entry refuses the tag. Each registered (kind, version) is then
 // joined to the witness logs: historical corpus rows, and writer-produced rows
 // from scripts/release-restore-gate.py, each bound to its own release's
-// registered shape or older accepted version. An unwitnessed shape or older
-// version, a writer row that binds to no registered shape or accepted version of
-// its release, or an unapproved refusal holds (exit 1).
+// registered shape or older accepted version, beside each release's writer
+// finding (findings.go). An unwitnessed shape or older version, a writer row
+// that binds to no registered shape or accepted version of its release, or an
+// unapproved refusal holds (exit 1).
+//
+// With -cache, each group's probe result and analysis are kept in that directory and -batch N
+// computes at most N missing groups per run, so a census can run as several
+// bounded runs. A run that leaves groups missing writes nothing and exits 3.
+// A kept probe failure stays until its cache file is removed.
 // Run from the repository root.
 package main
 
@@ -45,8 +52,16 @@ const (
 
 var typedConstructors = map[string]bool{"registerEventKind": true, "registerScopedEventKind": true, "workflowRegistration": true, "workflowScopedRegistration": true}
 
-//go:embed release-restore-inventory.go
-var generatorSource string
+// The group key pins the sources that decide a group's probe and analysis;
+// findings.go and coverage.go decide only findings and coverage.
+//
+//go:embed main.go
+var mainSource string
+
+//go:embed writers.go
+var writersSource string
+
+var generatorSource = mainSource + writersSource
 
 const excludedFormA = ` v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.7.1 v0.8.0 v0.9.0 v0.10.0 v0.10.1 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.15.1 v0.15.2 v0.15.3 v0.15.4 v0.16.0 v0.16.1 v0.16.2 v0.17.0 v0.17.1 v0.17.2 v0.18.0 v0.19.0 v0.20.0 v0.21.0 v0.22.0 v0.23.0 v0.24.0 v0.25.0 v0.26.0 v0.26.1 v0.27.0 v0.27.1 v0.28.0 v0.29.0 v0.30.0 v0.31.0 v0.32.0 v0.33.0 v0.33.1 v0.33.2 v0.33.3 v0.33.4 v0.34.0 v0.35.0 v0.36.0 v0.37.0 v0.37.1 `
 
@@ -78,6 +93,7 @@ type inventory struct {
 	Generator string                     `json:"generator"`
 	Rows      []row                      `json:"rows"`
 	Groups    map[string][]registration  `json:"groups"`
+	Analyses  map[string]writerAnalysis  `json:"analyses"`
 	Types     map[string]json.RawMessage `json:"types"`
 }
 
@@ -184,40 +200,54 @@ type probeOutput struct {
 	Types    map[string]json.RawMessage `json:"types"`
 }
 
-// probe compiles and runs the shape probe against one tag's archived source.
-func probe(commit string, entries []string) (probeOutput, error) {
-	var out probeOutput
+// groupResult is one group's probe report and writer analysis, as cached. A
+// probe that failed records its error; its analysis may still be present.
+type groupResult struct {
+	Probe    probeOutput    `json:"probe"`
+	Analysis writerAnalysis `json:"analysis"`
+	Error    string         `json:"error,omitempty"`
+}
+
+// errIncomplete reports a batch run that left groups uncomputed.
+var errIncomplete = errors.New("groups remain")
+
+// probe analyzes one tag's archived source, then compiles and runs the shape
+// probe against it. The analysis runs first, so the probe's added files are
+// never part of the analyzed binary.
+func probe(commit string, entries []string) (out probeOutput, analysis writerAnalysis, err error) {
+	analysis = writerAnalysis{Analyzer: analyzerVersion(), Refused: "the source was not analyzed"}
 	dir, err := os.MkdirTemp("", "release-restore-probe-")
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	tarball := filepath.Join(dir, "source.tar")
 	if _, err := git("archive", "--format=tar", "-o", tarball, commit); err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	if _, err := command(dir, "tar", "-xf", tarball); err != nil {
-		return out, err
+		return out, analysis, err
 	}
+	analysis = analyzeWriters(dir)
 	module, err := command(dir, "go", "list", "-m")
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	err = errors.Join(os.Mkdir(filepath.Join(dir, "releaserestoreprobe"), 0o750),
 		os.WriteFile(filepath.Join(dir, "internal/store/zz_release_restore_probe.go"), []byte(strings.Replace(probeTemplate, "\t// TYPES\n", strings.Join(entries, ""), 1)), 0o600),
 		os.WriteFile(filepath.Join(dir, "releaserestoreprobe/main.go"), []byte(strings.ReplaceAll(probeMain, "MODULE", strings.TrimSpace(string(module)))), 0o600))
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	report := filepath.Join(dir, "probe.json")
 	if _, err := command(dir, "go", "run", "./releaserestoreprobe", report); err != nil {
-		return out, fmt.Errorf("probe %s: %w", commit, err)
+		return out, analysis, fmt.Errorf("probe %s: %w", commit, err)
 	}
 	data, err := os.ReadFile(filepath.Clean(report))
 	if err == nil {
 		err = json.Unmarshal(data, &out)
 	}
-	return out, err
+	return out, analysis, err
 }
 
 func digest(data []byte) string {
@@ -262,9 +292,9 @@ func listTags() ([]row, error) {
 	return tags, nil
 }
 
-// inspect parses one tag's registry and names its probe group: the exact
-// internal tree, go.mod, go.sum, and probe source.
-func inspect(result row) (row, []string) {
+// inspect parses one tag's registry and names its group: the exact internal
+// and cmd trees, go.mod, go.sum, toolchain, and generator source.
+func inspect(result row, toolchain string) (row, []string) {
 	src, err := command("", "git", "show", result.Commit+":internal/store/operation.go")
 	var entries []string
 	if err == nil {
@@ -273,35 +303,98 @@ func inspect(result row) (row, []string) {
 	}
 	var inputs string
 	if err == nil {
-		inputs, err = git("rev-parse", result.Commit+":internal", result.Commit+":go.mod", result.Commit+":go.sum")
+		inputs, err = git("rev-parse", result.Commit+":internal", result.Commit+":cmd", result.Commit+":go.mod", result.Commit+":go.sum")
 	}
 	if err != nil {
 		result.Status, result.Detail = "inventory_refused", err.Error()
 		result.Excluded = err.Error() == untypedReason && strings.Contains(excludedFormA, " "+result.Tag+" ")
 		return result, nil
 	}
-	result.Group = digest([]byte(inputs + "\n" + generatorSource))
+	result.Group = digest([]byte(inputs + "\n" + toolchain + "\n" + generatorSource))
 	return result, entries
 }
 
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
 	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
+	cache := flag.String("cache", "", "directory that keeps each group's probe result and analysis between runs")
+	batch := flag.Int("batch", 0, "with -cache, compute at most this many missing groups, then exit 3 if any remain")
 	var witnesses []string
 	flag.Func("witnesses", "witness log (JSON lines) to bind shapes to: a historical corpus or release gate log; repeatable", func(path string) error {
 		witnesses = append(witnesses, path)
 		return nil
 	})
+	analyze := flag.String("analyze", "", "print the writer analysis of one release source tree and exit, to review its sites")
 	flag.Parse()
-	if err := run(*output, *coverageOut, witnesses); err != nil {
+	if *analyze != "" {
+		data, err := json.MarshalIndent(analyzeWriters(*analyze), "", " ")
+		if err == nil {
+			_, err = os.Stdout.Write(append(data, '\n'))
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := run(*output, *coverageOut, *cache, *batch, witnesses); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
+		if errors.Is(err, errIncomplete) {
+			os.Exit(3)
+		}
 		os.Exit(1)
 	}
 }
 
-func run(output, coverageOut string, witnessLogs []string) error {
+// cached reads one group's kept result.
+func cached(cache, key string) (groupResult, bool) {
+	var result groupResult
+	if cache == "" {
+		return result, false
+	}
+	data, err := os.ReadFile(filepath.Clean(cachePath(cache, key)))
+	return result, err == nil && json.Unmarshal(data, &result) == nil
+}
+
+func cachePath(cache, key string) string {
+	return filepath.Join(cache, strings.TrimPrefix(key, "sha256:")+".json")
+}
+
+// keep writes one group's result through a rename, so a reader never sees a
+// partial file.
+func keep(cache, key string, result groupResult) error {
+	if cache == "" {
+		return nil
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(cache, ".group-")
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	if err = errors.Join(err, file.Close()); err == nil {
+		err = os.Rename(file.Name(), cachePath(cache, key))
+	}
+	if err != nil {
+		_ = os.Remove(file.Name())
+	}
+	return err
+}
+
+func run(output, coverageOut, cache string, batch int, witnessLogs []string) error {
 	if len(witnessLogs) == 0 {
 		return errors.New("-witnesses is required: shapes without a witness join are not coverage")
+	}
+	if batch < 0 || batch > 0 && cache == "" {
+		return errors.New("-batch needs -cache and a positive count")
+	}
+	if cache != "" {
+		if err := os.MkdirAll(cache, 0o750); err != nil {
+			return err
+		}
 	}
 	var witnesses []witness
 	for _, log := range witnessLogs {
@@ -311,48 +404,85 @@ func run(output, coverageOut string, witnessLogs []string) error {
 		}
 		witnesses = append(witnesses, rows...)
 	}
+	toolchain, err := command("", "go", "version")
+	if err != nil {
+		return err
+	}
 	tags, err := listTags()
 	if err != nil || len(tags) == 0 {
 		return fmt.Errorf("release tags unavailable or empty: %v", err)
 	}
-	inv := inventory{Schema: schemaID, Generator: "go run scripts/release-restore-inventory.go", Groups: map[string][]registration{}, Types: map[string]json.RawMessage{}}
+	inv := inventory{Schema: schemaID, Generator: "go run ./scripts/release-restore-inventory", Groups: map[string][]registration{}, Analyses: map[string]writerAnalysis{}, Types: map[string]json.RawMessage{}}
 	type pending struct {
 		commit  string
 		entries []string
 	}
 	work := map[string]pending{}
 	for _, ref := range tags {
-		result, entries := inspect(ref)
+		result, entries := inspect(ref, strings.TrimSpace(string(toolchain)))
 		if result.Group != "" {
 			work[result.Group] = pending{result.Commit, entries}
 		}
 		inv.Rows = append(inv.Rows, result)
 	}
-	failures := map[string]error{}
+	results := map[string]groupResult{}
+	var missing []string
+	for key := range work {
+		if result, ok := cached(cache, key); ok {
+			results[key] = result
+		} else {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	remaining := 0
+	if batch > 0 && len(missing) > batch {
+		missing, remaining = missing[:batch], len(missing)-batch
+	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var keepErr error
 	next := make(chan string)
 	for range workers {
 		wg.Go(func() {
 			for key := range next {
-				out, err := probe(work[key].commit, work[key].entries)
-				mu.Lock()
-				if err == nil {
-					inv.Groups[key], err = group(len(work[key].entries), out, inv.Types)
-				}
+				out, analysis, err := probe(work[key].commit, work[key].entries)
+				result := groupResult{Probe: out, Analysis: analysis}
 				if err != nil {
-					delete(inv.Groups, key)
-					failures[key] = err
+					result.Error = err.Error()
 				}
+				err = keep(cache, key, result)
+				mu.Lock()
+				results[key], keepErr = result, errors.Join(keepErr, err)
 				mu.Unlock()
 			}
 		})
 	}
-	for key := range work {
+	for _, key := range missing {
 		next <- key
 	}
 	close(next)
 	wg.Wait()
+	if keepErr != nil {
+		return keepErr
+	}
+	if remaining > 0 {
+		return fmt.Errorf("%w: %d of %d groups are not computed yet; rerun with the same -cache", errIncomplete, remaining, len(work))
+	}
+	failures := map[string]error{}
+	for key, result := range results {
+		inv.Analyses[key] = result.Analysis
+		var err error
+		if result.Error != "" {
+			err = errors.New(result.Error)
+		} else {
+			inv.Groups[key], err = group(len(work[key].entries), result.Probe, inv.Types)
+		}
+		if err != nil {
+			delete(inv.Groups, key)
+			failures[key] = err
+		}
+	}
 	for i, result := range inv.Rows {
 		if err := failures[result.Group]; err != nil {
 			inv.Rows[i].Status, inv.Rows[i].Detail = "inventory_refused", err.Error()
@@ -399,317 +529,6 @@ func run(output, coverageOut string, witnessLogs []string) error {
 		}
 	}
 	return errors.Join(held...)
-}
-
-// witness is one admitted row: a passing historical corpus row
-// (recordHistoricalWitness) names its Test; a writer-produced row from the
-// release gate carries the Writer that produced it and its place in that
-// writer's snapshot.
-type witness struct {
-	Test           string        `json:"test"`
-	Writer         *writerSource `json:"writer"`
-	Seq            int64         `json:"seq"`
-	EventID        string        `json:"event_id"`
-	Kind           string        `json:"kind"`
-	PayloadVersion int           `json:"payload_version"`
-	Payload        string        `json:"payload"`
-}
-
-// writerSource is the provenance chain of a writer-produced row: the release,
-// its verified asset, the closed recipe it ran, and the snapshot it was read from.
-type writerSource struct {
-	Tag            string `json:"tag"`
-	AssetDigest    string `json:"asset_digest"`
-	Recipe         string `json:"recipe"`
-	RecipeSHA256   string `json:"recipe_sha256"`
-	SnapshotSHA256 string `json:"snapshot_sha256"`
-}
-
-var (
-	sha256Prefixed = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
-	sha256Bare     = regexp.MustCompile(`\A[0-9a-f]{64}\z`)
-)
-
-// complete reports whether a row carries every link of its provenance.
-func (w witness) complete() bool {
-	if w.Kind == "" || w.PayloadVersion < 1 {
-		return false
-	}
-	if w.Writer == nil {
-		return w.Test != ""
-	}
-	src := w.Writer
-	return w.Test == "" && w.Seq > 0 && w.EventID != "" && src.Tag != "" && src.Recipe != "" &&
-		sha256Prefixed.MatchString(src.AssetDigest) && sha256Bare.MatchString(src.RecipeSHA256) && sha256Bare.MatchString(src.SnapshotSHA256)
-}
-
-// name is the witness's identity in coverage output.
-func (w witness) name() string {
-	if w.Writer == nil {
-		return w.Test
-	}
-	return "release:" + w.Writer.Tag + "@" + w.Writer.Recipe
-}
-
-// shapeCoverage binds one written (kind, version, type) to the witnesses whose
-// payload is exactly that encoding. A field path no witness presents non-null
-// stays missing, and the shape stays uncovered.
-type shapeCoverage struct {
-	Kind           string   `json:"kind"`
-	PayloadVersion int      `json:"payload_version"`
-	Type           string   `json:"type"`
-	Writers        []string `json:"writers"`
-	Witnesses      []string `json:"witnesses"`
-	Missing        []string `json:"missing_paths,omitempty"`
-	Covered        bool     `json:"covered"`
-}
-
-// olderCoverage is one accepted payload version below a registration's current
-// one. It has no static type: the release's upcaster reads raw JSON. Every
-// release that accepts it owes a witness from its own writer at that
-// (kind, version); a corpus row names no release and cannot stand in.
-type olderCoverage struct {
-	Kind           string   `json:"kind"`
-	PayloadVersion int      `json:"payload_version"`
-	Writers        []string `json:"writers"`
-	Witnesses      []string `json:"witnesses"`
-	Missing        []string `json:"missing_writers,omitempty"`
-	Covered        bool     `json:"covered"`
-}
-
-// coverageReport is coverage.json.
-type coverageReport struct {
-	Schema  string          `json:"schema"`
-	Shapes  []shapeCoverage `json:"shapes"`
-	Older   []olderCoverage `json:"older_versions"`
-	Unbound []string        `json:"unbound_writer_witnesses"`
-}
-
-// readWitnesses loads one witness log before any probe runs.
-func readWitnesses(witnessLog string) ([]witness, error) {
-	data, err := os.ReadFile(filepath.Clean(witnessLog))
-	if err != nil {
-		return nil, fmt.Errorf("witness log: %w", err)
-	}
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 {
-		return nil, fmt.Errorf("witness log is empty: %s recorded no rows", witnessLog)
-	}
-	var rows []witness
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		var w witness
-		if err := json.Unmarshal(line, &w); err != nil || !w.complete() {
-			return nil, fmt.Errorf("witness log line %q is not a witness row", line)
-		}
-		rows = append(rows, w)
-	}
-	return rows, nil
-}
-
-// cover joins witnesses to written shapes. A corpus row covers every shape of
-// its (kind, version) it conforms to. A writer row covers only the shape its own
-// release registers for its (kind, version), and only when it conforms to it,
-// or that release's older accepted version when its payload is a JSON object;
-// a writer row from an approved excluded release is excluded with it; any
-// other writer row is returned as unbound.
-func cover(inv inventory, rows []witness) (coverageReport, error) {
-	shapes, older := map[string]*shapeCoverage{}, map[string]*olderCoverage{}
-	registered, accepted, excluded := map[string]string{}, map[string]bool{}, map[string]bool{}
-	for _, result := range inv.Rows {
-		excluded[result.Tag] = result.Excluded
-		if result.Status != "inventoried" {
-			continue
-		}
-		for _, r := range inv.Groups[result.Group] {
-			registered[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, r.CurrentVersion)] = r.Type
-			key := fmt.Sprintf("%s\x00%d\x00%s", r.Kind, r.CurrentVersion, r.Type)
-			if shapes[key] == nil {
-				shapes[key] = &shapeCoverage{Kind: r.Kind, PayloadVersion: r.CurrentVersion, Type: r.Type, Witnesses: []string{}}
-			}
-			shapes[key].Writers = append(shapes[key].Writers, result.Tag)
-			for version := r.MinSupported; version < r.CurrentVersion; version++ {
-				accepted[fmt.Sprintf("%s\x00%s\x00%d", result.Tag, r.Kind, version)] = true
-				key := fmt.Sprintf("%s\x00%d", r.Kind, version)
-				if older[key] == nil {
-					older[key] = &olderCoverage{Kind: r.Kind, PayloadVersion: version, Witnesses: []string{}}
-				}
-				older[key].Writers = append(older[key].Writers, result.Tag)
-			}
-		}
-	}
-	unbound := []string{}
-	bound := map[int]bool{}
-	coverage := make([]shapeCoverage, 0, len(shapes))
-	for _, s := range shapes {
-		var shape any
-		if err := json.Unmarshal(inv.Types[s.Type], &shape); err != nil {
-			return coverageReport{}, fmt.Errorf("type %s: %w", s.Type, err)
-		}
-		missing, tests := map[string]bool{}, map[string]bool{}
-		paths(shape, "$", missing)
-		for i, w := range rows {
-			var value any
-			present := map[string]bool{}
-			if w.Writer != nil && registered[fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)] != s.Type {
-				continue
-			}
-			if w.Kind != s.Kind || w.PayloadVersion != s.PayloadVersion || json.Unmarshal([]byte(w.Payload), &value) != nil || !conforms(shape, value, "$", present) {
-				continue
-			}
-			bound[i] = true
-			tests[w.name()] = true
-			for path := range present {
-				delete(missing, path)
-			}
-		}
-		for test := range tests {
-			s.Witnesses = append(s.Witnesses, test)
-		}
-		for path := range missing {
-			s.Missing = append(s.Missing, path)
-		}
-		sort.Strings(s.Witnesses)
-		sort.Strings(s.Missing)
-		s.Covered = len(tests) > 0 && len(missing) == 0
-		coverage = append(coverage, *s)
-	}
-	witnessed := map[string]bool{}
-	for i, w := range rows {
-		var value map[string]any
-		if w.Writer == nil {
-			continue
-		}
-		key := fmt.Sprintf("%s\x00%s\x00%d", w.Writer.Tag, w.Kind, w.PayloadVersion)
-		if !accepted[key] || json.Unmarshal([]byte(w.Payload), &value) != nil || value == nil {
-			continue
-		}
-		bound[i] = true
-		witnessed[key] = true
-	}
-	olderCoverages := make([]olderCoverage, 0, len(older))
-	for _, o := range older {
-		for _, tag := range o.Writers {
-			if witnessed[fmt.Sprintf("%s\x00%s\x00%d", tag, o.Kind, o.PayloadVersion)] {
-				o.Witnesses = append(o.Witnesses, tag)
-			} else {
-				o.Missing = append(o.Missing, tag)
-			}
-		}
-		o.Covered = len(o.Missing) == 0
-		olderCoverages = append(olderCoverages, *o)
-	}
-	sort.Slice(olderCoverages, func(i, j int) bool {
-		a, b := olderCoverages[i], olderCoverages[j]
-		return a.Kind < b.Kind || a.Kind == b.Kind && a.PayloadVersion < b.PayloadVersion
-	})
-	for i, w := range rows {
-		if w.Writer != nil && !bound[i] && !excluded[w.Writer.Tag] {
-			unbound = append(unbound, fmt.Sprintf("%s seq %d %s v%d", w.Writer.Tag, w.Seq, w.Kind, w.PayloadVersion))
-		}
-	}
-	sort.Strings(unbound)
-	sort.Slice(coverage, func(i, j int) bool {
-		a, b := coverage[i], coverage[j]
-		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
-		if a.PayloadVersion != b.PayloadVersion {
-			return a.PayloadVersion < b.PayloadVersion
-		}
-		return a.Type < b.Type
-	})
-	return coverageReport{Schema: "concord.release-restore-coverage.v1", Shapes: coverage, Older: olderCoverages, Unbound: unbound}, nil
-}
-
-// paths lists every JSON path a shape can present: "[]" steps into elements,
-// "{}" into map values. Custom and recursive shapes end their path.
-func paths(shape any, path string, out map[string]bool) {
-	s, _ := shape.(map[string]any)
-	out[path] = true
-	switch s["kind"] {
-	case "pointer":
-		paths(s["elem"], path, out)
-	case "slice", "array":
-		paths(s["elem"], path+"[]", out)
-	case "map":
-		paths(s["elem"], path+"{}", out)
-	case "object":
-		fields, _ := s["fields"].([]any)
-		for _, f := range fields {
-			field, _ := f.(map[string]any)
-			paths(field["shape"], path+"."+fmt.Sprint(field["name"]), out)
-		}
-	}
-}
-
-// conforms reports whether a decoded payload is exactly what encoding/json
-// writes for the shape: every member it always emits is present, no member is
-// unknown, and each value has the member's JSON type. It marks the paths the
-// payload presents non-null.
-func conforms(shape, value any, path string, present map[string]bool) bool {
-	s, _ := shape.(map[string]any)
-	kind, _ := s["kind"].(string)
-	if value == nil {
-		return kind == "pointer" || kind == "slice" || kind == "map" || kind == "bytes" || kind == "custom" || kind == "recursive"
-	}
-	present[path] = true
-	switch kind {
-	case "custom", "recursive":
-		return true
-	case "pointer":
-		return conforms(s["elem"], value, path, present)
-	case "string", "bytes":
-		_, ok := value.(string)
-		return ok
-	case "bool":
-		_, ok := value.(bool)
-		return ok
-	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64":
-		_, ok := value.(float64)
-		return ok
-	case "slice", "array":
-		items, ok := value.([]any)
-		if !ok || (kind == "array" && float64(len(items)) != s["length"]) {
-			return false
-		}
-		for _, item := range items {
-			if !conforms(s["elem"], item, path+"[]", present) {
-				return false
-			}
-		}
-		return true
-	case "map":
-		entries, ok := value.(map[string]any)
-		for _, entry := range entries {
-			ok = ok && conforms(s["elem"], entry, path+"{}", present)
-		}
-		return ok
-	case "object":
-		object, ok := value.(map[string]any)
-		fields, _ := s["fields"].([]any)
-		known := map[string]bool{}
-		for _, f := range fields {
-			field, _ := f.(map[string]any)
-			name := fmt.Sprint(field["name"])
-			known[name] = true
-			member, has := object[name]
-			switch {
-			case !has:
-				ok = ok && (field["omitempty"] == true || field["omitzero"] == true)
-			case field["string"] == true:
-				_, quoted := member.(string)
-				ok = ok && quoted
-				present[path+"."+name] = true
-			default:
-				ok = ok && conforms(field["shape"], member, path+"."+name, present)
-			}
-		}
-		for name := range object {
-			ok = ok && known[name]
-		}
-		return ok
-	}
-	return false
 }
 
 // probeTemplate joins a scratch copy of one release's internal/store. It reflects

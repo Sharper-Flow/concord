@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the release restore inventory (scripts/release-restore-inventory.go).
+"""Tests for the release restore inventory (scripts/release-restore-inventory/).
 
 The real generator runs as a subprocess against a synthetic Git repository
 whose tags carry each registry form the released history uses:
@@ -35,7 +35,7 @@ import git_environment
 git_environment.scrub_inherited()
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATOR = "scripts/release-restore-inventory.go"
+GENERATOR = "./scripts/release-restore-inventory"
 UNTYPED = "registry entries name no payload type (form A); accepted named exclusion from shape coverage"
 
 GO_MOD = "module example.com/fixture\n\ngo 1.26\n"
@@ -214,6 +214,10 @@ class InventoryTest(unittest.TestCase):
         (cls.repo / "go.sum").write_text("")
         store = cls.repo / "internal" / "store"
         store.mkdir(parents=True)
+        # The binary compiles no store.Event, so every writer analysis refuses
+        # (writers_test.go covers analysis).
+        (cls.repo / "cmd" / "concord").mkdir(parents=True)
+        (cls.repo / "cmd" / "concord" / "main.go").write_text("package main\n\nfunc main() {}\n")
         # (tag, registry, annotated); v1.0.1 differs outside internal/ only.
         for tag, registry, annotated in (
             ("v0.1.0", FORM_A_REGISTRY, False),
@@ -260,7 +264,7 @@ class InventoryTest(unittest.TestCase):
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
         self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v0.40.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0", "v5.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
-        self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
+        self.assertEqual(self.first["generator"], "go run ./scripts/release-restore-inventory")
 
     def test_annotated_tag_keeps_tag_object_and_peeled_commit(self) -> None:
         row = self.rows()["v1.0.0"]
@@ -488,6 +492,44 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         typed = self.shapes(json.loads(coverage.read_text()))[("thing.typed", 2)]
         self.assertEqual((typed["covered"], typed["witnesses"]), (True, ["TestTypedBase", "release:v1.0.0@domain-v2"]))
+
+    def test_each_group_records_its_writer_analysis(self) -> None:
+        self.assertEqual(set(self.first["analyses"]), {row["group"] for row in self.first["rows"] if "group" in row})
+        for analysis in self.first["analyses"].values():
+            self.assertIn("does not compile internal/store.Event", analysis["refused"])
+        findings = {f["tag"]: f for f in self.coverage["writer_findings"]}
+        self.assertEqual(sorted(findings), ["v0.40.0", "v1.0.0", "v1.0.1"])
+        for finding in findings.values():
+            self.assertNotIn("held_sites", finding)
+            self.assertTrue(finding["refused"])
+
+    def test_cache_and_batch_compute_groups_in_bounded_runs(self) -> None:
+        cache, log = self.scratch / "cache", self.scratch / "cache.jsonl"
+        log.write_text("".join(json.dumps(w) + "\n" for w in WITNESSES))
+        base = [str(self.binary), "-out", str(self.scratch / "cache.json"), "-coverage", str(self.scratch / "cache.cov"), "-witnesses", str(log)]
+        refused = run([*base, "-batch", "1"], self.repo)
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("-batch needs -cache", refused.stderr)
+        args = [*base, "-cache", str(cache), "-batch", "1"]
+        groups = len({row["group"] for row in self.first["rows"] if "group" in row})
+        for _ in range(groups - 1):
+            result = run(args, self.repo)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertIn("groups are not computed yet", result.stderr)
+            self.assertFalse((self.scratch / "cache.json").exists())
+        result = run(args, self.repo)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        batched = json.loads((self.scratch / "cache.json").read_text())
+        for key in ("groups", "analyses", "types"):
+            self.assertEqual(batched[key], self.first[key], key)
+        self.assertEqual([(r["tag"], r["status"]) for r in batched["rows"]], [(r["tag"], r["status"]) for r in self.first["rows"]])
+        self.assertEqual(len(list(cache.glob("*.json"))), groups)
+        rerun = run([*base, "-cache", str(cache)], self.repo)
+        self.assertEqual(rerun.returncode, 1, rerun.stderr)
+        reused = {r["tag"]: r for r in json.loads((self.scratch / "cache.json").read_text())["rows"]}
+        # A fresh probe failure names a new scratch path; a kept one repeats it.
+        self.assertEqual(reused["v3.0.0"]["status"], "inventory_refused")
+        self.assertEqual(reused["v3.0.0"]["detail"], {r["tag"]: r for r in batched["rows"]}["v3.0.0"]["detail"])
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

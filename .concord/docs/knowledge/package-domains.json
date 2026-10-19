@@ -153,6 +153,14 @@
     },
     {
       "domain_ids": [
+        "durable-authority",
+        "operator-surface",
+        "repository-verification"
+      ],
+      "path": "scripts/release-restore-inventory"
+    },
+    {
+      "domain_ids": [
         "workflow-engine"
       ],
       "path": "scripts/workflow-action-contracts"

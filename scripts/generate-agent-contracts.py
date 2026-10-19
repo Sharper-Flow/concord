@@ -1651,6 +1651,17 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "incomparable_with_approved": {"type": "boolean"},
         },
     }
+    # CD-0230 D4: a serious law change pins the exact text the operator
+    # approves. Each pin names one changed law and the sha256 content hash of
+    # its drafted after-state document; completion refuses other bytes.
+    defs["workflow_law_text_pin"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["law_id", "content_hash"],
+        "properties": {
+            "law_id": {"$ref": "#/$defs/law_id"},
+            "content_hash": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
+        },
+    }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}

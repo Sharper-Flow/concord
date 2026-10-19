@@ -469,14 +469,23 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 		// The existing legacy fact: an independent evaluator never becomes consent.
 		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired
 	}
-	if request.ActionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(state.Definition.Definition) {
+	if (request.ActionID == "approve_contract" || request.ActionID == "supersede_contract") && workflowApprovalPolicyRequiresDecisionFact(state.Definition.Definition) {
 		var fields map[string]json.RawMessage
 		if len(request.Payload) != 0 {
 			if err := decodeWorkflowActionPayloadStrict(request.Payload, &fields); err != nil {
 				return state, newFailure(KindInvalidPayload, "workflow_approval_boundary", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 			}
 		}
-		if facts.ProposedDecisionDomains, err = workflowSubmittedDecisionDomains(state.Definition.Definition, "approval", fields); err != nil {
+		role := "successor"
+		if request.ActionID == "approve_contract" {
+			role = "approval"
+			if facts.ProposedDecisionDomains, err = workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields); err != nil {
+				return state, err
+			}
+		}
+		// CD-0230 D4: a serious law change needs the operator's approval of
+		// its exact text; a non-serious one records its reason instead.
+		if facts.SeriousLawChange, err = workflowProposedLawChangeSeriousTx(ctx, q, state.Definition.Definition, request.WorkID, role, fields); err != nil {
 			return state, err
 		}
 	}

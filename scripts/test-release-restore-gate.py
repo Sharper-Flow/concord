@@ -39,6 +39,8 @@ gate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = gate
 SPEC.loader.exec_module(gate)
 
+from release_restore_invoke import INVOKE_PLAN
+
 TARGET = "a" * 40
 FILE_LIMIT = 64 << 20
 GROWTH_CAP = 8 << 20
@@ -84,6 +86,15 @@ for table, key, subject in (("products", "id", "gate-product"), ("projects", "id
     db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
     db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
 db.commit()
+if sys.argv[1] == "grant":
+    print(json.dumps({{"ok": True, "grant_token": "writer-token", "scope_version": "sha256:" + "0" * 64,
+                       "surface_version": "4.0.0", "envelope_version": "1.0"}}))
+    sys.exit(0)
+if sys.argv[1] == "invoke":
+    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES ('writer-invoke', 'work.created', 2, 'invoke')")
+    db.commit()
+    print(json.dumps({{"outcome": "ok"}}))
+    sys.exit(0)
 print(json.dumps({{"ok": True}}))
 """
 
@@ -206,17 +217,17 @@ class CaseTests(unittest.TestCase):
     def test_a_writer_restores_twice_and_its_case_is_removed(self) -> None:
         row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
-        steps = len(gate.recipe_for("v1.0.0"))
+        steps = len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1
         self.assertEqual((row["source"]["event_watermark"], row["restored"]["appended_events"], row["rebuilt"]["appended_events"]), (steps, 1, 0))
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
 
     def test_a_passing_case_witnesses_every_writer_row_with_its_provenance(self) -> None:
         writer = self.fixture.publish("v1.0.0")
         row = self.case(writer, self.fixture.candidate())
-        steps = gate.recipe_for("v1.0.0")
+        steps = gate.recipe_for("v1.0.0") + [(verb.split(":")[0], {}) for verb in INVOKE_PLAN] + [("work.created", {})]
         self.assertEqual([(w["seq"], w["kind"]) for w in row["witnesses"]], [(seq, verb) for seq, (verb, _) in enumerate(steps, start=1)])
         provenance = {"tag": "v1.0.0", "asset_digest": writer.asset_digest, "recipe": gate.RECIPE_ID,
-                      "recipe_sha256": gate.recipe_sha256(steps), "snapshot_sha256": row["source"]["db_checksum"]}
+                      "recipe_sha256": gate.recipe_sha256(gate.recipe_for("v1.0.0")), "snapshot_sha256": row["source"]["db_checksum"]}
         self.assertEqual({json.dumps(w["writer"], sort_keys=True) for w in row["witnesses"]}, {json.dumps(provenance, sort_keys=True)})
         self.assertEqual(json.loads(row["witnesses"][0]["payload"]), gate.PRODUCT)
         # Versions come from the writer's own store, before each step.
@@ -227,13 +238,13 @@ class CaseTests(unittest.TestCase):
 
         def late_failure(*args):
             row = real(*args)
-            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.2.0" else row
+            return row | {"status": "unknown", "stage": "budget"} if row["tag"] == "v1.1.2" else row
 
-        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         with patch.object(gate, "run_writer_case", late_failure):
             report, _ = self.gate_run(self.fixture.candidate(), *writers)
         emitted = [json.loads(line) for line in (self.fixture.root / "out" / "witnesses.jsonl").read_text().splitlines()]
-        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0"))))
+        self.assertEqual(({w["writer"]["tag"] for w in emitted}, report["witnesses"]), ({"v1.0.0"}, len(gate.recipe_for("v1.0.0")) + len(INVOKE_PLAN) + 1))
 
     def test_recipe_steps_start_at_their_release(self) -> None:
         verbs = lambda tag: [verb for verb, _ in gate.recipe_for(tag)]
@@ -266,8 +277,8 @@ class CaseTests(unittest.TestCase):
         self.assertCase(self.case(self.fixture.publish("v1.0.0", corrupt=True), candidate), "fail", "checksum")
         self.assertCase(self.case(self.fixture.publish("v1.0.1", mode="wrong-version"), candidate), "fail", "version")
         self.assertCase(self.case(self.fixture.publish("v1.0.2", mode="refuse"), candidate), "unknown", "product-create")
-        self.assertCase(self.case(self.fixture.publish("v1.0.3", size_delta=1), candidate), "fail", "download")
-        replaced = dataclasses.replace(self.fixture.publish("v1.0.4"), asset_id=999)
+        self.assertCase(self.case(self.fixture.publish("v1.1.3", size_delta=1), candidate), "fail", "download")
+        replaced = dataclasses.replace(self.fixture.publish("v1.1.4"), asset_id=999)
         self.assertCase(self.case(replaced, candidate), "unknown", "download")
 
     def test_candidate_failures_are_named(self) -> None:
@@ -275,7 +286,7 @@ class CaseTests(unittest.TestCase):
                                                 ("rewrite-event", "conservation"), ("drop-event", "restore"),
                                                 ("lose-effect", "effects"), ("rebuild-drift", "rebuild"))):
             with self.subTest(mode=mode):
-                row = self.case(self.fixture.publish(f"v1.1.{number}"), self.fixture.candidate(mode))
+                row = self.case(self.fixture.publish(("v1.1.0", "v1.1.1", "v1.1.2", "v1.1.3", "v1.1.4", "v1.0.2")[number]), self.fixture.candidate(mode))
                 self.assertCase(row, "fail", stage)
 
     def test_resource_budgets_stop_the_case(self) -> None:
@@ -310,12 +321,12 @@ class CaseTests(unittest.TestCase):
                                   output_dir=str(self.fixture.root / "out"), workers=2, wall_seconds=600, case_seconds=60,
                                   disk_bytes=1 << 30, transfer_bytes=1 << 30, census_dir=str(self.census()))
 
-    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.2.0"),
+    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.1.2"),
                older_covered: bool = True, unbound: tuple[str, ...] = ()) -> Path:
-        """Write a shape census; by default it inventories v1.0.0 and v1.2.0, which write one unwitnessed shape."""
+        """Write a shape census; by default it inventories v1.0.0 and v1.1.2, which write one unwitnessed shape."""
         census = self.fixture.root / f"census-{len(list(self.fixture.root.glob('census-*')))}"
         census.mkdir()
-        rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.2.0")}
+        rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.1.2")}
         (census / "writers.json").write_text(json.dumps({"rows": list(rows.values())}))
         (census / "coverage.json").write_text(json.dumps({
             "shapes": [{"kind": "work.created", "payload_version": 2, "writers": list(written), "covered": covered}],
@@ -341,23 +352,23 @@ class CaseTests(unittest.TestCase):
     def test_gate_passes_only_with_a_closed_census(self) -> None:
         args = self.args(self.fixture.candidate())
         args.census_dir = str(self.census(covered=True))
-        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        writers = (self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         releases = [release_of(writer, index) for index, writer in enumerate(writers, start=1)]
         report, status = gate.run_gate(args, releases, tag_map(*(writer.tag for writer in writers)))
         self.assertEqual((status, report["result"], report["coverage"]), (0, "pass", {"status": "closed", "writers": 2, "shapes": 1}))
         emitted = [json.loads(line) for line in (Path(args.output_dir) / "witnesses.jsonl").read_text().splitlines()]
         self.assertEqual(len(emitted), report["witnesses"])
-        self.assertEqual(sorted({w["writer"]["tag"] for w in emitted}), ["v1.0.0", "v1.2.0"])
+        self.assertEqual(sorted({w["writer"]["tag"] for w in emitted}), ["v1.0.0", "v1.1.2"])
         self.assertFalse(any("witnesses" in row for row in report["rows"]))
 
     def test_coverage_holds_on_every_census_gap(self) -> None:
-        writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.2.0")]
+        writers = [gate.Writer(**{**dataclasses.asdict(self.fixture.publish("v1.0.0")), "tag": tag}) for tag in ("v1.0.0", "v1.1.2")]
         excluded = {"tag": "v0.1.0", "status": "inventory_refused", "excluded": True}
         cases = (
             (self.census(covered=True), "closed", None),
-            (self.census({"v0.1.0": excluded, "v1.0.0": {"tag": "v1.0.0", "status": "inventoried"}}, covered=True), "held", "1 uninventoried writers, first v1.2.0"),
-            (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.2.0": {"tag": "v1.2.0", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
-            (self.census(covered=True, written=("v1.0.0",)), "held", "1 inventoried writers without shapes, first v1.2.0"),
+            (self.census({"v0.1.0": excluded, "v1.0.0": {"tag": "v1.0.0", "status": "inventoried"}}, covered=True), "held", "1 uninventoried writers, first v1.1.2"),
+            (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.1.2": {"tag": "v1.1.2", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
+            (self.census(covered=True, written=("v1.0.0",)), "held", "1 inventoried writers without shapes, first v1.1.2"),
             (self.census(), "held", "1 unwitnessed shapes, first work.created v2"),
             (self.census(covered=True, older_covered=False), "held", "1 unwitnessed older versions, first work.created v1"),
             (self.census(covered=True, unbound=("v1.0.0 seq 3 work.created v1",)), "held", "1 unbound writer witnesses, first v1.0.0 seq 3"),
@@ -373,13 +384,13 @@ class CaseTests(unittest.TestCase):
                 self.assertIn(detail, coverage["detail"])
 
     def test_gate_holds_coverage_when_every_writer_passes(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0"))
+        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         self.assertEqual((status, report["result"], report["coverage"]["status"]), (3, "pass", "held"))
-        self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.2.0"])
+        self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.1.2"])
         self.assertGreater(report["budgets"]["transferred_bytes"], 0)
 
     def test_gate_fails_on_any_writer_or_empty_population(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.2.0", corrupt=True))
+        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2", corrupt=True))
         self.assertEqual((status, report["result"], report["counts"]), (1, "fail", {"pass": 1, "fail": 1, "unknown": 0}))
         report, status = gate.run_gate(self.args(self.fixture.candidate()), [], {})
         self.assertEqual((status, report["result"]), (1, "unknown"))

@@ -66,6 +66,24 @@ describe("primary role guard", () => {
     }
   })
 
+  test("Concord-Planner is refused every work-state writer and keeps the reads and the watcher", async () => {
+    for (const toolID of MUTATING) {
+      const { calls, definition } = recording()
+      const refusal = await guardPrimaryRole(toolID, definition).execute({ request: {} }, context("Concord-Planner")).catch((error: unknown) => error)
+      expect(refusal).toBeInstanceOf(PrimaryRoleRefusal)
+      const message = String((refusal as Error).message)
+      expect(message).toContain(`${toolID} is refused for Concord-Planner`)
+      expect(message).toContain("writes work state")
+      expect(message).toContain("records nothing")
+      expect(calls).toEqual([])
+    }
+    for (const toolID of [...READS, ...WATCHING]) {
+      const { calls, definition } = recording()
+      expect(await guardPrimaryRole(toolID, definition).execute({ id: toolID }, context("Concord-Planner"))).toBe("ran")
+      expect(calls).toEqual([{ id: toolID }])
+    }
+  })
+
   test("every lane and utility is refused every workflow tool before transport", async () => {
     for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
       for (const toolID of WORKFLOW_CATALOG) {
@@ -139,9 +157,12 @@ describe("primary role guard", () => {
 
   test("the guard reads one generated registry covering exactly the registered roles", () => {
     const agents = Object.keys(roleDeniedConcordTools).sort()
-    expect(agents).toEqual(["Concord-RTE", "Concord", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
-    // Neither primary profile denies a tool, so every remaining refusal is
-    // a lane or utility boundary.
+    expect(agents).toEqual(["Concord-RTE", "Concord", "Concord-Planner", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
+    // Neither full primary profile denies a tool; Planner denies exactly the
+    // work-state writers. Every remaining refusal is a lane or utility
+    // boundary.
+    expect([...roleDeniedConcordTools["Concord-Planner"].tools].sort()).toEqual(MUTATING)
+    expect(roleDeniedConcordTools["Concord-Planner"].boundary.length).toBeGreaterThan(0)
     expect(roleDeniedConcordTools["Concord-RTE"].tools).toEqual([])
     expect(roleDeniedConcordTools["Concord"].tools).toEqual([])
     expect(roleDeniedConcordTools["Concord-RTE"].boundary).toBe("")

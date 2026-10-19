@@ -72,7 +72,7 @@ session is optional; it is not a required layer above Concord.
 The user may also choose to start `Concord-Planner` for ad-hoc research and
 backlog refinement. It is optional and never a gate on Concord's work. It reads
 code and law, runs bounded diagnostics, writes research notes and standalone
-prototypes under the project's `.planning/` directory, and updates Linear
+prototypes under the project's `.planning` directory, and updates Linear
 records within the scope the operator approves. It surfaces where an executing
 agent would have to guess, separates what it observed from what it recommends,
 writes only approved decisions into a ticket's description, marks every
@@ -98,7 +98,7 @@ routes to it, and records the decision and its reasons on the item.
 profile-level Concord-tool denial. Their shell rules only deny named unsafe
 commands; the host's shell rules govern every other command.
 `Concord-Planner`'s profile enforces its boundary in configuration: its edit
-rules admit only `.planning/`; its shell rules allow named read-only and
+rules admit only the `.planning` directory; its shell rules allow named read-only and
 diagnostic commands, deny commit, push, pull-request, and release commands, and
 ask for every other command; its Task rules admit only Concord utilities; and it
 is denied every Concord tool that writes work state.

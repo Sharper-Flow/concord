@@ -49,10 +49,9 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 	seedWorkContextDomainRegistry(t, s)
 
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The seeded close records an operator verdict and premise
+	// confirmation: the flow a legacy approval-policy pin keeps.
+	definition := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/context-owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {

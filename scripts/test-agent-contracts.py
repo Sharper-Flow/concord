@@ -2641,13 +2641,16 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             fields_schema = variant["properties"]["fields"]
             if len(combinations) + len(alternatives) == 1 and not kind_matches:
                 group = (combinations + alternatives)[0]
-                flat = fields_schema
-                self.assertNotIn("oneOf", flat, f"{action['id']} publishes a union for a single rule group")
-                self.assertIs(flat.get("additionalProperties"), False)
-                for name in group["fields"]:
-                    self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
-                for name in group.get("forbids", []):
-                    self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
+                # Different workflow fieldsets can still form an outer union;
+                # the single rule group must collapse within each fieldset.
+                for condition in _condition_branches(variant):
+                    flat = _fields_object(condition)
+                    self.assertNotIn("oneOf", flat, f"{action['id']} publishes a nested union for a single rule group")
+                    self.assertIs(flat.get("additionalProperties"), False)
+                    for name in group["fields"]:
+                        self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
+                    for name in group.get("forbids", []):
+                        self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
                 continue
             self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
 
@@ -2776,7 +2779,8 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                 fields = envelope["properties"].get("fields")
                 if fields is None:
                     continue
-                for branch in fields.get("anyOf", [fields]):
+                for condition in _condition_branches(envelope):
+                    branch = _fields_object(condition)
                     value = self._sample(envelope)
                     value["fields"] = self._sample(branch)
                     for name in names:
@@ -2795,9 +2799,10 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
             self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
-        approve = self.defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]
-        if "required_evidence" in approve:
-            self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+        for condition in _condition_branches(self.defs["work_transition_action_variant_approve_contract"]):
+            approve = _fields_object(condition)["properties"]
+            if "required_evidence" in approve:
+                self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
 
     def test_every_registry_action_has_one_closed_variant(self):
         core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]

@@ -745,14 +745,15 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 		if decision.Consent == WorkflowConsentNone {
 			// Engineering: the authenticated non-worker coordinator records
 			// its own confirm choice — no operator substitution, no pending
-			// human question, no human decision-context digest.
+			// human question, no human decision-context digest. Both
+			// selections ride the request envelope, never the action fields.
 			if request.OperatorActor != nil {
 				return nil, newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for an engineering premise confirmation", false, "confirm under the authenticated coordinator identity")
 			}
-			if digest := workflowFieldStringDefault(fields, "decision_context_digest", ""); digest != "" {
+			if request.DecisionContextDigest != "" {
 				return nil, newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation carries no human decision-context digest", false, "drop the human digest for engineering work")
 			}
-			if choice := workflowFieldStringDefault(fields, "selected_choice", ""); choice != "confirm" {
+			if request.SelectedChoice != "confirm" {
 				return nil, newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation records selected_choice confirm; revise follows the successor route", false, "confirm, or supersede through the successor route")
 			}
 			authority, authorityErr := workflowEvaluationAuthority(ctx, tx, request.WorkID, actor)

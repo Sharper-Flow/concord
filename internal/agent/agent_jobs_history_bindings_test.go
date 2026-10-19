@@ -50,6 +50,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		"rigor_class":       "prototype_internal",
 		"supersede_reason":  "correct the accepted premise",
 		"audit_evidence":    []string{"evidence:aj4-history"},
+		"decision_domains":  []string{},
 		"design_record": map[string]any{
 			"approach":     "corrected design",
 			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},

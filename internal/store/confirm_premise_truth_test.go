@@ -88,6 +88,38 @@ func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 	}
 }
 
+// TestWorkPinEngineeringConfirmPremiseOmitsDigest holds the engineering side
+// of the consequence_v1 declaration: an engineering contract opens no
+// operator question, and the pin's confirm_premise intent requires the closed
+// choice alone, because the confirmation refuses a human digest.
+func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID, otherWorkID := "confirm-pin-engineering", "confirm-pin-engineering-other"
+	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	seedConfirmPremiseDeliverables(t, s, workID)
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatalf("pin read failed: %v", err)
+	}
+	if pin.PendingOperatorDecision != nil {
+		t.Fatalf("engineering pin opened operator question %+v", pin.PendingOperatorDecision)
+	}
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "confirm_premise" {
+			if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "selected_choice" {
+				t.Fatalf("engineering confirm_premise required_fields = %v, want [selected_choice]", intent.RequiredFields)
+			}
+			return
+		}
+	}
+	t.Fatalf("engineering pin intents %v omit confirm_premise", pin.NextValidIntents)
+}
+
 // TestConfirmPremiseDigestMismatchRefuses holds the checkpoint the digest
 // protects: a selection whose decision_context_digest does not match the open
 // question refuses as stale, while the question's own digest passes the

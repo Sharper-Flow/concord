@@ -1284,3 +1284,52 @@ func workflowEventWithActor(id, kind, workID, actor string, payload map[string]a
 	event.Actor = actor
 	return event
 }
+
+// legacyApprovalPolicyDefinitionForRef resolves the newest registered
+// version of ref that answers consent under the released legacy policy.
+// Fixtures whose subject is an operator-substituted verdict, correction, or
+// premise confirmation pin it: instances captured before the consequence_v1
+// promotion keep that flow, and the consequence_v1 heads exercise the
+// routine flow in TestBuiltinWorkflowCompletionWitnesses.
+func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDefinition {
+	t.Helper()
+	registry := BuiltinWorkflowRegistry()
+	for version := builtinWorkflowCurrentVersions[ref]; version >= 1; version-- {
+		registered, ok := registry.Lookup(ref, version)
+		if ok && registered.Definition.ApprovalPolicy == "" {
+			return registered
+		}
+	}
+	t.Fatalf("%s registers no legacy approval-policy version", ref)
+	return RegisteredDefinition{}
+}
+
+// withPinnedDecisionFact declares the explicit engineering decision-domain
+// fact on a seeded contract approval, or on a seeded supersession's successor
+// contract, when the pinned definition answers consent under consequence_v1,
+// at the payload version that carries the fact. A legacy pin keeps the seeded
+// bytes.
+func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event Event) Event {
+	t.Helper()
+	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+		return event
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	contract, factVersion := payload, workflowContractDecisionDomainsPayloadVersion
+	if event.Kind == WorkflowContractSuperseded {
+		successor, ok := payload["successor_contract"].(map[string]any)
+		if !ok {
+			t.Fatal("seeded supersession carries no successor contract")
+		}
+		contract, factVersion = successor, workflowContractSupersededDecisionDomainsPayloadVersion
+	}
+	if _, declared := contract["decision_domains"]; !declared {
+		contract["decision_domains"] = []string{}
+	}
+	event.Payload = mustJSONValue(payload)
+	event.PayloadVersion = max(event.PayloadVersion, factVersion)
+	return event
+}

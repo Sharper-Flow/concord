@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
 	"strconv"
 )
 
@@ -410,6 +411,12 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		decision := workflowAdmit(definition, state, intent.ActionID)
 		if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired {
 			continue
+		}
+		// A consequence_v1 confirm_premise declares the human digest
+		// optional; decision-bearing work folds the operator authority, whose
+		// confirmation answers the open question with its exact digest.
+		if intent.ActionID == "confirm_premise" && state.ConfirmationAuthority == WorkflowConfirmationOperator && !slices.Contains(intent.RequiredFields, "decision_context_digest") {
+			intent.RequiredFields = append(slices.Clone(intent.RequiredFields), "decision_context_digest")
 		}
 		kept = append(kept, intent)
 	}

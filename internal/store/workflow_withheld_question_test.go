@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -178,6 +179,10 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
+	var removed struct{ DecisionDomains sql.NullString }
+	if err := db.QueryRow(`SELECT decision_domains FROM workflow_contracts WHERE work_id=?`, workID).Scan(&removed.DecisionDomains); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`DELETE FROM workflow_contracts WHERE work_id=?`, workID); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +203,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, workID); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) SELECT ?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal',?`, workID, removed.DecisionDomains); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
@@ -250,8 +255,14 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) Workflo
 		workID, registered.Definition.Ref, registered.Definition.Version, digest, "verify", actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal')`,
-		workID, actorRef); err != nil {
+	// The operator question belongs to decision-bearing work: a
+	// consequence_v1 pin stores the contract's declared Product domain.
+	var decisionDomains any
+	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
+		decisionDomains = `["product"]`
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal',?)`,
+		workID, actorRef, decisionDomains); err != nil {
 		t.Fatal(err)
 	}
 	return WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: digest}

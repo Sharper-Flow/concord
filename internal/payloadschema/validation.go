@@ -300,6 +300,9 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 	}
 	if !combinatorSatisfied(keyword, matches, branches) {
 		if keyword == "oneOf" {
+			if matches == 0 && len(branchFailures) > 0 {
+				return fmt.Errorf("oneOf mismatch at %s: %s; expected exactly one accepted variant {%s}", path, strings.Join(errorStrings(branchFailures), "; "), strings.Join(schemaVariantDescriptions(branches, root), "; "))
+			}
 			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
 		}
 		// allOf requires every branch, so the first branch failure is the

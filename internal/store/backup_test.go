@@ -479,6 +479,7 @@ func TestBackupRestoreRebuildAndAsOfPreserveLivingEvidence(t *testing.T) {
 		},
 	})
 	contextContract.PayloadVersion = 3
+	contextContract = withPinnedDecisionFact(t, contextDefinition.Definition, contextContract)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contextContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): 4}}); err != nil {
 		t.Fatalf("context consumer contract refused: %v", err)
 	}

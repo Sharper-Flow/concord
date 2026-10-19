@@ -199,6 +199,9 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	binding["domain_modifies"] = []string{pm1fixture.FixtureRootDomainID}
 	fields["architecture_binding"] = binding
+	fields["law_change_reason"] = "The bounded repair changes the declared Domain."
+	fields["law_change_removes_user_visible_behavior"] = false
+	fields["law_change_touches_security_or_data_safety"] = false
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{workID}, "distinguish_from": []string{"disabled"},
 	}}}

@@ -51,19 +51,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-TAG_RE = re.compile(r"\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+from release_restore_population import (
+    NETWORK_SECONDS, GateError, Writer, enumerate_writers, gh_release_page, gh_release_total, git_tags, list_releases,
+)
+
 FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
-PER_PAGE = 100
 STREAM_LIMIT = 64 * 1024 * 1024
-NETWORK_SECONDS = 120
 POLL_SECONDS = 0.05
 RECIPE_ID = "bootstrap-v1"
-# Strict-semver tags that carry no GitHub release by a recorded ruling. The
-# entry binds the tag object and commit, so a retargeted tag is unknown again.
-SETTLED_UNPUBLISHED = {
-    "v8.28.5": ("e92fd8721495219a9d5a1817e2c8264615325d4d", "7193e6260b142ca86817a0b0128d2898da30ca8c"),
-}
 PRODUCT = {
     "product_id": "gate-product", "display_name": "Gate Product", "stage_maturity": "prototype",
     "stage_audience_commitment": "operator_only", "project_id": "gate-project",
@@ -81,10 +77,6 @@ EFFECTS = (
     ("project_locators", "SELECT kind, locator_value FROM project_locators WHERE project_id='gate-project' AND locator_id='gate-remote'",
      ("git_remote", "https://example.invalid/gate/project.git")),
 )
-
-
-class GateError(Exception):
-    """The population or candidate cannot be trusted; no writer result is meaningful."""
 
 
 class Transfer:
@@ -119,126 +111,6 @@ class CaseFailure(Exception):
     def __init__(self, status: str, stage: str, detail: str) -> None:
         super().__init__(detail)
         self.status, self.stage, self.detail = status, stage, detail
-
-
-@dataclasses.dataclass(frozen=True)
-class Writer:
-    tag: str
-    release_id: int
-    tag_object: str
-    commit: str
-    asset_id: int
-    asset_size: int
-    asset_digest: str
-    checksum_asset_id: int
-    checksum_size: int
-
-
-def semver(tag: str) -> tuple[int, int, int]:
-    match = TAG_RE.match(tag)
-    if not match:
-        raise GateError(f"tag {tag!r} is not a strict release version")
-    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
-
-
-def run_json(argv: list[str]) -> object:
-    completed = subprocess.run(argv, capture_output=True, text=True, timeout=NETWORK_SECONDS)
-    if completed.returncode != 0:
-        raise GateError(f"{argv[:3]} exited {completed.returncode}: {completed.stderr.strip()[-400:]}")
-    return json.loads(completed.stdout)
-
-
-def gh_release_total(repository: str) -> int:
-    owner, name = repository.split("/")
-    query = "query($o:String!,$n:String!){repository(owner:$o,name:$n){releases{totalCount}}}"
-    document = run_json(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"o={owner}", "-F", f"n={name}"])
-    return int(document["data"]["repository"]["releases"]["totalCount"])  # type: ignore[index]
-
-
-def gh_release_page(repository: str, page: int) -> list[dict]:
-    batch = run_json(["gh", "api", f"repos/{repository}/releases?per_page={PER_PAGE}&page={page}"])
-    if not isinstance(batch, list) or any(not isinstance(entry, dict) for entry in batch):
-        raise GateError(f"release page {page} is not a list of objects")
-    return batch
-
-
-def list_releases(total: int, fetch_page) -> list[dict]:
-    """Read release pages until the reported total is accounted for exactly."""
-    releases: list[dict] = []
-    page = 1
-    while len(releases) < total:
-        batch = fetch_page(page)
-        if not batch:
-            break
-        releases.extend(batch)
-        page += 1
-    if len(releases) != total:
-        raise GateError(f"release pages returned {len(releases)} of {total} releases")
-    return releases
-
-
-def git_tags(repository: str) -> dict[str, tuple[str, str]]:
-    """Strict-semver tags as {tag: (tag object, peeled commit)} from the public remote."""
-    completed = subprocess.run(
-        ["git", "ls-remote", "--tags", f"https://github.com/{repository}.git"],
-        capture_output=True, text=True, timeout=NETWORK_SECONDS,
-    )
-    if completed.returncode != 0:
-        raise GateError(f"git ls-remote exited {completed.returncode}: {completed.stderr.strip()[-400:]}")
-    objects: dict[str, str] = {}
-    peeled: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        oid, ref = line.split("\t")
-        name = ref.removeprefix("refs/tags/")
-        target = peeled if name.endswith("^{}") else objects
-        target[name.removesuffix("^{}")] = oid
-    return {tag: (oid, peeled.get(tag, oid)) for tag, oid in objects.items() if TAG_RE.match(tag)}
-
-
-def candidate_rerun(tag: str, tags: dict[str, tuple[str, str]], candidate_version: str, target_sha: str) -> bool:
-    """An idempotent release rerun: the candidate's own tag already names the target commit."""
-    return tag == candidate_version and tags.get(tag, ("", ""))[1] == target_sha
-
-
-def enumerate_writers(releases: list[dict], tags: dict[str, tuple[str, str]], candidate_version: str, target_sha: str):
-    """Join releases to tags. Returns (writers, unknown rows, unavailable rows, excluded tags)."""
-    candidate = semver(candidate_version)
-    writers: list[Writer] = []
-    unknown: list[dict] = []
-    seen: set[str] = set()
-    excluded: list[str] = []
-    for release in releases:
-        if release.get("draft"):
-            continue
-        tag = release.get("tag_name")
-        if not isinstance(tag, str) or tag in seen:
-            raise GateError(f"release {release.get('id')} has a missing or duplicate tag {tag!r}")
-        seen.add(tag)
-        if semver(tag) >= candidate:
-            if candidate_rerun(tag, tags, candidate_version, target_sha):
-                excluded.append(tag)
-                continue
-            raise GateError(f"published release {tag} is not earlier than candidate {candidate_version}")
-        if tag not in tags:
-            unknown.append({"tag": tag, "status": "unknown", "stage": "population", "detail": "release has no tag"})
-            continue
-        assets = {asset.get("name"): asset for asset in release.get("assets", [])}
-        binary, checksum = assets.get(f"concord-{tag}"), assets.get(f"concord-{tag}.sha256")
-        if binary is None or checksum is None:
-            unknown.append({"tag": tag, "status": "unknown", "stage": "artifact", "detail": "binary or checksum asset is absent"})
-            continue
-        writers.append(Writer(tag, int(release["id"]), tags[tag][0], tags[tag][1], int(binary["id"]), int(binary["size"]),
-                              str(binary.get("digest") or ""), int(checksum["id"]), int(checksum["size"])))
-    unavailable: list[dict] = []
-    for tag in sorted(set(tags) - seen, key=semver):
-        if candidate_rerun(tag, tags, candidate_version, target_sha):
-            excluded.append(tag)
-        elif SETTLED_UNPUBLISHED.get(tag) == tags[tag]:
-            unavailable.append({"tag": tag, "status": "artifact_unavailable", "tag_object": tags[tag][0], "commit": tags[tag][1]})
-        else:
-            unknown.append({"tag": tag, "status": "unknown", "stage": "population", "detail": "tag has no published release"})
-    writers.sort(key=lambda writer: semver(writer.tag))
-    return writers, unknown, unavailable, excluded
 
 
 def sandbox_env(root: Path) -> dict[str, str]:

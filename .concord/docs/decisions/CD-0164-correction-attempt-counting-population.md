@@ -12,6 +12,10 @@
   worker attempts but does not name the counting population
 - **Preserves:** The three-attempt limit, the correction escalation wall,
   the escalated retry route, and the immutability of attempt history
+- **Amended by:** [CD-0205 D4](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md#d4-only-the-satisfying-acceptance-closes-a-failed-jobs-window-refines-cd-0164-d1-d2),
+  [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221): one funded
+  confirming review on repair-capable definition versions and its productive
+  acceptance.
 
 ## Context
 
@@ -61,6 +65,10 @@ nothing. A correction that starts after a productive acceptance counts only
 the dispatches recorded after it. Step entries, `request_correction`, and
 contract supersession reset no count.
 
+On a repair-capable definition version, the repairing acceptance under
+CD-0205 D4 resets nothing, and only acceptance of its independent confirming
+review's ship verdict is productive for the repaired obligations.
+
 ### D3. The count survives contract supersession
 
 The counting window is scoped to the work item's attempt history, not to a
@@ -84,7 +92,8 @@ populations and fixes each to its comparator.
 - An infrastructure failure consumes the bound. Three transport failures
   escalate exactly like three worker errors.
 - An escalated correction admits a dispatch only behind a store-derived
-  convergence basis under CD-0148. The escalated retry route in
+  convergence basis under CD-0148 or the one CD-0205 D4 funded confirming
+  review. The escalated retry route in
   `internal/agent/mutations.go` mints no approval challenge there.
 - A completed `no_ship` attempt and a rejected attempt count as nonprogress,
   and no step entry, correction request, supersession, or disposition change

@@ -226,6 +226,39 @@ test("managed callers resume only their own originally ordinary children, includ
   expect(fixture.writes).toEqual([])
 })
 
+test("an unreadable or malformed own-child opening refuses a resume for host and utility calls", async () => {
+  for (const opening of ["unreadable", "assistant", "foreign", "lane"]) {
+    const fixture = host([session("scope-caller", true), { ...session("scope-own"), parentID: "scope-caller", agent: "host-reviewer" }])
+    const messages = fixture.openings.get("scope-own")!
+    if (opening === "unreadable") fixture.openings.delete("scope-own")
+    if (opening === "assistant") messages[0].info.role = "assistant"
+    if (opening === "foreign") messages[0].info.sessionID = "scope-foreign"
+    if (opening === "lane") messages[0].info.agent = "concord-review"
+    const plugin = await fixture.plugin()
+    for (const subagent_type of ["host-reviewer", "concord-explore"]) {
+      const output = { args: { ...args(), subagent_type, task_id: "scope-own" } }
+      const original = structuredClone(output.args)
+      await expect(plugin["tool.execute.before"](task("scope-caller"), output)).rejects.toThrow()
+      expect(output.args).toEqual(original)
+    }
+    expect(fixture.writes).toEqual([])
+  }
+})
+
+test("an ordinary Task result beside a live lane attempt settles nothing", async () => {
+  const fixture = host([session("scope-window", true)])
+  const plugin = await fixture.plugin()
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-live", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
+  dispatchWindows().open("scope-window", packet, "", process.cwd())
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "lane-call" }, { args: { ...args(), subagent_type: "concord-implement" } })
+  const native = { args: { ...args(), task_id: undefined } }
+  await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "native-call" }, native)
+  const result = { title: "native task", output: "native result", metadata: {} }
+  await plugin["tool.execute.after"]({ ...task("scope-window"), callID: "native-call", args: native.args }, result)
+  expect(result).toEqual({ title: "native task", output: "native result", metadata: {} })
+  expect(dispatchWindows().inFlightAttempt("scope-window")?.callID).toBe("lane-call")
+})
+
 test("an enrolled caller under an unmanaged parent can start ordinary host work", async () => {
   const fixture = host([session("scope-unmanaged-parent"), { ...session("scope-enrolled-child", true), parentID: "scope-unmanaged-parent" }])
   const plugin = await fixture.plugin()

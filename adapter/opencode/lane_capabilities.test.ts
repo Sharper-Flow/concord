@@ -39,7 +39,8 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
     },
   } })
   const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child") => guard.before({ tool, sessionID }, { args })
-  return { state, windows, guard, before }
+  const isNativeChild = (sessionID: string) => guard.isNativeChildOf(sessionID, "parent")
+  return { state, windows, guard, before, isNativeChild }
 }
 
 test("the capability ceiling denies shell, editors, and unknown indirect executors to non-authors", () => {
@@ -176,6 +177,16 @@ test("root host work and a coordinator utility do not acquire or consume lane au
   f.state.opening = "Read the bounded utility assignment"
   await f.before("read")
   expect(f.windows.inFlightAttempt("parent")?.packet.attempt_id).toBe("capability-attempt")
+})
+
+test("a retired lane child stays fenced after an agent switch, without a cached native identity", async () => {
+  const f = await fixture()
+  await f.before("read")
+  f.windows.takeInFlight("parent")
+  f.state.agent = "build"
+  await f.guard.observe("child", "build")
+  await expect(f.before("read")).rejects.toThrow("active authorized attempt")
+  await expect(f.isNativeChild("child")).resolves.toBe(false)
 })
 
 test("ordinary host children cannot claim a lane child slot even with exact packet bytes", async () => {

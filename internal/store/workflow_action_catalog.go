@@ -208,7 +208,7 @@ func workerJobSplitRevision(action WorkflowActionDefinition) WorkflowActionDefin
 		}
 		fields = append(fields, field)
 	}
-	fields = append(fields, actionObjectField("split", false, "worker_job_split"))
+	fields = append(fields, actionObjectField("split", false, "worker_job_split2"))
 	action.Payload.Fields = fields
 	return action
 }

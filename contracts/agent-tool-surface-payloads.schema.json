@@ -3816,6 +3816,83 @@
         }
       }
     },
+    "worker_job_split2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predecessor",
+        "successors",
+        "allocation"
+      ],
+      "properties": {
+        "predecessor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "job_id",
+            "revision",
+            "digest"
+          ],
+          "properties": {
+            "job_id": {
+              "$ref": "#/$defs/reference"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "successors": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/worker_job_split_successor"
+          }
+        },
+        "allocation": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/worker_job_split_allocation"
+          }
+        },
+        "replaced_attempt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attempt_id",
+            "attempt_epoch"
+          ],
+          "properties": {
+            "attempt_id": {
+              "$ref": "#/$defs/reference"
+            },
+            "attempt_epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "supplemental_classifications": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "items": {
+                "$ref": "#/$defs/worker_job_measured_path"
+              }
+            }
+          },
+          "description": "The exact completed overrun attempt this split replaces. Supplemental classifications serve only its overrun evidence; they change no inventory or descendant authority."
+        }
+      }
+    },
     "worker_job_split_successor": {
       "type": "object",
       "additionalProperties": false,
@@ -17714,7 +17791,7 @@
               "maxProperties": 32,
               "properties": {
                 "split": {
-                  "$ref": "#/$defs/worker_job_split"
+                  "$ref": "#/$defs/worker_job_split2"
                 }
               },
               "required": [

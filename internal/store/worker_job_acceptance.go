@@ -76,9 +76,10 @@ func workerJobLineCount(basis *WorkerJobMeasurementBasis, supplemental []WorkerJ
 // workerCompletedSizeRecord is the size-bearing content of one attempt's
 // worker.completed event.
 type workerCompletedSizeRecord struct {
-	observed *WorkerObservedDelivery
-	size     *WorkerProductionSize
-	repairs  []WorkerDirectCallerRepair
+	reportRef string
+	observed  *WorkerObservedDelivery
+	size      *WorkerProductionSize
+	repairs   []WorkerDirectCallerRepair
 }
 
 type workerJobSizeAcceptance struct {
@@ -123,7 +124,7 @@ func admitWorkerJobSizeAcceptanceTx(ctx context.Context, tx *sql.Tx, workID stri
 	if !recorded || entry.basis == nil || capability != "implementation" {
 		return refuseSupplemental()
 	}
-	completed, found, err := readWorkerCompletedSizeTx(ctx, tx, workID, attemptID)
+	completed, found, err := readWorkerCompletedSizeTx(ctx, tx, workID, attemptID, 0)
 	if err != nil || !found {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func admitWorkerJobSizeAcceptanceTx(ctx context.Context, tx *sql.Tx, workID stri
 			fmt.Sprintf("accept_worker_result: worker job %s's reported production_size does not agree with the observed count %d under the recorded inventory and production default between base %s and tree %s", job.JobID, reportedCount, entry.basis.BaseCommit, completed.observed.Commit),
 			false, "reject the result with reject_worker_result; a report and observation that disagree establish no size")
 	}
-	supplemental, err := admitWorkerSupplementalClassifications(fields, entry.basis, completed, foreign)
+	supplemental, err := admitWorkerSupplementalClassifications("accept_worker_result", fields, entry.basis, completed, foreign)
 	if err != nil {
 		return nil, err
 	}
@@ -167,24 +168,23 @@ func admitWorkerJobSizeAcceptanceTx(ctx context.Context, tx *sql.Tx, workID stri
 	return &workerJobSizeAcceptance{supplemental: supplemental, size: WorkerProductionSize{Base: entry.basis.BaseCommit, Tree: completed.observed.Commit, Count: count}}, nil
 }
 
-// admitWorkerSupplementalClassifications decodes and admits the acceptance's
+// admitWorkerSupplementalClassifications decodes and admits a coordinator's
 // supplemental classifications: each names an observed path of this job's
-// delta that the inventory does not classify. The classification review is
-// the acceptance itself: its fold already refuses an acceptor whose tuple is
-// the attempt's recorded executor, so every recorded exclusion comes from a
-// coordinator distinct from the executor.
-func admitWorkerSupplementalClassifications(fields map[string]json.RawMessage, basis *WorkerJobMeasurementBasis, completed workerCompletedSizeRecord, foreign map[string]bool) ([]WorkerJobMeasuredPath, error) {
+// delta that the inventory does not classify. The disposition's own boundary
+// enforces executor distinctness. A split uses the classes only for overrun
+// evidence; acceptance records them with its accepted measurement.
+func admitWorkerSupplementalClassifications(action string, fields map[string]json.RawMessage, basis *WorkerJobMeasurementBasis, completed workerCompletedSizeRecord, foreign map[string]bool) ([]WorkerJobMeasuredPath, error) {
 	if !workerJobSizeFieldPresent(fields, "supplemental_classifications") {
 		return nil, nil
 	}
 	var supplemental []WorkerJobMeasuredPath
 	if err := json.Unmarshal(fields["supplemental_classifications"], &supplemental); err != nil {
-		return nil, workerJobSizeAuthorFailure("accept_worker_result supplemental_classifications is not a list of classified paths", "supply each path with its class")
+		return nil, workerJobSizeAuthorFailure(action+" supplemental_classifications is not a list of classified paths", "supply each path with its class")
 	}
 	if len(supplemental) < 1 || len(supplemental) > WorkerJobMeasuredPathsMax {
-		return nil, workerJobSizeAuthorFailure(fmt.Sprintf("accept_worker_result supplemental_classifications carries %d paths; 1 to %d are declared", len(supplemental), WorkerJobMeasuredPathsMax), "classify at most the declared number of paths")
+		return nil, workerJobSizeAuthorFailure(fmt.Sprintf("%s supplemental_classifications carries %d paths; 1 to %d are declared", action, len(supplemental), WorkerJobMeasuredPathsMax), "classify at most the declared number of paths")
 	}
-	if err := validateWorkerJobMeasuredPaths("accept_worker_result supplemental_classifications", supplemental, workerJobSizeAuthorFailure); err != nil {
+	if err := validateWorkerJobMeasuredPaths(action+" supplemental_classifications", supplemental, workerJobSizeAuthorFailure); err != nil {
 		return nil, err
 	}
 	observed := map[string]bool{}
@@ -193,11 +193,11 @@ func admitWorkerSupplementalClassifications(fields map[string]json.RawMessage, b
 	}
 	for _, measured := range supplemental {
 		if slices.ContainsFunc(basis.Paths, func(inventoried WorkerJobMeasuredPath) bool { return inventoried.Path == measured.Path }) {
-			return nil, workerJobSizeAuthorFailure("accept_worker_result supplemental_classifications path "+measured.Path+" is already classified by the job's inventory, which an acceptance cannot change",
+			return nil, workerJobSizeAuthorFailure(action+" supplemental_classifications path "+measured.Path+" is already classified by the job's inventory, which an acceptance cannot change",
 				"classify only observed paths the inventory does not name")
 		}
 		if !observed[measured.Path] {
-			return nil, workerJobSizeAuthorFailure("accept_worker_result supplemental_classifications path "+measured.Path+" is not a path of this job's observed delta",
+			return nil, workerJobSizeAuthorFailure(action+" supplemental_classifications path "+measured.Path+" is not a path of this job's observed delta",
 				"classify only paths the sealed observation records")
 		}
 	}
@@ -384,10 +384,10 @@ func workerJobForeignAcceptedPathsTx(ctx context.Context, tx *sql.Tx, workID, jo
 
 // readWorkerCompletedSizeTx reads the size-bearing content of the attempt's
 // worker.completed event. found is false when no completion is recorded.
-func readWorkerCompletedSizeTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (workerCompletedSizeRecord, bool, error) {
+func readWorkerCompletedSizeTx(ctx context.Context, tx *sql.Tx, workID, attemptID string, beforeSeq int64) (workerCompletedSizeRecord, bool, error) {
 	var record workerCompletedSizeRecord
 	var raw string
-	switch err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&raw); {
+	switch err := tx.QueryRowContext(ctx, `SELECT event_id,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND (?=0 OR seq<?) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, beforeSeq, beforeSeq).Scan(&record.reportRef, &raw); {
 	case err == sql.ErrNoRows:
 		return record, false, nil
 	case err != nil:

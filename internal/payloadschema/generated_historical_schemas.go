@@ -1941,6 +1941,83 @@ const GeneratedHistoricalSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worker_job_split2": {
+      "additionalProperties": false,
+      "properties": {
+        "allocation": {
+          "items": {
+            "$ref": "#/$defs/worker_job_split_allocation"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "predecessor": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "job_id": {
+              "$ref": "#/$defs/reference"
+            },
+            "revision": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "job_id",
+            "revision",
+            "digest"
+          ],
+          "type": "object"
+        },
+        "replaced_attempt": {
+          "additionalProperties": false,
+          "description": "The exact completed overrun attempt this split replaces. Supplemental classifications serve only its overrun evidence; they change no inventory or descendant authority.",
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "$ref": "#/$defs/reference"
+            },
+            "supplemental_classifications": {
+              "items": {
+                "$ref": "#/$defs/worker_job_measured_path"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_epoch"
+          ],
+          "type": "object"
+        },
+        "successors": {
+          "items": {
+            "$ref": "#/$defs/worker_job_split_successor"
+          },
+          "maxItems": 64,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "predecessor",
+        "successors",
+        "allocation"
+      ],
+      "type": "object"
+    },
     "worker_job_split_allocation": {
       "additionalProperties": false,
       "description": "One allocation entry: the successor that owns the listed predecessor paths and the evidence for the assignment.",

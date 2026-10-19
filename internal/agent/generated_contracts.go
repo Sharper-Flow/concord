@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:0355564b1ebe34fe8a43810013f07c605d61b10a36373b3dc38fe72c3f58d583"
+const ManifestDigest = "sha256:bb34916141a4973135b33add1fbf2cf26b944c0362ca079cdf5301a81480bf16"
 
 type OperationKind string
 
@@ -344,6 +344,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_job_measurement_basis":                                   {Required: []string{"base_commit", "paths"}, Properties: []string{"base_commit", "paths"}},
 	"worker_job_prerequisite":                                        {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
 	"worker_job_split":                                               {Required: []string{"predecessor", "successors", "allocation"}, Properties: []string{"predecessor", "successors", "allocation"}},
+	"worker_job_split2":                                              {Required: []string{"predecessor", "successors", "allocation"}, Properties: []string{"predecessor", "successors", "allocation", "replaced_attempt"}},
 	"worker_job_split_allocation":                                    {Required: []string{"job_id", "paths", "evidence_refs"}, Properties: []string{"job_id", "paths", "evidence_refs"}},
 	"worker_job_split_successor":                                     {Required: []string{"job_id", "objective", "stopping_condition", "ready", "acceptance_oracle"}, Properties: []string{"job_id", "objective", "stopping_condition", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "ready", "readiness_evidence", "acceptance_oracle", "production_size_max", "measurement_basis", "direct_caller_allowance"}},
 	"worker_oracle_case":                                             {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},

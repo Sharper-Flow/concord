@@ -38,17 +38,19 @@ type WorkerJobSplitAllocation struct {
 // uncapped predecessor.
 type WorkerJobSplitPayload struct {
 	WorkflowVersionFields
-	Predecessor WorkerJobBinding           `json:"predecessor"`
-	BaseCommit  string                     `json:"base_commit,omitempty"`
-	Successors  []WorkerJobBinding         `json:"successors"`
-	Allocation  []WorkerJobSplitAllocation `json:"allocation"`
+	Predecessor     WorkerJobBinding               `json:"predecessor"`
+	BaseCommit      string                         `json:"base_commit,omitempty"`
+	Successors      []WorkerJobBinding             `json:"successors"`
+	Allocation      []WorkerJobSplitAllocation     `json:"allocation"`
+	ReplacedAttempt *WorkerJobSplitReplacedAttempt `json:"replaced_attempt,omitempty"`
 }
 
 // workerJobSplitInput is the authored split member of record_worker_job.
 type workerJobSplitInput struct {
-	Predecessor WorkerJobBinding           `json:"predecessor"`
-	Successors  []json.RawMessage          `json:"successors"`
-	Allocation  []WorkerJobSplitAllocation `json:"allocation"`
+	Predecessor     WorkerJobBinding                `json:"predecessor"`
+	Successors      []json.RawMessage               `json:"successors"`
+	Allocation      []WorkerJobSplitAllocation      `json:"allocation"`
+	ReplacedAttempt *workerJobSplitReplacementInput `json:"replaced_attempt,omitempty"`
 }
 
 func validWorkerJobBinding(binding WorkerJobBinding) bool {
@@ -63,6 +65,9 @@ func validateWorkerJobSplitPayload(event Event, payload WorkerJobSplitPayload) e
 	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
+	}
+	if payload.ReplacedAttempt != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 2 {
+		return invalidWorkerPayload("worker.job_split replaced_attempt requires payload version >= 2")
 	}
 	if !validWorkerJobBinding(payload.Predecessor) {
 		return invalidWorkerPayload("worker.job_split predecessor must name a job_id, revision, and digest")
@@ -104,7 +109,7 @@ func validateWorkerJobSplitPayload(event Event, payload WorkerJobSplitPayload) e
 			return invalidWorkerPayload("worker.job_split allocation evidence_refs must be distinct references between 2 and 128 bytes")
 		}
 	}
-	return nil
+	return validateWorkerJobSplitReplacementShape(payload.ReplacedAttempt)
 }
 
 // foldWorkerJobSplit verifies the split against the recorded revisions:
@@ -151,6 +156,9 @@ func foldWorkerJobSplit(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if payload.BaseCommit != base {
 		return invalidWorkerPayload("worker.job_split base_commit does not match the predecessor's recorded measurement basis")
+	}
+	if err := verifyWorkerJobSplitReplacementTx(ctx, tx, event, payload, predecessor); err != nil {
+		return err
 	}
 	for index, binding := range payload.Successors {
 		var recorded int
@@ -249,7 +257,7 @@ func workerJobSplitFailure(detail, recovery string) error {
 // admitWorkerJobSplitPredecessorTx admits the named predecessor: the job's
 // latest recorded revision under its digest, not satisfied, not already
 // split, and with no attempt still in flight or awaiting disposition.
-func admitWorkerJobSplitPredecessorTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding, splits []WorkerJobSplitPayload) (*WorkerJobRecordedPayload, error) {
+func admitWorkerJobSplitPredecessorTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding, splits []WorkerJobSplitPayload, replacement *workerJobSplitReplacementInput) (*WorkerJobRecordedPayload, error) {
 	if workerJobSplitReplacing(splits, binding.JobID) != nil {
 		return nil, workerJobSplitFailure("names predecessor job "+binding.JobID+", which an earlier split already replaced", "split one of that split's successor jobs instead")
 	}
@@ -281,6 +289,9 @@ func admitWorkerJobSplitPredecessorTx(ctx context.Context, tx *sql.Tx, workID st
 		ORDER BY d.seq LIMIT 1`, string(SubjectWorkItem), WorkflowActionCompleted, workID, binding.JobID, string(SubjectWorkItem), WorkflowActionCompleted).Scan(&attemptID, &lifecycle); {
 	case err == nil:
 		if lifecycle == "completed" {
+			if replacement != nil && replacement.AttemptID == attemptID {
+				return predecessor, nil
+			}
 			return nil, workerJobSplitFailure("cannot replace predecessor job "+binding.JobID+": its completed attempt "+attemptID+" awaits disposition", "accept or reject attempt "+attemptID+" before splitting the job")
 		}
 		return nil, workerJobSplitFailure("cannot replace predecessor job "+binding.JobID+" while its attempt "+attemptID+" is active", "wait for attempt "+attemptID+" to finish and dispose of it before splitting the job")

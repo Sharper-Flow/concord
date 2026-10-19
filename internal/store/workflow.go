@@ -2311,7 +2311,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.ActionID != "record_worker_job" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	// The worker-job binding is recorded authority (CD-0205): the
@@ -2576,6 +2576,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if (p.WorkerCallerExclusions != nil || p.SupplementalClassifications != nil || p.WorkerProductionSize != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedJobSizeVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_caller_exclusions, supplemental_classifications, and worker_production_size are reserved for payload version >= 6", false, "record the job-size members on the current completion payload")
 	}
+	if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 7 {
+		return invalidWorkerPayload("record_worker_job worker_attempt_id requires action_completed payload version >= 7")
+	}
 	// the attribution reference is the derived record's alone, and
 	// the source-version marker rules apply to both attribution members.
 	// Below the attribution version the reference is smuggled bytes; the
@@ -2661,6 +2664,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			}
 		}
 		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
+		if p.ActionID == "record_worker_job" && p.WorkerAttemptID != "" {
+			if err := validateSplitReplacementCompletionTx(ctx, tx, event, p); err != nil {
+				return err
+			}
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
 				return err
 			}
@@ -3134,7 +3145,7 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 
 // workerAttemptDisposalActions lists, as SQL literals, the workflow actions
 // that record a lane attempt's result decision and so end its hold.
-const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure'`
+const workerAttemptDisposalActions = `'accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure','record_worker_job'`
 
 // workflowFencedWriter names the actor that holds a fenced attempt's writing
 // authority before beforeSeq, and the sequence at which it took it: the lane
@@ -3350,6 +3361,11 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
+	if payload.ActionID != "record_worker_job" {
+		if err := refuseSplitReplacedWorkerAttemptTx(ctx, tx, event.SubjectID, payload.WorkerAttemptID, event.Seq); err != nil {
+			return err
+		}
+	}
 	var attemptWorkID, lifecycle, readback, capability string
 	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,capability_class FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &capability); err != nil {
 		if err == sql.ErrNoRows {
@@ -3375,7 +3391,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
-	if payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
+	if payload.ActionID == "record_worker_job" || payload.ActionID == "reject_worker_result" && isWorkflowReplay(ctx) {
 		// Recorded executor identity does not depend on current rejection eligibility.
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE seq=?`, attemptSeq).Scan(&target.ExecutorRef); err != nil {
 			return workflowProjectionError(err, "cannot read recorded worker executor")
@@ -3394,7 +3410,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// current one. Live rejection skips that anchor: its exact target validation
 	// above owns the epoch and dispatch provenance at this bound.
 	anchorSeq := event.Seq
-	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
+	if step != nil && step.Kind == WorkflowStepHumanCheckpoint || payload.ActionID == "record_worker_job" {
 		anchorSeq = attemptSeq
 	}
 	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, anchorSeq)
@@ -4203,6 +4219,13 @@ func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
 // source-version gate refuses a stored v5 payload that claims one.
 func upcastWorkflowActionCompletedV5(event Event) (Event, error) {
 	event.PayloadVersion = 6
+	return event, nil
+}
+
+// A v6 completion retains its bytes; only v7 can dispose an attempt through
+// a worker-job split. The fold checks the recorded source version.
+func upcastWorkflowActionCompletedV6(event Event) (Event, error) {
+	event.PayloadVersion = 7
 	return event, nil
 }
 

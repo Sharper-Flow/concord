@@ -1551,6 +1551,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if fieldsErr != nil {
 		return events, "", fieldsErr
 	}
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "reject_worker_result" {
+		if err := refuseSplitReplacedWorkerAttemptTx(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), 0); err != nil {
+			return events, "", err
+		}
+	}
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
@@ -1639,6 +1644,21 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+	}
+	if in.request.ActionID == "record_worker_job" {
+		for _, semantic := range events {
+			if semantic.Kind != WorkerJobSplit {
+				continue
+			}
+			var split WorkerJobSplitPayload
+			if err := json.Unmarshal(semantic.Payload, &split); err != nil {
+				return events, "", err
+			}
+			if split.ReplacedAttempt != nil {
+				completionValues["worker_attempt_id"] = split.ReplacedAttempt.AttemptID
+				completionValues["attempt_epoch"] = split.ReplacedAttempt.AttemptEpoch
+			}
+		}
 	}
 	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
 	// attempt_id into the durable record so the worker-dispatch evidence

@@ -22,7 +22,11 @@ func workflowRecordWorkerJobSplitEvents(ctx context.Context, tx *sql.Tx, request
 	if err != nil {
 		return nil, err
 	}
-	predecessor, err := admitWorkerJobSplitPredecessorTx(ctx, tx, request.WorkID, input.Predecessor, splits)
+	predecessor, err := admitWorkerJobSplitPredecessorTx(ctx, tx, request.WorkID, input.Predecessor, splits, input.ReplacedAttempt)
+	if err != nil {
+		return nil, err
+	}
+	replacement, err := admitWorkerJobSplitReplacementTx(ctx, tx, request.WorkID, actor, input.Predecessor, input.ReplacedAttempt)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +67,9 @@ func workflowRecordWorkerJobSplitEvents(ctx context.Context, tx *sql.Tx, request
 	}
 	events := make([]Event, 0, len(successors)+1)
 	split := map[string]any{"predecessor": input.Predecessor, "allocation": input.Allocation}
+	if replacement != nil {
+		split["replaced_attempt"] = replacement
+	}
 	bindings := make([]WorkerJobBinding, 0, len(successors))
 	for index := range successors {
 		event, err := workerJobRecordedEvent(eventID+":successor:"+fmt.Sprint(index), request, actor, expected+int64(index), &successors[index])

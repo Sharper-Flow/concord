@@ -116,16 +116,6 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 	return reviewer, operator, coordinator
 }
 
-// operatorForSeed reads the seeded operator actor for one work item.
-func operatorForSeed(t *testing.T, s *Store, workID string) WorkflowActor {
-	t.Helper()
-	var operator WorkflowActor
-	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE agent_ref=? AND session_ref=?`, "agent/operator", "session/"+workID+"-operator").Scan(&operator.PrincipalRef, &operator.ClientRef, &operator.AgentRef, &operator.SessionRef, &operator.ActorClass); err != nil {
-		t.Fatalf("operator for %s: %v", workID, err)
-	}
-	return operator
-}
-
 // reviewerForSeed reads the seeded independent reviewer for one work item.
 func reviewerForSeed(t *testing.T, s *Store, workID string) WorkflowActor {
 	t.Helper()

@@ -54,7 +54,7 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	// checks-repair packet4 — composes under the same writer-bound
 	// inventory; the packet4 checks-repair metadata is writer-bounded by
 	// WorkerJobChecksRepairMaxBytes exactly as the acceptance oracle is.
-	packetOpt := workerPacketRequestCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job", findingRefMax)
+	packetOpt := workerPacketRequestCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job")
 	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", packetOpt)
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
@@ -64,7 +64,7 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	// work_context member or behind the writer bounds, so the promoted and
 	// repair-capable heads' dispatch identities derive beside the retained
 	// packet2 evidence.
-	packet3Opt := workerPacketRequestCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job", findingRefMax)
+	packet3Opt := workerPacketRequestCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job")
 	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
 	if err != nil {
 		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
@@ -72,7 +72,7 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	if packet3Parts != packetParts {
 		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
 	}
-	packet4Opt := workerPacketRequestCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job", findingRefMax)
+	packet4Opt := workerPacketRequestCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job")
 	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)

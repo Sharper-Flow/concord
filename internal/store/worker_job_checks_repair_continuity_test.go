@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+const checksRepairContinuityWorkID = "checks-repair-continuity"
+const checksRepairContinuityJobID = "job:checks-repair-continuity"
+
 // The continuity regression (CD-0205 D4, amended 2026-10-19, CD-0148
 // amendment): a failed confirming review voids the first repair and leaves
 // its repairing revision unresolved, and that own debt cannot fold into a
@@ -21,8 +24,8 @@ import (
 // acceptance with funded=false. The first review dispatches at the wall: a
 // plain unrelated job's failed attempt stands the three-attempt wall beneath
 // the real 5→4 findings convergence, and the funded admission rides the wall
-// without recording the ordinary basis — a funded review's dispatch burns no
-// convergence a later escalated retry would need.
+// without recording the ordinary basis. Every dispatch still invalidates any
+// older convergence basis.
 
 // checksRepairClaimGit rebinds the review-claim fixture's fake git the way
 // reviewSubjectClaim built it, so closure verify runs drive the claimed
@@ -43,8 +46,9 @@ func checksRepairClaimGit(t *testing.T, s *Store, workID, dir, head string) *fak
 // checksRepairClosureRun runs the fixture control's exact argv once more on
 // the current subject and retains the executed ledger, producing the closure
 // evidence a resolution claim cites.
-func checksRepairClosureRun(t *testing.T, s *Store, workID, name string, git *fakeWorktreeGit, dir string) WorktreeVerifyResult {
+func checksRepairClosureRun(t *testing.T, s *Store, name string, git *fakeWorktreeGit) WorktreeVerifyResult {
 	t.Helper()
+	const workID = checksRepairContinuityWorkID
 	command := oracleGoArgv("fixture")
 	req := verifyRequest(git, "verify-"+workID+"-"+name, command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
 	req.WorkID, req.ProjectID = workID, "project"
@@ -75,8 +79,9 @@ func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, e
 	}
 }
 
-func checksRepairBlocker(t *testing.T, s *Store, workID, detail, family string) WorkerReviewFinding {
+func checksRepairBlocker(t *testing.T, s *Store, detail, family string) WorkerReviewFinding {
 	t.Helper()
+	const workID = checksRepairContinuityWorkID
 	return WorkerReviewFinding{Severity: "P1", Confidence: "high", Detail: detail,
 		Oracle: &WorkerOracleFinding{
 			Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:fixture",
@@ -85,8 +90,9 @@ func checksRepairBlocker(t *testing.T, s *Store, workID, detail, family string) 
 		}}
 }
 
-func checksRepairReject(t *testing.T, s *Store, workID, attemptID string, open []string, acceptor WorkflowActor) {
+func checksRepairReject(t *testing.T, s *Store, attemptID string, open []string, acceptor WorkflowActor) {
 	t.Helper()
+	const workID = checksRepairContinuityWorkID
 	// The rejection binds the attempt's own dispatch epoch: an intermediate
 	// dispatch at the step moves the step's latest start, never the
 	// attempt's authorized window.
@@ -105,9 +111,9 @@ func checksRepairReject(t *testing.T, s *Store, workID, attemptID string, open [
 	}
 }
 
-func checksRepairRepairFields(jobID, checks string, revisions []int64) map[string]any {
+func checksRepairRepairFields(checks string, revisions []int64) map[string]any {
 	fields := map[string]any{
-		"job_id": jobID, "objective": "Corrective bounded objective for the checks-repair-continuity job",
+		"job_id": checksRepairContinuityJobID, "objective": "Corrective bounded objective for the checks-repair-continuity job",
 		"stopping_condition": "the recorded checks pass with no unresolved reference", "path_scope": []string{"internal/store"},
 		"checks": []string{checks}, "reserved_integration": "integration evidence binds at the parent effect step",
 		"ready": true, "readiness_evidence": []string{"evidence:checks-repair-continuity-ready"},
@@ -120,8 +126,8 @@ func checksRepairRepairFields(jobID, checks string, revisions []int64) map[strin
 }
 
 func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.T) {
-	const workID = "checks-repair-continuity"
-	const jobID = "job:checks-repair-continuity"
+	const workID = checksRepairContinuityWorkID
+	const jobID = checksRepairContinuityJobID
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
@@ -133,7 +139,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// Round one: the original revision's attempt completes no_ship with five
 	// classified blockers, and the exact-set rejection records them.
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "concord check --continuity-original --exit-code=never", nil)); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("concord check --continuity-original --exit-code=never", nil)); err != nil {
 		t.Fatalf("record the original revision: %v", err)
 	}
 	if latest := checksRepairLatestBinding(t, s, workID, jobID); latest != nil {
@@ -142,11 +148,11 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, workerForChecksRepair(workID), 0, "checks-repair-continuity-1", job)
 	checksRepairFindingsCompletion(t, s, workID, attempt1, "checks-repair-r0", "no_ship", []WorkerReviewFinding{
-		checksRepairBlocker(t, s, workID, "first blocker", "family-one"),
-		checksRepairBlocker(t, s, workID, "second blocker", "family-two"),
-		checksRepairBlocker(t, s, workID, "third blocker", "family-three"),
-		checksRepairBlocker(t, s, workID, "fourth blocker", "family-four"),
-		checksRepairBlocker(t, s, workID, "fifth blocker", "family-five"),
+		checksRepairBlocker(t, s, "first blocker", "family-one"),
+		checksRepairBlocker(t, s, "second blocker", "family-two"),
+		checksRepairBlocker(t, s, "third blocker", "family-three"),
+		checksRepairBlocker(t, s, "fourth blocker", "family-four"),
+		checksRepairBlocker(t, s, "fifth blocker", "family-five"),
 	}, nil, nil)
 	lineage, err := readWorkerOracleFindingLineageTx(ctx, s.DatabaseForTesting(), workID)
 	if err != nil {
@@ -156,11 +162,11 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if len(open) != 5 {
 		t.Fatalf("open finding ids = %v, want five blockers", open)
 	}
-	checksRepairReject(t, s, workID, attempt1, open, acceptor)
+	checksRepairReject(t, s, attempt1, open, acceptor)
 
 	// The first repair names the one unresolved revision; its acceptance
 	// opens the repair and funds the confirming review.
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityOne", []int64{1})); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityOne", []int64{1})); err != nil {
 		t.Fatalf("record the first repair: %v", err)
 	}
 	first := checksRepairLatestBinding(t, s, workID, jobID)
@@ -195,13 +201,13 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// The first repairing result resolves the fifth blocker with a real
 	// oracle receipt, and the core observes its delivery, so the accepted
 	// attempt anchors the confirming review's subject join.
-	run5 := checksRepairClosureRun(t, s, workID, "close-family-five", git, dir)
+	run5 := checksRepairClosureRun(t, s, "close-family-five", git)
 	attempt2Completion := oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
-			checksRepairContinuation(t, s, workID, open[0], "first blocker stands"),
-			checksRepairContinuation(t, s, workID, open[1], "second blocker stands"),
-			checksRepairContinuation(t, s, workID, open[2], "third blocker stands"),
-			checksRepairContinuation(t, s, workID, open[3], "fourth blocker stands"),
+			checksRepairContinuation(t, s, open[0], "first blocker stands"),
+			checksRepairContinuation(t, s, open[1], "second blocker stands"),
+			checksRepairContinuation(t, s, open[2], "third blocker stands"),
+			checksRepairContinuation(t, s, open[3], "fourth blocker stands"),
 		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
@@ -218,7 +224,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// The exact-set rejection records the 5→4 shrink cycle before the
 	// acceptance, so the wall's ordinary convergence basis derives from real
 	// store records; the acceptance still opens the repair.
-	checksRepairReject(t, s, workID, attempt2, open[:4], acceptor)
+	checksRepairReject(t, s, attempt2, open[:4], acceptor)
 	// The acceptance binds the attempt's own dispatch epoch: the plain
 	// attempt's dispatch moved the step's latest start, never attempt2's
 	// authorized window.
@@ -283,18 +289,18 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// The voiding report continues three standing blockers and closes the
 	// fourth with an evidenced pass, so the exact-set rejection shrinks the
 	// open set 4→3 and records the cycle the wall's first basis derives from.
-	run4 := checksRepairClosureRun(t, s, workID, "close-family-four", git, dir)
+	run4 := checksRepairClosureRun(t, s, "close-family-four", git)
 	checksRepairFindingsCompletion(t, s, workID, review1, "checks-repair-review1", "no_ship", []WorkerReviewFinding{
-		checksRepairContinuation(t, s, workID, open[0], "first blocker stands"),
-		checksRepairContinuation(t, s, workID, open[1], "second blocker stands"),
-		checksRepairContinuation(t, s, workID, open[2], "third blocker stands"),
+		checksRepairContinuation(t, s, open[0], "first blocker stands"),
+		checksRepairContinuation(t, s, open[1], "second blocker stands"),
+		checksRepairContinuation(t, s, open[2], "third blocker stands"),
 	}, []WorkerOracleResolution{{FindingID: open[3], EvidenceRefs: []string{run4.OperationRef}}}, &WorkerOracleReceipt{
 		ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
 		Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run4.OperationRef,
 		EvidenceRefs: []string{run4.OperationRef},
 	})
-	checksRepairReject(t, s, workID, review1, open[:3], acceptor)
+	checksRepairReject(t, s, review1, open[:3], acceptor)
 	if fundings, fundingErr := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID); fundingErr != nil || len(fundings) != 0 {
 		t.Fatalf("fundings after the void = (%#v, %v), want none", fundings, fundingErr)
 	}
@@ -303,7 +309,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// checks repair: recovery first re-records and accepts the repairing
 	// revision's own obligation (CD-0205 amendment), so a repair naming the
 	// voided first repair beside the original refuses.
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityTwo", []int64{1, 2})); err == nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityTwo", []int64{1, 2})); err == nil {
 		t.Fatal("a second checks repair folded the voided first repair's unresolved obligation into its named set")
 	} else if !strings.Contains(err.Error(), "re-records and accepts that revision's own obligation") {
 		t.Fatalf("the second repair refusal = %v, want the own-obligation recovery rule", err)
@@ -313,7 +319,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// obligation — its checks beside a plain revision, no checks repair
 	// metadata — and dispatches at the wall behind the real store-derived
 	// findings convergence the 4→3 shrink cycle recorded.
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityOne", nil)); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityOne", nil)); err != nil {
 		t.Fatalf("record the repairing revision's own obligation: %v", err)
 	}
 	recovery := checksRepairLatestBinding(t, s, workID, jobID)
@@ -326,7 +332,6 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	}
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
 	attempt3 := "attempt:" + workID + ":3"
 	correction, correctionErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", attempt3)
 	if correctionErr != nil || correction == nil {
@@ -352,8 +357,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attempt3, recovery)
 	// The recovery dispatch is escalated and unfunded, so it still records
-	// the convergence basis it rides: only a funded review's dispatch leaves
-	// the ordinary basis unspent.
+	// the convergence basis it uses rather than a funded review admission.
 	var recoveryRecordedBasis string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt3).Scan(&recoveryRecordedBasis); err != nil {
 		t.Fatal(err)
@@ -367,7 +371,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// open set shrinks 3→2 through the exact-set rejection the coordinator
 	// records because the work still holds open blockers. The rejection is
 	// the record the wall's second convergence basis derives from.
-	run3 := checksRepairClosureRun(t, s, workID, "close-family-three", git, dir)
+	run3 := checksRepairClosureRun(t, s, "close-family-three", git)
 	checksRepairFindingsCompletion(t, s, workID, attempt3, "checks-repair-recovery", "ship", nil,
 		[]WorkerOracleResolution{{FindingID: open[2], EvidenceRefs: []string{run3.OperationRef}}}, &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
@@ -375,7 +379,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run3.OperationRef,
 			EvidenceRefs: []string{run3.OperationRef},
 		})
-	checksRepairReject(t, s, workID, attempt3, open[:2], acceptor)
+	checksRepairReject(t, s, attempt3, open[:2], acceptor)
 	// The settling acceptance discharges the failed confirming review's
 	// repairing revision, leaving only the original revision unresolved.
 	acceptChecksRepairAttempt(t, s, workID, attempt3, acceptor)
@@ -393,7 +397,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 
 	// The second repair names the remaining original-check revision alone
 	// and dispatches at the wall behind the new 3→2 convergence basis.
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityTwo", []int64{1})); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityTwo", []int64{1})); err != nil {
 		t.Fatalf("record the second repair: %v", err)
 	}
 	second := checksRepairLatestBinding(t, s, workID, jobID)
@@ -402,7 +406,6 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	}
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
 	attempt4 := "attempt:" + workID + ":4"
 	correction4, correction4Err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", attempt4)
 	if correction4Err != nil || correction4 == nil {
@@ -432,10 +435,10 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// so the accepted attempt anchors the confirming review's subject join
 	// (the latest accepted implementation delivery must carry the
 	// observation).
-	run2 := checksRepairClosureRun(t, s, workID, "close-family-two", git, dir)
+	run2 := checksRepairClosureRun(t, s, "close-family-two", git)
 	attempt4Completion := oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
-			checksRepairContinuation(t, s, workID, open[0], "first blocker stands"),
+			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
@@ -449,7 +452,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("terminal delivery preparation refused: %v", preparedErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, attempt4Completion)
-	checksRepairReject(t, s, workID, attempt4, open[:1], acceptor)
+	checksRepairReject(t, s, attempt4, open[:1], acceptor)
 	acceptChecksRepairAttempt(t, s, workID, attempt4, acceptor)
 	acceptSeq, found, acceptErr := workerChecksRepairConfirmingAcceptanceSeqTx(ctx, s.DatabaseForTesting(), workID, *second)
 	if acceptErr != nil || !found || acceptSeq == 0 {
@@ -505,7 +508,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	} else if !strings.Contains(err.Error(), "without a convergence basis") {
 		t.Fatalf("repeated review refusal = %v, want the wall's convergence refusal", err)
 	}
-	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(jobID, "go test ./internal/store/ -run TestChecksRepairContinuityThree", []int64{1, 4})); err == nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityThree", []int64{1, 4})); err == nil {
 		t.Fatal("a third repair was recorded while the second stands unconfirmed")
 	} else if !strings.Contains(err.Error(), "at most one unconfirmed checks repair") {
 		t.Fatalf("third repair refusal = %v, want the open-repair refusal", err)
@@ -538,8 +541,9 @@ func passExitCode() *int {
 // mints nothing, so the derived open set only shrinks through resolutions.
 // The continuation retains the earlier finding's failure family, the tie
 // the fold checks.
-func checksRepairContinuation(t *testing.T, s *Store, workID, findingID, detail string) WorkerReviewFinding {
+func checksRepairContinuation(t *testing.T, s *Store, findingID, detail string) WorkerReviewFinding {
 	t.Helper()
+	const workID = checksRepairContinuityWorkID
 	lineage, err := readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -548,7 +552,7 @@ func checksRepairContinuation(t *testing.T, s *Store, workID, findingID, detail 
 	if !recorded {
 		t.Fatalf("continuation names unknown finding %q", findingID)
 	}
-	finding := checksRepairBlocker(t, s, workID, detail, target.FailureFamily)
+	finding := checksRepairBlocker(t, s, detail, target.FailureFamily)
 	finding.Oracle.ContinuesFindingID = findingID
 	return finding
 }

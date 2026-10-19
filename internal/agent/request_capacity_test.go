@@ -23,7 +23,7 @@ import (
 // generated schema leaves unstated, the writer-stamped date-times carry the
 // core writer's RFC3339Nano UTC serialization, and the three context members
 // ride the context aggregate exactly once.
-func workerPacketRequestCapacityOptions(defs map[string]any, packet, jobShape string, findingRefMax int) schemawire.Options {
+func workerPacketRequestCapacityOptions(defs map[string]any, packet, jobShape string) schemawire.Options {
 	return schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
@@ -37,7 +37,7 @@ func workerPacketRequestCapacityOptions(defs map[string]any, packet, jobShape st
 			packet + "/inputs/checkpoint":   true,
 			packet + "/inputs/correction":   true,
 		},
-		FindingRefMax: findingRefMax,
+		FindingRefMax: 2 + len("finding:") + 19 + 1 + 2,
 	}
 }
 
@@ -58,8 +58,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", store.WorkContextActionFindingsMax)
 	}
 	// Quotes count: the reference serializes inside quotation marks.
-	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packetOpt := workerPacketRequestCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job", findingRefMax)
+	packetOpt := workerPacketRequestCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job")
 	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", packetOpt)
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
@@ -71,7 +70,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	// WorkerJobChecksRepairMaxBytes exactly as the acceptance oracle is, so
 	// the request bound is unchanged and every packet identity composes
 	// beside the retained packet2 evidence.
-	packet3Opt := workerPacketRequestCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job", findingRefMax)
+	packet3Opt := workerPacketRequestCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job")
 	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", packet3Opt)
 	if err != nil {
 		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
@@ -79,7 +78,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if packet3Parts != packetParts {
 		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", packet3Parts, packetParts)
 	}
-	packet4Opt := workerPacketRequestCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job", findingRefMax)
+	packet4Opt := workerPacketRequestCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job")
 	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
@@ -92,7 +91,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 			"worker_packet3": packet3Parts + store.DispatchContextAggregateMaxBytes - 1,
 			"worker_packet4": packet4Parts + store.DispatchContextAggregateMaxBytes - 1,
 		},
-		FindingRefMax: findingRefMax,
+		FindingRefMax: packetOpt.FindingRefMax,
 	}
 	input, err := schemawire.Max(defs["work_transition_action_variant_dispatch_worker"], "work_transition_action_variant_dispatch_worker", opt)
 	if err != nil {

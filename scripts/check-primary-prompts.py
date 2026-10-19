@@ -224,9 +224,11 @@ def check_named_profiles(root: Path) -> list[str]:
             for tool in PRIMARY_BUILD_TOOLS
             if f"\n  {tool}: allow" not in "\n" + frontmatter
         )
-        for permission in ("bash", "task"):
-            if f'\n  {permission}:\n    "*": allow' not in "\n" + frontmatter:
-                findings.append(f"{name} frontmatter does not allow {permission} by default")
+        if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
+            findings.append(f"{name} frontmatter does not allow task by default")
+        bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
+        if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
+            findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
         findings.extend(
             f"{name} frontmatter denies Concord tool {tool}"
             for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
@@ -250,6 +252,8 @@ def check_named_profiles(root: Path) -> list[str]:
                     "a second Project in another git repository",
                     "never claim or move across the boundary",
                     "this session stops driving the other repository",
+                    "`concord_work_start` with `work_id` alone",
+                    "`session_placement`",
                 )
                 if phrase not in flat_body
             )

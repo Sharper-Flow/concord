@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -1043,6 +1044,43 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertEqual(self.profile("Concord-RTE")["role_source"], ".concord/roles/rte.md")
         self.assertEqual(self.profile("Concord")["role_source"], ".concord/roles/concord.md")
 
+    def test_primary_bash_rules_cannot_reallow_host_denials(self):
+        for profile in self.profiles["profiles"]:
+            with self.subTest(agent=profile["id"]):
+                self.assertTrue(all(rule["action"] == "deny" for rule in profile["bash"]))
+                bash = self.frontmatter(self.projection(profile["id"])).split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
+                self.assertNotIn(": allow", bash)
+                self.assertNotIn('"*":', bash)
+
+    def test_every_shell_capable_projection_explicitly_denies_stash(self):
+        patterns = ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
+        entries = [(profile["id"], self.projection(profile["id"])) for profile in self.profiles["profiles"]]
+        entries += [(lane["id"], lane_projection(lane)) for lane in self.manifest["lanes"]]
+        entries += [(utility["id"], generator.utility_projection(utility)) for utility in self.manifest["utilities"]]
+        for name, projection in entries:
+            frontmatter = self.frontmatter(projection)
+            with self.subTest(agent=name):
+                if "\n  bash: deny\n" in frontmatter:
+                    continue
+                match = re.search(r"\n  bash:\n((?:    .*\n?)*)", frontmatter)
+                bash = match[1] if match else ""
+                # Every deny follows any utility allowlist or primary rules.
+                for pattern in patterns:
+                    self.assertIn(f"    {json.dumps(pattern)}: deny", bash)
+                self.assertNotIn(": allow", bash[bash.index('    "git stash *": deny'):])
+
+    def test_shared_conduct_forbids_stash_and_saves_permitted_edits_as_commits(self):
+        text = " ".join(generator.CONDUCT_CHANGE.read_text(encoding="utf-8").split())
+        self.assertIn("Never use `git stash`", text)
+        self.assertIn("save work as a commit on the item's own branch", text)
+
+    def test_concord_resume_routes_use_project_only_for_worktree_claim(self):
+        text = " ".join(self.projection("Concord").split())
+        self.assertIn("`concord_work_start` with `work_id` alone", text)
+        self.assertIn("`session_placement`", text)
+        self.assertIn("`concord_work_transition.worktree_claim` with that Project's `project_id`", text)
+        self.assertNotIn("`work_id` and the second `project_id`", text)
+
     def test_projection_is_a_selectable_primary_agent(self):
         for agent_id in ("Concord-RTE", "Concord"):
             frontmatter = self.frontmatter(self.projection(agent_id))
@@ -1085,16 +1123,15 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         for tool in ("edit", "write", "patch"):
             self.assertIn(f"\n  {tool}: allow", frontmatter)
         # morph_edit is host-supplied: the portable profile grants the
-        # editor trio and broad bash/task, and names no host editor.
+        # editor trio and broad task access, and names no host editor.
         self.assertNotIn("morph_edit", frontmatter)
         self.assertNotIn("concord_work_", frontmatter)
         self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord-RTE")["denied_concord_tools"], [])
 
-    def test_rte_grants_shell_and_unrestricted_tasks_with_shell_safety_denials(self):
+    def test_rte_keeps_shell_safety_denials_and_unrestricted_tasks(self):
         frontmatter = self.frontmatter(self.projection("Concord-RTE"))
         bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
-        self.assertTrue(bash.startswith('    "*": allow\n'))
         self.assertIn('    "sudo *": deny', bash)
         self.assertIn('    "rm -rf / *": deny', bash)
         task = frontmatter.split("\n  task:\n", 1)[1]
@@ -1112,10 +1149,9 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
         self.assertNotIn("concord_ci_watch", frontmatter)
         self.assertEqual(self.profile("Concord")["denied_concord_tools"], [])
 
-    def test_concord_grants_shell_and_unrestricted_tasks_with_shell_safety_denials(self):
+    def test_concord_keeps_shell_safety_denials_and_unrestricted_tasks(self):
         frontmatter = self.frontmatter(self.projection("Concord"))
         bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
-        self.assertTrue(bash.startswith('    "*": allow\n'))
         self.assertIn('    "sudo *": deny', bash)
         self.assertIn('    "rm -rf / *": deny', bash)
         task = frontmatter.split("\n  task:\n", 1)[1]

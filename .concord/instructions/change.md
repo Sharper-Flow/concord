@@ -22,6 +22,9 @@ not history, however old it is.
 Never delete tests, validation, error handling, or observability to reduce the
 size of something.
 
+Never use `git stash`: every worktree shares one stash list. When your role
+may commit, save work as a commit on the item's own branch instead.
+
 Commit only durable content. A committed comment or document states intent, a
 constraint that is not obvious, or Product law. It carries only what the code,
 types, tests, and generated contracts cannot show. Change history and

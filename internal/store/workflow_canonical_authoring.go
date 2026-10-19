@@ -57,6 +57,29 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 	return canonical
 }
 
+// BuiltinWorkflowDecisionFactActionDefinitions returns the contract actions
+// a consequence_v1 live head validates against beyond its declared list: the
+// initial approve_contract and the canonical supersede_contract with the
+// selected decision fact. Publication offers them beside the declared
+// legacy shapes, and the store validates each call against the exact
+// definition version the work item pins, so a legacy pin keeps its answer.
+func BuiltinWorkflowDecisionFactActionDefinitions() []WorkflowActionDefinition {
+	var actions []WorkflowActionDefinition
+	for _, head := range BuiltinWorkflowDefinitions() {
+		if !workflowApprovalPolicyRequiresDecisionFact(head) {
+			continue
+		}
+		approve, err := workflowDecisionFactInitialActionDefinition(head)
+		if err != nil {
+			panic(fmt.Sprintf("built-in %s v%d declares no usable initial contract approval: %v", head.Ref, head.Version, err))
+		}
+		supersede := workflowDecisionFactRecoveryActionDefinition(head)
+		supersede.Payload = WorkflowPayloadDefinition{Closed: true, Fields: workflowCanonicalContractRecoveryPayloadFields(supersede.Payload.Fields)}
+		actions = append(actions, approve, supersede)
+	}
+	return actions
+}
+
 // workflowCanonicalContractRecoveryPayloadFields filters the supplied
 // recovery declaration onto the canonical authoring contract: the paired
 // outcome authoring shape drops, the explicit predicate array becomes

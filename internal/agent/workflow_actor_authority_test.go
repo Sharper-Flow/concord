@@ -173,11 +173,11 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		wantVersion        int64
 		defectIntake       bool
 	}{
-		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 34},
-		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 31, defectIntake: true},
-		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 20},
-		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 31},
-		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 20},
+		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: liveHeadVersion(t, "workflow.implementation")},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: liveHeadVersion(t, "workflow.break_fix"), defectIntake: true},
+		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: liveHeadVersion(t, "workflow.research")},
+		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: liveHeadVersion(t, "workflow.break_fix")},
+		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: liveHeadVersion(t, "workflow.research")},
 	} {
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
@@ -823,4 +823,15 @@ func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.Pr
 		t.Fatal(err)
 	}
 	return grant
+}
+
+// liveHeadVersion reads the family's current authoring head from the
+// registry, so the capture assertions follow the head the selector owns.
+func liveHeadVersion(t *testing.T, ref string) int64 {
+	t.Helper()
+	live, err := store.LiveWorkflowDefinitionForRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return live.Definition.Version
 }

@@ -117,6 +117,21 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
   body.oneOf = branches;
   return body;
 }
+// actionFieldsBranches returns the expanded branch list of one action
+// variant's fields surface: every oneOf/anyOf branch when publication
+// factored the fields union, or the single flat object when the action
+// declares one closed shape. Structural inspection reads fields through this
+// helper so a branch-only field (the consequence_v1 decision_domains
+// admission) is checked where it lives, never through the factored parent
+// view that carries only the shared constraints. Inspection only: the
+// published compact document stays the admitted input.
+export function actionFieldsBranches(actionInput: unknown): any[] {
+  const fields = (actionInput as any)?.properties?.fields;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
+  if (Array.isArray((fields as any).oneOf)) return (fields as any).oneOf;
+  if (Array.isArray((fields as any).anyOf)) return (fields as any).anyOf;
+  return [fields];
+}
 
 // advertisedAdmissionTeachingGaps reports every approve_contract rule the
 // published concord_work_transition schema fails to teach a calling agent. An
@@ -128,23 +143,34 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
-// their operation; the traversal expands the passed document's own local
-// references and factored unions, so every check below reads the
-// legacy-effective branch view of the actual published document.
+// their operation, and approve_contract's and supersede_contract's fields is
+// one closed union: the legacy shape and the consequence_v1 extension. The
+// traversal expands the passed document's own local references and factored
+// unions, so every check below reads the legacy-effective view of the actual
+// published document, and every fields check runs on each branch of the
+// fields union, so a branch-only drop cannot hide behind the factored parent.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const gaps: string[] = [];
   const expanded: any = expandedPublishedRequestSchema(published);
   const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
   // workflow_action publishes one closed branch per action variant; the
-  // teaching checks read whichever variant carries the taught field.
+  // teaching checks read each fields branch that carries the taught field.
   const actionInputs: any[] = requestBranches
     .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
-    .map((branch) => branch?.properties?.input)
-    .filter((input) => input?.properties?.fields?.properties);
-  const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
+    .map((branch) => branch?.properties?.input);
+  const carriers: any[] = actionInputs.flatMap((input) =>
+    actionFieldsBranches(input)
+      .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
+      .map((fields) => ({ actionId: input?.properties?.action_id?.const, fields })),
+  );
+  if (carriers.length === 0) {
+    gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
+  }
+  for (const carrier of carriers) {
   // The published item is closed per kind: outcome_kind consts to the branch
   // and outcome_payload carries that branch's payload, so a mismatched
   // outcome_kind/outcome_payload pair validates no branch.
+  const items: any = carrier.fields.properties.outcome_predicates?.items;
   const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
   const firstBranch = kindBranches[0] ?? {};
   const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
@@ -177,15 +203,13 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }
-  // More than one action variant can carry the taught field (approve_contract
-  // and supersede_contract share outcome_predicates): every carrier must
-  // teach the rule, or a drop from one variant hides behind its sibling.
-  const predicateCarriers = actionInputs.filter((input) => input.properties.fields.properties.outcome_predicates !== undefined);
-  for (const input of predicateCarriers) {
-    const delivery: unknown = input.properties.fields.properties.outcome_predicates?.description;
-    if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
-      gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${input?.properties?.action_id?.const}`);
-    }
+  // Every fields branch that carries outcome_predicates on every carrier
+  // action (approve_contract and supersede_contract) must teach the rule,
+  // or a drop from one branch hides behind its siblings.
+  const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
+  if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
+    gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${carrier.actionId}`);
+  }
   }
   // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
   // no live action declares expected_within_seconds, so no wait carrier
@@ -254,4 +278,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 118387;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 121453;

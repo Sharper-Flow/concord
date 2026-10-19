@@ -197,15 +197,15 @@ func conformanceStepEntryAction(t *testing.T, definition WorkflowDefinition, ste
 }
 
 // TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept replays the
-// CON-796 witness path on the current break-fix definition and asserts, at
-// every checkpoint, that the loader's fold equals the abstract successor of
+// rejection-review witness path on the break-fix definition the fixture pins and
+// asserts, at every checkpoint, that the loader's fold equals the abstract successor of
 // the previous state under the action just performed, lifted through the
 // rules the liveness checks decide over.
 func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T) {
 	const workID = "admission-conformance"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
 		t.Fatal(err)
@@ -429,7 +429,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 }
 
 // TestAdmissionConformanceLocalJobAcceptHolds replays the CD-0205 local
-// acceptance on the current break-fix definition through the real store: a
+// acceptance on the pinned break-fix definition through the real store: a
 // recorded job, its job-bound dispatch and report, and the plain accept that
 // satisfies the job. The loader's fold must equal the model's holding
 // successor at every checkpoint, and the held state must still exit through
@@ -440,7 +440,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	if !admissionLocalJobAcceptStep(def, "repair") {
 		t.Fatalf("%s v%d repair does not carry the worker-job lifecycle", def.Ref, def.Version)
 	}

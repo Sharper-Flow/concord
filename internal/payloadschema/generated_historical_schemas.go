@@ -4002,6 +4002,25 @@ const GeneratedHistoricalSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_law_text_pin": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        }
+      },
+      "required": [
+        "law_id",
+        "content_hash"
+      ],
+      "type": "object"
+    },
     "workflow_outcome_absent": {
       "additionalProperties": false,
       "properties": {

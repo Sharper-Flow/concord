@@ -237,7 +237,8 @@ var frozenBaselineDefs = map[string]string{
 // of every addition this branch made. A definition here that the baseline
 // already carried, or an unlisted new definition, fails the witness.
 var newlyFrozenHistoricalDefs = map[string]string{
-	"reject_retry": "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
+	"workflow_law_text_pin": "the exact law text identity carried by consequence_v1 contract approvals",
+	"reject_retry":          "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
 	// The versioned packet2 identity the derived-failure heads declare, so
 	// their recorded 2.0 history replays here; the versioned view and group
 	// it anchors are the current nav-free shapes, and the frozen 1.0/1.1
@@ -266,12 +267,12 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"research_scopes":                    "CON-911: the applicability scopes the context research finding carries",
 	"research_source":                    "CON-911: the native source descriptor the resolved research entries cite",
 	// The checks-repair closure the repair-capable heads declare (implementation
-	// v34, break_fix v31): the packet4 identity anchors the
+	// v35, break_fix v32): the packet4 identity anchors the
 	// repair-capable worker-job shape beside the byte-exact packet2/packet3
 	// baselines, and the repair metadata, its named-revision item, and the
 	// small recorded job reference the metadata and the promoted failure
 	// attribution surfaces share ride the same union addition.
-	"worker_packet4":                  "CON-1221: the checks-repair packet identity the repair-capable implementation v34 and break_fix v31 dispatch payloads declare",
+	"worker_packet4":                  "CON-1221: the checks-repair packet identity the repair-capable implementation v35 and break_fix v32 dispatch payloads declare",
 	"worker_packet_checks_repair_job": "CON-1221: the repair-capable worker-job shape worker_packet4 anchors, carrying the optional core-recorded checks repair beside the shared job content",
 	"worker_checks_repair":            "CON-1221: the core-recorded checks repair the repairing revision and its packet job carry: the stated reason and each named revision's binding and old checks",
 	"worker_job_repair_revision":      "CON-1221: the positive distinct revision integer the record_worker_job repair_revisions authoring array carries on the repair-capable heads",

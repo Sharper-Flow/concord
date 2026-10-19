@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // A writer finding records, for one release, the analyzer that ran, the pairs
@@ -16,8 +18,8 @@ import (
 // site is held. Neither a reported write nor an exemption is a discharge: no
 // finding discharges a release's obligation for any (kind, version).
 //
-// Two exemption classes are admitted, each by a recorded ruling, and each
-// keyed by function, exact expression, and function digest:
+// Three exemption classes are admitted, each by a recorded ruling. The first
+// two are keyed by function, exact expression, and function digest:
 //
 //   - read_back: a site that reads a stored row's kind and version back.
 //   - replay_decoder: the v0.3-v0.39 workflow replay decoder, which builds
@@ -26,6 +28,16 @@ import (
 //     refuse a work_item subject, or "*" when the registry is not a fact or
 //     checkSubject differs from the entry's reviewed digest. Every version of
 //     a named kind stays held at that release.
+//   - upcast_confinement: a site the analysis confines to an upcaster
+//     (writerSite.Confinement), keyed by the dispatcher's name and digest,
+//     one exact guard it holds, and its callers' names and digests. The
+//     reviewed dispatcher refuses any result whose version is not the current
+//     version of the registration it is passed, and the reviewed callers pass
+//     the registry registration of the event's kind; a recorded-schema adapt
+//     between them may change the kind. So a covered site can still produce
+//     the current version of a kind with an older supported version or an
+//     upcaster, and of any kind at that version when the kind also has
+//     recorded schemas: the finding names those pairs as upcast_held_pairs.
 //
 // Any drift of a keyed digest or expression leaves the site held.
 
@@ -39,9 +51,15 @@ const exemptionsSchema = "concord.release-writer-exemptions.v1"
 type exemption struct {
 	ID             string `json:"id"`
 	Class          string `json:"class"`
-	Function       string `json:"function"`
-	Expression     string `json:"expression"`
-	FunctionDigest string `json:"function_digest"`
+	Function       string `json:"function,omitempty"`
+	Expression     string `json:"expression,omitempty"`
+	FunctionDigest string `json:"function_digest,omitempty"`
+	// Dispatcher, DispatcherDigest, and Guard key an upcast_confinement
+	// entry; no other class has them.
+	Dispatcher       string      `json:"dispatcher,omitempty"`
+	DispatcherDigest string      `json:"dispatcher_digest,omitempty"`
+	Guard            string      `json:"guard,omitempty"`
+	Callers          []namedHash `json:"callers,omitempty"`
 	// CheckSubjectDigest is the reviewed checkSubject a replay_decoder's
 	// fold refusals rely on; no other class has one.
 	CheckSubjectDigest string `json:"check_subject_digest,omitempty"`
@@ -71,16 +89,31 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	}
 	seen := map[string]bool{}
 	for _, e := range table.Entries {
-		if e.Class != "read_back" && e.Class != "replay_decoder" {
+		site := []string{e.Function, e.Expression, e.FunctionDigest}
+		callers := ""
+		if len(e.Callers) > 0 {
+			data, err := json.Marshal(e.Callers)
+			if err != nil {
+				return table, err
+			}
+			callers = string(data)
+		}
+		upcast := []string{e.Dispatcher, e.DispatcherDigest, e.Guard, callers}
+		check := []string{e.CheckSubjectDigest}
+		keys, absent := site, slices.Concat(upcast, check)
+		switch e.Class {
+		case "read_back":
+		case "replay_decoder":
+			keys, absent = slices.Concat(site, check), upcast
+		case "upcast_confinement":
+			keys, absent = upcast, slices.Concat(site, check)
+		default:
 			return table, fmt.Errorf("exemption %q has unknown class %q", e.ID, e.Class)
 		}
-		if slices.Contains([]string{e.ID, e.Function, e.Expression, e.FunctionDigest, e.Check}, "") {
-			return table, fmt.Errorf("exemption %q lacks a key, its identity, or its check record", e.ID)
+		if slices.Contains(append([]string{e.ID, e.Check}, keys...), "") || slices.ContainsFunc(absent, func(key string) bool { return key != "" }) {
+			return table, fmt.Errorf("exemption %q lacks a key of its class, its identity, or its check record, or has another class's key", e.ID)
 		}
-		if (e.Class == "replay_decoder") != (e.CheckSubjectDigest != "") {
-			return table, fmt.Errorf("exemption %q: only a replay_decoder entry, and every one, has a check_subject_digest", e.ID)
-		}
-		key := e.Function + "\x00" + e.Expression + "\x00" + e.FunctionDigest
+		key := strings.Join(slices.Concat(site, upcast), "\x00")
 		if seen[e.ID] || seen[key] {
 			return table, fmt.Errorf("exemption %q is repeated", e.ID)
 		}
@@ -90,14 +123,19 @@ func parseExemptions(data []byte) (exemptionTable, error) {
 	return table, nil
 }
 
-// covers reports whether an entry covers one open site.
-func (e exemption) covers(site writerSite) bool {
+// covers reports whether an entry covers one open site of an analysis.
+func (e exemption) covers(site writerSite, analysis writerAnalysis) bool {
+	if e.Class == "upcast_confinement" {
+		d := analysis.Dispatcher
+		return site.Confinement == "upcaster" && d != nil && d.Function == e.Dispatcher && d.FunctionDigest == e.DispatcherDigest && slices.Contains(d.Guards, e.Guard) && slices.Equal(d.Callers, e.Callers)
+	}
 	return site.Function == e.Function && site.Expression == e.Expression && site.FunctionDigest == e.FunctionDigest
 }
 
 // writerFinding is one release's writer result: the analyzer and exemption
 // table it used, its refusal, the pairs it writes, the sites left held, the
-// exempted sites, and the kinds an exempted replay decoder holds.
+// exempted sites, the kinds an exempted replay decoder holds, and the pairs
+// an exempted upcaster can still produce.
 type writerFinding struct {
 	Tag           string         `json:"tag"`
 	Analyzer      string         `json:"analyzer"`
@@ -107,6 +145,7 @@ type writerFinding struct {
 	Held          []writerSite   `json:"held_sites,omitempty"`
 	Exempted      []exemptedSite `json:"exempted_sites,omitempty"`
 	ReplayHeld    []string       `json:"replay_held_kinds,omitempty"`
+	UpcastHeld    []string       `json:"upcast_held_pairs,omitempty"`
 	FindingSource string         `json:"finding_source"`
 }
 
@@ -144,7 +183,7 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 		default:
 			finding.Writes = analysis.Writes
 			for _, site := range analysis.Open {
-				i := slices.IndexFunc(table.Entries, func(e exemption) bool { return e.covers(site) })
+				i := slices.IndexFunc(table.Entries, func(e exemption) bool { return e.covers(site, analysis) })
 				if i < 0 {
 					finding.Held = append(finding.Held, site)
 					continue
@@ -157,6 +196,18 @@ func writerFindings(inv inventory, table exemptionTable) []writerFinding {
 						held = []string{"*"}
 					}
 					finding.ReplayHeld = slices.Compact(slices.Sorted(slices.Values(append(finding.ReplayHeld, held...))))
+				}
+				if e.Class == "upcast_confinement" && finding.UpcastHeld == nil {
+					finding.UpcastHeld = []string{}
+					for _, r := range inv.Groups[result.Group] {
+						if r.MinSupported < r.CurrentVersion || len(r.Upcasters) > 0 {
+							finding.UpcastHeld = append(finding.UpcastHeld, r.Kind+" v"+strconv.Itoa(r.CurrentVersion))
+							if len(r.RecordedSchemas) > 0 {
+								finding.UpcastHeld = append(finding.UpcastHeld, "* v"+strconv.Itoa(r.CurrentVersion))
+							}
+						}
+					}
+					finding.UpcastHeld = slices.Compact(slices.Sorted(slices.Values(finding.UpcastHeld)))
 				}
 			}
 		}

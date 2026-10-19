@@ -13,7 +13,7 @@ import (
 func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) {
 	const workID = "checks-repair-second-open"
 	const jobID = "job:checks-repair-second-open"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()

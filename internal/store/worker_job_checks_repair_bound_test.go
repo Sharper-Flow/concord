@@ -13,7 +13,7 @@ import (
 // every historical digest unchanged.
 func TestChecksRepairMetadataRefusesOverBoundWhole(t *testing.T) {
 	const workID = "checks-repair-metadata-bound"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	named := WorkerJobRecordedPayload{

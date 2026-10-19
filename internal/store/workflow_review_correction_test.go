@@ -433,12 +433,9 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 			reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, repairedEpoch, acceptor)
 			reviewGateRequireStep(t, s, workID, "delivery")
 
-			// The instance stays pinned to the current version, whose gate
-			// declares the corrective return.
-			current, err := BuiltinWorkflowDefinitionForRef(tc.definitionRef)
-			if err != nil {
-				t.Fatal(err)
-			}
+			// The instance stays pinned to the fixture's legacy-policy
+			// version, whose gate declares the corrective return.
+			current := legacyApprovalPolicyDefinitionForRef(t, tc.definitionRef)
 			pinnedVersion, pinnedDigest := reviewGateInstancePin(t, s, workID)
 			if pinnedVersion != current.Definition.Version || pinnedDigest != current.Digest {
 				t.Fatalf("pinned definition = v%d %s, want v%d %s", pinnedVersion, pinnedDigest, current.Definition.Version, current.Digest)

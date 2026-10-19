@@ -147,8 +147,24 @@ func firstCallActionInput(t *testing.T, defs map[string]any, variant string, wor
 			// follows oneOf and $ref-with-siblings exactly as the validators
 			// read them.
 			fields := crossFieldSampleObject(defs, property)
+			// Every fixture here pins a consequence_v1 live head, whose
+			// contract actions carry the explicit engineering decision
+			// fact the published consequence_v1 branch requires.
+			if variant == "work_transition_action_variant_approve_contract" || variant == "work_transition_action_variant_supersede_contract" {
+				fields["decision_domains"] = []string{}
+			}
 			for key, value := range overrides {
 				fields[key] = value
+			}
+			// The binding fixtures declare a law addition. Supply its
+			// bounded reason and P12 declarations so each mutant reaches
+			// the guard it is intended to exercise.
+			if binding, ok := fields["architecture_binding"].(map[string]any); ok {
+				if additions, ok := binding["law_additions"].([]map[string]any); ok && len(additions) > 0 {
+					fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
+					fields[workflowLawChangeBehaviorField] = false
+					fields[workflowLawChangeSecurityField] = false
+				}
 			}
 			input[name] = fields
 			continue
@@ -464,7 +480,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 // alignment step records the legal none_found combination the published
 // variant admits, and the approve step assembles the same Product-changing
 // binding the approve first-call test proves.
-func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor) {
+func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
 	s := openTemp(t)
 	actor := seedFirstCallWorkflow(t, s, workID, "workflow.break_fix", "first-call-bf")
@@ -515,14 +531,13 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, 
 	if err := firstCallApproveContract(t, s, workID, version, "first-call-bf-approve", approve); err != nil {
 		t.Fatalf("first-call break-fix approve_contract refused: %v", err)
 	}
-	operator := WorkflowActor{PrincipalRef: "principal:first-call-bf-op", ClientRef: "client:first-call-bf", AgentRef: "agent:first-call-bf-op", SessionRef: "session:first-call-bf-op", ActorClass: ActorOperator}
-	return s, actor, operator
+	return s, actor
 }
 
 func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	t.Parallel()
 	const workID = "work-first-call-supersede"
-	s, owner, operator := firstCallBreakFixSeed(t, workID)
+	s, owner := firstCallBreakFixSeed(t, workID)
 	defer s.Close()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -588,7 +603,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		predicates := fields["outcome_predicates"].([]map[string]any)
 		predicates[0]["ordinal"] = 1
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(ordinal), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(ordinal), 0, owner)
 	firstCallRequireRefusal(t, err, "declares ordinal 1 at position 0")
 
 	// Unauthorized-addition mutant: the successor addition sits outside
@@ -599,7 +614,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["law_additions"] = []map[string]any{{"law_id": "law:unauthorized", "home_domain_id": "root"}}
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(unauthorized), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(unauthorized), 0, owner)
 	firstCallRequireRefusal(t, err, "law addition is outside spec_mandate")
 
 	// Undeclared-obligation mutant: the successor verification obligation
@@ -608,7 +623,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(undeclared), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(undeclared), 0, owner)
 	firstCallRequireRefusal(t, err, "verification obligation is not declared by the pinned workflow definition")
 
 	// Affected-Domain membership mutant: the successor binding names a
@@ -617,7 +632,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["affected_domain_ids"] = []string{"root", "ghost"}
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(unknownDomain), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(unknownDomain), 0, owner)
 	firstCallRequireRefusal(t, err, "architecture binding names an unknown Domain: ghost")
 
 	// Version mutant: the successor version does not immediately follow the
@@ -625,7 +640,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	versionSkip := supersedeInput(func(fields map[string]any) {
 		fields["contract_version"] = 4
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(versionSkip), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(versionSkip), 0, owner)
 	firstCallRequireRefusal(t, err, "immediately follow")
 
 	// Nested kind-equality mutants (CON-412): outcome_kind and
@@ -652,7 +667,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, itemMismatch)); err == nil {
 		t.Fatal("published supersede variant admitted an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
 	}
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(itemMismatch), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(itemMismatch), 0, owner)
 	firstCallRequireRefusal(t, err, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
 
 	// Pair mismatch: the retired outcome pair group with outcome_kind
@@ -674,8 +689,14 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairMismatch)); err == nil {
 		t.Fatal("published supersede variant admitted an outcome pair whose outcome_kind and outcome_payload.kind disagree")
 	}
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(pairMismatch), owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(pairMismatch), 0, owner)
 	firstCallRequireRefusal(t, err, "successor contract contains an undeclared or invalid field")
+	// A retained pin predates decision and law-change facts, so its replay
+	// shape omits both.
+	delete(pairFields, "decision_domains")
+	for _, field := range workflowLawChangeFields() {
+		delete(pairFields, field.Name)
+	}
 	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, fieldsOf(pairMismatch)); err == nil {
 		t.Fatal("the engine recovery validator admitted a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
 	} else {
@@ -685,7 +706,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// The unchanged successor admits on its first submission after every
 	// mutant was refused without effect.
 	valid := supersedeInput(nil)
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(valid), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(valid), 0, owner); err != nil {
 		t.Fatalf("first-call supersede_contract refused after the mutants were refused without effect: %v", err)
 	}
 	var successorVersion int64
@@ -710,7 +731,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairValid)); err == nil {
 		t.Fatal("published supersede variant admitted the retired outcome pair form")
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(pairValid), owner, operator); err == nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(pairValid), 0, owner); err == nil {
 		t.Fatal("whole-store admission admitted the retired outcome pair form")
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 2 {
@@ -731,7 +752,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		"spec_mandate":         []string{"spec:one", "law:successor"},
 		"architecture_binding": successorBinding(),
 	})
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(second), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(second), 0, owner); err != nil {
 		t.Fatalf("second canonical supersede_contract refused: %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 3 {

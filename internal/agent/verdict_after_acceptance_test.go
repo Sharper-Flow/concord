@@ -37,7 +37,14 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.implementation", "accept-e2e-capture")
+	// The operator-approved verdict is a legacy approval-policy flow
+	// (CD-0116); consequence_v1 takes no operator substitution for it.
+	workID := "work-1"
+	if operatorApproval {
+		seedLegacyApprovalPolicyWork(t, s, grant)
+	} else {
+		workID = captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.implementation", "accept-e2e-capture")
+	}
 
 	// Dispatch admission requires the host session to sit inside the work
 	// item's active worktree claim, compared by filesystem identity, so the
@@ -190,12 +197,16 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	binding["domain_registry_content_hash"] = registryHash
 	binding["home_domain_id"] = rootDomain
 	binding["affected_domain_ids"] = []string{rootDomain}
-	contract := action("approve_contract", map[string]any{
+	contractFields := map[string]any{
 		"premise": "A verdict after acceptance cites the accepted attempt.", "contract_version": 1,
 		"architecture_binding": binding,
 		"required_evidence":    []string{"verification"}, "route_conventions": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
-	}, "accept-e2e-contract")
+	}
+	if !operatorApproval {
+		contractFields["decision_domains"] = []string{"product"}
+	}
+	contract := action("approve_contract", contractFields, "accept-e2e-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}

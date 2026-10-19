@@ -339,6 +339,37 @@ func TestLawChangeConsentFollowsSeriousness(t *testing.T) {
 	}
 }
 
+// A live engineering break-fix head must still require operator consent for
+// a serious law change, even when the declared decision domains are empty.
+func TestBuiltinBreakFixSeriousLawConsent(t *testing.T) {
+	t.Parallel()
+	entry, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		t.Fatal("the live break-fix head must use consequence_v1")
+	}
+	workID := "builtin-serious-law"
+	s := seedLawChangeFixture(t, workID)
+	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+	fields := lawChangeFields(t, map[string]any{
+		workflowLawChangeReasonField:   "amend a security constraint",
+		workflowLawChangeSecurityField: true,
+		workflowLawChangeTextPinsField: lawChangePins("law-agent"),
+	})
+	change, err := deriveLawChange(t, s, workID, entry.Definition, fields, []string{"law-agent"}, nil, []string{})
+	if err != nil || change == nil || !change.Serious {
+		t.Fatalf("derive serious law change: %+v, %v", change, err)
+	}
+	for _, action := range []string{"approve_contract", "supersede_contract"} {
+		consent, err := ClassifyWorkflowApproval(entry.Definition, action, WorkflowApprovalFacts{ProposedDecisionDomains: []string{}, SeriousLawChange: change.Serious})
+		if err != nil || consent.Consent != WorkflowConsentRequired {
+			t.Fatalf("serious law %s requires no operator consent: %+v, %v", action, consent, err)
+		}
+	}
+}
+
 // TestLawChangeBoundaryDerivesTheConstructorsFact holds that the consent
 // boundary reads the same seriousness the constructor records, from the same
 // payload fields.

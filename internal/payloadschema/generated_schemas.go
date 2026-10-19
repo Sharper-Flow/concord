@@ -14841,382 +14841,809 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "architecture_binding": {
-              "$ref": "#/$defs/architecture_binding",
-              "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
-            },
-            "contract_version": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "law_modifies": {
-              "items": {
-                "$ref": "#/$defs/law_id"
-              },
-              "maxItems": 32,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "outcome_predicates": {
-              "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
-              "items": {
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "exists",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "exists"
-                          },
-                          "subjects": {
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject"
-                            },
-                            "maxItems": 100,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "absent",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_predicates": {
+                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                  "items": {
+                    "oneOf": [
+                      {
                         "additionalProperties": false,
                         "properties": {
-                          "distinguish_from": {
-                            "items": {
-                              "enum": [
-                                "archived",
-                                "relocated",
-                                "renamed",
-                                "disabled"
-                              ],
-                              "type": "string"
-                            },
-                            "maxItems": 4,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
                           },
-                          "kind": {
-                            "const": "absent"
-                          },
-                          "subjects": {
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject"
-                            },
-                            "maxItems": 100,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects",
-                          "distinguish_from"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
-                  },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "outcome",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "allowed": {
-                            "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
-                            "items": {
-                              "enum": [
-                                "no_change",
-                                "report_recorded",
-                                "resolved"
-                              ],
-                              "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "kind": {
-                            "const": "outcome"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "allowed"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
-                  },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "check",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "check_ref": {
-                            "maxLength": 134,
-                            "minLength": 7,
-                            "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                          "outcome_kind": {
+                            "const": "exists",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
                             "type": "string"
                           },
-                          "expected_result": {
-                            "enum": [
-                              "true",
-                              "false",
-                              "pass",
-                              "fail",
-                              "present",
-                              "absent",
-                              "healthy",
-                              "unhealthy",
-                              "accepted",
-                              "rejected"
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "exists"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects"
                             ],
-                            "type": "string"
+                            "type": "object"
                           },
-                          "immutable_subject_ref": {
-                            "maxLength": 256,
-                            "minLength": 2,
-                            "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                            "type": "string"
-                          },
-                          "kind": {
-                            "const": "check"
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
                           }
                         },
                         "required": [
-                          "kind",
-                          "check_ref",
-                          "immutable_subject_ref",
-                          "expected_result"
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
                         ],
                         "type": "object"
                       },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "absent",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "distinguish_from": {
+                                "items": {
+                                  "enum": [
+                                    "archived",
+                                    "relocated",
+                                    "renamed",
+                                    "disabled"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 4,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "absent"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects",
+                              "distinguish_from"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "outcome",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "allowed": {
+                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                "items": {
+                                  "enum": [
+                                    "no_change",
+                                    "report_recorded",
+                                    "resolved"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 3,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "outcome"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "allowed"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "check",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "check_ref": {
+                                "maxLength": 134,
+                                "minLength": 7,
+                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                "type": "string"
+                              },
+                              "expected_result": {
+                                "enum": [
+                                  "true",
+                                  "false",
+                                  "pass",
+                                  "fail",
+                                  "present",
+                                  "absent",
+                                  "healthy",
+                                  "unhealthy",
+                                  "accepted",
+                                  "rejected"
+                                ],
+                                "type": "string"
+                              },
+                              "immutable_subject_ref": {
+                                "maxLength": 256,
+                                "minLength": 2,
+                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "check"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_ref",
+                              "immutable_subject_ref",
+                              "expected_result"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
+                    ]
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
                     ],
-                    "type": "object"
-                  }
-                ]
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "proposed_route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "required_route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_convention": {
+                  "enum": [
+                    "workflow_action"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                }
               },
-              "maxItems": 8,
-              "minItems": 1,
-              "type": "array"
-            },
-            "premise": {
-              "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-              "maxLength": 4096,
-              "minLength": 1,
-              "not": {
-                "enum": [
-                  "workflow premise"
-                ],
-                "type": "string"
-              },
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096,
-              "x-minBytes": 2
-            },
-            "proposed_route_conventions": {
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "maxItems": 16,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "required_evidence": {
-              "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
-              "items": {
-                "enum": [
-                  "verification",
-                  "review",
-                  "approval",
-                  "commit",
-                  "durable_note",
-                  "native_run",
-                  "artifact"
-                ],
-                "type": "string"
-              },
-              "maxItems": 7,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "required_route_conventions": {
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "maxItems": 16,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "rigor_class": {
-              "enum": [
-                "prototype_internal",
-                "prototype_trusted",
-                "prototype_public",
-                "prototype_safety_critical",
-                "production_internal",
-                "production_trusted",
-                "production_public",
-                "production_safety_critical",
-                "critical_internal",
-                "critical_trusted",
-                "critical_public",
-                "critical_safety_critical"
+              "required": [
+                "premise",
+                "outcome_predicates"
               ],
-              "type": "string"
+              "type": "object"
             },
-            "route_convention": {
-              "enum": [
-                "workflow_action"
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "decision_domains": {
+                  "items": {
+                    "enum": [
+                      "preference",
+                      "product",
+                      "ui_ux"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "law_change_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 1024
+                },
+                "law_change_registry_content_hash": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 71,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 71
+                },
+                "law_change_removes_user_visible_behavior": {
+                  "type": "boolean"
+                },
+                "law_change_text_pins": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_law_text_pin"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "law_change_touches_security_or_data_safety": {
+                  "type": "boolean"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_predicates": {
+                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "exists",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "exists"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "absent",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "distinguish_from": {
+                                "items": {
+                                  "enum": [
+                                    "archived",
+                                    "relocated",
+                                    "renamed",
+                                    "disabled"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 4,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "absent"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects",
+                              "distinguish_from"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "outcome",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "allowed": {
+                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                "items": {
+                                  "enum": [
+                                    "no_change",
+                                    "report_recorded",
+                                    "resolved"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 3,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "outcome"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "allowed"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "check",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "check_ref": {
+                                "maxLength": 134,
+                                "minLength": 7,
+                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                "type": "string"
+                              },
+                              "expected_result": {
+                                "enum": [
+                                  "true",
+                                  "false",
+                                  "pass",
+                                  "fail",
+                                  "present",
+                                  "absent",
+                                  "healthy",
+                                  "unhealthy",
+                                  "accepted",
+                                  "rejected"
+                                ],
+                                "type": "string"
+                              },
+                              "immutable_subject_ref": {
+                                "maxLength": 256,
+                                "minLength": 2,
+                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "check"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_ref",
+                              "immutable_subject_ref",
+                              "expected_result"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "proposed_route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "required_route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_convention": {
+                  "enum": [
+                    "workflow_action"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "premise",
+                "outcome_predicates",
+                "decision_domains"
               ],
-              "type": "string"
-            },
-            "route_conventions": {
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "maxItems": 16,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "spec_mandate": {
-              "items": {
-                "$ref": "#/$defs/law_id"
-              },
-              "maxItems": 32,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
+              "type": "object"
             }
-          },
-          "required": [
-            "premise",
-            "outcome_predicates"
-          ],
-          "type": "object"
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -16205,8 +16632,7 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "action_id",
         "idempotency_key",
-        "selected_choice",
-        "decision_context_digest"
+        "selected_choice"
       ],
       "type": "object"
     },
@@ -19224,396 +19650,837 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "architecture_binding": {
-              "$ref": "#/$defs/architecture_binding",
-              "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
-            },
-            "audit_evidence": {
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "maxItems": 32,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "contract_version": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_content"
-            },
-            "law_modifies": {
-              "items": {
-                "$ref": "#/$defs/law_id"
-              },
-              "maxItems": 32,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "outcome_predicates": {
-              "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
-              "items": {
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "exists",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "const": "exists"
-                          },
-                          "subjects": {
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject"
-                            },
-                            "maxItems": 100,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "absent",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "distinguish_from": {
-                            "items": {
-                              "enum": [
-                                "archived",
-                                "relocated",
-                                "renamed",
-                                "disabled"
-                              ],
-                              "type": "string"
-                            },
-                            "maxItems": 4,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "kind": {
-                            "const": "absent"
-                          },
-                          "subjects": {
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject"
-                            },
-                            "maxItems": 100,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects",
-                          "distinguish_from"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "outcome",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_predicates": {
+                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                  "items": {
+                    "oneOf": [
+                      {
                         "additionalProperties": false,
                         "properties": {
-                          "allowed": {
-                            "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
-                            "items": {
-                              "enum": [
-                                "no_change",
-                                "report_recorded",
-                                "resolved"
-                              ],
-                              "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 1,
-                            "type": "array",
-                            "uniqueItems": true
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
                           },
-                          "kind": {
-                            "const": "outcome"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "allowed"
-                        ],
-                        "type": "object"
-                      },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-                      }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "type": "object"
-                  },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "ordinal": {
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
-                        "maximum": 7,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "outcome_kind": {
-                        "const": "check",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
-                        "type": "string"
-                      },
-                      "outcome_payload": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "check_ref": {
-                            "maxLength": 134,
-                            "minLength": 7,
-                            "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                          "outcome_kind": {
+                            "const": "exists",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
                             "type": "string"
                           },
-                          "expected_result": {
-                            "enum": [
-                              "true",
-                              "false",
-                              "pass",
-                              "fail",
-                              "present",
-                              "absent",
-                              "healthy",
-                              "unhealthy",
-                              "accepted",
-                              "rejected"
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "exists"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects"
                             ],
-                            "type": "string"
+                            "type": "object"
                           },
-                          "immutable_subject_ref": {
-                            "maxLength": 256,
-                            "minLength": 2,
-                            "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                            "type": "string"
-                          },
-                          "kind": {
-                            "const": "check"
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
                           }
                         },
                         "required": [
-                          "kind",
-                          "check_ref",
-                          "immutable_subject_ref",
-                          "expected_result"
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
                         ],
                         "type": "object"
                       },
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "absent",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "distinguish_from": {
+                                "items": {
+                                  "enum": [
+                                    "archived",
+                                    "relocated",
+                                    "renamed",
+                                    "disabled"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 4,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "absent"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects",
+                              "distinguish_from"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "outcome",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "allowed": {
+                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                "items": {
+                                  "enum": [
+                                    "no_change",
+                                    "report_recorded",
+                                    "resolved"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 3,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "outcome"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "allowed"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "check",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "check_ref": {
+                                "maxLength": 134,
+                                "minLength": 7,
+                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                "type": "string"
+                              },
+                              "expected_result": {
+                                "enum": [
+                                  "true",
+                                  "false",
+                                  "pass",
+                                  "fail",
+                                  "present",
+                                  "absent",
+                                  "healthy",
+                                  "unhealthy",
+                                  "accepted",
+                                  "rejected"
+                                ],
+                                "type": "string"
+                              },
+                              "immutable_subject_ref": {
+                                "maxLength": 256,
+                                "minLength": 2,
+                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "check"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_ref",
+                              "immutable_subject_ref",
+                              "expected_result"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
+                    ]
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
                     ],
-                    "type": "object"
-                  }
-                ]
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
               },
-              "maxItems": 8,
-              "minItems": 1,
-              "type": "array"
-            },
-            "predecessor_contract_versions": {
-              "items": {
-                "$ref": "#/$defs/workflow_contract_version"
-              },
-              "maxItems": 32,
-              "minItems": 1,
-              "type": "array"
-            },
-            "premise": {
-              "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-              "maxLength": 4096,
-              "minLength": 1,
-              "not": {
-                "enum": [
-                  "workflow premise"
-                ],
-                "type": "string"
-              },
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096
-            },
-            "required_evidence": {
-              "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
-              "items": {
-                "enum": [
-                  "verification",
-                  "review",
-                  "approval",
-                  "commit",
-                  "durable_note",
-                  "native_run",
-                  "artifact"
-                ],
-                "type": "string"
-              },
-              "maxItems": 7,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "rigor_class": {
-              "enum": [
-                "prototype_internal",
-                "prototype_trusted",
-                "prototype_public",
-                "prototype_safety_critical",
-                "production_internal",
-                "production_trusted",
-                "production_public",
-                "production_safety_critical",
-                "critical_internal",
-                "critical_trusted",
-                "critical_public",
-                "critical_safety_critical"
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_predicates",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
               ],
-              "type": "string"
+              "type": "object"
             },
-            "route_conventions": {
-              "items": {
-                "$ref": "#/$defs/reference"
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "decision_domains": {
+                  "items": {
+                    "enum": [
+                      "preference",
+                      "product",
+                      "ui_ux"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_change_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 1024
+                },
+                "law_change_registry_content_hash": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 71,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 71
+                },
+                "law_change_removes_user_visible_behavior": {
+                  "type": "boolean"
+                },
+                "law_change_text_pins": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_law_text_pin"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "law_change_touches_security_or_data_safety": {
+                  "type": "boolean"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_predicates": {
+                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "exists",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "exists"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "absent",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "distinguish_from": {
+                                "items": {
+                                  "enum": [
+                                    "archived",
+                                    "relocated",
+                                    "renamed",
+                                    "disabled"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 4,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "absent"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects",
+                              "distinguish_from"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "outcome",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "allowed": {
+                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                "items": {
+                                  "enum": [
+                                    "no_change",
+                                    "report_recorded",
+                                    "resolved"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 3,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "outcome"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "allowed"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "check",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "check_ref": {
+                                "maxLength": 134,
+                                "minLength": 7,
+                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                "type": "string"
+                              },
+                              "expected_result": {
+                                "enum": [
+                                  "true",
+                                  "false",
+                                  "pass",
+                                  "fail",
+                                  "present",
+                                  "absent",
+                                  "healthy",
+                                  "unhealthy",
+                                  "accepted",
+                                  "rejected"
+                                ],
+                                "type": "string"
+                              },
+                              "immutable_subject_ref": {
+                                "maxLength": 256,
+                                "minLength": 2,
+                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "check"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_ref",
+                              "immutable_subject_ref",
+                              "expected_result"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
               },
-              "maxItems": 16,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "self_repair": {
-              "$ref": "#/$defs/workflow_self_repair"
-            },
-            "spec_mandate": {
-              "items": {
-                "$ref": "#/$defs/law_id"
-              },
-              "maxItems": 32,
-              "minItems": 0,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "supersede_reason": {
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
-              "maxLength": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_predicates",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence",
+                "decision_domains"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "contract_version",
-            "premise",
-            "outcome_predicates",
-            "required_evidence",
-            "route_conventions",
-            "spec_mandate",
-            "law_modifies",
-            "rigor_class",
-            "supersede_reason",
-            "audit_evidence"
-          ],
-          "type": "object"
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -23123,6 +23990,20 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "changes_product_truth": {
           "type": "boolean"
+        },
+        "decision_domains": {
+          "description": "The contract's declared decision domains, sorted. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work.",
+          "items": {
+            "enum": [
+              "preference",
+              "product",
+              "ui_ux"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "type": "array",
+          "uniqueItems": true
         },
         "definition_pin": {
           "oneOf": [

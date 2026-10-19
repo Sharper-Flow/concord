@@ -351,10 +351,11 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	if operator != nil {
 		invoker = ownerRefForTest(t, *operator)
 	}
+	choice, digest, rest := confirmationEnvelope(fields)
 	events, err := workflowConfirmPremiseEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperatorActor: operator,
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperatorActor: operator,
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
-	}, invoker, fields, "resolution-confirm-"+workID, version)
+	}, invoker, rest, "resolution-confirm-"+workID, version)
 	// The store pools one connection: the constructor transaction must leave
 	// the pool before the fold append opens its own transaction.
 	if err := tx.Rollback(); err != nil {

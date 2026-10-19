@@ -110,9 +110,9 @@ const (
 // live journeys run on; the store's live-authoring owner pins the same
 // versions.
 var workflowRecoveryCanonicalHeads = map[string]int64{
-	"workflow.implementation": 34,
-	"workflow.break_fix":      31,
-	"workflow.research":       20,
+	"workflow.implementation": 35,
+	"workflow.break_fix":      32,
+	"workflow.research":       21,
 }
 
 // workflowRecoveryArchivedFamilies names the families whose live authoring
@@ -819,44 +819,62 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v19-complete",
 		},
-		// The checks-repair heads: the same six live journeys run at the
-		// v34/v31/v20 pins, whose compiled route tables equal their
-		// predecessors' tables.
+		// The current heads: the same six live journeys run at the
+		// v35/v32/v21 pins, whose compiled route tables equal their
+		// predecessors' tables; the implementation and break-fix heads
+		// inherit the consequence_v1 policy beside the checks-repair
+		// action catalog.
 		{
-			Ref: "workflow.implementation", Version: 34,
+			Ref: "workflow.implementation", Version: 35,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v34-acceptance",
+			WorkflowID:       "implementation-v35-acceptance",
 		},
 		{
-			Ref: "workflow.implementation", Version: 34,
+			Ref: "workflow.implementation", Version: 35,
 			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v34-release",
+			WorkflowID:       "implementation-v35-release",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 31,
+			Ref: "workflow.break_fix", Version: 32,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
 			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v31-verify",
+			WorkflowID:       "break_fix-v32-verify",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 31,
+			Ref: "workflow.break_fix", Version: 32,
 			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
 			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v31-complete",
+			WorkflowID:       "break_fix-v32-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 21,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v21-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 21,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v21-complete",
 		},
 		// The first composed heads: the same six journeys ran at the
 		// v33/v30/v20 pins, whose compiled route tables equal their
@@ -913,6 +931,46 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v20-complete",
+		},
+		// The superseded consequence_v1 heads: the same journeys ran at the
+		// v34/v31 pins, whose compiled route tables equal their
+		// predecessors' tables; they stay covered as recorded history next
+		// to the current heads.
+		{
+			Ref: "workflow.implementation", Version: 34,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v34-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 34,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v34-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 31,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v31-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 31,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v31-complete",
 		},
 		// The CD-0218 predecessor heads keep their released route tables
 		// covered after the canonical heads advanced: the registry retains
@@ -982,8 +1040,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 94 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 94 (72 prior rows + the ten retained predecessor-head rows + six rows for each of the three later head generations)", len(tuples))
+	if len(tuples) != 100 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 100 (32 archived-refusal rows + 62 recorded-history rows at the retained pins through v34/v31/v20 + six live rows at the v35/v32/v21 heads)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -1071,12 +1129,12 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: the six live
-	// canonical journeys run at the current heads (v34/v31/v20), the
+	// canonical journeys run at the current heads (v35/v32/v21), the
 	// retained-family released pins plus every retained predecessor-head row
-	// (v33/v30, v32/v29/v19 now among them) as recorded history, and the 32
+	// (v34/v31, v33/v30/v20 now among them) as recorded history, and the 32
 	// retired-family rows as archived-refusal coverage.
-	if live != 6 || history != 56 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/56/32", live, history, refusals)
+	if live != 6 || history != 62 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/62/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -1377,7 +1435,8 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		"spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 		"supersede_reason": "The accepted result requires a corrected objective", "audit_evidence": []string{initialAttempt},
 	}
-	if entry, _ := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version); entry.Definition.ChangesProductTruth != nil && *entry.Definition.ChangesProductTruth {
+	entry, _ := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
+	if entry.Definition.ChangesProductTruth != nil && *entry.Definition.ChangesProductTruth {
 		binding := workflowArchitectureBindingFixture()
 		hash, root := recoveryRegistry(t, s)
 		binding["domain_registry_content_hash"] = hash
@@ -1385,8 +1444,23 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		binding["affected_domain_ids"] = []string{root}
 		successor["architecture_binding"] = binding
 	}
+	// consequence_v1 records supersession, correction, and completion as
+	// routine under the authenticated identity, and asks the operator only
+	// for the confirmation of a contract that declares a decision domain.
+	// The legacy policy asks the operator for every recovery action.
+	consequence := entry.Definition.ApprovalPolicy == store.WorkflowApprovalPolicyConsequenceV1
+	if consequence {
+		successor["decision_domains"] = []string{"product"}
+	}
+	recoveryStep := func(input map[string]any) Envelope {
+		t.Helper()
+		if consequence {
+			return invoke(input)
+		}
+		return approvedRecoveryAction(t, s, service, env, input)
+	}
 	supersede := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "supersede_contract", "fields": successor, "idempotency_key": tuple.WorkflowID + "-supersede"}
-	requireRecoveryOK(t, "approved successor", approvedRecoveryAction(t, s, service, env, supersede))
+	requireRecoveryOK(t, "successor", recoveryStep(supersede))
 	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("ordinary supersession moved %s to %s", evaluator, got)
 	}
@@ -1398,8 +1472,12 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1 AND superseded_by=2`).Scan(&predecessors); err != nil {
 		t.Fatal(err)
 	}
-	if active != 2 || actorClass != string(store.ActorOperator) || predecessors != 1 {
-		t.Fatalf("successor=%d approved by %s; superseded predecessors=%d", active, actorClass, predecessors)
+	wantApprover := store.ActorOperator
+	if consequence {
+		wantApprover = store.ActorAgent
+	}
+	if active != 2 || actorClass != string(wantApprover) || predecessors != 1 {
+		t.Fatalf("successor=%d approved by %s, want %s; superseded predecessors=%d", active, actorClass, wantApprover, predecessors)
 	}
 
 	// This is the last fixture park. Every action from the source's v2 bad
@@ -1417,7 +1495,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "request_correction", Payload: retryJSON(correction["fields"]), Actor: actor}); err != nil {
 		t.Fatalf("correction preflight: %v", err)
 	}
-	requireRecoveryOK(t, "approved correction", approvedRecoveryAction(t, s, service, env, correction))
+	requireRecoveryOK(t, "correction", recoveryStep(correction))
 	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("correction target=%s, want %s", got, tuple.Target)
 	}
@@ -1445,7 +1523,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		t.Fatalf("confirmation reached %s, want %s", got, terminal)
 	}
 	complete := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": tuple.WorkflowID + "-complete"}
-	requireRecoveryOK(t, "approved completion", approvedRecoveryAction(t, s, service, env, complete))
+	requireRecoveryOK(t, "completion", recoveryStep(complete))
 	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
 		t.Fatalf("lifecycle=%s, want completed", lifecycle)
 	}
@@ -1860,7 +1938,25 @@ func runJourneyCompletion(t *testing.T, tuple workflowRecoveryRouteTuple, s *sto
 		"work_id": "work-1", "expected_version": version(), "action_id": "complete",
 		"fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "regroute-" + tuple.WorkflowID + "-complete",
 	}
+	if recoveryPinUsesConsequenceV1(t, tuple.Ref, tuple.Version) {
+		// consequence_v1 records a nondestructive completion as routine.
+		requireRecoveryOK(t, "completion", dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(completeInput)}, env))
+		return
+	}
 	requireRecoveryOK(t, "approved completion", approvedRecoveryAction(t, s, service, env, completeInput))
+}
+
+// recoveryPinUsesConsequenceV1 reports whether the registered pin answers
+// consent under consequence_v1, where supersession, correction, and
+// completion are routine and only a decision-bearing confirmation asks the
+// operator.
+func recoveryPinUsesConsequenceV1(t *testing.T, ref string, version int64) bool {
+	t.Helper()
+	entry, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("lookup %s v%d is not registered", ref, version)
+	}
+	return entry.Definition.ApprovalPolicy == store.WorkflowApprovalPolicyConsequenceV1
 }
 
 // TestWorkflowRecoveryRoutesFrozenGenericOneOffV13HasUnchangedDigest is
@@ -2066,8 +2162,24 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v29-complete-supersede",
 		},
-		// The checks-repair heads republish the same complete-step
-		// supersede routes.
+		// The current heads republish the same complete-step supersede
+		// routes beside the checks-repair action catalog and the
+		// inherited consequence_v1 policy.
+		{
+			Ref: "workflow.implementation", Version: 35,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v35-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 32,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v32-complete-supersede",
+		},
+		// The superseded checks-repair candidate and consequence_v1 heads'
+		// supersede routes stay covered as recorded history next to the
+		// current heads.
 		{
 			Ref: "workflow.implementation", Version: 34,
 			Step: "release", Target: "execution",
@@ -2081,7 +2193,7 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			WorkflowID:      "break_fix-v31-complete-supersede",
 		},
 		// The composed heads' supersede routes stay covered as recorded
-		// history next to the checks-repair heads.
+		// history.
 		{
 			Ref: "workflow.implementation", Version: 33,
 			Step: "release", Target: "execution",
@@ -2324,7 +2436,15 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		"work_id": "work-1", "expected_version": version(), "action_id": "supersede_contract",
 		"fields": successorFields, "idempotency_key": "regroute-" + tuple.WorkflowID + "-supersede",
 	}
-	requireRecoveryOK(t, "approved supersede_contract", approvedRecoveryAction(t, s, service, env, supersedeInput))
+	if recoveryPinUsesConsequenceV1(t, tuple.Ref, tuple.Version) {
+		// The successor declares a Product decision, so its premise
+		// confirmation still asks the operator; the supersession itself
+		// is routine.
+		successorFields["decision_domains"] = []string{"product"}
+		requireRecoveryOK(t, "supersede_contract", invoke(supersedeInput))
+	} else {
+		requireRecoveryOK(t, "approved supersede_contract", approvedRecoveryAction(t, s, service, env, supersedeInput))
+	}
 	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("step after supersede = %q, want declared target %q", got, tuple.Target)
 	}

@@ -104,10 +104,9 @@ func TestApprovalChallengeVersionValidityRefusalNamesVersions(t *testing.T) {
 func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	registered, err := store.LiveWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// A failed retry asks for the operator's approval only under the legacy
+	// approval policy; consequence_v1 revalidates the binding instead.
+	registered := legacyApprovalPolicyDefinitionForRef(t, "workflow.research")
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: owner, Now: fixedTime()})

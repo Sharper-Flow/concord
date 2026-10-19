@@ -63,11 +63,9 @@ func seedWorkflowVerdictBatchFixtureDefinition(t *testing.T, workID string, extr
 	if definitionRef == workflowFixtureRef {
 		registered = workflowFixtureDefinition(t, 2)
 	} else {
-		var err error
-		registered, err = BuiltinWorkflowDefinitionForRef(definitionRef)
-		if err != nil {
-			t.Fatal(err)
-		}
+		// The batch verdicts run under the operator substitution the legacy
+		// policy keeps.
+		registered = legacyApprovalPolicyDefinitionForRef(t, definitionRef)
 	}
 	return seedWorkflowVerdictBatchFixtureOn(t, workID, extraEvidence, requiredEvidence, predicates, registered, definitionRef)
 }
@@ -135,7 +133,7 @@ func seedWorkflowVerdictBatchFixtureOn(t *testing.T, workID string, extraEvidenc
 	}
 	contract := workflowEventWithActor("batch-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractFields)
 	contract.PayloadVersion = 3
-	events = append(events, nextEvent(contract))
+	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
 	for _, kind := range []string{"verification", "review", "artifact"} {
 		evidenceRef := "evidence:return-route-" + kind
 		seedWorkflowAuthority(t, s, "batch-authority-"+kind+"-"+workID, workID, "principal/batch-"+kind, "request/batch-"+kind+"-"+workID, []string{evidenceRef})

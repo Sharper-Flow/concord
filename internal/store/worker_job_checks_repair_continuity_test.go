@@ -128,7 +128,7 @@ func checksRepairRepairFields(checks string, revisions []int64) map[string]any {
 func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.T) {
 	const workID = checksRepairContinuityWorkID
 	const jobID = checksRepairContinuityJobID
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()

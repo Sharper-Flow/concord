@@ -4090,6 +4090,25 @@
         }
       }
     },
+    "workflow_law_text_pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "law_id",
+        "content_hash"
+      ],
+      "properties": {
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "content_hash": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
     "worker_checks_repair": {
       "type": "object",
       "additionalProperties": false,

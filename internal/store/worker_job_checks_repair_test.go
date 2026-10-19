@@ -5,16 +5,43 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
+func seedChecksRepairFixture(t *testing.T, workID, step string) workflowReturnRouteFixture {
+	t.Helper()
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, step,
+		[]string{"verification"}, []string{"verification", "review", "artifact"})
+}
+
+func TestChecksRepairHeadsPreserveConsequencePolicy(t *testing.T) {
+	for _, pair := range []struct{ predecessor, successor WorkflowComposition }{
+		{implementationConsequenceV34(), implementationCompositionV35()},
+		{breakFixConsequenceV31(), breakFixCompositionV32()},
+	} {
+		got, want := pair.successor, pair.predecessor
+		if got.Version != want.Version+1 || got.ActionCatalogVersion != 2 || got.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+			t.Fatalf("%s successor v%d catalog %d policy %q does not preserve the consequence head", got.Ref, got.Version, got.ActionCatalogVersion, got.ApprovalPolicy)
+		}
+		got.Version, got.ActionCatalogVersion = want.Version, want.ActionCatalogVersion
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s checks repair changed composition beyond version and action catalog", got.Ref)
+		}
+	}
+}
+
 func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	const workID = "checks-repair-unreadable-authorization"
 	const jobID = "job:checks-repair-unreadable"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
@@ -63,7 +90,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 func TestChecksRepairSatisfiesNamedRevisionsAndFundsOneConfirmingReview(t *testing.T) {
 	const workID = "checks-repair-confirming-review"
 	const jobID = "job:checks-repair"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -459,7 +486,7 @@ func checksRepairRevisionView(t *testing.T, s *Store, workID string, binding Wor
 func TestWorkerJobChecksRepairFoldVerifiesDerivedMetadata(t *testing.T) {
 	const workID = "checks-repair-fold-metadata"
 	const jobID = "job:fold-metadata"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/fold-metadata-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -514,7 +541,7 @@ func TestWorkerJobChecksRepairFoldVerifiesDerivedMetadata(t *testing.T) {
 func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 	const workID = "checks-repair-no-ship-void"
 	const jobID = "job:checks-repair-void"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -692,7 +719,7 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 func TestChecksRepairSupersessionVoidsUnconfirmedRepair(t *testing.T) {
 	const workID = "checks-repair-supersession-void"
 	const jobID = "job:checks-repair-supersede"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -1006,6 +1033,7 @@ func checksRepairSupersedeContract(t *testing.T, s *Store, workID string) {
 	}
 	event := workflowEventWithActor("checks-repair-supersede-"+workID, WorkflowContractSuperseded, workID, ownerRef, payload)
 	event.PayloadVersion = 1
+	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("supersede contract v1: %v", err)
 	}
@@ -1018,7 +1046,7 @@ func checksRepairSupersedeContract(t *testing.T, s *Store, workID string) {
 func TestChecksRepairConfirmingAcceptanceKeepsUnrelatedJobDebt(t *testing.T) {
 	const workID = "checks-repair-unrelated-debt"
 	const jobID = "job:checks-repair-debt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -1119,7 +1147,7 @@ func checksRepairRefineProof(t *testing.T, s *Store, workID string) {
 func TestChecksRepairAbandonedConfirmingReviewVoidsRepair(t *testing.T) {
 	const workID = "checks-repair-abandoned-void"
 	const jobID = "job:checks-repair-abandoned"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedChecksRepairFixture(t, workID, "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -1215,7 +1243,7 @@ func TestChecksRepairAbandonedConfirmingReviewVoidsRepair(t *testing.T) {
 func TestChecksRepairReviewDebtHoldsCombinedAcceptRoute(t *testing.T) {
 	const workID = "checks-repair-debt-combined"
 	const jobID = "job:checks-repair-combined"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "refine")
+	fixture := seedChecksRepairFixture(t, workID, "refine")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()

@@ -383,13 +383,13 @@ func TestWorkflowTimingDoesNotConstrainHistoricalRebuildDeletions(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := timingSnapshot(t, s, workID)
-	if err := s.Transact(ctx, func(transaction *Transaction) error {
+	if err := s.Transact(ctx, func(transaction *Transaction) (err error) {
 		tx := transaction.tx
 		scope, err := beginFold(ctx, tx)
 		if err != nil {
 			return err
 		}
-		defer scope.close(ctx)
+		defer func() { err = errors.Join(err, scope.close(ctx)) }()
 		// Isolate the older deletion algorithm's risk from this projection:
 		// its closed clear list cannot name the newly introduced timing table.
 		for _, table := range replayProjectionClearTables {

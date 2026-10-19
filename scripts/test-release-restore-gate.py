@@ -45,11 +45,18 @@ resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_LIMIT, FILE_LIMIT))
 
 # A bounded runaway: grow HOME/growth to GROWTH_CAP at `pace` seconds per
 # 64 KiB, then idle, so a missing gate bound shows as a timeout, not a full disk.
-# With fork, a background grandchild grows the file while the command idles.
+# With fork, a background grandchild grows the file while the command idles, or
+# while the command exits once growth has begun.
 GROW = """
-def grow(pace, fork=False):
+def grow(pace, fork=False, leader_exits=False):
     import os, time
     if fork and os.fork():
+        growth = os.path.join(os.environ["HOME"], "growth")
+        while leader_exits and not (os.path.exists(growth) and os.path.getsize(growth)):
+            time.sleep(0.02)
+        if leader_exits:
+            open(os.path.join(os.environ["HOME"], "exited"), "w").close()
+            sys.exit(0)
         time.sleep(60)
         sys.exit(0)
     with open(os.path.join(os.environ["HOME"], "pid"), "w") as handle:
@@ -78,6 +85,8 @@ if MODE == "grow":
     grow(0)
 if MODE == "trickle":
     grow(0.05, fork=True)
+if MODE == "orphan":
+    grow(0.05, fork=True, leader_exits=True)
 if MODE == "deaf":
     import time
     time.sleep(30)
@@ -429,10 +438,14 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 gate.install_interrupt_handlers()
 outcome = {}
+def linger():
+    # Holds the gate after the command exited, before its own cleanup runs.
+    if (Path(sys.argv[3]) / "exited").exists():
+        time.sleep(30)
 def work():
     try:
         gate.run_bounded([sys.executable, sys.argv[2], "product-create"], {"PATH": "/usr/bin:/bin", "HOME": sys.argv[3]}, "{}",
-                         time.monotonic() + 60, Path(sys.argv[3]) / "streams", "trickle", gate.Guard(lambda: None, lambda: 1 << 30))
+                         time.monotonic() + 60, Path(sys.argv[3]) / "streams", "trickle", gate.Guard(linger, lambda: 1 << 30))
     except gate.CaseFailure as failure:
         outcome["stage"] = failure.stage
 worker = threading.Thread(target=work)
@@ -447,12 +460,12 @@ class InterruptTests(unittest.TestCase):
     """Stopping the gate stops its children and their descendants: a handled signal kills the group, and a
     SIGKILL of the gate reaches the group through its supervisor's death signal. The writer is a forked grandchild."""
 
-    def stop_gate(self, signum: int) -> tuple[subprocess.CompletedProcess, Path]:
+    def stop_gate(self, signum: int, mode: str = "trickle") -> tuple[subprocess.CompletedProcess, Path]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             writer_tag = "v1.0.0"
             fixture = Fixture(root)
-            writer = fixture.publish(writer_tag, mode="trickle")
+            writer = fixture.publish(writer_tag, mode=mode)
             home = root / "home"
             home.mkdir()
             gate_path = Path(__file__).with_name("release-restore-gate.py")
@@ -462,6 +475,11 @@ class InterruptTests(unittest.TestCase):
             while not ((home / "growth").exists() and (home / "growth").stat().st_size > 0):
                 self.assertLess(time.monotonic(), deadline, "the trickle child never started")
                 time.sleep(0.05)
+            if mode == "orphan":
+                while not (home / "exited").exists():
+                    self.assertLess(time.monotonic(), deadline, "the command never exited")
+                    time.sleep(0.05)
+                time.sleep(1)
             child = int((home / "pid").read_text())
             driver.send_signal(signum)
             out, err = driver.communicate(timeout=15)
@@ -481,6 +499,10 @@ class InterruptTests(unittest.TestCase):
 
     def test_sigkill_of_the_gate_kills_the_child(self) -> None:
         result, _ = self.stop_gate(signal.SIGKILL)
+        self.assertEqual(result.returncode, -signal.SIGKILL)
+
+    def test_a_background_writer_dies_with_its_command_before_the_gate_cleans_up(self) -> None:
+        result, _ = self.stop_gate(signal.SIGKILL, mode="orphan")
         self.assertEqual(result.returncode, -signal.SIGKILL)
 
 

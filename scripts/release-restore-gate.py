@@ -131,7 +131,7 @@ def interrupt(signum, frame) -> None:
     with ACTIVE_LOCK:
         for group in list(ACTIVE):
             try:
-                os.killpg(group, signal.SIGKILL)
+                os.killpg(group, signal.SIGTERM)
             except ProcessLookupError:
                 pass
 
@@ -141,35 +141,62 @@ def install_interrupt_handlers() -> None:
         signal.signal(signum, interrupt)
 
 
-# Supervisor for every child, started as the leader of the child's process
-# group. It arms PR_SET_PDEATHSIG with SIGTERM and refuses to run when its parent
-# is no longer the gate, which closes the window between fork and arming. When
-# the gate dies, by any signal, the supervisor kills the whole group, so no
-# descendant outlives the gate. Its file-size limit is inherited by every
+# Supervisor for every child. The gate starts it as the leader of its own
+# process group; it runs the command as the leader of a second group and owns
+# that group's whole lifetime. It arms PR_SET_PDEATHSIG with SIGTERM and refuses
+# to run when its parent is no longer the gate, closing the window between fork
+# and arming. On SIGTERM, from the gate or from the gate's death, and again when
+# the command exits, it kills the command's group, so no descendant outlives
+# either the command or the gate. Its file-size limit is inherited by every
 # descendant, and the command gets back the signal dispositions Python ignores.
 # The supervisor ends the way its command ended.
 LAUNCHER = """
 import ctypes, os, resource, signal, sys
-signal.signal(signal.SIGTERM, lambda signum, frame: os.killpg(0, signal.SIGKILL))
+command = 0
+def stop(signum, frame):
+    if command:
+        try:
+            os.killpg(command, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    os._exit(128 + signum)
+signal.signal(signal.SIGTERM, stop)
 if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
     sys.exit(126)
 if os.getppid() != int(sys.argv[1]):
     sys.exit(125)
 resource.setrlimit(resource.RLIMIT_FSIZE, (int(sys.argv[2]), int(sys.argv[2])))
-command = os.fork()
-if command == 0:
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+child = os.fork()
+if child == 0:
+    os.setpgid(0, 0)
     for signum in (signal.SIGPIPE, signal.SIGXFSZ, signal.SIGTERM):
         signal.signal(signum, signal.SIG_DFL)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
     try:
         os.execvp(sys.argv[3], sys.argv[3:])
     except OSError:
         os._exit(127)
+try:
+    os.setpgid(child, child)
+except OSError:
+    pass
+command = child
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+os.waitid(os.P_PID, command, os.WEXITED | os.WNOWAIT)
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+try:
+    os.killpg(command, signal.SIGKILL)
+except ProcessLookupError:
+    pass
 code = os.waitstatus_to_exitcode(os.waitpid(command, 0)[1])
 if code < 0:
     signal.signal(-code, signal.SIG_DFL)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {-code})
     os.kill(os.getpid(), -code)
 sys.exit(code)
 """
+SUPERVISOR_SECONDS = 10
 
 
 def confinement(file_bytes: int) -> list[str]:
@@ -221,8 +248,8 @@ def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadlin
         with ACTIVE_LOCK:
             ACTIVE.add(child.pid)
         try:
-            # WNOWAIT leaves the exited leader unreaped, so its group ID cannot be
-            # reused before the group is killed below.
+            # WNOWAIT leaves the exited supervisor unreaped, so its group ID cannot
+            # be reused before the group is signalled below.
             while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
                 if STOP.is_set():
                     raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
@@ -236,13 +263,18 @@ def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadlin
                 raise CaseFailure("unknown", "interrupted", "the gate was stopped by a signal")
             guard()
         finally:
+            # SIGTERM lets the supervisor kill the command's group before it exits.
             try:
-                os.killpg(child.pid, signal.SIGKILL)
+                os.killpg(child.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            try:
+                child.wait(timeout=SUPERVISOR_SECONDS)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
             with ACTIVE_LOCK:
                 ACTIVE.discard(child.pid)
-            child.wait()
     if out_path.stat().st_size + err_path.stat().st_size > limit:
         raise CaseFailure("unknown", label, f"streams exceeded their {limit} byte budget")
     return child.returncode, "" if stdout_path else out_path.read_text(errors="replace")

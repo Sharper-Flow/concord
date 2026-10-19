@@ -16,8 +16,8 @@ const historicalWitnessLogEnv = "TEST_CONCORD_HISTORICAL_WITNESS_LOG"
 var historicalWitnessMu sync.Mutex
 
 // recordHistoricalWitness logs one historical row a corpus test inserted. The
-// line is appended only when the test passes, so a failing test witnesses
-// nothing; the row's bytes are recorded exactly as inserted.
+// line is appended only when the test passes, so a failing or skipped test
+// witnesses nothing; the row's bytes are recorded exactly as inserted.
 func recordHistoricalWitness(t *testing.T, kind string, payloadVersion int, payload []byte) {
 	t.Helper()
 	path := os.Getenv(historicalWitnessLogEnv)
@@ -34,7 +34,7 @@ func recordHistoricalWitness(t *testing.T, kind string, payloadVersion int, payl
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if t.Failed() {
+		if t.Failed() || t.Skipped() {
 			return
 		}
 		historicalWitnessMu.Lock()

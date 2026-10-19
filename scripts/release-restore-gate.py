@@ -354,9 +354,11 @@ def shape_coverage(census: Path, writers: list[Writer]) -> dict:
     try:
         rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
         shapes = json.loads((census / "coverage.json").read_text(encoding="utf-8"))["shapes"]
+        written = {tag for shape in shapes for tag in shape["writers"]}
         gaps = {
             "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
             "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
+            "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
             "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
         }
     except (OSError, ValueError, KeyError, TypeError) as error:

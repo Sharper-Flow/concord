@@ -46,7 +46,8 @@ NAMED_PROFILE_FILES = (
 )
 PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 RTE_REQUIRED_PHRASES = (
-    "never decides inside another session's item",
+    "decides inside another session's item only a choice that session brings to it",
+    "Bring the operator only a choice neither of you can clearly decide",
     "Never answer a Concord approval challenge",
     "goes to the operator unchanged",
     "Each session owns its design, code, tests, review, law text, publication",
@@ -58,6 +59,7 @@ CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",
     "You do not need an RTE session",
     "The user may choose to start an RTE session",
+    "Notices report actual overlap, not the chance of it",
     "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
 )
 PROMPT_DIR = Path("examples/opencode/agents")

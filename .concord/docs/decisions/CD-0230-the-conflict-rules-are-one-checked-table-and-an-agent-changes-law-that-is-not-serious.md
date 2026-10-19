@@ -27,12 +27,21 @@
 - **Approval:** The Snowball coordinator approved this record on 2026-10-17
   under the operator's delegation. The record is serious under P12 because it
   affects more than one Domain.
+  The operator approved the D5 coordinator-routing amendment as exact text on
+  2026-10-19 for
+  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
 - **Amended:** 2026-10-19, approved by the operator as exact text
   for [Concord (CON) issue 1200](https://linear.app/sharper-flow/issue/CON-1200).
   D4's P12 Domain test counts the child Domains of the laws a change adds,
   modifies, or removes, not its footprint record. The change is serious under
   P12 because it narrows when an operator approval applies, which removes
   behavior the operator sees.
+- **Amended:** 2026-10-19, for
+  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
+  D5 routes a choice that carries a security risk, changes UI/UX, sets a
+  preference, or sets product direction, and that no approval point holds,
+  through the item's coordinator before the operator. The change is serious
+  under P12 because it changes which questions reach the operator.
 
 ## Context
 
@@ -148,6 +157,18 @@ with its class. A point that fits no class is listed as a gap with its
 follow-up item. It stays an operator approval until the record that holds it
 is amended. Removing a point or changing its class removes behavior the
 operator sees, so it is serious under P12.
+
+A choice inside a work item that carries a security risk, changes UI/UX, sets
+a preference, or sets product direction, and that no approval point holds,
+goes first to the item's coordinator: the release train engineer (RTE) when
+one coordinates the item, otherwise the operator. The agent states the choice
+in plain words with its recommendation and the risk. The coordinator decides a
+choice whose answer is clear, alone or with an advisor subagent, and records
+the decision and its reasons on the item. A choice that neither can clearly
+decide goes to the operator. This route settles no approval point: each point
+the table lists, the exact-text approval of a serious law change, rule U's
+review and acceptance, and a Concord approval challenge stay with the
+operator. A purely technical choice stays with the agent that owns the item.
 
 ### D6. Follow-up items form a checkable ledger
 

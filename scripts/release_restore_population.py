@@ -8,6 +8,10 @@ tag or no assets, and a tag with no release, become named `unknown` rows. Only
 a tag a recorded ruling settled, bound to its exact tag object and commit, is
 `artifact_unavailable`. The candidate's own tag is excluded only when it
 already names the target commit (an idempotent release rerun).
+
+The network readers take a `run(argv) -> stdout` callable that raises GateError
+on failure, so the caller owns how each `gh` and `git` child is confined,
+bounded, and interrupted.
 """
 
 from __future__ import annotations
@@ -15,11 +19,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
-import subprocess
 
 TAG_RE = re.compile(r"\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 PER_PAGE = 100
-NETWORK_SECONDS = 120
 # Strict-semver tags that carry no GitHub release by a recorded ruling. The
 # entry binds the tag object and commit, so a retargeted tag is unknown again.
 SETTLED_UNPUBLISHED = {
@@ -51,22 +53,15 @@ def semver(tag: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
 
 
-def run_json(argv: list[str]) -> object:
-    completed = subprocess.run(argv, capture_output=True, text=True, timeout=NETWORK_SECONDS)
-    if completed.returncode != 0:
-        raise GateError(f"{argv[:3]} exited {completed.returncode}: {completed.stderr.strip()[-400:]}")
-    return json.loads(completed.stdout)
-
-
-def gh_release_total(repository: str) -> int:
+def gh_release_total(repository: str, run) -> int:
     owner, name = repository.split("/")
     query = "query($o:String!,$n:String!){repository(owner:$o,name:$n){releases{totalCount}}}"
-    document = run_json(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"o={owner}", "-F", f"n={name}"])
+    document = json.loads(run(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"o={owner}", "-F", f"n={name}"]))
     return int(document["data"]["repository"]["releases"]["totalCount"])  # type: ignore[index]
 
 
-def gh_release_page(repository: str, page: int) -> list[dict]:
-    batch = run_json(["gh", "api", f"repos/{repository}/releases?per_page={PER_PAGE}&page={page}"])
+def gh_release_page(repository: str, page: int, run) -> list[dict]:
+    batch = json.loads(run(["gh", "api", f"repos/{repository}/releases?per_page={PER_PAGE}&page={page}"]))
     if not isinstance(batch, list) or any(not isinstance(entry, dict) for entry in batch):
         raise GateError(f"release page {page} is not a list of objects")
     return batch
@@ -87,17 +82,12 @@ def list_releases(total: int, fetch_page) -> list[dict]:
     return releases
 
 
-def git_tags(repository: str) -> dict[str, tuple[str, str]]:
+def git_tags(repository: str, run) -> dict[str, tuple[str, str]]:
     """Strict-semver tags as {tag: (tag object, peeled commit)} from the public remote."""
-    completed = subprocess.run(
-        ["git", "ls-remote", "--tags", f"https://github.com/{repository}.git"],
-        capture_output=True, text=True, timeout=NETWORK_SECONDS,
-    )
-    if completed.returncode != 0:
-        raise GateError(f"git ls-remote exited {completed.returncode}: {completed.stderr.strip()[-400:]}")
+    listing = run(["git", "ls-remote", "--tags", f"https://github.com/{repository}.git"])
     objects: dict[str, str] = {}
     peeled: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
+    for line in listing.splitlines():
         oid, ref = line.split("\t")
         name = ref.removeprefix("refs/tags/")
         target = peeled if name.endswith("^{}") else objects

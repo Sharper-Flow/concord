@@ -1,15 +1,17 @@
-// Command release-restore-inventory records each release tag's event registry
-// and payload shapes: it parses the registry literal, then compiles a reflection
-// probe against that tag's own source. Tags with identical internal trees,
-// go.mod, and go.sum share one probe. An unrecognized
-// registry entry refuses the tag. Each written (kind, version, type) is then
+// Command release-restore-inventory records each release tag's event registry,
+// payload shapes, and event writers: it parses the registry literal, compiles a
+// reflection probe against that tag's own source, and type-checks the binary's
+// writer sites (writers.go). Tags with identical internal and cmd trees,
+// go.mod, go.sum, toolchain, and generator share one group. An unrecognized
+// registry entry refuses the tag. Each registered (kind, version) is then
 // joined to the witness logs: historical corpus rows, and writer-produced rows
 // from scripts/release-restore-gate.py, each bound to its own release's
-// registered shape or older accepted version. An unwitnessed shape or older
-// version, a writer row that binds to no registered shape or accepted version of
-// its release, or an unapproved refusal holds (exit 1).
+// registered shape or older accepted version, beside each release's writer
+// finding (findings.go). An unwitnessed shape or older version, a writer row
+// that binds to no registered shape or accepted version of its release, or an
+// unapproved refusal holds (exit 1).
 //
-// With -cache, each group's probe result is kept in that directory and -batch N
+// With -cache, each group's probe result and analysis are kept in that directory and -batch N
 // computes at most N missing groups per run, so a census can run as several
 // bounded runs. A run that leaves groups missing writes nothing and exits 3.
 // A kept probe failure stays until its cache file is removed.
@@ -50,11 +52,16 @@ const (
 
 var typedConstructors = map[string]bool{"registerEventKind": true, "registerScopedEventKind": true, "workflowRegistration": true, "workflowScopedRegistration": true}
 
-// The group key pins the source that decides a group's probe; coverage.go
-// decides only coverage.
+// The group key pins the sources that decide a group's probe and analysis;
+// findings.go and coverage.go decide only findings and coverage.
 //
 //go:embed main.go
-var generatorSource string
+var mainSource string
+
+//go:embed writers.go
+var writersSource string
+
+var generatorSource = mainSource + writersSource
 
 const excludedFormA = ` v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.7.1 v0.8.0 v0.9.0 v0.10.0 v0.10.1 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.15.1 v0.15.2 v0.15.3 v0.15.4 v0.16.0 v0.16.1 v0.16.2 v0.17.0 v0.17.1 v0.17.2 v0.18.0 v0.19.0 v0.20.0 v0.21.0 v0.22.0 v0.23.0 v0.24.0 v0.25.0 v0.26.0 v0.26.1 v0.27.0 v0.27.1 v0.28.0 v0.29.0 v0.30.0 v0.31.0 v0.32.0 v0.33.0 v0.33.1 v0.33.2 v0.33.3 v0.33.4 v0.34.0 v0.35.0 v0.36.0 v0.37.0 v0.37.1 `
 
@@ -86,6 +93,7 @@ type inventory struct {
 	Generator string                     `json:"generator"`
 	Rows      []row                      `json:"rows"`
 	Groups    map[string][]registration  `json:"groups"`
+	Analyses  map[string]writerAnalysis  `json:"analyses"`
 	Types     map[string]json.RawMessage `json:"types"`
 }
 
@@ -192,50 +200,54 @@ type probeOutput struct {
 	Types    map[string]json.RawMessage `json:"types"`
 }
 
-// groupResult is one group's probe report, as cached. A probe that failed
-// records its error.
+// groupResult is one group's probe report and writer analysis, as cached. A
+// probe that failed records its error; its analysis may still be present.
 type groupResult struct {
-	Probe probeOutput `json:"probe"`
-	Error string      `json:"error,omitempty"`
+	Probe    probeOutput    `json:"probe"`
+	Analysis writerAnalysis `json:"analysis"`
+	Error    string         `json:"error,omitempty"`
 }
 
 // errIncomplete reports a batch run that left groups uncomputed.
 var errIncomplete = errors.New("groups remain")
 
-// probe compiles and runs the shape probe against one tag's archived source.
-func probe(commit string, entries []string) (probeOutput, error) {
-	var out probeOutput
+// probe analyzes one tag's archived source, then compiles and runs the shape
+// probe against it. The analysis runs first, so the probe's added files are
+// never part of the analyzed binary.
+func probe(commit string, entries []string) (out probeOutput, analysis writerAnalysis, err error) {
+	analysis = writerAnalysis{Analyzer: analyzerVersion(), Refused: "the source was not analyzed"}
 	dir, err := os.MkdirTemp("", "release-restore-probe-")
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	tarball := filepath.Join(dir, "source.tar")
 	if _, err := git("archive", "--format=tar", "-o", tarball, commit); err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	if _, err := command(dir, "tar", "-xf", tarball); err != nil {
-		return out, err
+		return out, analysis, err
 	}
+	analysis = analyzeWriters(dir)
 	module, err := command(dir, "go", "list", "-m")
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	err = errors.Join(os.Mkdir(filepath.Join(dir, "releaserestoreprobe"), 0o750),
 		os.WriteFile(filepath.Join(dir, "internal/store/zz_release_restore_probe.go"), []byte(strings.Replace(probeTemplate, "\t// TYPES\n", strings.Join(entries, ""), 1)), 0o600),
 		os.WriteFile(filepath.Join(dir, "releaserestoreprobe/main.go"), []byte(strings.ReplaceAll(probeMain, "MODULE", strings.TrimSpace(string(module)))), 0o600))
 	if err != nil {
-		return out, err
+		return out, analysis, err
 	}
 	report := filepath.Join(dir, "probe.json")
 	if _, err := command(dir, "go", "run", "./releaserestoreprobe", report); err != nil {
-		return out, fmt.Errorf("probe %s: %w", commit, err)
+		return out, analysis, fmt.Errorf("probe %s: %w", commit, err)
 	}
 	data, err := os.ReadFile(filepath.Clean(report))
 	if err == nil {
 		err = json.Unmarshal(data, &out)
 	}
-	return out, err
+	return out, analysis, err
 }
 
 func digest(data []byte) string {
@@ -280,9 +292,9 @@ func listTags() ([]row, error) {
 	return tags, nil
 }
 
-// inspect parses one tag's registry and names its probe group: the exact
-// internal tree, go.mod, go.sum, and probe source.
-func inspect(result row) (row, []string) {
+// inspect parses one tag's registry and names its group: the exact internal
+// and cmd trees, go.mod, go.sum, toolchain, and generator source.
+func inspect(result row, toolchain string) (row, []string) {
 	src, err := command("", "git", "show", result.Commit+":internal/store/operation.go")
 	var entries []string
 	if err == nil {
@@ -291,28 +303,40 @@ func inspect(result row) (row, []string) {
 	}
 	var inputs string
 	if err == nil {
-		inputs, err = git("rev-parse", result.Commit+":internal", result.Commit+":go.mod", result.Commit+":go.sum")
+		inputs, err = git("rev-parse", result.Commit+":internal", result.Commit+":cmd", result.Commit+":go.mod", result.Commit+":go.sum")
 	}
 	if err != nil {
 		result.Status, result.Detail = "inventory_refused", err.Error()
 		result.Excluded = err.Error() == untypedReason && strings.Contains(excludedFormA, " "+result.Tag+" ")
 		return result, nil
 	}
-	result.Group = digest([]byte(inputs + "\n" + generatorSource))
+	result.Group = digest([]byte(inputs + "\n" + toolchain + "\n" + generatorSource))
 	return result, entries
 }
 
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
 	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
-	cache := flag.String("cache", "", "directory that keeps each group's probe result between runs")
+	cache := flag.String("cache", "", "directory that keeps each group's probe result and analysis between runs")
 	batch := flag.Int("batch", 0, "with -cache, compute at most this many missing groups, then exit 3 if any remain")
 	var witnesses []string
 	flag.Func("witnesses", "witness log (JSON lines) to bind shapes to: a historical corpus or release gate log; repeatable", func(path string) error {
 		witnesses = append(witnesses, path)
 		return nil
 	})
+	analyze := flag.String("analyze", "", "print the writer analysis of one release source tree and exit, to review its sites")
 	flag.Parse()
+	if *analyze != "" {
+		data, err := json.MarshalIndent(analyzeWriters(*analyze), "", " ")
+		if err == nil {
+			_, err = os.Stdout.Write(append(data, '\n'))
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*output, *coverageOut, *cache, *batch, witnesses); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
 		if errors.Is(err, errIncomplete) {
@@ -380,18 +404,22 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 		}
 		witnesses = append(witnesses, rows...)
 	}
+	toolchain, err := command("", "go", "version")
+	if err != nil {
+		return err
+	}
 	tags, err := listTags()
 	if err != nil || len(tags) == 0 {
 		return fmt.Errorf("release tags unavailable or empty: %v", err)
 	}
-	inv := inventory{Schema: schemaID, Generator: "go run ./scripts/release-restore-inventory", Groups: map[string][]registration{}, Types: map[string]json.RawMessage{}}
+	inv := inventory{Schema: schemaID, Generator: "go run ./scripts/release-restore-inventory", Groups: map[string][]registration{}, Analyses: map[string]writerAnalysis{}, Types: map[string]json.RawMessage{}}
 	type pending struct {
 		commit  string
 		entries []string
 	}
 	work := map[string]pending{}
 	for _, ref := range tags {
-		result, entries := inspect(ref)
+		result, entries := inspect(ref, strings.TrimSpace(string(toolchain)))
 		if result.Group != "" {
 			work[result.Group] = pending{result.Commit, entries}
 		}
@@ -418,8 +446,8 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 	for range workers {
 		wg.Go(func() {
 			for key := range next {
-				out, err := probe(work[key].commit, work[key].entries)
-				result := groupResult{Probe: out}
+				out, analysis, err := probe(work[key].commit, work[key].entries)
+				result := groupResult{Probe: out, Analysis: analysis}
 				if err != nil {
 					result.Error = err.Error()
 				}
@@ -443,6 +471,7 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 	}
 	failures := map[string]error{}
 	for key, result := range results {
+		inv.Analyses[key] = result.Analysis
 		var err error
 		if result.Error != "" {
 			err = errors.New(result.Error)

@@ -78,113 +78,14 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 		}
 		result.BinaryDigest = binaryDigest
 	}
-	// The run loop owns the stage ordinal: each executed test stage's
-	// position among the producer-generated test stages joins it to its
-	// selected witness, so no caller-supplied index can enter the join.
-	testOrdinal := 0
+	run := nativeTargetRun{store: s, ctx: ctx, req: req, plan: p, root: root, snapshot: snapshot, cwd: cwd, env: env, digest: digest, binaryDigest: binaryDigest, capture: capture, result: result}
 	for _, stage := range p.Stages {
-		home, err := os.Lstat(filepath.Join(root, "home"))
-		if err != nil || !home.IsDir() || home.Mode()&os.ModeSymlink != 0 {
-			return nativeUnavailable("disposable scratch no longer realizes the leased plan slot")
-		}
-		if stage.Name == "test" {
-			actual, err := nativeTargetInputDigest(p, snapshot, false)
-			if err != nil || actual != digest {
-				return nativeUnavailable("candidate inputs changed before test launch")
-			}
-			if binaryDigest != "" {
-				current, err := nativeTargetRunnerDigest(t, root)
-				if err != nil || current != binaryDigest {
-					return nativeUnavailable("consumed dependency closure changed before launch")
-				}
-			}
-		}
-		argv := nativeTargetStageArgv(t, root, slices.Clone(stage.Argv))
-		var launched func()
-		if stage.Name == "test" {
-			launched = s.nativeOracleProgramLaunched
-		}
-		if s.nativeOracleStageObserved != nil {
-			s.nativeOracleStageObserved(stage.Name, cwd, slices.Clone(argv), slices.Clone(env))
-		}
-		stageCtx := ctx
-		cancel := func() {}
-		if stage.Name == "test" {
-			stageCtx, cancel, err = nativeOracleTestContext(ctx, req)
-			if err != nil {
-				return err
-			}
-		}
-		stageCapture := nativeTargetStageCapture(stage.Name, capture)
-		so, se := 0, 0
-		if stageCapture == capture {
-			so, se = len(capture.stdout), len(capture.stderr)
-		}
-		exit, runErr := runNativeOracleStage(stageCtx, cwd, argv, env, nil, stageCapture, launched)
-		cancel()
-		stage.ExitCode = exit
-		stage.StdoutOffset = so
-		stage.StderrOffset = se
-		stage.StdoutLength = len(stageCapture.stdout) - so
-		stage.StderrLength = len(stageCapture.stderr) - se
-		if stageCapture != capture {
-			// Diagnostics captured beside the retained evidence streams
-			// record zero evidence bounds; their bytes are not retained.
-			stage.StdoutLength, stage.StderrLength = 0, 0
-		}
-		result.Stages = append(result.Stages, stage)
-		if runErr != nil || !stageCapture.complete {
-			return nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
-		}
-		if exit != 0 && stage.Name == "test" && req.Oracle.Phase == "execute" {
-			result.Qualification = "fail"
-			return nil
-		}
-		if exit != 0 {
-			return nativeUnavailable("native " + stage.Name + " returned a nonzero exit")
-		}
-		switch stage.Name {
-		case "metadata":
-			if err := nativeTargetVerifyMaterialization(ctx, t, root); err != nil {
-				return err
-			}
-			// The materialized environment now binds the consumed runner
-			// closure for every uv pair; the runner's own toolcheck
-			// re-proves it before launch.
-			binaryDigest, err = nativeTargetRunnerDigest(t, root)
-			if err != nil {
-				return err
-			}
-			result.BinaryDigest = binaryDigest
-		case "toolcheck":
-			if err := nativeTargetVerifyToolVersion(t, stageCapture.stdout); err != nil {
-				return err
-			}
-			// The baseline never resets after the toolcheck: a drift between
-			// materialization and here refuses instead of blessing itself.
-			current, err := nativeTargetRunnerDigest(t, root)
-			if err != nil {
-				return err
-			}
-			if current != binaryDigest {
-				return nativeUnavailable("consumed dependency closure changed before collection")
-			}
-		case "collect":
-			if err := nativeTargetVerifyCollect(p, stageCapture.stdout); err != nil {
-				return err
-			}
-		case "test":
-			witnesses, err := nativeTargetStageWitnesses(t, p.Bundle.Control, stage.Argv, testOrdinal)
-			if err != nil {
-				return err
-			}
-			testOrdinal++
-			if err := nativeTargetVerifyTestStage(t, root, stage.Argv, stageCapture.stdout); err != nil {
-				return err
-			}
-			result.ObservedWitnessIDs = append(result.ObservedWitnessIDs, witnesses...)
+		done, err := run.stage(stage)
+		if err != nil || done {
+			return err
 		}
 	}
+	binaryDigest = run.binaryDigest
 	actual, err := nativeTargetInputDigest(p, snapshot, false)
 	if err != nil || actual != digest {
 		return nativeUnavailable("consumed candidate inputs changed during execution")
@@ -206,6 +107,158 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 		return nativeUnavailable("observed witnesses differ from the exact selected population")
 	}
 	result.Qualification = "pass"
+	return nil
+}
+
+// nativeTargetRun carries one target-runner execution across its stages. The
+// run owns the stage ordinal: each executed test stage's position among the
+// producer-generated test stages joins it to its selected witness, so no
+// caller-supplied index can enter the join.
+type nativeTargetRun struct {
+	store        *Store
+	ctx          context.Context
+	req          WorktreeVerifyRequest
+	plan         nativeOraclePlan
+	root         string
+	snapshot     string
+	cwd          string
+	env          []string
+	digest       string
+	binaryDigest string
+	testOrdinal  int
+	capture      *nativeStreamCapture
+	result       *NativeOracleResult
+}
+
+// stage runs one stage and verifies its output. done reports that the run
+// reached its final answer, a failed execute-phase test.
+func (r *nativeTargetRun) stage(stage NativeOracleStage) (bool, error) {
+	if err := r.preLaunchCheck(stage); err != nil {
+		return false, err
+	}
+	stage, stageCapture, runErr, err := r.launch(stage)
+	if err != nil {
+		return false, err
+	}
+	r.result.Stages = append(r.result.Stages, stage)
+	if runErr != nil || !stageCapture.complete {
+		return false, nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
+	}
+	if stage.ExitCode != 0 && stage.Name == "test" && r.req.Oracle.Phase == "execute" {
+		r.result.Qualification = "fail"
+		return true, nil
+	}
+	if stage.ExitCode != 0 {
+		return false, nativeUnavailable("native " + stage.Name + " returned a nonzero exit")
+	}
+	return false, r.verifyStageOutput(stage, stageCapture.stdout)
+}
+
+// preLaunchCheck re-proves the scratch slot and, before a test stage, the
+// candidate inputs and consumed runner closure.
+func (r *nativeTargetRun) preLaunchCheck(stage NativeOracleStage) error {
+	home, err := os.Lstat(filepath.Join(r.root, "home"))
+	if err != nil || !home.IsDir() || home.Mode()&os.ModeSymlink != 0 {
+		return nativeUnavailable("disposable scratch no longer realizes the leased plan slot")
+	}
+	if stage.Name != "test" {
+		return nil
+	}
+	actual, err := nativeTargetInputDigest(r.plan, r.snapshot, false)
+	if err != nil || actual != r.digest {
+		return nativeUnavailable("candidate inputs changed before test launch")
+	}
+	if r.binaryDigest != "" {
+		current, err := nativeTargetRunnerDigest(r.plan.Target, r.root)
+		if err != nil || current != r.binaryDigest {
+			return nativeUnavailable("consumed dependency closure changed before launch")
+		}
+	}
+	return nil
+}
+
+// launch runs the stage process and records its exit and evidence bounds.
+// runErr is the process outcome; err is a refusal before launch.
+func (r *nativeTargetRun) launch(stage NativeOracleStage) (_ NativeOracleStage, _ *nativeStreamCapture, runErr, err error) {
+	argv := nativeTargetStageArgv(r.plan.Target, r.root, slices.Clone(stage.Argv))
+	var launched func()
+	if stage.Name == "test" {
+		launched = r.store.nativeOracleProgramLaunched
+	}
+	if r.store.nativeOracleStageObserved != nil {
+		r.store.nativeOracleStageObserved(stage.Name, r.cwd, slices.Clone(argv), slices.Clone(r.env))
+	}
+	stageCtx := r.ctx
+	cancel := func() {}
+	if stage.Name == "test" {
+		stageCtx, cancel, err = nativeOracleTestContext(r.ctx, r.req)
+		if err != nil {
+			return stage, nil, nil, err
+		}
+	}
+	stageCapture := nativeTargetStageCapture(stage.Name, r.capture)
+	so, se := 0, 0
+	if stageCapture == r.capture {
+		so, se = len(r.capture.stdout), len(r.capture.stderr)
+	}
+	exit, runErr := runNativeOracleStage(stageCtx, r.cwd, argv, r.env, nil, stageCapture, launched)
+	cancel()
+	stage.ExitCode = exit
+	stage.StdoutOffset = so
+	stage.StderrOffset = se
+	stage.StdoutLength = len(stageCapture.stdout) - so
+	stage.StderrLength = len(stageCapture.stderr) - se
+	if stageCapture != r.capture {
+		// Diagnostics captured beside the retained evidence streams
+		// record zero evidence bounds; their bytes are not retained.
+		stage.StdoutLength, stage.StderrLength = 0, 0
+	}
+	return stage, stageCapture, runErr, nil
+}
+
+// verifyStageOutput checks one successful stage's output against the plan.
+func (r *nativeTargetRun) verifyStageOutput(stage NativeOracleStage, stdout []byte) error {
+	t := r.plan.Target
+	switch stage.Name {
+	case "metadata":
+		if err := nativeTargetVerifyMaterialization(r.ctx, t, r.root); err != nil {
+			return err
+		}
+		// The materialized environment now binds the consumed runner
+		// closure for every uv pair; the runner's own toolcheck
+		// re-proves it before launch.
+		binaryDigest, err := nativeTargetRunnerDigest(t, r.root)
+		if err != nil {
+			return err
+		}
+		r.binaryDigest = binaryDigest
+		r.result.BinaryDigest = binaryDigest
+	case "toolcheck":
+		if err := nativeTargetVerifyToolVersion(t, stdout); err != nil {
+			return err
+		}
+		// The baseline never resets after the toolcheck: a drift between
+		// materialization and here refuses instead of blessing itself.
+		current, err := nativeTargetRunnerDigest(t, r.root)
+		if err != nil {
+			return err
+		}
+		if current != r.binaryDigest {
+			return nativeUnavailable("consumed dependency closure changed before collection")
+		}
+	case "collect":
+		return nativeTargetVerifyCollect(r.plan, stdout)
+	case "test":
+		witnesses, err := nativeTargetStageWitnesses(t, r.plan.Bundle.Control, stage.Argv, r.testOrdinal)
+		if err != nil {
+			return err
+		}
+		r.testOrdinal++
+		if err := nativeTargetVerifyTestStage(t, r.root, stage.Argv, stdout); err != nil {
+			return err
+		}
+		r.result.ObservedWitnessIDs = append(r.result.ObservedWitnessIDs, witnesses...)
+	}
 	return nil
 }
 

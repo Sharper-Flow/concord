@@ -154,6 +154,9 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if _, err := s.VerifyWorktree(ctx, req); err != nil {
 		t.Fatal(err)
 	}
+	if qualified, err := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID); err != nil || qualified != subject {
+		t.Fatalf("qualified subject = %q err = %v, want the delivered commit %q", qualified, err, subject)
+	}
 	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,

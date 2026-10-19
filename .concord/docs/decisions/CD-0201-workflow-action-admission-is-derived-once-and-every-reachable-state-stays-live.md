@@ -19,7 +19,7 @@
   CD-0209 D6, the work-pin sequence that names the next step;
   CD-0209 D7, the liveness and conformance replay that read the
   artifact-staleness bit;
-  [CD-0239](CD-0239-a-restarted-host-earns-one-retry-after-a-host-execution-failure.md)
+  [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   D3, equal answers require equal history and equal host observations
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no definition version

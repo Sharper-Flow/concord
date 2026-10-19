@@ -5,7 +5,7 @@
 - **Scope:** Work pin next intents, the investigation gate, and the correction dispatch wall
 - **Amends:** CD-0129 D2, CD-0148
 - **Related:** CD-0013, CD-0166
-- **Amended by:** [CD-0239](CD-0239-a-restarted-host-earns-one-retry-after-a-host-execution-failure.md)
+- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   D3 (the pin reason when only a `host_changed` basis could apply)
 - **Approval:** The operator approved both repairs as one dead-end removal: an agent at the escalation wall must find the wall, and a single-item Product must not be wedged out of its own premise gate.
 

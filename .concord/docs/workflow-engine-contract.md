@@ -839,8 +839,9 @@ contract supersession after the latest dispatch at any step is a changed
 approach, and a changed approach is a basis.
 
 The third family, `host_changed`, requires the latest dispatch's recorded
-host execution failure, the dispatching session's live leased process identity,
-and a process start more than one minute after that failure. It can admit only
+host execution failure, the dispatching session's recorded live leased
+process claim, and a process start more than one minute after that failure.
+The claim proves neither host repair nor authenticated host identity. It can admit only
 one counted dispatch per nonprogress window, even after another restart.
 CD-0239 D1 defines eligibility and its local process-claim trust limit; D3
 requires the host observation as an input to the shared admission loader.

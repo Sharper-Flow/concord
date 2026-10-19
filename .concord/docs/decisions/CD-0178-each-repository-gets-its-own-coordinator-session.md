@@ -25,7 +25,7 @@
 - **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
   session count, through CON-850. Concord (CON) issue CON-910 settles this
   record's Verification citation of the removed launch surface; the decision
-  sections are unchanged. [CD-0239](CD-0239-a-restarted-host-earns-one-retry-after-a-host-execution-failure.md)
+  sections are unchanged. [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   D3 amends the replacement-host landing rule of D3.
 
 ## Context
@@ -138,9 +138,10 @@ process id and process start time of the OpenCode process whose adapter
 recorded it. The host lease of CD-0111 reads the same identity through
 `internal/hostlease`.
 
-A verified same-session landing from a replacement host process appends a
-new landing event and refreshes that row's process identity (CD-0239 D3).
-A replay from the same recorded process remains idempotent.
+A same-session landing with a different core-checked process identity, or
+with a legacy row lacking process identity, appends a new landing event and
+refreshes that row (CD-0239 D3). The session-to-process association remains
+caller-supplied. A replay from the same recorded process remains idempotent.
 
 A row is released by `session_vacate`, by a verified landing of the same
 session in another worktree of the same work item, or by the end of its host

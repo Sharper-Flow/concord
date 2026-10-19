@@ -5,7 +5,7 @@
 - **Scope:** Worker lane dispatch and workflow correction
 - **Amends:** CD-0017, CD-0027
 - **Related:** CD-0013, CD-0059, CD-0102
-- **Amended by:** [CD-0239](CD-0239-a-restarted-host-earns-one-retry-after-a-host-execution-failure.md)
+- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   (the third basis family, `host_changed`)
 
 ## Context
@@ -54,9 +54,10 @@ derived ranked-finding set; predicate IDs do not substitute for finding IDs.
 A latest failure supplies no findings
 basis, because a failure carries no findings. A contract supersession after
 the latest dispatch at any step is a changed approach, and a changed
-approach is a basis. A host process that started after a latest host
-execution failure is a changed host, and a changed host is a basis under the
-conditions of CD-0239 D1.
+approach is a basis. A recorded claim for a live leased process that started
+after the latest host execution failure supplies `host_changed` under CD-0239
+D1. This bounded recovery allowance proves neither host repair nor
+authenticated host identity.
 
 Oracle finding IDs resolve through terminal event sequence and ordinal
 (CD-0197). Comparability retains the approved contract, job identity, owner

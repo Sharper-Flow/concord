@@ -53,7 +53,8 @@ const (
 var typedConstructors = map[string]bool{"registerEventKind": true, "registerScopedEventKind": true, "workflowRegistration": true, "workflowScopedRegistration": true}
 
 // The group key pins the sources that decide a group's probe and analysis;
-// findings.go and coverage.go decide only findings and coverage.
+// findings.go, coverage.go, and the exemption table decide only findings and
+// coverage.
 //
 //go:embed main.go
 var mainSource string
@@ -404,6 +405,10 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 		}
 		witnesses = append(witnesses, rows...)
 	}
+	table, err := parseExemptions(exemptionsSource)
+	if err != nil {
+		return err
+	}
 	toolchain, err := command("", "go", "version")
 	if err != nil {
 		return err
@@ -495,7 +500,7 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	coverage, err := cover(inv, witnesses)
+	coverage, err := cover(inv, witnesses, table)
 	if err != nil {
 		return err
 	}

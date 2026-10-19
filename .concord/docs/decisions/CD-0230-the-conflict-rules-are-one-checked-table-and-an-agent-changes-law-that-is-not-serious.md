@@ -96,8 +96,8 @@ The P12 test that a change affects more than one Domain counts the child
 Domains of the laws the change adds or modifies. Each such law contributes its
 home Domain and its `applies_to_domain_ids` (CD-0222 D3). The Product-root
 Domain is not counted: a root-homed law is Product-wide by placement, and its
-applicability names the child Domains it reaches. The test holds when the
-count exceeds one.
+applicability names the child Domains it reaches. A reference record is not
+law and adds no Domain. The test holds when the count exceeds one.
 
 The count reads recorded law homes and applicability, so it needs no
 declaration. It does not count the Domains of the code that ships with the law

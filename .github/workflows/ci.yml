@@ -109,6 +109,24 @@ jobs:
 
   verify-adapter:
     name: verify-adapter
+    needs: [verify-adapter-rest, verify-adapter-dispatch]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every adapter shard to pass
+        env:
+          REST_RESULT: ${{ needs.verify-adapter-rest.result }}
+          DISPATCH_RESULT: ${{ needs.verify-adapter-dispatch.result }}
+        run: |
+          test "$REST_RESULT" = success
+          test "$DISPATCH_RESULT" = success
+
+  # The dispatch-route journey file sets most of the adapter suite's wall time,
+  # so it runs alone in verify-adapter-dispatch. Every other file, including a
+  # new one, runs here without a maintained allowlist. Each job uploads its
+  # per-file durations so the next imbalance can be named from CI.
+  verify-adapter-rest:
+    name: verify-adapter-rest
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -138,7 +156,56 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: bun test adapter/opencode/
+        run: bun test adapter/opencode/ --path-ignore-patterns='adapter/opencode/dispatch_route_end_to_end.test.ts' --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings
+      - name: Retain adapter file durations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: adapter-test-timings-rest
+          path: ${{ runner.temp }}/adapter-test-timings.json
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-adapter-dispatch:
+    name: verify-adapter-dispatch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Test the dispatch-route journeys
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings
+      - name: Retain adapter file durations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: adapter-test-timings-dispatch
+          path: ${{ runner.temp }}/adapter-test-timings.json
+          if-no-files-found: error
+          retention-days: 90
 
   # JSON owns the nested validators, builds, fixtures, and host typecheck.
   # Suite execution belongs to verify-adapter and verify-tooling instead.

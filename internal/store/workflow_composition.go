@@ -120,7 +120,7 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
-	return []WorkflowComposition{implementationCompositionV33(), breakFixCompositionV30(), researchCompositionV20()}
+	return []WorkflowComposition{implementationCompositionV33(), breakFixCompositionV30(), researchCompositionV20(), implementationCompositionV34(), breakFixCompositionV31()}
 }
 
 // workflowCompositionCapabilities answers which capabilities a released
@@ -207,4 +207,22 @@ func researchCompositionV20() WorkflowComposition {
 			{Ref: "part.close", Version: 1, StepID: "complete", RecoveryTo: "investigate"},
 		},
 	}
+}
+
+// Each builder below ships its family's checks-repair head (CD-0205 D4): the
+// predecessor composition repinned to the action catalog that restates
+// record_worker_job with the repair's authoring members. No part, route,
+// evidence kind, or other action contract changes.
+func implementationCompositionV34() WorkflowComposition {
+	composition := implementationCompositionV33()
+	composition.Version = 34
+	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+func breakFixCompositionV31() WorkflowComposition {
+	composition := breakFixCompositionV30()
+	composition.Version = 31
+	composition.ActionCatalogVersion = 2
+	return composition
 }

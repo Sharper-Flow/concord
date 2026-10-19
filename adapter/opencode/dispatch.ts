@@ -149,6 +149,10 @@ export interface AgentLanePacketWorkerJob {
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
+  checks_repair?: {
+    reason: string
+    revisions: { worker_job: AgentLaneReportWorkerJob; checks: string[] }[]
+  }
 }
 
 // The acceptance-oracle members mirror internal/store worker_oracle.go

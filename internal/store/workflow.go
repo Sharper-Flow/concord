@@ -347,8 +347,16 @@ type workflowActionCompletedPayload struct {
 	CorrectionPredicateIDs   []string                  `json:"correction_predicate_ids,omitempty"`
 	CorrectionOpenFindingIDs []string                  `json:"correction_open_finding_ids,omitempty"`
 	RetryConvergence         *WorkflowRetryConvergence `json:"retry_convergence,omitempty"`
-	DeliveryArtifact         string                    `json:"delivery_artifact,omitempty"`
-	DeliveryState            string                    `json:"delivery_state,omitempty"`
+	// ChecksRepairReview records the dispatch_worker authorization that
+	// dispatched the one confirming review of an unconfirmed checks repair
+	// (CD-0205 D4): the exact satisfied repairing revision the packet bound,
+	// the repairing acceptance the admission is bound to, and whether the
+	// admission was funded or an ordinary-authority repeat. The walked
+	// repair state reads it as the confirming dispatch; a repeat repair's
+	// review records funded=false and rides ordinary wall authority.
+	ChecksRepairReview *WorkerChecksRepairReviewAdmission `json:"checks_repair_review,omitempty"`
+	DeliveryArtifact   string                             `json:"delivery_artifact,omitempty"`
+	DeliveryState      string                             `json:"delivery_state,omitempty"`
 	// ReviewAdvanceHeld records the accept guard's one admission decision
 	// over the review-debt family: the accepted attempt is the ready
 	// non-settling review whose verdict leaves the debt outstanding, so the
@@ -1441,6 +1449,13 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, predecessors, p.NewContractVersion); err != nil {
 		return err
 	}
+	// A contract supersession before the ship verdict is accepted voids an
+	// unconfirmed checks repair (CD-0205 D4): the named revisions lose their
+	// provisional readiness at the strict prefix of this supersession, and a
+	// confirmed repair keeps its confirmation.
+	if err := voidWorkerJobRepairsForSupersessionTx(ctx, tx, event.SubjectID, p.NewContractVersion, event.Seq-1); err != nil {
+		return err
+	}
 	if p.SuccessorContract != nil {
 		if err := foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.SuccessorContract); err != nil {
 			return err
@@ -2273,6 +2288,14 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.RetryConvergence != nil && (p.ActionID != "dispatch_worker" || !p.RetryConvergence.valid()) {
 		return newFailure(KindInvalidPayload, "fold_event", "retry_convergence requires a dispatch and a complete convergence basis", false, "record the convergence basis derived by the store")
 	}
+	if p.ChecksRepairReview != nil {
+		if p.ActionID != "dispatch_worker" {
+			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review is reserved for dispatch_worker: the completion that records the confirming review admission", false, "record the confirming-review admission on its dispatch completion only")
+		}
+		if p.ChecksRepairReview.WorkerJob.JobID == "" || p.ChecksRepairReview.WorkerJob.Revision < 1 || p.ChecksRepairReview.WorkerJob.Digest == "" || p.ChecksRepairReview.RepairingAcceptanceSeq < 1 {
+			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review must bind the exact repairing revision and its repairing acceptance", false, "record the confirming-review admission the store derives")
+		}
+	}
 	bound := workflowOperationEvidenceRefBound
 	if p.VerdictEntryCount != 0 {
 		if p.ActionID != "record_verdict" || p.VerdictEntryCount < 0 || p.VerdictEntryCount > workflowVerdictBatchMaxEntries {
@@ -2534,8 +2557,16 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	// it satisfies, on the exact revision the accept guard derived from the
 	// attempt's dispatch binding. The update fails closed when the derived
 	// disposition names a revision that is not recorded under that digest.
+	// An accepted repairing revision additionally resolves its named
+	// revisions for prerequisite readiness through this same recorded
+	// acceptance (CD-0205 D4); the correction walk keeps their obligations
+	// unresolved until the confirming review's accepted ship verdict, so the
+	// provisional readiness clears no correction debt.
 	if p.ActionID == "accept_worker_result" && p.WorkerJob != nil {
 		if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+			return err
+		}
+		if err := markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob); err != nil {
 			return err
 		}
 	}
@@ -2622,6 +2653,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		}
 		if p.ActionID == "reject_worker_result" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+			// A rejected confirming review result voids its repair (CD-0205
+			// D4): the named revisions lose their provisional readiness at
+			// the strict prefix of this rejection.
+			if err := voidWorkerJobRepairByAttemptTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq-1); err != nil {
 				return err
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -140,6 +141,13 @@ type ContinuitySnapshot struct {
 	// dispatcher binds a selected revision verbatim and never authors job
 	// content itself. Empty when no revision is ready.
 	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
+	// ChecksRepairReviewJobs carries the satisfied repairing revisions whose
+	// unconfirmed checks repair still holds an unconsumed confirming-review
+	// funding (CD-0205 D4), in the same packet shape. Normal ready jobs stay
+	// in ready_worker_jobs; the adapter selects a review job from here only
+	// for the review capability, and only the funded review dispatch admits
+	// it. Empty when no repair stands unconfirmed with its funding unspent.
+	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -536,6 +544,29 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	for _, view := range views {
 		if view.Ready {
 			out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, packetJobFromView(view))
+		}
+	}
+	// The funded confirming-review jobs (CD-0205 D4): the satisfied repairing
+	// revisions of unconfirmed repairs whose funding is unspent. They are
+	// never ready jobs — the one review dispatch they admit reads them here.
+	// Jobs keep deterministic binding order, so a reader resolves the same
+	// job first on every read.
+	fundings, err := workerChecksRepairReviewFundingsTx(ctx, tx, work)
+	if err != nil {
+		return err
+	}
+	fundingJobs := make([]string, 0, len(fundings))
+	for jobID := range fundings {
+		fundingJobs = append(fundingJobs, jobID)
+	}
+	slices.Sort(fundingJobs)
+	for _, jobID := range fundingJobs {
+		funding := fundings[jobID]
+		for _, view := range views {
+			if view.Binding == funding.Repairing {
+				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
+				break
+			}
 		}
 	}
 	return nil

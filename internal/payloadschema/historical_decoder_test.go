@@ -265,6 +265,17 @@ var newlyFrozenHistoricalDefs = map[string]string{
 	"work_context_research_finding":      "CON-911: the native research finding the resolved entries carry, with the always-serialized applicability scopes",
 	"research_scopes":                    "CON-911: the applicability scopes the context research finding carries",
 	"research_source":                    "CON-911: the native source descriptor the resolved research entries cite",
+	// The checks-repair closure the repair-capable heads declare (CON-1221,
+	// implementation v34, break_fix v31): the packet4 identity anchors the
+	// repair-capable worker-job shape beside the byte-exact packet2/packet3
+	// baselines, and the repair metadata, its named-revision item, and the
+	// small recorded job reference the metadata and the promoted failure
+	// attribution surfaces share ride the same union addition.
+	"worker_packet4":                  "CON-1221: the checks-repair packet identity the repair-capable implementation v34 and break_fix v31 dispatch payloads declare",
+	"worker_packet_checks_repair_job": "CON-1221: the repair-capable worker-job shape worker_packet4 anchors, carrying the optional core-recorded checks repair beside the shared job content",
+	"worker_checks_repair":            "CON-1221: the core-recorded checks repair the repairing revision and its packet job carry: the stated reason and each named revision's binding and old checks",
+	"worker_job_repair_revision":      "CON-1221: the positive distinct revision integer the record_worker_job repair_revisions authoring array carries on the repair-capable heads",
+	"worker_failure_job_binding":      "CON-1221: the recorded worker-job revision reference the checks repair's named entries and the failure attribution surfaces share",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

@@ -37,8 +37,18 @@ import (
 // runs when its condition constantly selects the other arm; a condition whose
 // resolution cut a cycle is never constant. Overwriting applies only to a
 // local no closure captures, and only across statements with no branch
-// statement. A parameter, result, receiver, global, call result, or local
-// whose address escapes is "*". A site whose pairs all resolve to finite
+// statement.
+//
+// A parameter resolves through the calls of its function and a call result
+// through the callee's returns, with the callee's parameters bound to that
+// call's arguments. A site that reads its own function's parameters is
+// evaluated once per static call of that function. Only a function every call
+// of which the index sees takes part: not one used as a value, nor an exported
+// method, nor a method whose name an interface method use names. The result
+// of a function that defers, whose deferred call may recover a panic into
+// zero results, a method expression call,
+// a receiver, a global, a call through a value, or a local whose address
+// escapes is "*". A site whose pairs all resolve to finite
 // values adds them to the release's writes; any other site is open. Pairs are
 // "kind vVERSION", and "*" is any value. A zero kind or version is a value like any other: a
 // recognized insert can write an Event that append never validated.
@@ -119,9 +129,59 @@ type branch struct {
 	then bool
 }
 
+// seenKey is one variable or call being resolved under one call binding.
 type seenKey struct {
-	obj   types.Object
+	node  any
 	field string
+	env   *env
+}
+
+// env binds one function's parameters to one call's arguments, which resolve
+// under caller. A strict env binds no arguments: its parameters are "?", and
+// the site is then evaluated once per static call of its function.
+type env struct {
+	function string
+	args     []ast.Expr
+	pkg      *checkedPackage
+	caller   *env
+	strict   bool
+}
+
+// scope is one resolution's cycle set and the call binding it runs under.
+type scope struct {
+	seen map[seenKey]bool
+	env  *env
+}
+
+func newScope(e *env) *scope { return &scope{seen: map[seenKey]bool{}, env: e} }
+
+// formal is one non-variadic parameter of a function.
+type formal struct {
+	function string
+	index    int
+}
+
+// function is one declared function: its static calls, its returns with
+// their enclosing if arms, and whether it is used other than by a call or
+// defers.
+type function struct {
+	decl     *ast.FuncDecl
+	pkg      *checkedPackage
+	calls    []callSite
+	returns  []returned
+	value    bool
+	deferred bool
+}
+
+// returned is one return statement's results and enclosing if arms.
+type returned struct {
+	results []ast.Expr
+	at      assignment
+}
+
+type callSite struct {
+	call *ast.CallExpr
+	pkg  *checkedPackage
 }
 
 // analyzer holds one binary's type-checked packages, the flow facts the
@@ -139,6 +199,10 @@ type analyzer struct {
 	declared map[types.Object]bool
 	unknown  map[types.Object]bool
 	captured map[types.Object]bool
+	formals  map[types.Object]formal
+	funcs    map[string]*function
+	callees  map[*ast.Ident]bool
+	dynamic  map[string]bool
 	steps    int
 	cuts     int
 }
@@ -245,7 +309,7 @@ func analyzeWritersIn(dir string) (writerAnalysis, error) {
 	}
 	a.params, a.typeArgs = map[*types.TypeParam]string{}, map[string][]types.Type{}
 	a.assigns, a.declared, a.unknown, a.writes = map[types.Object][]assignment{}, map[types.Object]bool{}, map[types.Object]bool{}, map[string]bool{}
-	a.captured = map[types.Object]bool{}
+	a.captured, a.formals, a.funcs, a.callees, a.dynamic = map[types.Object]bool{}, map[types.Object]formal{}, map[string]*function{}, map[*ast.Ident]bool{}, map[string]bool{}
 	for _, p := range packages {
 		a.instances(p)
 		a.index(p)
@@ -287,6 +351,24 @@ func (a *analyzer) index(p *checkedPackage) {
 				}
 			case *ast.Ident:
 				a.markCaptured(p, v, stack)
+				if f, ok := p.info.Uses[v].(*types.Func); ok && f.Signature().Recv() != nil && types.IsInterface(f.Signature().Recv().Type()) {
+					a.dynamic[f.Name()] = true
+				}
+				if f, ok := p.info.Uses[v].(*types.Func); ok && !a.callees[v] {
+					a.function(f).value = true
+				}
+			case *ast.FuncDecl:
+				a.indexFunc(p, v)
+			case *ast.CallExpr:
+				a.indexCall(p, v)
+			case *ast.DeferStmt:
+				if fn := a.enclosingFunc(p, stack); fn != nil {
+					fn.deferred = true
+				}
+			case *ast.ReturnStmt:
+				if fn := a.enclosingFunc(p, stack); fn != nil {
+					fn.returns = append(fn.returns, returned{v.Results, place(p, stack, v)})
+				}
 			case *ast.IncDecStmt:
 				a.markUnknown(p, v.X)
 			case *ast.UnaryExpr:
@@ -310,6 +392,94 @@ func (a *analyzer) index(p *checkedPackage) {
 			return true
 		})
 	}
+}
+
+// function returns the record of f's generic origin.
+func (a *analyzer) function(f *types.Func) *function {
+	name := f.Origin().FullName()
+	if a.funcs[name] == nil {
+		a.funcs[name] = &function{}
+	}
+	return a.funcs[name]
+}
+
+// indexFunc records a declared function and its parameters.
+func (a *analyzer) indexFunc(p *checkedPackage, decl *ast.FuncDecl) {
+	f, ok := p.info.Defs[decl.Name].(*types.Func)
+	if !ok {
+		return
+	}
+	fn := a.function(f)
+	fn.decl, fn.pkg = decl, p
+	index := 0
+	for i, field := range decl.Type.Params.List {
+		for _, id := range field.Names {
+			if obj := p.info.Defs[id]; obj != nil && !(f.Signature().Variadic() && i == len(decl.Type.Params.List)-1) {
+				a.formals[obj] = formal{f.Origin().FullName(), index}
+			}
+			index++
+		}
+		if len(field.Names) == 0 {
+			index++
+		}
+	}
+}
+
+// indexCall records a static call. A method expression call, whose arguments
+// start with the receiver, uses its function as a value.
+func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr) {
+	id := calleeIdent(call.Fun)
+	f, ok := p.info.Uses[id].(*types.Func)
+	if !ok {
+		return
+	}
+	a.callees[id] = true
+	if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && p.info.Selections[sel] != nil && p.info.Selections[sel].Kind() == types.MethodExpr {
+		a.function(f).value = true
+		return
+	}
+	a.function(f).calls = append(a.function(f).calls, callSite{call, p})
+}
+
+func calleeIdent(fun ast.Expr) *ast.Ident {
+	switch f := ast.Unparen(fun).(type) {
+	case *ast.Ident:
+		return f
+	case *ast.SelectorExpr:
+		return f.Sel
+	case *ast.IndexExpr:
+		return calleeIdent(f.X)
+	case *ast.IndexListExpr:
+		return calleeIdent(f.X)
+	}
+	return nil
+}
+
+// enclosingFunc is the declared function a node sits in directly, not in a
+// closure.
+func (a *analyzer) enclosingFunc(p *checkedPackage, stack []ast.Node) *function {
+	for i := len(stack) - 1; i >= 0; i-- {
+		switch v := stack[i].(type) {
+		case *ast.FuncLit:
+			return nil
+		case *ast.FuncDecl:
+			if f, ok := p.info.Defs[v.Name].(*types.Func); ok {
+				return a.function(f)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// contextual reports whether the index sees every call of a function, and
+// there is one: a function with none is dead code, which still counts.
+func (a *analyzer) contextual(name string) bool {
+	fn := a.funcs[name]
+	if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.value || len(fn.calls) == 0 {
+		return false
+	}
+	return fn.decl.Recv == nil || !ast.IsExported(fn.decl.Name.Name) && !a.dynamic[fn.decl.Name.Name]
 }
 
 // place records where stmt sits: its statement list and position, and its
@@ -604,10 +774,10 @@ func (a *analyzer) collect(p *checkedPackage) {
 	for _, file := range p.files {
 		for _, d := range file.Decls {
 			name, body := a.declName(p, d)
-			site := func(node ast.Node, resolve func() []string) {
+			site := func(node ast.Node, resolve func(*env) []string) {
 				pairs := anyPair
 				if resolve != nil {
-					pairs = a.evaluate(resolve)
+					pairs = a.evaluate(a.siteFunction(p, d), resolve)
 				}
 				if slices.ContainsFunc(pairs, func(pair string) bool { return strings.Contains(pair, "*") }) {
 					a.sites = append(a.sites, writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: pairs})
@@ -687,7 +857,7 @@ func (a *analyzer) collect(p *checkedPackage) {
 
 // collectAssign adds an assignment to an Event's fields as one site: each
 // assigned field's values paired with the other field's values.
-func (a *analyzer) collectAssign(p *checkedPackage, v *ast.AssignStmt, site func(ast.Node, func() []string)) {
+func (a *analyzer) collectAssign(p *checkedPackage, v *ast.AssignStmt, site func(ast.Node, func(*env) []string)) {
 	var fields []int
 	for i, lhs := range v.Lhs {
 		if a.eventField(p, lhs) != "" {
@@ -699,13 +869,13 @@ func (a *analyzer) collectAssign(p *checkedPackage, v *ast.AssignStmt, site func
 	case len(v.Lhs) != len(v.Rhs) || (v.Tok != token.ASSIGN && v.Tok != token.DEFINE):
 		site(v, nil)
 	default:
-		site(v, func() []string {
+		site(v, func(e *env) []string {
 			var out []string
 			for _, i := range fields {
 				field := a.eventField(p, v.Lhs[i])
 				holder := ast.Unparen(v.Lhs[i]).(*ast.SelectorExpr).X
 				other := map[string]string{"Kind": "PayloadVersion", "PayloadVersion": "Kind"}[field]
-				values := map[string][]string{field: a.resolve(p, v.Rhs[i], map[seenKey]bool{}), other: a.resolveField(p, holder, other, map[seenKey]bool{})}
+				values := map[string][]string{field: a.resolve(p, v.Rhs[i], newScope(e)), other: a.resolveField(p, holder, other, newScope(e))}
 				out = append(out, pairs(values["Kind"], values["PayloadVersion"])...)
 			}
 			return out
@@ -713,7 +883,7 @@ func (a *analyzer) collectAssign(p *checkedPackage, v *ast.AssignStmt, site func
 	}
 }
 
-func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site func(ast.Node, func() []string)) {
+func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site func(ast.Node, func(*env) []string)) {
 	add := func(node ast.Node) { site(node, nil) }
 	// An element of []*Event may elide &Event; its literal records *Event.
 	typ := p.info.Types[lit].Type
@@ -764,8 +934,8 @@ func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, site
 		}
 	}
 	if kind != nil && version != nil {
-		site(lit, func() []string {
-			return pairs(a.resolve(p, kind, map[seenKey]bool{}), a.resolve(p, version, map[seenKey]bool{}))
+		site(lit, func(e *env) []string {
+			return pairs(a.resolve(p, kind, newScope(e)), a.resolve(p, version, newScope(e)))
 		})
 	}
 }
@@ -781,18 +951,44 @@ func pairs(kinds, versions []string) []string {
 	return out
 }
 
-// evaluate resolves one site's pairs within the step budget. A site with no
-// pair writes nothing; a "*" pair absorbs the rest.
-func (a *analyzer) evaluate(resolve func() []string) []string {
+// evaluate resolves one site's pairs within the step budget. A site that
+// reads its function's parameters resolves once per static call of that
+// function, or once unbound when the index does not see every call. A "*"
+// pair absorbs the rest. A site that resolves to no pair is open: its values
+// arrive only through a cycle cut, as in dead recursion, or a call that never
+// returns.
+func (a *analyzer) evaluate(function string, resolve func(*env) []string) []string {
 	a.steps = 0
+	result := resolve(&env{function: function, strict: true})
+	if slices.ContainsFunc(result, func(pair string) bool { return strings.Contains(pair, "?") }) {
+		result = nil
+		if !a.contextual(function) {
+			result = resolve(nil)
+		} else {
+			for _, call := range a.funcs[function].calls {
+				result = append(result, resolve(&env{function: function, args: call.call.Args, pkg: call.pkg})...)
+			}
+		}
+	}
 	set := map[string]bool{}
-	for _, pair := range resolve() {
+	for _, pair := range result {
 		set[pair] = true
 	}
-	if a.steps > resolveBudget || set["* v*"] {
+	if a.steps > resolveBudget || set["* v*"] || len(set) == 0 {
 		return anyPair
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// siteFunction names the declared function d is, or "" for any other
+// declaration.
+func (a *analyzer) siteFunction(p *checkedPackage, d ast.Decl) string {
+	if decl, ok := d.(*ast.FuncDecl); ok {
+		if f, ok := p.info.Defs[decl.Name].(*types.Func); ok {
+			return f.Origin().FullName()
+		}
+	}
+	return ""
 }
 
 func elementType(t types.Type) types.Type {
@@ -971,7 +1167,7 @@ func union(sets ...[]string) []string {
 // resolve reduces an expression to its finite value set: a constant, a
 // conversion of a resolvable value, an Event field read, or a resolvable
 // local. Anything else is "*".
-func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bool) []string {
+func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, sc *scope) []string {
 	a.steps++
 	if a.steps > resolveBudget || expr == nil {
 		return anyValue
@@ -989,21 +1185,22 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 	}
 	switch v := expr.(type) {
 	case *ast.ParenExpr:
-		return a.resolve(p, v.X, seen)
+		return a.resolve(p, v.X, sc)
 	case *ast.CallExpr:
 		// A conversion keeps its value only between identical basic types:
 		// string(n) of an integer and a narrowing integer conversion do not.
 		if target := p.info.Types[v.Fun]; target.IsType() && len(v.Args) == 1 && types.Identical(target.Type.Underlying(), under(p.info.Types[v.Args[0]].Type)) {
-			return a.resolve(p, v.Args[0], seen)
+			return a.resolve(p, v.Args[0], sc)
 		}
+		return a.resolveCall(p, v, "", sc)
 	case *ast.SelectorExpr:
 		if field := a.eventField(p, v); field != "" {
-			return a.resolveField(p, v.X, field, seen)
+			return a.resolveField(p, v.X, field, sc)
 		}
 	case *ast.BinaryExpr:
-		return a.resolveBinary(p, v, seen)
+		return a.resolveBinary(p, v, sc)
 	case *ast.Ident:
-		return a.resolveVar(p, v, "", seen)
+		return a.resolveVar(p, v, "", sc)
 	}
 	return anyValue
 }
@@ -1012,13 +1209,16 @@ func (a *analyzer) resolve(p *checkedPackage, expr ast.Expr, seen map[seenKey]bo
 // operands to the results any pair of operand values gives. Any other
 // operator is "*", and so is a comparison through an interface, which also
 // compares the dynamic types the values drop.
-func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, seen map[seenKey]bool) []string {
+func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, sc *scope) []string {
 	if !slices.Contains([]token.Token{token.EQL, token.NEQ, token.LAND, token.LOR}, v.Op) || types.IsInterface(p.info.Types[v.X].Type) || types.IsInterface(p.info.Types[v.Y].Type) {
 		return anyValue
 	}
-	x, y := a.resolve(p, v.X, seen), a.resolve(p, v.Y, seen)
+	x, y := a.resolve(p, v.X, sc), a.resolve(p, v.Y, sc)
 	if slices.Contains(x, "*") || slices.Contains(y, "*") {
 		return anyValue
+	}
+	if slices.Contains(x, "?") || slices.Contains(y, "?") {
+		return []string{"?"}
 	}
 	set := map[string]bool{}
 	for _, l := range x {
@@ -1040,31 +1240,36 @@ func (a *analyzer) resolveBinary(p *checkedPackage, v *ast.BinaryExpr, seen map[
 
 // constantly reports whether cond always resolves to want. A condition whose
 // resolution cut a cycle may have missed values and is never constant.
-func (a *analyzer) constantly(p *checkedPackage, cond ast.Expr, want bool, seen map[seenKey]bool) bool {
+func (a *analyzer) constantly(p *checkedPackage, cond ast.Expr, want bool, sc *scope) bool {
 	cuts := a.cuts
-	values := a.resolve(p, cond, seen)
+	values := a.resolve(p, cond, sc)
 	return a.cuts == cuts && slices.Equal(values, []string{strconv.FormatBool(want)})
 }
 
-// resolveVar resolves a declared local, or with a field that Event field of
-// a local Event, as the union of every value assigned to it. A field of any
+// resolveVar resolves a declared local or a parameter, or with a field that
+// Event field of a local or parameter Event, as the union of every value
+// assigned to it and, for a parameter, the value it is called with. A field of any
 // other holder, such as one promoted from an embedded Event, is "*".
-func (a *analyzer) resolveVar(p *checkedPackage, id *ast.Ident, field string, seen map[seenKey]bool) []string {
+func (a *analyzer) resolveVar(p *checkedPackage, id *ast.Ident, field string, sc *scope) []string {
 	obj, ok := p.info.Uses[id].(*types.Var)
-	if !ok || !a.declared[obj] || a.unknown[obj] || field != "" && !a.isEvent(obj.Type()) {
+	param, isParam := a.formals[obj]
+	if !ok || !a.declared[obj] && !isParam || a.unknown[obj] || field != "" && !a.isEvent(obj.Type()) {
 		return anyValue
 	}
-	key := seenKey{obj, field}
-	if seen[key] {
+	key := seenKey{obj, field, sc.env}
+	if sc.seen[key] {
 		a.cuts++
 		return nil
 	}
-	seen[key] = true
-	defer delete(seen, key)
+	sc.seen[key] = true
+	defer delete(sc.seen, key)
 	var values [][]string
+	if isParam {
+		values = append(values, a.resolveParam(param, field, sc))
+	}
 	for _, assign := range a.assigns[obj] {
-		if (assign.field == "" || assign.field == field) && a.reaches(assign, obj, field, seen) {
-			values = append(values, a.resolveAssigned(assign, field, seen))
+		if (assign.field == "" || assign.field == field) && a.reaches(assign, obj, field, sc) {
+			values = append(values, a.resolveAssigned(assign, field, sc))
 		}
 	}
 	return union(values...)
@@ -1075,20 +1280,20 @@ func zeroField(field string) []string {
 	return []string{map[string]string{"Kind": "", "PayloadVersion": "0"}[field]}
 }
 
-func (a *analyzer) resolveAssigned(assign assignment, field string, seen map[seenKey]bool) []string {
+func (a *analyzer) resolveAssigned(assign assignment, field string, sc *scope) []string {
 	switch {
 	case field != "" && assign.field == field:
-		return a.resolve(assign.pkg, assign.rhs, seen)
+		return a.resolve(assign.pkg, assign.rhs, sc)
 	case assign.rhs == nil && field != "":
 		return zeroField(field)
 	case field == "":
-		return a.resolve(assign.pkg, assign.rhs, seen)
+		return a.resolve(assign.pkg, assign.rhs, sc)
 	}
-	return a.resolveField(assign.pkg, assign.rhs, field, seen)
+	return a.resolveField(assign.pkg, assign.rhs, field, sc)
 }
 
 // resolveField resolves an Event expression's Kind or PayloadVersion.
-func (a *analyzer) resolveField(p *checkedPackage, expr ast.Expr, field string, seen map[seenKey]bool) []string {
+func (a *analyzer) resolveField(p *checkedPackage, expr ast.Expr, field string, sc *scope) []string {
 	a.steps++
 	if a.steps > resolveBudget {
 		return anyValue
@@ -1104,32 +1309,123 @@ func (a *analyzer) resolveField(p *checkedPackage, expr ast.Expr, field string, 
 				return anyValue
 			}
 			if pair.Key.(*ast.Ident).Name == field {
-				return a.resolve(p, pair.Value, seen)
+				return a.resolve(p, pair.Value, sc)
 			}
 		}
 		return zeroField(field)
+	case *ast.CallExpr:
+		return a.resolveCall(p, v, field, sc)
 	case *ast.Ident:
-		return a.resolveVar(p, v, field, seen)
+		return a.resolveVar(p, v, field, sc)
 	}
 	return anyValue
+}
+
+// resolveParam resolves a parameter through the innermost binding of its
+// function, or else through every static call of it.
+func (a *analyzer) resolveParam(param formal, field string, sc *scope) []string {
+	for e := sc.env; e != nil; e = e.caller {
+		switch {
+		case e.function != param.function:
+		case e.strict:
+			return []string{"?"}
+		case param.index >= len(e.args):
+			return anyValue
+		default:
+			return a.resolveExpr(e.pkg, e.args[param.index], field, &scope{seen: sc.seen, env: e.caller})
+		}
+	}
+	if !a.contextual(param.function) {
+		return anyValue
+	}
+	var values [][]string
+	for _, call := range a.funcs[param.function].calls {
+		if param.index >= len(call.call.Args) {
+			return anyValue
+		}
+		values = append(values, a.resolveExpr(call.pkg, call.call.Args[param.index], field, &scope{seen: sc.seen}))
+	}
+	return union(values...)
+}
+
+func (a *analyzer) resolveExpr(p *checkedPackage, expr ast.Expr, field string, sc *scope) []string {
+	if field == "" {
+		return a.resolve(p, expr, sc)
+	}
+	return a.resolveField(p, expr, field, sc)
+}
+
+// callDepth bounds the call bindings one resolution nests.
+const callDepth = 8
+
+// resolveCall resolves the first result of a static call, or with a field
+// that Event field of it, through the callee's returns, with the callee's
+// parameters bound to this call's arguments.
+func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, field string, sc *scope) []string {
+	f, ok := p.info.Uses[calleeIdent(call.Fun)].(*types.Func)
+	sel, isSel := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || isSel && p.info.Selections[sel] != nil && p.info.Selections[sel].Kind() == types.MethodExpr {
+		return anyValue
+	}
+	name := f.Origin().FullName()
+	fn := a.funcs[name]
+	if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.deferred {
+		return anyValue
+	}
+	depth := 0
+	for e := sc.env; e != nil; e = e.caller {
+		depth++
+	}
+	if depth > callDepth {
+		return anyValue
+	}
+	key := seenKey{call, field, sc.env}
+	if sc.seen[key] {
+		a.cuts++
+		return nil
+	}
+	sc.seen[key] = true
+	defer delete(sc.seen, key)
+	inner := &scope{seen: sc.seen, env: &env{function: name, args: call.Args, pkg: p, caller: sc.env}}
+	var values [][]string
+	for _, ret := range fn.returns {
+		if !a.armsRun(ret.at, inner) {
+			continue
+		}
+		// A bare return yields named results. return g() spreads g's results,
+		// so either way the first result is the first expression's.
+		if len(ret.results) == 0 {
+			return anyValue
+		}
+		values = append(values, a.resolveExpr(fn.pkg, ret.results[0], field, inner))
+	}
+	return union(values...)
 }
 
 // reaches reports whether an assignment can supply a read of obj, or with a
 // field of that Event field: no enclosing arm is constantly skipped, and no
 // later statement of its list overwrites it first.
-func (a *analyzer) reaches(assign assignment, obj types.Object, field string, seen map[seenKey]bool) bool {
-	for _, b := range assign.path {
-		if a.constantly(assign.pkg, b.stmt.Cond, !b.then, seen) {
+func (a *analyzer) reaches(assign assignment, obj types.Object, field string, sc *scope) bool {
+	if !a.armsRun(assign, sc) {
+		return false
+	}
+	return assign.pos < 0 || a.captured[obj] || !a.overwrites(assign.pkg, assign.list[assign.pos+1:], obj, field, sc)
+}
+
+// armsRun reports whether no if arm around a statement is constantly skipped.
+func (a *analyzer) armsRun(at assignment, sc *scope) bool {
+	for _, b := range at.path {
+		if a.constantly(at.pkg, b.stmt.Cond, !b.then, sc) {
 			return false
 		}
 	}
-	return assign.pos < 0 || a.captured[obj] || !a.overwrites(assign.pkg, assign.list[assign.pos+1:], obj, field, seen)
+	return true
 }
 
 // overwrites reports whether stmts assign obj (or obj.field) before anything
 // reads it, on the only path: the scan stops at a statement that holds a
 // branch statement, or that mentions obj other than to set another field.
-func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Object, field string, seen map[seenKey]bool) bool {
+func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Object, field string, sc *scope) bool {
 	for _, stmt := range stmts {
 		switch {
 		case jumps(stmt):
@@ -1137,8 +1433,8 @@ func (a *analyzer) overwrites(p *checkedPackage, stmts []ast.Stmt, obj types.Obj
 		case a.assignsWhole(p, stmt, obj, field):
 			return true
 		}
-		if s, ok := stmt.(*ast.IfStmt); ok && !a.mentions(p, s.Init, obj) && !a.mentions(p, s.Cond, obj) && a.constantly(p, s.Cond, true, seen) {
-			return a.overwrites(p, s.Body.List, obj, field, seen)
+		if s, ok := stmt.(*ast.IfStmt); ok && !a.mentions(p, s.Init, obj) && !a.mentions(p, s.Cond, obj) && a.constantly(p, s.Cond, true, sc) {
+			return a.overwrites(p, s.Body.List, obj, field, sc)
 		}
 		if field != "" && a.assignsOtherField(p, stmt, obj, field) {
 			continue

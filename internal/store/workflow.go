@@ -2597,31 +2597,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := verifyWorkflowActionCompletedAttributionMembersTx(ctx, tx, event, p); err != nil {
 		return err
 	}
-	// CD-0205: an accepted worker result records the worker-job disposition
-	// it satisfies, on the exact revision the accept guard derived from the
-	// attempt's dispatch binding. The update fails closed when the derived
-	// disposition names a revision that is not recorded under that digest.
-	// An accepted repairing revision additionally resolves its named
-	// revisions for prerequisite readiness through this same recorded
-	// acceptance (CD-0205 D4); the correction walk keeps their obligations
-	// unresolved until the confirming review's accepted ship verdict, so the
-	// provisional readiness clears no correction debt.
-	if p.ActionID == "accept_worker_result" && p.WorkerJob != nil {
-		// The confirming review's acceptance judges the repairing revision;
-		// it is no second satisfaction, so the repairing acceptance stays
-		// the revision's recorded result reference.
-		confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
-		if err != nil {
-			return err
-		}
-		if !confirming {
-			if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
-				return err
-			}
-			if err := markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob); err != nil {
-				return err
-			}
-		}
+	if err := markAcceptedWorkerJobTx(ctx, tx, event, p); err != nil {
+		return err
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err

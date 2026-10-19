@@ -655,6 +655,23 @@ func voidWorkerJobRepairByAttemptTx(ctx context.Context, tx *sql.Tx, workID, att
 	return revertWorkerJobRepairReadinessTx(ctx, tx, workID, *binding)
 }
 
+// markAcceptedWorkerJobTx records satisfaction and provisional repair readiness
+// without clearing correction debt. A confirming review judges the repairing
+// revision; it never replaces that revision's recorded satisfaction reference.
+func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
+		return nil
+	}
+	confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
+	if err != nil || confirming {
+		return err
+	}
+	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+		return err
+	}
+	return markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob)
+}
+
 // markWorkerJobSatisfiedTx records the disposition an accepted worker result
 // satisfies, on the exact recorded revision the accepted attempt was
 // dispatched under. The guard derived the binding from the attempt's own

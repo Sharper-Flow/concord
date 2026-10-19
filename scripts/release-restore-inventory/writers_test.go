@@ -462,6 +462,14 @@ func (b box[T]) fill(data []byte) error { return json.Unmarshal(data, b.value) }
 	site(t, event, "("+storePkg+".box[T]).fill", "json.Unmarshal(data, b.value)")
 }
 
+// An instantiation in another package binds the declaring package's parameter.
+func TestTypeParameterBoundInAnotherPackage(t *testing.T) {
+	analysis := analyzeFixture(t,
+		mutation{"internal/store/store.go", "func ReadEvent(", "func Decode[T any](data []byte, value *T) error { return json.Unmarshal(data, value) }\n\nfunc ReadEvent("},
+		mutation{"cmd/concord/main.go", "func keep(store.Event) {}", "func keep(event store.Event) { _ = store.Decode(nil, &event) }"})
+	site(t, analysis, storePkg+".Decode", "json.Unmarshal(data, value)")
+}
+
 func TestEmbeddedSQLIsASite(t *testing.T) {
 	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "import (", "import (\n\t_ \"embed\""},
 		mutation{"internal/store/store.go", "type Tx struct{}", "//go:embed rewrite.sql\nvar rewrite string\n\ntype Tx struct{}"},

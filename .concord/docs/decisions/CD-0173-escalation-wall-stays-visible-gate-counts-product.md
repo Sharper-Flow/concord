@@ -5,6 +5,8 @@
 - **Scope:** Work pin next intents, the investigation gate, and the correction dispatch wall
 - **Amends:** CD-0129 D2, CD-0148
 - **Related:** CD-0013, CD-0166
+- **Amended by:** [CD-0239](CD-0239-a-restarted-host-earns-one-retry-after-a-host-execution-failure.md)
+  D3 (the pin reason when only a `host_changed` basis could apply)
 - **Approval:** The operator approved both repairs as one dead-end removal: an agent at the escalation wall must find the wall, and a single-item Product must not be wedged out of its own premise gate.
 
 ## Context
@@ -26,7 +28,9 @@ of removing the intent. When the store derives a convergence basis, the
 reason becomes `escalated_retry_convergence_recorded`. The fold refuses the
 dispatch without a basis, and CD-0148 names the closed basis families. The
 pin states a route that reaches the wall, so an agent finds the convergence
-boundary instead of a silent dead end.
+boundary instead of a silent dead end. The pin is read without a dispatching
+host, so it never reports a `host_changed` basis (CD-0239 D3); the dispatch
+fold's `missing_evidence` refusal names that route instead.
 
 ### D2. The comparison-work condition is counted by the core
 

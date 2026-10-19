@@ -188,25 +188,13 @@ func refuseWorkerJobReplacedBeforeTx(ctx context.Context, tx *sql.Tx, event Even
 
 // readWorkerJobSplitsTx reads every recorded split of the work in log order.
 func readWorkerJobSplitsTx(ctx context.Context, q queryer, workID string) ([]WorkerJobSplitPayload, error) {
-	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq`, string(SubjectWorkItem), workID, WorkerJobSplit)
+	events, err := readWorkerJobSplitEventsTx(ctx, q, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the work's job splits", true, "retry once the event log is readable", err)
+		return nil, err
 	}
-	defer rows.Close()
 	var splits []WorkerJobSplitPayload
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the work's job splits", true, "retry once the event log is readable", err)
-		}
-		var split WorkerJobSplitPayload
-		if err := json.Unmarshal([]byte(raw), &split); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job", "a recorded job split is not one closed split payload", false, "rebuild the worker-job events from the authoritative log")
-		}
-		splits = append(splits, split)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan the work's job splits", true, "retry once the event log is readable", err)
+	for _, event := range events {
+		splits = append(splits, event.payload)
 	}
 	return splits, nil
 }

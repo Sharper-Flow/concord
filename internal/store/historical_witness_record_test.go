@@ -23,8 +23,10 @@ var (
 )
 
 type historicalWitnessRow struct {
-	eventID string
-	line    []byte
+	eventID, kind  string
+	payloadVersion int
+	payload        []byte
+	line           []byte
 }
 
 // recordHistoricalWitness queues one historical row a corpus test wrote into
@@ -53,10 +55,11 @@ func recordHistoricalWitness(t *testing.T, s *Store, eventID, kind string, paylo
 	if !registered {
 		stores = map[*Store][]historicalWitnessRow{}
 		historicalWitnessPending[t] = stores
-		// Registered after the fixture's own cleanups, so it runs while s is open.
+		// A test's deferred Close runs before this cleanup, so the recorder
+		// replays a closed store through a fresh handle on the same file.
 		t.Cleanup(func() { admitHistoricalWitnesses(t, path) })
 	}
-	stores[s] = append(stores[s], historicalWitnessRow{eventID, line})
+	stores[s] = append(stores[s], historicalWitnessRow{eventID, kind, payloadVersion, payload, line})
 }
 
 func admitHistoricalWitnesses(t *testing.T, path string) {
@@ -67,18 +70,24 @@ func admitHistoricalWitnesses(t *testing.T, path string) {
 	if t.Failed() || t.Skipped() {
 		return
 	}
+	ctx := context.Background()
 	var admitted []byte
 	for s, rows := range stores {
-		if RebuildFromLog(context.Background(), s) != nil {
+		if s.db.PingContext(ctx) != nil {
+			reopened, err := Open(ctx, s.path)
+			if err != nil {
+				t.Fatalf("historical witness store %s: %v", s.path, err)
+			}
+			defer func() { _ = reopened.Close() }()
+			s = reopened
+		}
+		if RebuildFromLog(ctx, s) != nil {
 			continue
 		}
 		for _, row := range rows {
-			var payload string
-			if s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, row.eventID).Scan(&payload) != nil {
-				continue
-			}
-			var recorded struct{ Payload string }
-			if json.Unmarshal(row.line, &recorded) == nil && recorded.Payload == payload {
+			var present int
+			if s.db.QueryRowContext(ctx, `SELECT 1 FROM domain_events WHERE event_id=? AND kind=? AND payload_version=? AND CAST(payload AS BLOB)=CAST(? AS BLOB)`,
+				row.eventID, row.kind, row.payloadVersion, row.payload).Scan(&present) == nil {
 				admitted = append(admitted, append(row.line, '\n')...)
 			}
 		}
@@ -120,15 +129,8 @@ func TestHistoricalWitnessRecorderIsInertWhenUnset(t *testing.T) {
 // The census sets the log path on the go test command line, so it must survive
 // TestMain's environment scrub.
 func TestHistoricalWitnessLogSurvivesTheScrub(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "witnesses.jsonl")
-	command := exec.Command(os.Args[0], "-test.run=^TestRecordedHistoricalProjectionMigrationAndReplayAgree$")
-	command.Env = append(os.Environ(), historicalWitnessLogEnv+"="+path)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("corpus child: %v\n%s", err, output)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		t.Fatalf("corpus child recorded no witness rows: %v", err)
+	if len(witnessRowsOf(t, "TestRecordedHistoricalProjectionMigrationAndReplayAgree")) == 0 {
+		t.Fatal("corpus child recorded no witness rows")
 	}
 }
 
@@ -137,10 +139,11 @@ func TestHistoricalWitnessLogSurvivesTheScrub(t *testing.T) {
 func witnessRowsOf(t *testing.T, test string) []string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "witnesses.jsonl")
-	command := exec.Command(os.Args[0], "-test.run=^"+test+"$")
+	command := exec.Command(os.Args[0], "-test.v", "-test.run=^"+test+"$")
 	command.Env = append(os.Environ(), historicalWitnessLogEnv+"="+path)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("corpus child %s: %v\n%s", test, err, output)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "--- PASS: "+test+" ") {
+		t.Fatalf("corpus child %s did not pass: %v\n%s", test, err, output)
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -158,6 +161,9 @@ func TestHistoricalWitnessRecordsOnlyAdmittedRows(t *testing.T) {
 	admitted := witnessRowsOf(t, "TestLegacySessionClaimLandingReplaysAsProcessIdentityFreeRow")
 	if len(admitted) != 1 || !strings.Contains(admitted[0], `"kind":"work.session_claim_landed"`) {
 		t.Fatalf("admitted landing recorded %q, want its one row", admitted)
+	}
+	if rows := witnessRowsOf(t, "TestRecordedOccupancyRowSetAbsentTargetKeepsOtherRow"); len(rows) != 2 {
+		t.Fatalf("a passing corpus test that closes its store before cleanup recorded %q, want its creation and release rows", rows)
 	}
 	for _, refusal := range []string{"TestLegacySessionClaimLandingAbsentPathStillRefuses", "TestCurrentShapeClaimLandingGenerationCheckPreserved"} {
 		if rows := witnessRowsOf(t, refusal); len(rows) != 0 {

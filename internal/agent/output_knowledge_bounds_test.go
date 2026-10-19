@@ -93,12 +93,8 @@ func TestResearchOutputAdmitsRetainedStoreBounds(t *testing.T) {
 		// the admitted boundary while spanning 768 bytes.
 		bigScopeID = strings.Repeat("\u754c", 256)
 	)
-	identity := func(key string) store.ResearchMutationIdentity {
-		return store.ResearchMutationIdentity{PrincipalRef: "human-1", Tool: "output-knowledge-bounds", OperationKind: "test", IdempotencyKey: key}
-	}
-
-	if _, err := store.CreateResearchPack(ctx, s, store.CreateResearchPackRequest{
-		Identity: identity("bounds-create"), PackID: "bounds-pack", OwnerWorkID: "work-1",
+	if _, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
+		PackID: "bounds-pack", OwnerWorkID: "work-1",
 		Revision: store.ResearchRevisionInput{
 			Question: bigQuestion, ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`),
 			DoneWhen: json.RawMessage(`[]`), Method: "store readback fixture",
@@ -106,8 +102,8 @@ func TestResearchOutputAdmitsRetainedStoreBounds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("store must retain a question above the output maximum: %v", err)
 	}
-	if _, err := s.AddResearchSource(ctx, store.ResearchSourceRequest{
-		Identity: identity("bounds-source"), PackID: "bounds-pack", ExpectedVersion: 1,
+	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
+		PackID: "bounds-pack", ExpectedVersion: 1,
 		Source: store.ResearchSource{
 			SourceID: bigSourceID, Kind: store.SourceCode, Locator: "internal/store/research_reads.go",
 			Title: bigTitle, PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z",
@@ -115,8 +111,8 @@ func TestResearchOutputAdmitsRetainedStoreBounds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("store must retain an oversized source ID and title: %v", err)
 	}
-	if _, err := s.AddResearchFinding(ctx, store.ResearchFindingRequest{
-		Identity: identity("bounds-finding"), PackID: "bounds-pack", ExpectedVersion: 2,
+	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
+		PackID: "bounds-pack", ExpectedVersion: 2,
 		Finding: store.ResearchFinding{
 			FindingID: bigFindingID, Kind: store.FindingObservation, Statement: bigStatement,
 			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -279,7 +280,7 @@ func requireSortedEqual(t *testing.T, got, want []string, what string) {
 	if !sort.StringsAreSorted(got) {
 		t.Fatalf("%s = %v, want deterministic identifier order", what, got)
 	}
-	if !equalStrings(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("%s = %v, want %v", what, got, want)
 	}
 }
@@ -296,10 +297,10 @@ func assertConditionWindow(t *testing.T, members *unboundedWorkflowMembers, all 
 	if len(ids) == 0 || len(ids) > len(all) {
 		t.Fatalf("published %d conditions against %d recorded conditions, want a non-empty prefix window", len(ids), len(all))
 	}
-	if !equalStrings(ids, all[:len(ids)]) {
+	if !slices.Equal(ids, all[:len(ids)]) {
 		t.Fatalf("published conditions %v are not the sorted prefix of the %d recorded conditions", ids, len(all))
 	}
-	if !equalStrings(members.UnresolvedConditions, ids) {
+	if !slices.Equal(members.UnresolvedConditions, ids) {
 		t.Fatalf("unresolved_conditions %v do not match the published condition window %v", members.UnresolvedConditions, ids)
 	}
 }
@@ -349,7 +350,7 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		// blocking conditions, one unreadable authority, 33 distinct
 		// warnings, and readiness derived from every open condition.
 		projection := fixtureStoreWorkflow(t, fixture)
-		if projection.Ready || len(projection.BlockingConditions) != 101 || !equalStrings(projection.UnreadableConditions, []string{fixture.unknown}) || len(projection.CompletionWarnings) != 33 {
+		if projection.Ready || len(projection.BlockingConditions) != 101 || !slices.Equal(projection.UnreadableConditions, []string{fixture.unknown}) || len(projection.CompletionWarnings) != 33 {
 			t.Fatalf("store producer incomplete: ready %v blocking %d unreadable %v warnings %d", projection.Ready, len(projection.BlockingConditions), projection.UnreadableConditions, len(projection.CompletionWarnings))
 		}
 		envelope, err := dispatchUnboundedHistory(t, fixture, `{"work_id":"work-1","limit":1}`)

@@ -3,11 +3,57 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
+	const workID = "checks-repair-unreadable-authorization"
+	const jobID = "job:checks-repair-unreadable"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, map[string]any{
+		"job_id": jobID, "objective": "Check the confirming authorization read failure",
+		"stopping_condition": "unreadable authorization returns an unavailable failure",
+		"checks":             []string{"go test ./internal/store"}, "ready": true,
+		"readiness_evidence": []string{"evidence:checks-repair-authorization"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	binding := checksRepairLatestBinding(t, s, workID, jobID)
+	if binding == nil {
+		t.Fatal("the job revision was not recorded")
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied' WHERE work_id=? AND job_id=?`, workID, jobID); err != nil {
+		t.Fatal(err)
+	}
+	// A retained marker with missing binding members makes Scan fail. That
+	// read failure is not evidence that the marker is absent.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,subject_type,subject_id,kind,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,'2026-10-19T00:00:00Z',1,?)`, "checks-repair-unreadable-marker", SubjectWorkItem, workID, WorkflowActionCompleted, "operator", `{"action_id":"dispatch_worker","worker_attempt_id":"attempt:unreadable","checks_repair_review":{"worker_job":{}}}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	err = verifyWorkerDispatchedJobBindingTx(ctx, tx, workID, "attempt:unreadable", binding)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnavailable {
+		t.Fatalf("unreadable confirming authorization = %v, want unavailable", err)
+	}
+}
 
 // The checks repair regression set (CD-0205 D4, as amended for CON-1221):
 // recording, local acceptance, the one funded confirming review at the wall,
@@ -513,6 +559,9 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 	completeChecksRepairReviewWithVerdict(t, s, workID, reviewAttempt, "no_ship")
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
 		t.Fatalf("accept the no_ship review: %v", err)
+	}
+	if state := checksRepairRevisionView(t, s, workID, *job).State; state != "recorded" {
+		t.Fatalf("accepting the voiding review restored the named revision to %q", state)
 	}
 
 	// The named revision is unresolved again and the window is open: the

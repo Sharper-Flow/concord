@@ -487,17 +487,15 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 	}
 	defer func() { _ = rows.Close() }()
 	history := &workflowCorrectionHistory{
-		prefix:           prefix,
-		unresolved:       make(map[string]bool),
-		dispatchJob:      make(map[string]string),
-		dispatchBinding:  make(map[string]WorkerJobBinding),
-		materialized:     make(map[string]bool),
-		obligations:      make(map[string]workflowJobObligationState),
-		nonSettling:      make(map[string]bool),
-		reviewVerdict:    make(map[string]string),
-		checksRepairs:    make(map[string]*workflowChecksRepairState),
-		acceptedAttempts: make(map[string]int64),
-		rejectedAttempts: make(map[string]bool),
+		prefix:          prefix,
+		unresolved:      make(map[string]bool),
+		dispatchJob:     make(map[string]string),
+		dispatchBinding: make(map[string]WorkerJobBinding),
+		materialized:    make(map[string]bool),
+		obligations:     make(map[string]workflowJobObligationState),
+		nonSettling:     make(map[string]bool),
+		reviewVerdict:   make(map[string]string),
+		checksRepairs:   make(map[string]*workflowChecksRepairState),
 	}
 	for rows.Next() {
 		var row workflowCorrectionHistoryRow
@@ -531,12 +529,10 @@ type workflowCorrectionHistory struct {
 	// (CD-0205 D4): each recorded repair's binding, named obligations,
 	// parent contract, its own acceptance, the exact confirming dispatch
 	// its admission marker names, and the confirm or void that ended it.
-	reviewVerdict    map[string]string
-	checksRepairs    map[string]*workflowChecksRepairState
-	acceptedAttempts map[string]int64
-	rejectedAttempts map[string]bool
-	records          []workflowCorrectionRecordState
-	completions      []workflowCorrectionDispatchCompletion
+	reviewVerdict map[string]string
+	checksRepairs map[string]*workflowChecksRepairState
+	records       []workflowCorrectionRecordState
+	completions   []workflowCorrectionDispatchCompletion
 }
 
 // workflowChecksRepairState is one recorded checks repair's state at the
@@ -547,10 +543,8 @@ type workflowChecksRepairState struct {
 	binding         WorkerJobBinding
 	namedKeys       []string
 	contractVersion int64
-	recordedSeq     int64
 	acceptanceSeq   int64
 	confirmAttempt  string
-	confirmSeq      int64
 	confirmed       bool
 	voided          bool
 }
@@ -645,7 +639,6 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 					binding:         WorkerJobBinding{JobID: recorded.JobID, Revision: recorded.Revision, Digest: recorded.Digest},
 					namedKeys:       named,
 					contractVersion: recorded.ContractVersion,
-					recordedSeq:     row.seq,
 				}
 			}
 		}
@@ -672,7 +665,6 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 				key := workerJobKey(completion.ChecksRepairReview.WorkerJob.JobID, completion.ChecksRepairReview.WorkerJob.Revision)
 				if repair, recorded := h.checksRepairs[key]; recorded && repair.confirmAttempt == "" {
 					repair.confirmAttempt = row.actionAttempt
-					repair.confirmSeq = row.seq
 				}
 			}
 		}
@@ -683,7 +675,6 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			return newFailure(KindInvariantViolation, subject, "correction completion payload is malformed", false, "rebuild workflow projections from the event log")
 		}
 		if row.actionID == "reject_worker_result" {
-			h.rejectedAttempts[row.actionAttempt] = true
 			h.voidConfirmingRepair(row.actionAttempt)
 		}
 		key := ""
@@ -700,7 +691,6 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		// the repairing result's own acceptance opens the repair, and the
 		// exact confirming attempt's accepted ship verdict confirms it —
 		// never another attempt bound to the same repairing revision.
-		h.acceptedAttempts[row.actionAttempt] = row.seq
 		if repair := h.repairOfBinding(row.jobID, row.jobRevision); repair != nil && repair.acceptanceSeq == 0 {
 			repair.acceptanceSeq = row.seq
 		}

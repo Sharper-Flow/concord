@@ -16,7 +16,10 @@ import (
 // history walk owns the repair state — recorded, accepted, confirmed through
 // the exact confirming review's accepted ship verdict, or voided — and every
 // read here derives from one walk at an explicit prefix, so live reads,
-// guards, and folds answer from the same walked truth.
+// guards, and folds answer from the same walked truth. A failed or rejected
+// confirming review that leaves its repairing revision unresolved owes that
+// revision's own obligation first: the derivation refuses a checks repair
+// that would fold the failed review's own debt into its named set.
 
 // WorkerJobChecksRepairEntry names one repaired revision beside the old
 // checks the exact recorded event holds.
@@ -46,14 +49,21 @@ type WorkerChecksRepairReviewAdmission struct {
 	Funded                 bool             `json:"funded"`
 }
 
-// WorkerChecksRepairReviewFunding is the funded confirming-review dispatch an
-// accepted, unconfirmed checks repair holds (CD-0148 amendment): the wall
-// admits exactly the review dispatch whose packet binds Repairing on a review
-// lane.
+// WorkerChecksRepairReviewCandidate is one open accepted exact repairing
+// revision whose one confirming review is still unconsumed. Funded reports
+// whether the wall admits that review without a convergence basis; an
+// unfunded candidate's review rides the ordinary CD-0148 authority and is
+// basis-gated exactly like any other escalated dispatch.
+type WorkerChecksRepairReviewCandidate struct {
+	Repairing WorkerJobBinding
+	Funded    bool
+}
+
+// WorkerChecksRepairReviewFunding is the funded-only filtered view of the
+// awaiting-review candidates: the wall's named admission count reads it,
+// and the continuity snapshot publishes the unfunded candidates beside it.
 type WorkerChecksRepairReviewFunding struct {
-	Repairing       WorkerJobBinding `json:"repairing"`
-	Named           []WorkerJobBinding
-	ContractVersion int64
+	Repairing WorkerJobBinding
 }
 
 // workflowChecksRepairActive reports whether a pinned definition declares the
@@ -142,14 +152,20 @@ func workerChecksRepairCoveredByVoid(history *workflowCorrectionHistory, named [
 	return false
 }
 
-// workerChecksRepairActiveRepairsTx derives the walked repairs that still
-// hold their provisional state at prefix: accepted, neither confirmed nor
-// voided, and recorded under the work's active parent contract — a contract
-// supersession before the ship verdict is accepted voids the repair
-// (CD-0205 D4). Folds pass the strict prefix of the event they fold; live
-// reads pass the current watermark.
-func workerChecksRepairActiveRepairsTx(ctx context.Context, q queryer, workID string, prefix int64) (map[string]*workflowChecksRepairState, error) {
-	history, err := workerChecksRepairWalkTx(ctx, q, workID, prefix)
+// workerChecksRepairAwaitingReviewTx derives every awaiting confirming
+// review from one walked pass at the current watermark: an accepted
+// repairing revision whose repair is neither confirmed nor voided nor
+// superseded, whose one confirming review has not dispatched. Funded
+// reports whether the wall admits that review without a convergence basis;
+// a covered candidate's review still exists and still publishes, but its
+// dispatch rides the ordinary CD-0148 authority. Candidates keep
+// deterministic binding order.
+func workerChecksRepairAwaitingReviewTx(ctx context.Context, q queryer, workID string) ([]WorkerChecksRepairReviewCandidate, error) {
+	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	history, err := workerChecksRepairWalkTx(ctx, q, workID, watermark)
 	if err != nil {
 		return nil, err
 	}
@@ -161,48 +177,36 @@ func workerChecksRepairActiveRepairsTx(ctx context.Context, q queryer, workID st
 			return nil, err
 		}
 	}
-	activeRepairs := make(map[string]*workflowChecksRepairState, len(history.checksRepairs))
+	keys := make([]string, 0, len(history.checksRepairs))
 	for key, repair := range history.checksRepairs {
-		if repair.openUnconfirmed() && repair.contractVersion == active {
-			activeRepairs[key] = repair
-		}
-	}
-	return activeRepairs, nil
-}
-
-// workerChecksRepairReviewFundingsTx derives the funded confirming-review
-// dispatch per job from the walked repair state: an accepted repairing
-// revision whose repair is neither confirmed nor voided, whose one
-// confirming review has not dispatched, and whose named revisions no voided
-// repair has already covered. At most one funding stands per job, and the
-// returned jobs keep deterministic binding order.
-func workerChecksRepairReviewFundingsTx(ctx context.Context, q queryer, workID string) (map[string]WorkerChecksRepairReviewFunding, error) {
-	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	history, err := workerChecksRepairWalkTx(ctx, q, workID, watermark)
-	if err != nil {
-		return nil, err
-	}
-	activeRepairs, err := workerChecksRepairActiveRepairsTx(ctx, q, workID, watermark)
-	if err != nil {
-		return nil, err
-	}
-	keys := make([]string, 0, len(activeRepairs))
-	for key, repair := range activeRepairs {
-		if repair.confirmAttempt == "" && !workerChecksRepairCoveredByVoid(history, repair.namedKeys) {
+		if repair.openUnconfirmed() && repair.confirmAttempt == "" && repair.contractVersion == active {
 			keys = append(keys, key)
 		}
 	}
 	slices.Sort(keys)
-	fundings := make(map[string]WorkerChecksRepairReviewFunding, len(keys))
+	candidates := make([]WorkerChecksRepairReviewCandidate, 0, len(keys))
 	for _, key := range keys {
-		repair := activeRepairs[key]
-		fundings[repair.binding.JobID] = WorkerChecksRepairReviewFunding{
-			Repairing:       repair.binding,
-			Named:           history.checksRepairNamedBindings(repair),
-			ContractVersion: repair.contractVersion,
+		repair := history.checksRepairs[key]
+		candidates = append(candidates, WorkerChecksRepairReviewCandidate{
+			Repairing: repair.binding,
+			Funded:    !workerChecksRepairCoveredByVoid(history, repair.namedKeys),
+		})
+	}
+	return candidates, nil
+}
+
+// workerChecksRepairReviewFundingsTx is the funded-only filtered view of the
+// awaiting-review candidates, keyed by job: the wall's named admission count
+// reads it, so an unfunded candidate never opens the wall.
+func workerChecksRepairReviewFundingsTx(ctx context.Context, q queryer, workID string) (map[string]WorkerChecksRepairReviewFunding, error) {
+	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	fundings := make(map[string]WorkerChecksRepairReviewFunding, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Funded {
+			fundings[candidate.Repairing.JobID] = WorkerChecksRepairReviewFunding{Repairing: candidate.Repairing}
 		}
 	}
 	return fundings, nil
@@ -216,63 +220,11 @@ func (s *workflowChecksRepairState) openUnconfirmed() bool {
 	return s.acceptanceSeq != 0 && !s.confirmed && !s.voided
 }
 
-func (h *workflowCorrectionHistory) checksRepairNamedBindings(repair *workflowChecksRepairState) []WorkerJobBinding {
-	named := make([]WorkerJobBinding, 0, len(repair.namedKeys))
-	for _, key := range repair.namedKeys {
-		jobID, revisionText, found := strings.Cut(key, "|")
-		if !found {
-			continue
-		}
-		revision, err := strconv.ParseInt(revisionText, 10, 64)
-		if err != nil {
-			continue
-		}
-		named = append(named, WorkerJobBinding{JobID: jobID, Revision: revision})
-	}
-	return named
-}
-
-// workerJobOpenChecksRepairTx reports the open unconfirmed repair of one job,
-// if any: a repairing revision whose own result was accepted and whose repair
-// is neither confirmed nor voided. Delivery refuses while one stands, and at
-// most one may be open per job.
-func workerJobOpenChecksRepairTx(ctx context.Context, q queryer, workID, jobID string, prefix int64) (*workflowChecksRepairState, error) {
-	open, err := workerJobOpenChecksRepairsByJobTx(ctx, q, workID, prefix)
-	if err != nil {
-		return nil, err
-	}
-	return open[jobID], nil
-}
-
-// workerJobOpenChecksRepairsByJobTx derives the open unconfirmed repair of
-// every job in one walked pass. A repair recorded under a superseded
-// contract no longer holds provisional state.
-func workerJobOpenChecksRepairsByJobTx(ctx context.Context, q queryer, workID string, prefix int64) (map[string]*workflowChecksRepairState, error) {
-	activeRepairs, err := workerChecksRepairActiveRepairsTx(ctx, q, workID, prefix)
-	if err != nil {
-		return nil, err
-	}
-	var open map[string]*workflowChecksRepairState
-	for _, repair := range activeRepairs {
-		if open == nil {
-			open = map[string]*workflowChecksRepairState{}
-		}
-		if _, taken := open[repair.binding.JobID]; !taken {
-			open[repair.binding.JobID] = repair
-		}
-	}
-	return open, nil
-}
-
-// workerJobUnresolvedRevisionsTx reads the revision numbers of one job whose
-// recorded obligation is unresolved at the given prefix: the correction
-// walk's own unresolved set, filtered to the job. Folds pass the strict
-// prefix of the event they fold.
-func workerJobUnresolvedRevisionsTx(ctx context.Context, q queryer, workID, jobID string, prefix int64) ([]int64, error) {
-	history, err := workerChecksRepairWalkTx(ctx, q, workID, prefix)
-	if err != nil {
-		return nil, err
-	}
+// workerJobUnresolvedRevisions reads the revision numbers of one job whose
+// recorded obligation the walked history holds unresolved, sorted. The walk
+// prefix is the caller's: folds pass the strict prefix of the event they
+// fold, live reads pass the current watermark.
+func workerJobUnresolvedRevisions(history *workflowCorrectionHistory, jobID string) []int64 {
 	var unresolved []int64
 	for key := range history.unresolved {
 		if rest, found := strings.CutPrefix(key, jobID+"|"); found {
@@ -282,7 +234,7 @@ func workerJobUnresolvedRevisionsTx(ctx context.Context, q queryer, workID, jobI
 		}
 	}
 	slices.Sort(unresolved)
-	return unresolved, nil
+	return unresolved
 }
 
 // deriveWorkerJobChecksRepairTx validates one checks repair against the exact
@@ -292,8 +244,14 @@ func workerJobUnresolvedRevisionsTx(ctx context.Context, q queryer, workID, jobI
 // byte-identical acceptance oracle, and differ from each named revision in no
 // recorded content field except its readiness evidence and its checks. The
 // comparison is over the typed full payload minus the approved exceptions, so
-// only the named exceptions ever leave it. A second unconfirmed repair of the
-// same job refuses while one stands. Prefix is the strict event prefix the
+// only the named exceptions ever leave it. One correction-history walk at the
+// deriving prefix answers the unresolved set, the open repair, and the
+// failed-review debt together: a second unconfirmed repair of the same job
+// refuses while one stands, and while a voided repair's exact confirming
+// attempt failed or was rejected and its repairing revision still stands
+// unresolved, no checks repair may fold that own obligation into its named
+// set — recovery first re-records and accepts that revision's own obligation
+// (CD-0205 D4, amended 2026-10-19). Prefix is the strict event prefix the
 // caller folds (the deriving action passes its own pre-append watermark).
 func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string, candidate WorkerJobRecordedPayload, revisions []int64, reason string, prefix int64) (*WorkerJobChecksRepair, error) {
 	if len(revisions) == 0 || reason == "" {
@@ -309,17 +267,36 @@ func deriveWorkerJobChecksRepairTx(ctx context.Context, q queryer, workID string
 			return nil, newFailure(KindInvalidPayload, "worker_job", "repair_revisions must be positive distinct revision integers of the job", false, "name each unresolved revision once")
 		}
 	}
-	unresolved, err := workerJobUnresolvedRevisionsTx(ctx, q, workID, candidate.JobID, prefix)
+	history, err := workerChecksRepairWalkTx(ctx, q, workID, prefix)
 	if err != nil {
 		return nil, err
 	}
-	if !slices.Equal(sorted, unresolved) {
+	if unresolved := workerJobUnresolvedRevisions(history, candidate.JobID); !slices.Equal(sorted, unresolved) {
 		return nil, newFailure(KindInvalidPayload, "worker_job", "a checks repair names every unresolved revision of its job: the named revisions do not equal the unresolved set", false, "name exactly the job's unresolved revisions")
 	}
-	if open, err := workerJobOpenChecksRepairTx(ctx, q, workID, candidate.JobID, prefix); err != nil {
-		return nil, err
-	} else if open != nil {
-		return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let the confirming review end before recording another repair")
+	// The failed confirming review's own debt: a voided repair whose exact
+	// confirming attempt failed or was rejected leaves its repairing
+	// revision's own obligation as the debt recovery owes, and naming that
+	// revision beside the others would fold a failed review into a checks
+	// repair instead of discharging it.
+	for _, repair := range history.checksRepairs {
+		if repair.voided && repair.confirmAttempt != "" && repair.binding.JobID == candidate.JobID &&
+			history.unresolved[workerJobKey(repair.binding.JobID, repair.binding.Revision)] {
+			return nil, newFailure(KindInvalidPayload, "worker_job", "the failed or rejected confirming review of a voided repair left its repairing revision unresolved: recovery first re-records and accepts that revision's own obligation", false, "re-record and accept the failed confirming review's repairing revision's own obligation, then name only the revisions whose checks could not run")
+		}
+	}
+	active, err := activeWorkflowContractVersion(ctx, q, workID, "worker_job")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			active = 0
+		} else {
+			return nil, err
+		}
+	}
+	for _, repair := range history.checksRepairs {
+		if repair.openUnconfirmed() && repair.contractVersion == active && repair.binding.JobID == candidate.JobID {
+			return nil, newFailure(KindInvalidOperation, "worker_job", "at most one unconfirmed checks repair may be open per job", false, "let the confirming review end before recording another repair")
+		}
 	}
 	entries := make([]WorkerJobChecksRepairEntry, 0, len(sorted))
 	for _, revision := range sorted {
@@ -448,19 +425,21 @@ func admitWorkerChecksRepairReviewDispatchTx(ctx context.Context, q queryer, wor
 	if lane.CapabilityClass != "review" {
 		return false, false, nil
 	}
-	watermark, err := workerChecksRepairWatermarkTx(ctx, q, workID)
+	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, q, workID)
 	if err != nil {
 		return false, false, err
 	}
-	history, err := workerChecksRepairWalkTx(ctx, q, workID, watermark)
-	if err != nil {
-		return false, false, err
+	for _, candidate := range candidates {
+		if candidate.Repairing != binding {
+			continue
+		}
+		funded = candidate.Funded
+		admitted = true
+		break
 	}
-	repair := history.checksRepairs[workerJobKey(binding.JobID, binding.Revision)]
-	if repair == nil || !repair.openUnconfirmed() || repair.confirmAttempt != "" {
+	if !admitted {
 		return false, false, nil
 	}
-	funded = !workerChecksRepairCoveredByVoid(history, repair.namedKeys)
 	var digest, state string
 	var contractVersion int64
 	rowErr := q.QueryRowContext(ctx, `SELECT digest, state, contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state, &contractVersion)

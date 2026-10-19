@@ -529,8 +529,14 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID,
 	if digest != binding.Digest {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched worker_job digest does not match the recorded revision", false, "dispatch under the recorded revision digest")
 	}
-	if state == "satisfied" && !dispatchConsumedChecksRepairReviewTx(ctx, tx, workID, attemptID, *binding) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
+	if state == "satisfied" {
+		admitted, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, workID, attemptID, *binding)
+		if err != nil {
+			return err
+		}
+		if !admitted {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
+		}
 	}
 	return nil
 }
@@ -538,15 +544,18 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID,
 // dispatchConsumedChecksRepairReviewTx reports whether the attempt's
 // dispatch_worker authorization dispatched the confirming review of exactly
 // this repairing revision.
-func dispatchConsumedChecksRepairReviewTx(ctx context.Context, q queryer, workID, attemptID string, binding WorkerJobBinding) bool {
+func dispatchConsumedChecksRepairReviewTx(ctx context.Context, q queryer, workID, attemptID string, binding WorkerJobBinding) (bool, error) {
 	var jobID string
 	var revision int64
 	var digest string
 	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.checks_repair_review.worker_job.job_id'), json_extract(payload,'$.checks_repair_review.worker_job.revision'), json_extract(payload,'$.checks_repair_review.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.checks_repair_review') IS NOT NULL ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&jobID, &revision, &digest)
 	if err != nil {
-		return false
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "fold_event", "cannot read the confirming review's dispatched authorization", true, "retry once the dispatch authorization is readable", err)
 	}
-	return jobID == binding.JobID && revision == binding.Revision && digest == binding.Digest
+	return jobID == binding.JobID && revision == binding.Revision && digest == binding.Digest, nil
 }
 
 // markWorkerJobRepairReadinessTx resolves the named revisions of an accepted
@@ -567,6 +576,16 @@ func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event
 	}
 	metadata, recorded := repairs[*binding]
 	if !recorded {
+		return nil
+	}
+	// Only the acceptance that opens the repair grants readiness: a later
+	// acceptance bound to the repairing revision, such as the voiding
+	// no_ship review's, never restores it (CD-0205 D4).
+	history, err := workerChecksRepairWalkTx(ctx, tx, event.SubjectID, event.Seq-1)
+	if err != nil {
+		return err
+	}
+	if repair := history.repairOfBinding(binding.JobID, binding.Revision); repair == nil || repair.acceptanceSeq != 0 || repair.voided {
 		return nil
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")

@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -546,24 +545,20 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 			out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, packetJobFromView(view))
 		}
 	}
-	// The funded confirming-review jobs (CD-0205 D4): the satisfied repairing
-	// revisions of unconfirmed repairs whose funding is unspent. They are
-	// never ready jobs — the one review dispatch they admit reads them here.
-	// Jobs keep deterministic binding order, so a reader resolves the same
-	// job first on every read.
-	fundings, err := workerChecksRepairReviewFundingsTx(ctx, tx, work)
+	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
+	// every open accepted exact repairing revision whose one confirming
+	// review is still unconsumed — funded or an ordinary-authority repeat.
+	// They are never ready jobs — the one review dispatch each admits reads
+	// them here; the guard keeps an unfunded dispatch basis-gated.
+	// Candidates keep deterministic binding order, so a reader resolves the
+	// same job first on every read.
+	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, tx, work)
 	if err != nil {
 		return err
 	}
-	fundingJobs := make([]string, 0, len(fundings))
-	for jobID := range fundings {
-		fundingJobs = append(fundingJobs, jobID)
-	}
-	slices.Sort(fundingJobs)
-	for _, jobID := range fundingJobs {
-		funding := fundings[jobID]
+	for _, candidate := range candidates {
 		for _, view := range views {
-			if view.Binding == funding.Repairing {
+			if view.Binding == candidate.Repairing {
 				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
 				break
 			}

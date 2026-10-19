@@ -140,8 +140,26 @@ def install_interrupt_handlers() -> None:
         signal.signal(signum, interrupt)
 
 
+# Exec-in-place launcher for every child. It arms PR_SET_PDEATHSIG, then
+# refuses to run when the gate already died (its parent is no longer the gate),
+# which closes the window between fork and arming. It caps every file the child
+# writes and restores the signal dispositions Python ignores, so the kernel's
+# SIGXFSZ reaches the child.
+LAUNCHER = """
+import ctypes, os, resource, signal, sys
+if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
+    sys.exit(126)
+if os.getppid() != int(sys.argv[1]):
+    sys.exit(125)
+resource.setrlimit(resource.RLIMIT_FSIZE, (int(sys.argv[2]), int(sys.argv[2])))
+for signum in (signal.SIGPIPE, signal.SIGXFSZ):
+    signal.signal(signum, signal.SIG_DFL)
+os.execvp(sys.argv[3], sys.argv[3:])
+"""
+
+
 def confinement(file_bytes: int) -> list[str]:
-    """The exec-in-place prefix: die with the spawning thread, and never write a file above file_bytes.
+    """The launcher prefix: die with the spawning thread, and never write a file above file_bytes.
 
     PR_SET_PDEATHSIG fires when the forking thread ends, so a caller spawns and
     waits for its child on one thread. RLIMIT_FSIZE cannot be raised past the
@@ -151,10 +169,7 @@ def confinement(file_bytes: int) -> list[str]:
     cap = file_bytes if hard == resource.RLIM_INFINITY else min(file_bytes, hard)
     if cap < 1:
         raise CaseFailure("unknown", "disk", "no scratch remains for the child's files")
-    tools = [shutil.which(name, path="/usr/bin:/bin") for name in ("setpriv", "prlimit")]
-    if None in tools:
-        raise CaseFailure("unknown", "harness", "setpriv and prlimit (util-linux) are required")
-    return [tools[0], "--pdeathsig", "KILL", "--", tools[1], f"--fsize={cap}:{cap}", "--"]
+    return [sys.executable, "-I", "-c", LAUNCHER, str(os.getpid()), str(cap)]
 
 
 class CaseFailure(Exception):

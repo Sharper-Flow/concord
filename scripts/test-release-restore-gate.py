@@ -271,11 +271,19 @@ class CaseTests(unittest.TestCase):
         rc, _ = gate.run_bounded([sys.executable, str(self.fixture.assets / str(writer.asset_id)), "product-create"],
                                  {"PATH": "/usr/bin:/bin", "HOME": str(home)}, "{}", time.monotonic() + 20,
                                  self.fixture.root / "streams", "grow", gate.Guard(lambda: None, lambda: 1 << 20))
-        # Python ignores SIGXFSZ, so the write fails with EFBIG and the child exits.
+        # The fixture is Python, which ignores SIGXFSZ itself, so its write fails with EFBIG.
         self.assertNotEqual(rc, 0)
         self.assertIn("File too large", (self.fixture.root / "streams" / "grow.stderr").read_text())
         self.assertEqual((home / "growth").stat().st_size, 1 << 20)
         self.assertLess(time.monotonic() - started, 10)
+
+    def test_the_launcher_refuses_a_child_whose_gate_is_gone(self) -> None:
+        marker = self.fixture.root / "ran"
+        launcher = gate.confinement(1 << 20)
+        launcher[-2] = "1"
+        probe = subprocess.run([*launcher, "/bin/touch", str(marker)], capture_output=True)
+        self.assertEqual(probe.returncode, 125)
+        self.assertFalse(marker.exists(), "the child ran after its gate was gone")
 
     def test_every_child_inherits_the_suite_file_limit(self) -> None:
         probe = subprocess.run([sys.executable, "-c", "import resource; print(resource.getrlimit(resource.RLIMIT_FSIZE))"],

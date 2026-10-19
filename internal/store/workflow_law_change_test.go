@@ -105,6 +105,15 @@ func lawChangeFields(t *testing.T, values map[string]any) map[string]json.RawMes
 	return fields
 }
 
+// lawChangePins pins each law at the fixture's seeded content hash.
+func lawChangePins(laws ...string) []WorkflowLawRevision {
+	pins := make([]WorkflowLawRevision, 0, len(laws))
+	for _, lawID := range laws {
+		pins = append(pins, WorkflowLawRevision{LawID: lawID, ContentHash: lawChangeHashA})
+	}
+	return pins
+}
+
 func TestLawChangeRequiresExplicitP12Declarations(t *testing.T) {
 	workID := "law-change-declarations"
 	s := seedLawChangeFixture(t, workID)
@@ -138,7 +147,7 @@ func deriveLawChange(t *testing.T, s *Store, workID string, definition WorkflowD
 func enactLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawChange, laws []string, binding *WorkflowArchitectureBinding) error {
 	t.Helper()
 	tx := lawChangeTx(t, s)
-	err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, change, []string{}, laws, binding)
+	err := checkWorkflowLawChangeEnactmentTx(context.Background(), tx, workID, change, laws, binding)
 	if rollbackErr := tx.Rollback(); rollbackErr != nil {
 		t.Fatal(rollbackErr)
 	}
@@ -230,9 +239,10 @@ func TestLawChangeDerivationRecordsReasonAndSeriousness(t *testing.T) {
 		t.Fatalf("recorded %+v, want %+v", change, want)
 	}
 
-	change, err = deriveLawChange(t, s, workID, lawChangeV1, reason, []string{"law-agent", "law-workflow"}, nil, []string{})
-	if err != nil || !change.Serious {
-		t.Fatalf("a change of laws homed in two child Domains = %+v, %v; want a serious fact", change, err)
+	pinned := lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "the installer moved", workflowLawChangeTextPinsField: lawChangePins("law-workflow", "law-agent")})
+	change, err = deriveLawChange(t, s, workID, lawChangeV1, pinned, []string{"law-agent", "law-workflow"}, nil, []string{})
+	if err != nil || !change.Serious || !reflect.DeepEqual(change.TextPins, lawChangePins("law-agent", "law-workflow")) {
+		t.Fatalf("a change of laws homed in two child Domains = %+v, %v; want a serious fact with sorted text pins", change, err)
 	}
 
 	if _, err := deriveLawChange(t, s, workID, lawChangeV1, map[string]json.RawMessage{}, []string{"law-agent"}, nil, []string{}); err == nil {
@@ -249,7 +259,11 @@ func TestLawChangeDerivationRecordsReasonAndSeriousness(t *testing.T) {
 	}
 
 	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
-	change, err = deriveLawChange(t, s, workID, lawChangeV1, reason, []string{"law-agent"}, nil, []string{})
+	requireFailureKind(t, func() error {
+		_, err := deriveLawChange(t, s, workID, lawChangeV1, reason, []string{"law-agent"}, nil, []string{})
+		return err
+	}(), KindInvalidPayload, "crucial change without text pins")
+	change, err = deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "the installer moved", workflowLawChangeTextPinsField: lawChangePins("law-agent")}), []string{"law-agent"}, nil, []string{})
 	if err != nil || !change.Crucial || !change.Serious {
 		t.Fatalf("a one-Domain law change at crucial size = %+v, %v; want a serious crucial fact", change, err)
 	}
@@ -303,7 +317,11 @@ func TestLawChangeBoundaryDerivesTheConstructorsFact(t *testing.T) {
 		laws []string
 		want bool
 	}{{laws: []string{"law-agent"}, want: false}, {laws: []string{"law-agent", "law-workflow"}, want: true}} {
-		fields := lawChangeFields(t, map[string]any{"law_modifies": testCase.laws, "decision_domains": []string{}, workflowLawChangeReasonField: "revise"})
+		values := map[string]any{"law_modifies": testCase.laws, "decision_domains": []string{}, workflowLawChangeReasonField: "revise"}
+		if testCase.want {
+			values[workflowLawChangeTextPinsField] = lawChangePins(testCase.laws...)
+		}
+		fields := lawChangeFields(t, values)
 		tx := lawChangeTx(t, s)
 		serious, err := workflowProposedLawChangeSeriousTx(context.Background(), tx, lawChangeV1, workID, "approval", fields)
 		_ = tx.Rollback()
@@ -381,7 +399,7 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		workID := "law-change-enact-narrowed"
 		s := seedLawChangeFixture(t, workID)
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface", "workflow-engine")
-		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "narrow"}), []string{"law-agent"}, nil, []string{})
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "narrow", workflowLawChangeTextPinsField: lawChangePins("law-agent")}), []string{"law-agent"}, nil, []string{})
 		if err != nil || !change.Serious {
 			t.Fatalf("a law whose applicability reaches a second child Domain = %+v, %v; want serious before narrowing", change, err)
 		}
@@ -397,7 +415,7 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		s := seedLawChangeFixture(t, workID)
 		seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface")
 		seedLawChangeLaw(t, s, "law-workflow", "legislated", "workflow-engine")
-		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "retire"}), []string{"law-agent", "law-workflow"}, nil, []string{})
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "retire", workflowLawChangeTextPinsField: lawChangePins("law-agent", "law-workflow")}), []string{"law-agent", "law-workflow"}, nil, []string{})
 		if err != nil || !change.Serious {
 			t.Fatalf("removing laws homed in two child Domains = %+v, %v; want serious", change, err)
 		}
@@ -412,23 +430,85 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindMissingEvidence, "superseded revision without derived tier")
 	})
 
-	t.Run("an operator-approved change is not re-checked", func(t *testing.T) {
-		t.Parallel()
-		workID := "law-change-enact-approved"
-		s := seedLawChangeFixture(t, workID)
-		seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface")
-		serious := &WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, TouchesSecurityOrDataSafe: true, Serious: true}
-		if err := enactLawChange(t, s, workID, serious, []string{"law-agent"}, nil); err != nil {
-			t.Fatalf("an operator-approved change was held to the derived tier: %v", err)
-		}
-	})
+}
+
+// TestLawChangeEnactmentMatchesApprovedText holds the completion half for a
+// serious change: the enacted text must be the text the operator approved.
+// The approved text fixes the tier, so a pinned legislated record passes; any
+// other bytes, a missing record, or a different registry refuse.
+func TestLawChangeEnactmentMatchesApprovedText(t *testing.T) {
+	t.Parallel()
+	serious := func(pins []WorkflowLawRevision, registryHash string) *WorkflowLawChange {
+		return &WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, TouchesSecurityOrDataSafe: true, Serious: true, TextPins: pins, RegistryContentHash: registryHash}
+	}
+	workID := "law-change-enact-approved"
+	s := seedLawChangeFixture(t, workID)
+	seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface")
+	if err := enactLawChange(t, s, workID, serious(lawChangePins("law-agent"), ""), []string{"law-agent"}, nil); err != nil {
+		t.Fatalf("the approved text refused at completion: %v", err)
+	}
+	other := []WorkflowLawRevision{{LawID: "law-agent", ContentHash: "sha256:" + strings.Repeat("c", 64)}}
+	requireFailureKind(t, enactLawChange(t, s, workID, serious(other, ""), []string{"law-agent"}, nil), KindApprovalRequired, "enacted text differs from the approved text")
+	requireFailureKind(t, enactLawChange(t, s, workID, serious(lawChangePins("law-gone"), ""), []string{"law-gone"}, nil), KindMissingEvidence, "approved law missing from the projection")
+
+	var registryHash string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&registryHash); err != nil {
+		t.Fatal(err)
+	}
+	edit := &WorkflowArchitectureBinding{DomainModifies: []string{"agent-surface"}}
+	if err := enactLawChange(t, s, workID, serious(nil, registryHash), nil, edit); err != nil {
+		t.Fatalf("the approved registry refused at completion: %v", err)
+	}
+	requireFailureKind(t, enactLawChange(t, s, workID, serious(nil, "sha256:"+strings.Repeat("d", 64)), nil, edit), KindApprovalRequired, "enacted registry differs from the approved registry")
+}
+
+// TestLawChangeTextPinsBindTheChange holds the approval half of the exact-text
+// rule: a serious change pins each changed law exactly once and the registry
+// exactly when it edits the registry; a non-serious change carries no pins.
+func TestLawChangeTextPinsBindTheChange(t *testing.T) {
+	t.Parallel()
+	workID := "law-change-pins"
+	s := seedLawChangeFixture(t, workID)
+	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+	seedLawChangeLaw(t, s, "law-workflow", "derived", "workflow-engine")
+	two := []string{"law-agent", "law-workflow"}
+	hash := "sha256:" + strings.Repeat("e", 64)
+	derive := func(values map[string]any, laws []string, binding *WorkflowArchitectureBinding) error {
+		values[workflowLawChangeReasonField] = "revise"
+		_, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, values), laws, binding, []string{})
+		return err
+	}
+	for name, values := range map[string]map[string]any{
+		"no pins":              {},
+		"one law missing":      {workflowLawChangeTextPinsField: lawChangePins("law-agent")},
+		"an extra law":         {workflowLawChangeTextPinsField: lawChangePins("law-agent", "law-workflow", "law-other")},
+		"a duplicate law":      {workflowLawChangeTextPinsField: lawChangePins("law-agent", "law-agent", "law-workflow")},
+		"an empty list":        {workflowLawChangeTextPinsField: []WorkflowLawRevision{}},
+		"a malformed hash":     {workflowLawChangeTextPinsField: []WorkflowLawRevision{{LawID: "law-agent", ContentHash: lawChangeHashA}, {LawID: "law-workflow", ContentHash: "sha256:short"}}},
+		"a stray registry pin": {workflowLawChangeTextPinsField: lawChangePins(two...), workflowLawChangeRegistryHashField: hash},
+	} {
+		requireFailureKind(t, derive(values, two, nil), KindInvalidPayload, name)
+	}
+	if err := derive(map[string]any{workflowLawChangeTextPinsField: lawChangePins(two...)}, two, nil); err != nil {
+		t.Fatalf("exact pins refused: %v", err)
+	}
+
+	relation := &WorkflowArchitectureBinding{DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "agent-surface", Kind: "depends_on", TargetDomainID: "workflow-engine"}}}
+	requireFailureKind(t, derive(map[string]any{}, nil, relation), KindInvalidPayload, "a serious registry edit without a registry pin")
+	requireFailureKind(t, derive(map[string]any{workflowLawChangeRegistryHashField: "sha256:short"}, nil, relation), KindInvalidPayload, "a malformed registry pin")
+	if err := derive(map[string]any{workflowLawChangeRegistryHashField: hash}, nil, relation); err != nil {
+		t.Fatalf("a pinned serious registry edit refused: %v", err)
+	}
+
+	requireFailureKind(t, derive(map[string]any{workflowLawChangeTextPinsField: lawChangePins("law-agent")}, []string{"law-agent"}, nil), KindInvalidPayload, "text pins on a non-serious change")
 }
 
 // TestLawChangeShapeValidation holds the replay-safe shape check: the fold
 // refuses a recorded fact whose seriousness does not follow its own facts.
 func TestLawChangeShapeValidation(t *testing.T) {
 	t.Parallel()
-	if err := validateWorkflowLawChangeShape(&WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}}, []string{}); err != nil {
+	agent := []string{"law-agent"}
+	if err := validateWorkflowLawChangeShape(&WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}}, []string{}, agent, nil); err != nil {
 		t.Fatalf("a well-formed fact refused: %v", err)
 	}
 	for name, change := range map[string]WorkflowLawChange{
@@ -436,9 +516,15 @@ func TestLawChangeShapeValidation(t *testing.T) {
 		"missing reason":      {DomainIDs: []string{}},
 		"unsorted Domains":    {Reason: "revise", DomainIDs: []string{"workflow-engine", "agent-surface"}, Serious: true},
 		"null Domains":        {Reason: "revise"},
+		"unpinned serious":    {Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true},
+		"pinned non-serious":  {Reason: "revise", DomainIDs: []string{"agent-surface"}, TextPins: lawChangePins("law-agent")},
 	} {
-		if err := validateWorkflowLawChangeShape(&change, []string{}); err == nil {
+		if err := validateWorkflowLawChangeShape(&change, []string{}, agent, nil); err == nil {
 			t.Errorf("%s: admitted", name)
 		}
+	}
+	pinned := WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
+	if err := validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil); err != nil {
+		t.Fatalf("a pinned serious fact refused: %v", err)
 	}
 }

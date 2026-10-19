@@ -489,6 +489,28 @@ class InventoryTest(unittest.TestCase):
         typed = self.shapes(json.loads(coverage.read_text()))[("thing.typed", 2)]
         self.assertEqual((typed["covered"], typed["witnesses"]), (True, ["TestTypedBase", "release:v1.0.0@domain-v2"]))
 
+    def test_cache_and_batch_compute_groups_in_bounded_runs(self) -> None:
+        cache, log = self.scratch / "cache", self.scratch / "cache.jsonl"
+        log.write_text("".join(json.dumps(w) + "\n" for w in WITNESSES))
+        base = [str(self.binary), "-out", str(self.scratch / "cache.json"), "-coverage", str(self.scratch / "cache.cov"), "-witnesses", str(log)]
+        refused = run([*base, "-batch", "1"], self.repo)
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("-batch needs -cache", refused.stderr)
+        args = [*base, "-cache", str(cache), "-batch", "1"]
+        groups = len({row["group"] for row in self.first["rows"] if "group" in row})
+        for _ in range(groups - 1):
+            result = run(args, self.repo)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertIn("groups are not computed yet", result.stderr)
+            self.assertFalse((self.scratch / "cache.json").exists())
+        result = run(args, self.repo)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        batched = json.loads((self.scratch / "cache.json").read_text())
+        for key in ("groups", "types"):
+            self.assertEqual(batched[key], self.first[key], key)
+        self.assertEqual([(r["tag"], r["status"]) for r in batched["rows"]], [(r["tag"], r["status"]) for r in self.first["rows"]])
+        self.assertEqual(len(list(cache.glob("*.json"))), groups)
+
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}
         self.assertEqual(fields["slice"], {"kind": "slice", "elem": {"kind": "string"}})

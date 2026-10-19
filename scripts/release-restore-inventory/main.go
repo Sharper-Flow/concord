@@ -8,6 +8,10 @@
 // registered shape or older accepted version. An unwitnessed shape or older
 // version, a writer row that binds to no registered shape or accepted version of
 // its release, or an unapproved refusal holds (exit 1).
+//
+// With -cache, each group's probe result is kept in that directory and -batch N
+// computes at most N missing groups per run, so a census can run as several
+// bounded runs. A run that leaves groups missing writes nothing and exits 3.
 // Run from the repository root.
 package main
 
@@ -187,6 +191,16 @@ type probeOutput struct {
 	Types    map[string]json.RawMessage `json:"types"`
 }
 
+// groupResult is one group's probe report, as cached. A probe that failed
+// records its error.
+type groupResult struct {
+	Probe probeOutput `json:"probe"`
+	Error string      `json:"error,omitempty"`
+}
+
+// errIncomplete reports a batch run that left groups uncomputed.
+var errIncomplete = errors.New("groups remain")
+
 // probe compiles and runs the shape probe against one tag's archived source.
 func probe(commit string, entries []string) (probeOutput, error) {
 	var out probeOutput
@@ -290,21 +304,72 @@ func inspect(result row) (row, []string) {
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
 	coverageOut := flag.String("coverage", "cmd/concord/testdata/release_restore/coverage.json", "shape coverage to write")
+	cache := flag.String("cache", "", "directory that keeps each group's probe result between runs")
+	batch := flag.Int("batch", 0, "with -cache, compute at most this many missing groups, then exit 3 if any remain")
 	var witnesses []string
 	flag.Func("witnesses", "witness log (JSON lines) to bind shapes to: a historical corpus or release gate log; repeatable", func(path string) error {
 		witnesses = append(witnesses, path)
 		return nil
 	})
 	flag.Parse()
-	if err := run(*output, *coverageOut, witnesses); err != nil {
+	if err := run(*output, *coverageOut, *cache, *batch, witnesses); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
+		if errors.Is(err, errIncomplete) {
+			os.Exit(3)
+		}
 		os.Exit(1)
 	}
 }
 
-func run(output, coverageOut string, witnessLogs []string) error {
+// cached reads one group's kept result.
+func cached(cache, key string) (groupResult, bool) {
+	var result groupResult
+	if cache == "" {
+		return result, false
+	}
+	data, err := os.ReadFile(filepath.Clean(cachePath(cache, key)))
+	return result, err == nil && json.Unmarshal(data, &result) == nil
+}
+
+func cachePath(cache, key string) string {
+	return filepath.Join(cache, strings.TrimPrefix(key, "sha256:")+".json")
+}
+
+// keep writes one group's result through a rename, so a reader never sees a
+// partial file.
+func keep(cache, key string, result groupResult) error {
+	if cache == "" {
+		return nil
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(cache, ".group-")
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	if err = errors.Join(err, file.Close()); err == nil {
+		err = os.Rename(file.Name(), cachePath(cache, key))
+	}
+	if err != nil {
+		_ = os.Remove(file.Name())
+	}
+	return err
+}
+
+func run(output, coverageOut, cache string, batch int, witnessLogs []string) error {
 	if len(witnessLogs) == 0 {
 		return errors.New("-witnesses is required: shapes without a witness join are not coverage")
+	}
+	if batch < 0 || batch > 0 && cache == "" {
+		return errors.New("-batch needs -cache and a positive count")
+	}
+	if cache != "" {
+		if err := os.MkdirAll(cache, 0o750); err != nil {
+			return err
+		}
 	}
 	var witnesses []witness
 	for _, log := range witnessLogs {
@@ -331,31 +396,63 @@ func run(output, coverageOut string, witnessLogs []string) error {
 		}
 		inv.Rows = append(inv.Rows, result)
 	}
-	failures := map[string]error{}
+	results := map[string]groupResult{}
+	var missing []string
+	for key := range work {
+		if result, ok := cached(cache, key); ok {
+			results[key] = result
+		} else {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	remaining := 0
+	if batch > 0 && len(missing) > batch {
+		missing, remaining = missing[:batch], len(missing)-batch
+	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var keepErr error
 	next := make(chan string)
 	for range workers {
 		wg.Go(func() {
 			for key := range next {
+				var result groupResult
 				out, err := probe(work[key].commit, work[key].entries)
+				if result.Probe = out; err != nil {
+					result.Error = err.Error()
+				}
+				err = keep(cache, key, result)
 				mu.Lock()
-				if err == nil {
-					inv.Groups[key], err = group(len(work[key].entries), out, inv.Types)
-				}
-				if err != nil {
-					delete(inv.Groups, key)
-					failures[key] = err
-				}
+				results[key], keepErr = result, errors.Join(keepErr, err)
 				mu.Unlock()
 			}
 		})
 	}
-	for key := range work {
+	for _, key := range missing {
 		next <- key
 	}
 	close(next)
 	wg.Wait()
+	if keepErr != nil {
+		return keepErr
+	}
+	if remaining > 0 {
+		return fmt.Errorf("%w: %d of %d groups are not computed yet; rerun with the same -cache", errIncomplete, remaining, len(work))
+	}
+	failures := map[string]error{}
+	for key, result := range results {
+		var err error
+		if result.Error != "" {
+			err = errors.New(result.Error)
+		} else {
+			inv.Groups[key], err = group(len(work[key].entries), result.Probe, inv.Types)
+		}
+		if err != nil {
+			delete(inv.Groups, key)
+			failures[key] = err
+		}
+	}
 	for i, result := range inv.Rows {
 		if err := failures[result.Group]; err != nil {
 			inv.Rows[i].Status, inv.Rows[i].Detail = "inventory_refused", err.Error()

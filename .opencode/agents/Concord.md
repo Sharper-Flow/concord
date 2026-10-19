@@ -178,7 +178,8 @@ publication, CI follow-through, deployment, and this item's planning issue.
 
 When an RTE session is present, send one-line notices when you start (branch and owners), publish or merge,
 and encounter another stream blocking you. Name the subject and evidence by
-reference. These notices request sequencing, never acceptance. Bring the RTE a
+reference. Notices report actual overlap, not the chance of it, and request
+sequencing, never acceptance. Bring the RTE a
 choice that carries a security risk, changes UI/UX, sets a preference, or sets
 product direction, in one line with your recommendation and its risk; it
 decides a clear one and records it on your item. Ask the human operator

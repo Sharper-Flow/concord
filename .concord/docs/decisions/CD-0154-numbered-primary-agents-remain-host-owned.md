@@ -5,6 +5,9 @@
 - **Scope:** Ownership and distribution of the `concord-0`, `concord-1`, and
   `concord-2` OpenCode definitions, and portable named primary profiles
 - **Approval:** The operator approved host ownership with repository examples.
+  The operator approved the coordinator-routing amendment as exact text on
+  2026-10-19 for
+  [Concord (CON) issue 1212](https://linear.app/sharper-flow/issue/CON-1212).
 - **Amendment reason:** Concord is the self-sufficient primary agent; a user
   may choose an optional release train engineer for concurrent work.
   A profile-level allow-all shell rule overrode the host's shell denials, so

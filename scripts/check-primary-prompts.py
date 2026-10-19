@@ -59,6 +59,7 @@ CONCORD_REQUIRED_PHRASES = (
     "You are Concord, the primary agent",
     "You do not need an RTE session",
     "The user may choose to start an RTE session",
+    "Notices report actual overlap, not the chance of it",
     "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
 )
 PROMPT_DIR = Path("examples/opencode/agents")

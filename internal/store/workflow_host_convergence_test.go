@@ -36,7 +36,7 @@ func hostConvergenceFailureEvent(workID, attemptID, eventID string, observation 
 // one change: the third terminal closes through the signed worker-evidence
 // seam carrying observation, so the failure the wall reads is the recorded
 // host execution failure CD-0239 D1 condition 2 admits.
-func hostConvergenceSeedEscalated(t *testing.T, workID string, observation *WorkerFailureObservation) (*Store, WorkflowActor, WorkPin) {
+func hostConvergenceSeedEscalated(t *testing.T, workID string, observation *WorkerFailureObservation) (*Store, WorkflowActor) {
 	t.Helper()
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
 	claimRetryWorktree(t, s, workID)
@@ -57,7 +57,7 @@ func hostConvergenceSeedEscalated(t *testing.T, workID string, observation *Work
 		issue1013StartRepair(t, s, workID, worker, pin.Version, workerEpoch+1)
 		pin = issue1013Pin(t, s, workID)
 		if correctionAttempt == 3 {
-			return s, owner, pin
+			return s, owner
 		}
 		attemptID = "attempt:" + workID + ":" + fmt.Sprint(correctionAttempt+1)
 		payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
@@ -72,7 +72,7 @@ func hostConvergenceSeedEscalated(t *testing.T, workID string, observation *Work
 		workerEpoch += 2
 	}
 	t.Fatal("the escalated host failure fixture did not return")
-	return nil, WorkflowActor{}, WorkPin{}
+	return nil, WorkflowActor{}
 }
 
 // hostConvergencePinOccupancy records the dispatching session's occupancy
@@ -170,14 +170,14 @@ func hostConvergenceAbandonmentObservation() *WorkerFailureObservation {
 func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T) {
 	t.Run("a restart just beyond the minute admits one dispatch", func(t *testing.T) {
 		const workID = "host-convergence-admit"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		pid, pidStart := hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		ctx := hostConvergenceLeaseContext(context.Background(), pid)
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
 
 		attempt := "attempt:" + workID + ":4"
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		dispatchVisible := false
 		for _, intent := range pin.NextValidIntents {
 			if intent.ActionID == "dispatch_worker" {
@@ -226,12 +226,12 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 
 	t.Run("exactly one minute after the failure is not strictly more", func(t *testing.T) {
 		const workID = "host-convergence-admit-exact-minute"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		ctx := hostConvergenceLeaseContext(context.Background(), os.Getpid())
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute))
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		before := pin.Version
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, ctx, "host-convergence-exact-minute"); !hasFailureKind(err, KindMissingEvidence) {
 			t.Fatalf("dispatch at exactly one minute = %v, want missing_evidence", err)
@@ -243,7 +243,7 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 
 	t.Run("an existing approach basis takes precedence", func(t *testing.T) {
 		const workID = "host-convergence-approach-precedence"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		ctx := hostConvergenceLeaseContext(context.Background(), os.Getpid())
@@ -252,7 +252,7 @@ func TestHostChangedConvergenceAdmitsOneDispatchFromARestartedHost(t *testing.T)
 			t.Fatalf("supersede the contract behind the escalation wall: %v", err)
 		}
 		attempt := "attempt:" + workID + ":4"
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, attempt, owner, pin, ctx, "host-convergence-approach-4"); err != nil {
 			t.Fatalf("dispatch behind the approach basis: %v", err)
 		}
@@ -273,14 +273,14 @@ func TestHostChangedConvergenceNeverFollowsAWorkerAttributedFailure(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "host-convergence-" + strings.ReplaceAll(tc.name, " ", "-")
-			s, owner, pin := hostConvergenceSeedEscalated(t, workID, tc.observation)
+			s, owner := hostConvergenceSeedEscalated(t, workID, tc.observation)
 			defer s.Close()
 			hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 			ctx := hostConvergenceLeaseContext(context.Background(), os.Getpid())
 			// The host inputs are a fully valid restart; only the
 			// attribution fails the derivation.
 			hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
-			pin = issue1013Pin(t, s, workID)
+			pin := issue1013Pin(t, s, workID)
 			before := pin.Version
 			err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, ctx, "host-convergence-exclusion-"+workID)
 			if !hasFailureKind(err, KindMissingEvidence) {
@@ -296,11 +296,11 @@ func TestHostChangedConvergenceNeverFollowsAWorkerAttributedFailure(t *testing.T
 func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 	t.Run("a missing lease set derives no basis", func(t *testing.T) {
 		const workID = "host-convergence-missing-lease"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, context.Background(), "host-convergence-missing-lease-4"); !hasFailureKind(err, KindMissingEvidence) {
 			t.Fatalf("dispatch without a lease observation = %v, want missing_evidence", err)
 		}
@@ -308,12 +308,12 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 
 	t.Run("a lease set without the recorded process derives no basis", func(t *testing.T) {
 		const workID = "host-convergence-foreign-lease"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		pid, _ := hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		ctx := hostConvergenceLeaseContext(context.Background(), pid+100000)
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, ctx, "host-convergence-foreign-lease-4"); !hasFailureKind(err, KindMissingEvidence) {
 			t.Fatalf("dispatch behind a foreign lease set = %v, want missing_evidence", err)
 		}
@@ -321,7 +321,7 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 
 	t.Run("a stale recorded process identity derives no basis", func(t *testing.T) {
 		const workID = "host-convergence-dead-process"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		pid, start := hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worktree_occupancy SET host_pid_start=host_pid_start+1 WHERE session_ref=?; DELETE FROM fold_guard`, owner.SessionRef); err != nil {
@@ -329,7 +329,7 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 		}
 		ctx := WithHostLeaseSet(context.Background(), HostLeaseSet{Leases: []hostlease.Lease{{PID: pid, PidStart: start + 1}}})
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, "attempt:"+workID+":4", owner, pin, ctx, "host-convergence-dead-process-4"); !hasFailureKind(err, KindMissingEvidence) {
 			t.Fatalf("dispatch with matching recorded and leased identity but a different live start = %v, want missing_evidence", err)
 		}
@@ -337,14 +337,14 @@ func TestHostChangedConvergenceNeedsARestartAfterEachFailure(t *testing.T) {
 
 	t.Run("neither the same host nor another restart buys a second attempt", func(t *testing.T) {
 		const workID = "host-convergence-second-attempt"
-		s, owner, pin := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
+		s, owner := hostConvergenceSeedEscalated(t, workID, workerFailureObservationFixture())
 		defer s.Close()
 		hostConvergencePinOccupancy(t, s, workID, owner.SessionRef)
 		ctx := hostConvergenceLeaseContext(context.Background(), os.Getpid())
 		hostConvergencePinWallStart(t, hostConvergenceFailureAt.Add(time.Minute+time.Second))
 
 		fourth := "attempt:" + workID + ":4"
-		pin = issue1013Pin(t, s, workID)
+		pin := issue1013Pin(t, s, workID)
 		if err := hostConvergenceDispatch(t, s, workID, fourth, owner, pin, ctx, "host-convergence-second-4"); err != nil {
 			t.Fatalf("the first restarted-host dispatch: %v", err)
 		}

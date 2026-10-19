@@ -864,7 +864,7 @@ consumes its basis. Findings convergence compares records at one step, so a
 step change yields no reusable findings basis. Dispatch completion durably
 records the derived basis token (`findings_shrinking`, `approach_changed`, or
 `host_changed`) and the sequence references of the events it was derived from.
-A `host_changed` basis also records the qualifying host PID and process start.
+A `host_changed` basis also records the qualifying host process id and process start.
 
 A convergence dispatch opens no new window: the correction stays escalated
 until a productive acceptance resets the nonprogress budget. The wall re-arms

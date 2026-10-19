@@ -25,11 +25,12 @@ recipe hash, and snapshot checksum that produced it. A row is emitted only
 after it survived both candidate restores, and the recipe is a closed list of
 domain commands, so no imported or synthesized row can become a witness.
 scripts/release-restore-inventory.go binds each one to its own release's
-registered shape. Exit status: 0 when every writer
+registered shape or older accepted version. Exit status: 0 when every writer
 passes and shape coverage is closed, 3 when every writer passes but coverage is
 held, 1 otherwise. Coverage closes only when the committed shape census
-inventories every writer outside the approved exclusion and binds every shape
-it writes to a witness, so a gate run alone is never
+inventories every writer outside the approved exclusion, witnesses every shape
+and every older accepted version it writes, and binds every writer row, so a
+gate run alone is never
 acceptance.
 
 Writer processes get a constructed environment: synthetic HOME, XDG, TMPDIR,
@@ -454,16 +455,20 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
 
 def shape_coverage(census: Path, writers: list[Writer]) -> dict:
     """Close coverage only when the committed census (scripts/release-restore-inventory.go)
-    inventories every writer outside the approved exclusion and witnesses every shape."""
+    inventories every writer outside the approved exclusion, witnesses every shape and older
+    accepted version, and binds every writer-produced row."""
     try:
         rows = {row["tag"]: row for row in json.loads((census / "writers.json").read_text(encoding="utf-8"))["rows"]}
-        shapes = json.loads((census / "coverage.json").read_text(encoding="utf-8"))["shapes"]
+        census_coverage = json.loads((census / "coverage.json").read_text(encoding="utf-8"))
+        shapes = census_coverage["shapes"]
         written = {tag for shape in shapes for tag in shape["writers"]}
         gaps = {
             "uninventoried writers": [w.tag for w in writers if w.tag not in rows],
             "refused writers": [tag for tag, row in rows.items() if row["status"] != "inventoried" and not row.get("excluded")],
             "inventoried writers without shapes": [tag for tag, row in rows.items() if row["status"] == "inventoried" and tag not in written],
             "unwitnessed shapes": [f"{shape['kind']} v{shape['payload_version']}" for shape in shapes if not shape["covered"]],
+            "unwitnessed older versions": [f"{older['kind']} v{older['payload_version']}" for older in census_coverage["older_versions"] if not older["covered"]],
+            "unbound writer witnesses": list(census_coverage["unbound_writer_witnesses"]),
         }
     except (OSError, ValueError, KeyError, TypeError) as error:
         return {"status": "held", "detail": f"the shape census at {census} is unreadable: {error}"}

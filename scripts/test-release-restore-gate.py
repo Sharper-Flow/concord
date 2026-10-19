@@ -310,13 +310,28 @@ class CaseTests(unittest.TestCase):
                                   output_dir=str(self.fixture.root / "out"), workers=2, wall_seconds=600, case_seconds=60,
                                   disk_bytes=1 << 30, transfer_bytes=1 << 30, census_dir=str(self.census()))
 
-    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.2.0")) -> Path:
+    def census(self, rows: dict[str, dict] | None = None, covered: bool = False, written: tuple[str, ...] = ("v1.0.0", "v1.2.0"),
+               older_covered: bool = True, unbound: tuple[str, ...] = ()) -> Path:
         """Write a shape census; by default it inventories v1.0.0 and v1.2.0, which write one unwitnessed shape."""
         census = self.fixture.root / f"census-{len(list(self.fixture.root.glob('census-*')))}"
         census.mkdir()
         rows = rows if rows is not None else {tag: {"tag": tag, "status": "inventoried"} for tag in ("v1.0.0", "v1.2.0")}
         (census / "writers.json").write_text(json.dumps({"rows": list(rows.values())}))
-        (census / "coverage.json").write_text(json.dumps({"shapes": [{"kind": "work.created", "payload_version": 2, "writers": list(written), "covered": covered}]}))
+        (census / "coverage.json").write_text(json.dumps({
+            "shapes": [{"kind": "work.created", "payload_version": 2, "writers": list(written), "covered": covered}],
+            "older_versions": [{"kind": "work.created", "payload_version": 1, "writers": list(written), "covered": older_covered}],
+            "unbound_writer_witnesses": list(unbound)}))
+        return census
+
+    def census_without(self, key: str, value: object = KeyError) -> Path:
+        """A closed census whose coverage lacks one section, or holds the given value there."""
+        census = self.census(covered=True)
+        coverage = json.loads((census / "coverage.json").read_text())
+        if value is KeyError:
+            del coverage[key]
+        else:
+            coverage[key] = value
+        (census / "coverage.json").write_text(json.dumps(coverage))
         return census
 
     def gate_run(self, candidate: Path, *writers: gate.Writer) -> tuple[dict, int]:
@@ -344,7 +359,12 @@ class CaseTests(unittest.TestCase):
             (self.census({"v1.0.0": {"tag": "v1.0.0", "status": "inventory_refused"}, "v1.2.0": {"tag": "v1.2.0", "status": "inventoried"}}, covered=True), "held", "1 refused writers, first v1.0.0"),
             (self.census(covered=True, written=("v1.0.0",)), "held", "1 inventoried writers without shapes, first v1.2.0"),
             (self.census(), "held", "1 unwitnessed shapes, first work.created v2"),
+            (self.census(covered=True, older_covered=False), "held", "1 unwitnessed older versions, first work.created v1"),
+            (self.census(covered=True, unbound=("v1.0.0 seq 3 work.created v1",)), "held", "1 unbound writer witnesses, first v1.0.0 seq 3"),
             (self.fixture.root / "absent", "held", "is unreadable"),
+            (self.census_without("older_versions"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses"), "held", "is unreadable"),
+            (self.census_without("unbound_writer_witnesses", None), "held", "is unreadable"),
         )
         for census, status, detail in cases:
             coverage = gate.shape_coverage(census, writers)

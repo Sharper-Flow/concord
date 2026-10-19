@@ -44,6 +44,14 @@ with open(os.path.join(os.environ["HOME"], "env.json"), "w") as handle:
     json.dump(dict(os.environ), handle)
 if MODE == "refuse":
     sys.exit(2)
+if MODE == "grow":
+    with open(os.path.join(os.environ["HOME"], "growth"), "wb") as handle:
+        while True:
+            handle.write(b"x" * 65536)
+            handle.flush()
+if MODE == "deaf":
+    import time
+    time.sleep(30)
 request = json.load(sys.stdin)
 db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
@@ -219,10 +227,11 @@ class CaseTests(unittest.TestCase):
         self.env.stop()
         self.tempdir.cleanup()
 
-    def case(self, writer: gate.Writer, candidate: Path, case_seconds: int = 60, disk: int = 1 << 30, transfer: int = 1 << 30) -> dict:
+    def case(self, writer: gate.Writer, candidate: Path, case_seconds: int = 60, scratch: gate.Scratch | None = None,
+             transfer: int = 1 << 30) -> dict:
         work = self.fixture.root / "work"
-        return gate.run_writer_case("owner/repo", writer, candidate, work, work / "streams" / writer.tag,
-                                    case_seconds, time.monotonic() + 600, disk, gate.Transfer(transfer))
+        return gate.run_writer_case("owner/repo", writer, candidate, work, work / "streams" / writer.tag, case_seconds,
+                                    time.monotonic() + 600, scratch or gate.Scratch(1 << 30, 1), gate.Transfer(transfer))
 
     def assertCase(self, row: dict, status: str, stage: str) -> None:
         self.assertEqual((row["status"], row["stage"]), (status, stage), row)
@@ -261,7 +270,22 @@ class CaseTests(unittest.TestCase):
     def test_resource_budgets_stop_the_case(self) -> None:
         candidate = self.fixture.candidate()
         self.assertCase(self.case(self.fixture.publish("v1.0.0"), candidate, transfer=10), "unknown", "transfer")
-        self.assertCase(self.case(self.fixture.publish("v1.0.1"), candidate, disk=1), "unknown", "disk")
+        self.assertCase(self.case(self.fixture.publish("v1.0.1"), candidate, scratch=gate.Scratch(10, 1)), "unknown", "disk")
+
+    def test_scratch_growth_stops_a_running_writer(self) -> None:
+        scratch = gate.Scratch(4 << 20, 1)
+        started = time.monotonic()
+        row = self.case(self.fixture.publish("v1.0.0", mode="grow"), self.fixture.candidate(), scratch=scratch)
+        self.assertCase(row, "unknown", "disk")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertGreater(scratch.retained, 0)
+        self.assertLess(scratch.allowance(), 4 << 20)
+
+    def test_a_writer_that_never_reads_stdin_meets_its_budget(self) -> None:
+        started = time.monotonic()
+        row = self.case(self.fixture.publish("v1.0.0", mode="deaf"), self.fixture.candidate(), case_seconds=2)
+        self.assertCase(row, "unknown", "product-create")
+        self.assertLess(time.monotonic() - started, 10)
 
     def bounded(self, body: str, seconds: float = 0.5, limit: int = gate.STREAM_LIMIT) -> gate.CaseFailure | None:
         script = self.fixture.write(self.fixture.root / "child", f"#!/bin/sh\n{body}\n")
@@ -287,7 +311,8 @@ class CaseTests(unittest.TestCase):
     def test_exhausted_wall_budget_is_unknown(self) -> None:
         writer = self.fixture.publish("v1.0.0")
         work = self.fixture.root / "work"
-        row = gate.run_writer_case("owner/repo", writer, self.fixture.candidate(), work, work / "s", 60, time.monotonic() - 1, 1 << 30, gate.Transfer(1 << 30))
+        row = gate.run_writer_case("owner/repo", writer, self.fixture.candidate(), work, work / "s", 60, time.monotonic() - 1,
+                                   gate.Scratch(1 << 30, 1), gate.Transfer(1 << 30))
         self.assertCase(row, "unknown", "wall")
 
     def args(self, candidate: Path, version: str = "v9.0.0") -> argparse.Namespace:

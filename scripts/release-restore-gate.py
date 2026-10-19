@@ -100,6 +100,21 @@ class Transfer:
             self.used += size
 
 
+class Scratch:
+    """The run's disk ceiling: bytes retained by finished cases, and an equal share of the rest per worker."""
+
+    def __init__(self, limit: int, workers: int) -> None:
+        self.limit, self.workers, self.retained, self.lock = limit, workers, 0, threading.Lock()
+
+    def allowance(self) -> int:
+        with self.lock:
+            return (self.limit - self.retained) // self.workers
+
+    def retain(self, size: int) -> None:
+        with self.lock:
+            self.retained += size
+
+
 class CaseFailure(Exception):
     def __init__(self, status: str, stage: str, detail: str) -> None:
         super().__init__(detail)
@@ -244,16 +259,14 @@ def run_bounded(argv: list[str], env: dict[str, str] | None, stdin: str, deadlin
     child runs, so a runaway child is stopped rather than measured afterward.
     """
     streams.mkdir(parents=True, exist_ok=True)
-    out_path, err_path = stdout_path or streams / f"{label}.stdout", streams / f"{label}.stderr"
-    with out_path.open("wb") as out, err_path.open("wb") as err:
-        child = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=out, stderr=err, start_new_session=True)
+    in_path, out_path, err_path = streams / f"{label}.stdin", stdout_path or streams / f"{label}.stdout", streams / f"{label}.stderr"
+    in_path.write_text(stdin, encoding="utf-8")
+    with in_path.open("rb") as feed, out_path.open("wb") as out, err_path.open("wb") as err:
+        child = subprocess.Popen(argv, env=env, stdin=feed, stdout=out, stderr=err, start_new_session=True)
         try:
-            try:
-                child.stdin.write(stdin.encode())  # type: ignore[union-attr]
-                child.stdin.close()  # type: ignore[union-attr]
-            except BrokenPipeError:
-                pass
-            while child.poll() is None:
+            # WNOWAIT leaves the exited leader unreaped, so its group ID cannot be
+            # reused before the group is killed below.
+            while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
                 if time.monotonic() >= deadline:
                     raise CaseFailure("unknown", label, "case budget exhausted")
                 if out_path.stat().st_size + err_path.stat().st_size > limit:
@@ -284,31 +297,34 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download_asset(repository: str, asset_id: int, size: int, destination: Path, deadline: float, streams: Path, transfer: Transfer) -> None:
+def download_asset(repository: str, asset_id: int, size: int, destination: Path, deadline: float, streams: Path,
+                   transfer: Transfer, guard, room: int) -> None:
     """Fetch one asset by its enumerated ID with an allowlisted authentication environment."""
+    if size > room:
+        raise CaseFailure("unknown", "disk", f"asset {asset_id} of {size} bytes exceeds the case's remaining scratch")
     transfer.reserve(size)
     auth = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST") if key in os.environ}
     destination.parent.mkdir(parents=True, exist_ok=True)
     rc, _ = run_bounded(["gh", "api", "-H", "Accept: application/octet-stream", f"repos/{repository}/releases/assets/{asset_id}"],
                         auth, "", min(deadline, time.monotonic() + NETWORK_SECONDS), streams, f"download-{asset_id}",
-                        stdout_path=destination, limit=size + STREAM_LIMIT)
+                        guard, stdout_path=destination, limit=size + STREAM_LIMIT)
     if rc != 0:
         raise CaseFailure("unknown", "download", f"asset {asset_id} download exited {rc}")
     if destination.stat().st_size != size:
         raise CaseFailure("fail", "download", f"asset {asset_id} has {destination.stat().st_size} bytes, enumerated {size}")
 
 
-def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path, transfer: Transfer) -> Path:
+def verify_writer_asset(repository: str, writer: Writer, case: Path, deadline: float, streams: Path, transfer: Transfer, guard, room) -> Path:
     name = f"concord-{writer.tag}"
     binary, checksums = case / "asset" / name, case / "asset" / f"{name}.sha256"
-    download_asset(repository, writer.checksum_asset_id, writer.checksum_size, checksums, deadline, streams, transfer)
-    download_asset(repository, writer.asset_id, writer.asset_size, binary, deadline, streams, transfer)
+    download_asset(repository, writer.checksum_asset_id, writer.checksum_size, checksums, deadline, streams, transfer, guard, room())
+    download_asset(repository, writer.asset_id, writer.asset_size, binary, deadline, streams, transfer, guard, room())
     actual = sha256_file(binary)
     listed = {parts[1].lstrip("*"): parts[0] for parts in (line.split() for line in checksums.read_text().splitlines()) if len(parts) == 2}
     if listed.get(name) != actual or (writer.asset_digest and writer.asset_digest != f"sha256:{actual}"):
         raise CaseFailure("fail", "checksum", f"binary sha256 {actual} disagrees with the checksum manifest or asset digest")
     binary.chmod(0o755)
-    rc, version = run_bounded([str(binary), "--version"], sandbox_env(case), "", deadline, streams, "version")
+    rc, version = run_bounded([str(binary), "--version"], sandbox_env(case), "", deadline, streams, "version", guard)
     if rc != 0 or version.strip() != writer.tag:
         raise CaseFailure("fail", "version", f"writer reports {version.strip()!r}, want {writer.tag}")
     return binary
@@ -392,20 +408,23 @@ def restore(candidate: Path, snapshot: Path, restored: Path, case: Path, deadlin
 
 
 def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path, streams: Path, case_seconds: int,
-                    wall_deadline: float, case_disk: int, transfer: Transfer) -> dict:
+                    wall_deadline: float, scratch: Scratch, transfer: Transfer) -> dict:
     started = time.monotonic()
     row = dataclasses.asdict(writer) | {"recipe": RECIPE_ID, "streams": str(streams)}
     case = work / writer.tag
 
+    def room() -> int:
+        return scratch.allowance() - tree_bytes(case) - tree_bytes(streams)
+
     def guard() -> None:
-        if tree_bytes(case) > case_disk:
-            raise CaseFailure("unknown", "disk", f"case scratch exceeds its {case_disk} byte share")
+        if room() < 0:
+            raise CaseFailure("unknown", "disk", f"case scratch and streams exceed their {scratch.allowance()} byte share")
 
     try:
         if started >= wall_deadline:
             raise CaseFailure("unknown", "wall", "global budget exhausted before the case started")
         deadline = min(started + case_seconds, wall_deadline)
-        binary = verify_writer_asset(repository, writer, case, deadline, streams, transfer)
+        binary = verify_writer_asset(repository, writer, case, deadline, streams, transfer, guard, room)
         env = sandbox_env(case)
         for verb, request in RECIPE:
             rc, _ = run_bounded([str(binary), verb], env, json.dumps(request), deadline, streams, verb, guard)
@@ -433,23 +452,28 @@ def run_writer_case(repository: str, writer: Writer, candidate: Path, work: Path
         shutil.rmtree(case, ignore_errors=True)
     else:
         shutil.rmtree(case / "asset", ignore_errors=True)
+    scratch.retain(tree_bytes(case) + tree_bytes(streams))
     return row
 
 
-def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]]) -> tuple[dict, int]:
-    wall_deadline = time.monotonic() + args.wall_seconds
+def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tuple[str, str]], wall_deadline: float | None = None) -> tuple[dict, int]:
+    wall_deadline = wall_deadline or time.monotonic() + args.wall_seconds
+    output = Path(args.output_dir).resolve()
     candidate = Path(args.candidate).resolve()
     candidate_sha256 = sha256_file(candidate)
-    rc = subprocess.run([str(candidate), "--version"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"}, timeout=NETWORK_SECONDS)
-    if rc.returncode != 0 or rc.stdout.strip() != args.candidate_version:
-        raise GateError(f"candidate reports {rc.stdout.strip()!r}, want {args.candidate_version}")
+    try:
+        rc, version = run_bounded([str(candidate), "--version"], sandbox_env(output / "candidate"), "",
+                                  min(wall_deadline, time.monotonic() + NETWORK_SECONDS), output / "streams" / "candidate", "version")
+    except CaseFailure as failure:
+        raise GateError(f"candidate preflight: {failure.detail}") from None
+    if rc != 0 or version.strip() != args.candidate_version:
+        raise GateError(f"candidate reports {version.strip()!r}, want {args.candidate_version}")
     writers, unknown, unavailable, excluded = enumerate_writers(releases, tags, args.candidate_version, args.target_sha)
-    output = Path(args.output_dir).resolve()
     population = [dataclasses.asdict(writer) for writer in writers] + unknown + unavailable
-    transfer = Transfer(args.transfer_bytes)
+    transfer, scratch = Transfer(args.transfer_bytes), Scratch(args.disk_bytes, args.workers)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(run_writer_case, args.repository, writer, candidate, output / "cases", output / "streams" / writer.tag,
-                               args.case_seconds, wall_deadline, args.disk_bytes // args.workers, transfer) for writer in writers]
+                               args.case_seconds, wall_deadline, scratch, transfer) for writer in writers]
         rows = [future.result() for future in futures]
     if sha256_file(candidate) != candidate_sha256:
         raise GateError("the candidate binary changed during the run")
@@ -463,7 +487,8 @@ def run_gate(args: argparse.Namespace, releases: list[dict], tags: dict[str, tup
         "population": {"digest": hashlib.sha256(json.dumps(population, sort_keys=True).encode()).hexdigest(),
                        "writers": len(writers) + len(unknown), "unavailable": unavailable, "excluded_candidate": excluded},
         "budgets": {"workers": args.workers, "wall_seconds": args.wall_seconds, "case_seconds": args.case_seconds,
-                    "disk_bytes": args.disk_bytes, "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
+                    "disk_bytes": args.disk_bytes, "retained_bytes": scratch.retained,
+                    "transfer_bytes": args.transfer_bytes, "transferred_bytes": transfer.used},
         "counts": counts, "result": result,
         "coverage": {"status": "held", "detail": "the closed historical-shape inventory is not bound; a bootstrap recipe is not acceptance"},
         "rows": rows,
@@ -484,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         run.add_argument(name, type=int, default=default)
     args = parser.parse_args(argv)
     output = Path(args.output_dir)
+    wall_deadline = time.monotonic() + args.wall_seconds
     try:
         if not REPOSITORY_RE.match(args.repository) or not FULL_SHA_RE.match(args.target_sha):
             raise GateError("repository must be owner/name and target sha a full commit")
@@ -493,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             raise GateError(f"output directory {output} is not empty")
         output.mkdir(parents=True, exist_ok=True)
         releases = list_releases(gh_release_total(args.repository), lambda page: gh_release_page(args.repository, page))
-        report, status = run_gate(args, releases, git_tags(args.repository))
+        report, status = run_gate(args, releases, git_tags(args.repository), wall_deadline)
     except (GateError, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         report, status = {"schema": "concord.release-restore-gate.v1", "result": "unknown", "stage": "population", "detail": str(error)}, 1
     output.mkdir(parents=True, exist_ok=True)

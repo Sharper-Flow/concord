@@ -262,15 +262,15 @@ const (
 	mainPkg  = fixtureModule + "/cmd/concord"
 )
 
-func site(t *testing.T, analysis writerAnalysis, function, expression string) writerSite {
+// site requires an open site of function with that expression.
+func site(t *testing.T, analysis writerAnalysis, function, expression string) {
 	t.Helper()
 	for _, s := range analysis.Open {
 		if s.Function == function && s.Expression == expression {
-			return s
+			return
 		}
 	}
 	t.Fatalf("no open site %s %q in %+v", function, expression, analysis.Open)
-	return writerSite{}
 }
 
 func TestFixtureAnalysisListsEachSite(t *testing.T) {
@@ -312,6 +312,36 @@ func TestEachWriteFormIsASite(t *testing.T) {
 func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.PayloadVersion = pair()`},
 		"positional literal":     {`func Positional() Event { return Event{"thing.a", SubjectProduct, 1, nil} }`, "Positional", `Event{"thing.a", SubjectProduct, 1, nil}`},
 		"literal eliding &Event": {`func Elided() []*Event { return []*Event{{Kind: "thing.a", PayloadVersion: 1}} }`, "Elided", `{Kind: "thing.a", PayloadVersion: 1}`},
+		"conversion into an Event": {`type raw struct {
+	Kind           string
+	SubjectType    SubjectType
+	PayloadVersion int
+	Payload        []byte
+}
+
+func Convert(r raw) Event { return Event(r) }`, "Convert", "Event(r)"},
+		"holder handed to an interface": {`func Decode(data []byte, event *Event) error { return json.Unmarshal(data, event) }`, "Decode", "json.Unmarshal(data, event)"},
+		"holder assigned to an interface": {`func Hold(event *Event) any {
+	var held any
+	held = event
+	return held
+}`, "Hold", "held"},
+		"holder returned as an interface": {`func Expose(event *Event) any { return event }`, "Expose", "return event"},
+		"holder in an interface field": {`type box struct{ value any }
+
+func Box(event *Event) box { return box{value: event} }`, "Box", "event"},
+		"update statement": {`func Rewrite(db *sql.DB) error {
+	_, err := db.Exec("UPDATE domain_events SET payload_version = 1")
+	return err
+}`, "Rewrite", `"UPDATE domain_events SET payload_version = 1"`},
+		"insert of other values": {`func Forge(db *sql.DB, event Event) error {
+	_, err := db.Exec("INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, 1, ?)", event.Kind, event.Payload)
+	return err
+}`, "Forge", `"INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, 1, ?)"`},
+		"insert of two Events' fields": {`func Mix(db *sql.DB, a, b Event) error {
+	_, err := db.Exec("INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, ?, ?)", a.Kind, b.PayloadVersion, a.Payload)
+	return err
+}`, "Mix", `"INSERT INTO domain_events (kind, payload_version, payload) VALUES (?, ?, ?)"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
@@ -326,6 +356,38 @@ func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.P
 			}
 		})
 	}
+}
+
+// A holder reaches an interface or unsafe pointer through a variadic
+// argument, a slice of holders, or a pointer conversion.
+func TestHolderEscapesAreSites(t *testing.T) {
+	const anchor = "func ReadEvent("
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "import (", "import (\n\t\"fmt\"\n\t\"unsafe\""},
+		mutation{"internal/store/store.go", anchor, `func Print(event *Event) string { return fmt.Sprint("event", event) }
+
+func Batch(events []*Event) string { return fmt.Sprint(events) }
+
+func Raw(event *Event) unsafe.Pointer { return unsafe.Pointer(event) }
+
+` + anchor})
+	site(t, analysis, storePkg+".Print", `fmt.Sprint("event", event)`)
+	site(t, analysis, storePkg+".Batch", "fmt.Sprint(events)")
+	site(t, analysis, storePkg+".Raw", "unsafe.Pointer(event)")
+}
+
+func TestPlainInsertIsNotASite(t *testing.T) {
+	for _, s := range analyzeFixture(t).Open {
+		if s.Function == storePkg+".appendEvent" {
+			t.Fatalf("the plain insert of one Event's fields is a site: %+v", s)
+		}
+	}
+}
+
+func TestEmbeddedSQLIsASite(t *testing.T) {
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", "import (", "import (\n\t_ \"embed\""},
+		mutation{"internal/store/store.go", "type Tx struct{}", "//go:embed rewrite.sql\nvar rewrite string\n\ntype Tx struct{}"},
+		mutation{"internal/store/rewrite.sql", "", "UPDATE domain_events SET kind = 'thing.b';\n"})
+	site(t, analysis, storePkg+" embed rewrite.sql", "embedded file writes domain_events")
 }
 
 func TestUnanalyzableSourceIsRefused(t *testing.T) {

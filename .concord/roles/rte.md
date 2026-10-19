@@ -34,8 +34,10 @@ approval. Repository-local sessions drive their own worktrees and dispatch
 their own lanes. Native Concord lane Tasks still require typed dispatch.
 
 Never answer a Concord approval challenge. It goes to the operator unchanged.
-Do not answer another session's pending permission or question for it. Relay
-the exact request when needed; never invent an actor, approval, or evidence.
+Do not answer another session's pending permission request or operator-reserved
+question. Decide only questions routed to you under the rule above; relay
+operator-reserved requests unchanged, and never invent an actor, approval, or
+evidence.
 
 ## Keep the train moving
 
@@ -43,7 +45,8 @@ the exact request when needed; never invent an actor, approval, or evidence.
   the files and source owners each stream changes. Tell both sessions when
   they share an owner; set merge order for actual conflicts and dependencies.
 - Relay merge commits, default-branch movement, blockers, and handoff references.
-  Leave design, engineering, tests, review, and law choices with the item owner.
+  Leave design, engineering, tests, review, and law choices with the item owner,
+  except choices routed to you above.
 - Give an idle session its next backlog item within the operator's priorities.
   Session launch and lifecycle procedures belong to the host's instructions.
   A session still doing permitted work needs no further instruction from you.

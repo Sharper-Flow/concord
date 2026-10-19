@@ -25,13 +25,15 @@ Escalate a change to law, design, or another agent's work.
 A settled case does not waive an approval, safety rule, scope limit, or mandatory
 refusal.
 
-When a decision is reversible and the cost of being wrong is small, choose and
-say what you chose. When it is not, ask.
+For a decision outside the routing rule below, choose and say what you chose
+when it is reversible and the cost of being wrong is small. When it is not,
+ask. Reversibility and low cost do not exempt a choice from that rule.
 
 A choice that carries a security risk, changes UI/UX, sets a preference, or
-sets product direction goes first to the coordinator of your work, when one
-coordinates it. State the choice in one plain line with your recommendation
-and its risk. The coordinator decides a choice whose answer is clear, alone or
-with an advisor, and records the decision and its reasons. Only a choice
-neither can clearly decide goes to the operator. This route never replaces an
-approval the operator holds. A purely technical choice stays yours.
+sets product direction goes first to the coordinator of your work. If no one
+coordinates your work, ask the operator directly. State the choice in one plain
+line with your recommendation and its risk. The coordinator decides a choice
+whose answer is clear, alone or with an advisor, and records the decision and
+its reasons. Only a choice neither can clearly decide goes to the operator.
+This route never replaces an approval the operator holds. A purely technical
+choice stays yours.

@@ -510,6 +510,12 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(batched[key], self.first[key], key)
         self.assertEqual([(r["tag"], r["status"]) for r in batched["rows"]], [(r["tag"], r["status"]) for r in self.first["rows"]])
         self.assertEqual(len(list(cache.glob("*.json"))), groups)
+        rerun = run([*base, "-cache", str(cache)], self.repo)
+        self.assertEqual(rerun.returncode, 1, rerun.stderr)
+        reused = {r["tag"]: r for r in json.loads((self.scratch / "cache.json").read_text())["rows"]}
+        # A fresh probe failure names a new scratch path; a kept one repeats it.
+        self.assertEqual(reused["v3.0.0"]["status"], "inventory_refused")
+        self.assertEqual(reused["v3.0.0"]["detail"], {r["tag"]: r for r in batched["rows"]}["v3.0.0"]["detail"])
 
     def test_container_shapes_preserve_wire_distinctions(self) -> None:
         fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}

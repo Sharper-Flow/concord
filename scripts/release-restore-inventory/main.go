@@ -12,6 +12,7 @@
 // With -cache, each group's probe result is kept in that directory and -batch N
 // computes at most N missing groups per run, so a census can run as several
 // bounded runs. A run that leaves groups missing writes nothing and exits 3.
+// A kept probe failure stays until its cache file is removed.
 // Run from the repository root.
 package main
 
@@ -417,9 +418,9 @@ func run(output, coverageOut, cache string, batch int, witnessLogs []string) err
 	for range workers {
 		wg.Go(func() {
 			for key := range next {
-				var result groupResult
 				out, err := probe(work[key].commit, work[key].entries)
-				if result.Probe = out; err != nil {
+				result := groupResult{Probe: out}
+				if err != nil {
 					result.Error = err.Error()
 				}
 				err = keep(cache, key, result)

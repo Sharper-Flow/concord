@@ -144,8 +144,8 @@ async function bootNativeTargetFixture(root: string): Promise<NativeTargetFixtur
   const repo = join(root, "repo")
   const dbPath = join(root, "concord.db")
   const configPath = join(repo, "opencode.jsonc")
-  const lane = agentLanes.find((candidate) => candidate.id === "implement")
-  if (!lane) throw new Error("implement lane is not registered")
+  const lane = agentLanes.find((candidate) => candidate.id === "verify")
+  if (!lane) throw new Error("verify lane is not registered")
 
   await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
   await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({
@@ -405,7 +405,7 @@ async function driveToReadyJob(
   expect((prepared.files as JSONRecord[]).map((file) => file.path)).toEqual([HARNESS_SCRIPT])
   // The canonical prepare lease command is the check-input stage.
   expect(response.result.command).toEqual(["bash", "-n", "check.sh"])
-  // The job-capable break-fix definition dispatches the implement lane only
+  // The job-capable break-fix definition dispatches the verification lane only
   // under a recorded ready worker-job revision (CD-0205) that pins the actual
   // preparation reference.
   response = await transition(10, "record_worker_job", "native-e2e-worker-job", {
@@ -573,7 +573,8 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(packet.work_id).toBe(workID)
     expect(packet.step_id).toBe("repair")
     expect(packet.inputs.task).toBe(APPROVED_OBJECTIVE)
-    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: dispatchVersion, contract_version: 1, assigned_result: "files_touched" })
+    expect(lane.capability_class).toBe("verification")
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: dispatchVersion, contract_version: 1, assigned_result: "exit_codes" })
     expect(packet.inputs.work_record).toEqual({ value_statement: "The route completes one real non-Go native attempt.", task: "Exercise the non-Go native dispatch route." })
     expect(packet.inputs.law_context).toEqual({ laws: [], domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain" }], registry_path: join(repo, ".concord/docs/knowledge/domain-registry.json") })
     expect(packet.inputs.outcome_predicates).toEqual([{ ...packet.inputs.outcome_predicates[0] }])
@@ -660,7 +661,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(executedStages[0].argv).toEqual(["bash", "check.sh", "--expected", "7"])
     expect(executedStages[0].exit_code).toBe(0)
 
-    const childContext = contextFor(worktree, task.workerSessionID)
+    const childContext = { ...contextFor(worktree, task.workerSessionID), agent: `concord-${lane.id}` }
     const childCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: task.windows }), executeBoundWorkerControl)
     expect(calls.filter((call) => call.argv[1] === "worker-dispatch")).toHaveLength(0)
     expect(dbValue(dbPath, `SELECT lifecycle_state FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`).lifecycle_state).toBe("in_flight")
@@ -721,6 +722,8 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(calls.filter((call) => call.argv[1] === "worker-complete")).toHaveLength(1)
     expect(calls.filter((call) => call.argv[1] === "worker-fail")).toHaveLength(0)
 
+    // This check-only job verifies the existing subject, not an editing result.
+    expect((await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()).toBe(subjectCommit)
     // Local acceptance closes the route: the verification bind then the
     // job-bound accept satisfy the recorded job and hold repair.
     await transition("bind_evidence", "native-e2e-bind", { evidence_kind: "verification" })

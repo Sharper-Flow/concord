@@ -205,7 +205,7 @@ func restoreFrozenJournal(t *testing.T, ctx context.Context, journal frozenJourn
 			event.Seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt, event.PayloadVersion, event.Payload); err != nil {
 			t.Fatalf("restore event %s: %v", event.EventID, err)
 		}
-		recordHistoricalWitness(t, event.Kind, event.PayloadVersion, []byte(event.Payload))
+		recordHistoricalWitness(t, s, event.EventID, event.Kind, event.PayloadVersion, []byte(event.Payload))
 	}
 	for _, receipt := range journal.Receipts {
 		// A receipt is usable exactly when its original operation's events

@@ -123,8 +123,8 @@ func readWitnesses(witnessLog string) ([]witness, error) {
 // a writer row from an approved excluded release is excluded with it; any
 // other writer row is returned as unbound. Each release's writer finding is
 // reported beside coverage.
-func cover(inv inventory, rows []witness) (coverageReport, error) {
-	findings := writerFindings(inv)
+func cover(inv inventory, rows []witness, table exemptionTable) (coverageReport, error) {
+	findings := writerFindings(inv, table)
 	shapes, older := map[string]*shapeCoverage{}, map[string]*olderCoverage{}
 	registered, accepted, excluded := map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, result := range inv.Rows {

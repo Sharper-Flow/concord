@@ -296,6 +296,67 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 	if !slices.Equal(analysis.Writes, []string{"thing.a v2"}) {
 		t.Fatalf("writes = %q", analysis.Writes)
 	}
+	if !slices.Equal(analysis.WorkItemFolds, []string{"thing.b"}) || analysis.CheckSubject == "" {
+		t.Fatalf("work-item folds %q, check subject %q", analysis.WorkItemFolds, analysis.CheckSubject)
+	}
+}
+
+// A fold refuses a work_item subject only when the registration sets it,
+// directly or through constructors, and it begins with a checkSubject guard
+// on its Event parameter for a constant other than SubjectWorkItem.
+func TestWorkItemFoldsNeedAProvenRefusal(t *testing.T) {
+	const store = "internal/store/store.go"
+	const foldB = "func foldB(tx *Tx, state *State, event Event) error { return nil }"
+	guard := func(body string) mutation {
+		return mutation{store, foldB, "func foldB(tx *Tx, state *State, event Event) error {\n" + body + "\n\treturn nil\n}"}
+	}
+	const refusal = "\tif err := checkSubject(event, SubjectProduct); err != nil {\n\t\treturn err\n\t}"
+	registered := func(entries, extra string) []mutation {
+		return []mutation{
+			{store, `"thing.b": {CurrentVersion: 3`, entries + "\n\t\"thing.b\": {CurrentVersion: 3"},
+			{store, "func upcastA1(", `func register(fold func(*Tx, *State, Event) error) EventKindRegistration {
+	return EventKindRegistration{CurrentVersion: 1, MinSupported: 1, Fold: fold}
+}
+
+func scoped(fold func(*Tx, *State, Event) error) EventKindRegistration {
+` + extra + `	return register(fold)
+}
+
+func upcastA1(`},
+		}
+	}
+	declare := func(entry, decls string) []mutation {
+		return []mutation{
+			{store, `"thing.b": {CurrentVersion: 3`, entry + "\n\t\"thing.b\": {CurrentVersion: 3"},
+			{store, "func upcastA1(", decls + "\n\nfunc upcastA1("},
+		}
+	}
+	for name, c := range map[string]struct {
+		mutations []mutation
+		want      []string
+	}{
+		"through constructors":   {registered(`"thing.c": scoped(foldA),`+"\n\t"+`"thing.d": scoped(foldB),`, ""), []string{"thing.b", "thing.d"}},
+		"method expression":      {[]mutation{{store, `"thing.b": {CurrentVersion: 3`, `"thing.c": foldFunc.with(foldA, foldB),` + "\n\t\"thing.b\": {CurrentVersion: 3"}, {store, "func upcastA1(", "type foldFunc func(*Tx, *State, Event) error\n\nfunc (f foldFunc) with(fold func(*Tx, *State, Event) error) EventKindRegistration {\n\treturn EventKindRegistration{Fold: fold}\n}\n\nfunc upcastA1("}}, []string{"thing.b", "thing.c"}},
+		"constructor reassigns":  {registered(`"thing.c": scoped(foldA),`, "\tfold = foldB\n"), []string{"thing.b", "thing.c"}},
+		"both refuse":            {[]mutation{guard(refusal)}, nil},
+		"guard for work_item":    {[]mutation{guard(strings.Replace(refusal, "SubjectProduct", "SubjectWorkItem", 1))}, []string{"thing.b"}},
+		"guard ignored":          {[]mutation{guard(strings.Replace(refusal, "return err", "return nil", 1))}, []string{"thing.b"}},
+		"guard not first":        {[]mutation{guard("\t_ = state\n" + refusal)}, []string{"thing.b"}},
+		"guard on another event": {[]mutation{guard(strings.Replace(refusal, "(event,", "(blank,", 1)), {store, "func upcastA1(", "var blank Event\n\nfunc upcastA1("}}, []string{"thing.b"}},
+		"registry written":       {[]mutation{guard(refusal), {store, "func upcastA1(", "func init() { eventKindRegistry[\"thing.c\"] = EventKindRegistration{Fold: foldB} }\n\nfunc upcastA1("}}, []string{"*"}},
+		"deferred constructor":   {declare(`"thing.c": deferred(foldA),`, "func deferred(fold func(*Tx, *State, Event) error) (r EventKindRegistration) {\n\tdefer func() { r.Fold = foldB }()\n\treturn EventKindRegistration{Fold: fold}\n}"), []string{"thing.b", "thing.c"}},
+		"returns disagree":       {declare(`"thing.c": either(foldA, true),`, "func either(fold func(*Tx, *State, Event) error, other bool) EventKindRegistration {\n\tif other {\n\t\treturn EventKindRegistration{Fold: foldB}\n\t}\n\treturn EventKindRegistration{Fold: fold}\n}"), []string{"thing.b", "thing.c"}},
+		"address taken":          {declare(`"thing.c": taken(foldA),`, "func taken(fold func(*Tx, *State, Event) error) EventKindRegistration {\n\tswap(&fold)\n\treturn EventKindRegistration{Fold: fold}\n}\n\nfunc swap(fold *func(*Tx, *State, Event) error) { *fold = foldB }"), []string{"thing.b", "thing.c"}},
+		"condition inverted":     {[]mutation{guard(strings.Replace(refusal, "err != nil", "err == nil", 1))}, []string{"thing.b"}},
+		"another guard":          {[]mutation{guard(strings.Replace(refusal, "checkSubject(", "check(", 1)), {store, "func upcastA1(", "func check(event Event, want SubjectType) error { return nil }\n\nfunc upcastA1("}}, []string{"thing.b"}},
+		"non-constant key":       {declare("dynamicKind: {Fold: foldA},", "var dynamicKind = \"thing.c\""), []string{"*"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := analyzeFixture(t, c.mutations...).WorkItemFolds; !slices.Equal(got, c.want) {
+				t.Fatalf("work-item folds %q, want %q", got, c.want)
+			}
+		})
+	}
 }
 
 // Each mutation adds one way to set an Event's kind or version; each must
@@ -509,7 +570,7 @@ func F() Event {
 	return event
 }
 
-func pairEvent() (Event, error) { return Event{}, nil }`, nil, []string{"thing.b v*"}},
+func pairEvent() (Event, error) { return Event{}, nil }`, []string{"thing.b v0"}, nil},
 		"embedded event": {`type wrapped struct{ Event }
 
 func F() Event {
@@ -523,7 +584,40 @@ func F() Event {
 	return Event{Kind: kind, PayloadVersion: version}
 }
 
-func pair() (string, int) { return "thing.a", 1 }`, nil, []string{"* v*"}},
+func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil},
+		"spread tuple result": {`func F() Event {
+	kind, version := via()
+	return Event{Kind: kind, PayloadVersion: version}
+}
+
+func via() (string, int) { return pair() }
+
+func pair() (string, int) { return "thing.a", 1 }`, []string{"thing.a v1"}, nil},
+		"bare return": {`func F() Event { return Event{Kind: namedKind(), PayloadVersion: 1} }
+
+func namedKind() (kind string) {
+	kind = "thing.a"
+	return
+}`, nil, []string{"* v1"}},
+		"tuple field target": {`func F() Event {
+	var event Event
+	event.Kind, event.PayloadVersion = pair()
+	return Event{Kind: event.Kind, PayloadVersion: 1}
+}
+
+func pair() (string, int) { return "thing.a", 1 }`, []string{" v1", "thing.a v1"}, []string{"* v*"}},
+		"each result of one call": {`func F(n int) []Event {
+	kind := "thing.a"
+	var out []Event
+	for range n {
+		var next string
+		next, kind = pass(kind)
+		out = append(out, Event{Kind: next, PayloadVersion: 1})
+	}
+	return out
+}
+
+func pass(kind string) (string, string) { return kind, "thing.c" }`, []string{"thing.a v1", "thing.c v1"}, nil},
 		"range value": {`func F(kinds []string) Event {
 	kind := "thing.a"
 	for _, kind = range kinds {
@@ -672,6 +766,230 @@ done:
 			}
 			if !slices.Equal(writes, c.writes) {
 				t.Fatalf("writes %q", writes)
+			}
+		})
+	}
+}
+
+// A parameter resolves through its function's static calls, one site
+// evaluation per call; a call result resolves through the callee's returns.
+// A function whose calls are not all visible keeps its parameters open.
+func TestSitePairsThroughCalls(t *testing.T) {
+	const anchor = "func ReadEvent("
+	base := analyzeFixture(t)
+	known := map[string]bool{}
+	for _, s := range base.Open {
+		known[s.Function+" "+s.Expression] = true
+	}
+	for name, c := range map[string]struct {
+		code   string
+		writes []string
+		open   []string
+	}{
+		"parameter": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { F("thing.a"); F("thing.b") }`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"one evaluation per call": {`func F(kind string, version int) Event { return Event{Kind: kind, PayloadVersion: version} }
+
+func G() { F("thing.a", 1); F("thing.b", 2) }`, []string{"thing.a v1", "thing.b v2"}, nil},
+		"through two calls": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G(kind string) Event { return F(kind) }
+
+func H() { G("thing.a"); F("thing.b") }`, []string{"thing.a v1", "thing.b v1"}, nil},
+		"call result": {`func kindOf() string { return "thing.c" }
+
+func F() Event { return Event{Kind: kindOf(), PayloadVersion: 1} }`, []string{"thing.c v1"}, nil},
+		"call result with bound arms": {`func pick(first bool) string {
+	if first {
+		return "thing.a"
+	} else {
+		return "thing.b"
+	}
+}
+
+func F() Event { return Event{Kind: pick(true), PayloadVersion: 1} }`, []string{"thing.a v1"}, nil},
+		"recursion": {`func F(kind string, n int) Event {
+	if n > 0 {
+		return F(kind, n-1)
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("thing.a", 3) }`, []string{"thing.a v1"}, nil},
+		"unexported method": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { maker{}.make("thing.a") }`, []string{"thing.a v1"}, nil},
+		"parameter in a condition": {`func F(mode string) Event {
+	kind := "thing.a"
+	if mode == "y" {
+		kind = "thing.c"
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("y") }`, []string{"thing.a v1", "thing.c v1"}, nil},
+		"no call": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"assigned parameter": {`func F(kind string) Event {
+	kind = "thing.c"
+	return Event{Kind: kind, PayloadVersion: 1}
+}
+
+func G() { F("thing.a") }`, []string{"thing.a v1", "thing.c v1"}, nil},
+		"parameter field": {`func F(event Event) Event {
+	event.PayloadVersion = 4
+	return event
+}
+
+func G() { F(Event{Kind: "thing.b", PayloadVersion: 3}) }`, []string{"thing.b v3", "thing.b v4"}, nil},
+		"function value": {`func F(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+var hook = F
+
+func G() { F("thing.a") }`, nil, []string{"* v1"}},
+		"exported method": {`type Maker struct{}
+
+func (Maker) Make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { Maker{}.Make("thing.a") }`, nil, []string{"* v1"}},
+		"method an interface call names": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+type making interface{ make(string) Event }
+
+func G(m making) { maker{}.make("thing.a"); m.make("thing.b") }`, nil, []string{"* v1"}},
+		"method expression": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+func G() { maker{}.make("thing.a"); maker.make(maker{}, "thing.b") }`, nil, []string{"* v1"}},
+		"interface method value": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+type making interface{ make(string) Event }
+
+func G(m making) { maker{}.make("thing.a"); h := m.make; h("thing.b") }`, nil, []string{"* v1"}},
+		"dead recursion": {`func F(kind string, n int) Event {
+	if n > 0 {
+		return F(kind, n-1)
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, nil, []string{"* v*"}},
+		"named result and defer": {`func kindOf() (kind string) {
+	defer func() { kind = "thing.c" }()
+	return "thing.a"
+}
+
+func F() Event { return Event{Kind: kindOf(), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"unnamed result and recover": {`func kindOf(fail bool) string {
+	defer func() { _ = recover() }()
+	if fail {
+		panic("fail")
+	}
+	return "thing.a"
+}
+
+func F() Event { return Event{Kind: kindOf(true), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"method expression result": {`type namer string
+
+func (namer) name(kind string) string { return kind }
+
+func F() Event { return Event{Kind: namer.name("thing.a", "thing.c"), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"interface method result": {`type namer interface{ kind() string }
+
+func F(n namer) Event { return Event{Kind: n.kind(), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return pair == "thing.a v2" })
+			var open []string
+			for _, s := range analysis.Open {
+				if !known[s.Function+" "+s.Expression] {
+					open = append(open, s.Pairs...)
+				}
+			}
+			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
+				t.Fatalf("writes %q, open %q", writes, open)
+			}
+		})
+	}
+}
+
+// A registry read resolves to the kind's registered current version only
+// while the binary never writes the registry or the read value, and that
+// version is never compared.
+func TestSitePairsThroughRegistry(t *testing.T) {
+	const anchor = "func ReadEvent("
+	const typed = `func registered(kind string) (EventKindRegistration, bool) {
+	registration, ok := eventKindRegistry[kind]
+	return registration, ok
+}
+
+func F(kind string) Event {
+	version := 1
+	if registration, ok := registered(kind); ok {
+		version = registration.CurrentVersion
+	}
+	return Event{Kind: kind, PayloadVersion: version}
+}
+
+func G() { F("thing.a"); F("thing.z") }`
+	resolved := []string{"thing.a vcur:thing.a", "thing.z v1", "thing.z vcur:thing.z"}
+	base := analyzeFixture(t)
+	known := map[string]bool{}
+	for _, s := range base.Open {
+		known[s.Function+" "+s.Expression] = true
+	}
+	for name, c := range map[string]struct {
+		code   string
+		extra  []mutation
+		writes []string
+		open   []string
+	}{
+		"current version": {typed, nil, resolved, nil},
+		"spread result": {strings.Replace(typed, "registered(kind); ok", "via(kind); ok", 1) + `
+
+func via(kind string) (EventKindRegistration, bool) { return registered(kind) }`, nil, resolved, nil},
+		"registry written":      {typed + "\n\nfunc H() { eventKindRegistry[\"thing.a\"] = EventKindRegistration{CurrentVersion: 5} }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry deleted":      {typed + "\n\nfunc H() { delete(eventKindRegistry, \"thing.a\") }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry reassigned":   {typed + "\n\nfunc H() { eventKindRegistry = nil }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry range target": {typed + "\n\nfunc H(k string) {\n\tfor _, eventKindRegistry[k] = range []EventKindRegistration{{}} {\n\t}\n}", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry from a call":  {typed, []mutation{{"internal/store/store.go", "var eventKindRegistry = map[string]EventKindRegistration{", "var eventKindRegistry = registryOf(map[string]EventKindRegistration{"}, {"internal/store/store.go", "Fold: foldB},\n}", "Fold: foldB},\n})\n\nfunc registryOf(m map[string]EventKindRegistration) map[string]EventKindRegistration { return m }"}}, nil, []string{"thing.a v*", "thing.z v*"}},
+		"read value written":    {strings.Replace(typed, "\t\tversion = registration.CurrentVersion", "\t\tregistration.CurrentVersion = 9\n\t\tversion = registration.CurrentVersion", 1), nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"read value address": {strings.Replace(typed, "\t\tversion = registration.CurrentVersion", "\t\tbump(&registration)\n\t\tversion = registration.CurrentVersion", 1) + `
+
+func bump(r *EventKindRegistration) { r.CurrentVersion = 9 }`, nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"registry parenthesized target": {typed + "\n\nfunc H() { (eventKindRegistry[\"thing.a\"]) = EventKindRegistration{CurrentVersion: 5} }", nil, nil, []string{"thing.a v*", "thing.z v*"}},
+		"converted copy written": {`type registrationCopy EventKindRegistration
+
+func F() Event {
+	changed := registrationCopy(eventKindRegistry["thing.a"])
+	changed.CurrentVersion = 9
+	return Event{Kind: "thing.a", PayloadVersion: EventKindRegistration(changed).CurrentVersion}
+}`, nil, nil, []string{"thing.a v*"}},
+		"current version compared": {`func F() Event {
+	version := 1
+	if eventKindRegistry["thing.a"].CurrentVersion == 2 {
+		version = 3
+	}
+	return Event{Kind: "thing.a", PayloadVersion: version}
+}`, nil, []string{"thing.a v1", "thing.a v3"}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			analysis := analyzeFixture(t, append([]mutation{{"internal/store/store.go", anchor, c.code + "\n\n" + anchor}}, c.extra...)...)
+			writes := slices.DeleteFunc(slices.Clone(analysis.Writes), func(pair string) bool { return slices.Contains(base.Writes, pair) })
+			var open []string
+			for _, s := range analysis.Open {
+				if !known[s.Function+" "+s.Expression] {
+					open = append(open, s.Pairs...)
+				}
+			}
+			if !slices.Equal(writes, c.writes) || !slices.Equal(open, c.open) {
+				t.Fatalf("writes %q, open %q", writes, open)
 			}
 		})
 	}

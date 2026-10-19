@@ -1478,12 +1478,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval || (boundary.Policy.Class == store.WorkflowApprovalClassLegacy && operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval || takeover != nil})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || (in.ActionID == "approve_contract" && boundary.Policy.Policy == store.WorkflowApprovalPolicyConsequenceV1) || retryApproval || takeover != nil})
 			if err != nil {
 				return err
 			}
 			operatorApprovalRef = consumedApprovalRef
-			if in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" {
+			if in.ActionID == "confirm_premise" || operatorVerdict || (in.ActionID == "supersede_contract" && boundary.Policy.Class == store.WorkflowApprovalClassLegacy) {
 				operatorActor = &verifiedOperator
 			}
 		}

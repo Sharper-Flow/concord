@@ -220,6 +220,9 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+		return nil, err
+	}
 	if lawChange != nil {
 		contract["law_change"] = lawChange
 	}
@@ -362,6 +365,9 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, request.WorkID, fields, lawModifies, productBinding(productChanging, binding), decisionDomains)
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
+	}
+	if err := bindWorkflowLawChangeApprovalTx(ctx, tx, request, lawChange); err != nil {
+		return nil, err
 	}
 	if lawChange != nil {
 		successor["law_change"] = lawChange

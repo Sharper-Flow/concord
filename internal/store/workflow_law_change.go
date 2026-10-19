@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -19,14 +20,57 @@ import (
 // law, and the Domain registry's after-state content hash when the change
 // edits the registry. Completion refuses an enacted state that differs.
 type WorkflowLawChange struct {
-	Reason                     string                `json:"reason"`
-	RemovesUserVisibleBehavior bool                  `json:"removes_user_visible_behavior"`
-	TouchesSecurityOrDataSafe  bool                  `json:"touches_security_or_data_safety"`
-	DomainIDs                  []string              `json:"domain_ids"`
-	Crucial                    bool                  `json:"crucial"`
-	Serious                    bool                  `json:"serious"`
-	TextPins                   []WorkflowLawRevision `json:"text_pins,omitempty"`
-	RegistryContentHash        string                `json:"registry_content_hash,omitempty"`
+	Reason                     string                       `json:"reason"`
+	RemovesUserVisibleBehavior bool                         `json:"removes_user_visible_behavior"`
+	TouchesSecurityOrDataSafe  bool                         `json:"touches_security_or_data_safety"`
+	DomainIDs                  []string                     `json:"domain_ids"`
+	Crucial                    bool                         `json:"crucial"`
+	Serious                    bool                         `json:"serious"`
+	TextPins                   []WorkflowLawRevision        `json:"text_pins,omitempty"`
+	RegistryContentHash        string                       `json:"registry_content_hash,omitempty"`
+	Approval                   *workflowLawChangeApproval   `json:"approval,omitempty"`
+	RegistryBefore             *workflowLawRegistrySnapshot `json:"registry_before,omitempty"`
+}
+
+// The consent proof comes from the existing consumed approval, not from the
+// action payload. The coordinator still authors the contract; this tuple
+// records the human who approved its text without substituting the executor.
+type workflowLawChangeApproval struct {
+	workflowApprovalBinding
+	Operator WorkflowActor `json:"operator"`
+}
+
+func bindWorkflowLawChangeApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, change *WorkflowLawChange) error {
+	if change == nil || !change.Serious {
+		return nil
+	}
+	binding := workflowApprovalBinding{
+		ApprovalRef: request.OperatorApprovalRef, OperationDigest: request.ApprovalOperationDigest,
+		ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON, Consequence: request.ApprovalConsequence,
+	}
+	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, binding, "workflow_law_change")
+	if err != nil {
+		return err
+	}
+	change.Approval = &workflowLawChangeApproval{workflowApprovalBinding: binding, Operator: operator.WorkflowActor}
+	return nil
+}
+
+func validateWorkflowLawChangeApproval(change *WorkflowLawChange) error {
+	if !change.Serious {
+		if change.Approval != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "a non-serious law change carries no operator approval proof", false, "record the reason without claiming approval")
+		}
+		return nil
+	}
+	proof := change.Approval
+	if proof == nil || proof.ApprovalRef == "" || !validDigest(proof.OperationDigest) || proof.ScopeJSON == "" || proof.VersionsJSON == "" || proof.Consequence == "" {
+		return newFailure(KindApprovalRequired, "fold_event", "a serious law change requires the consumed operator approval binding", false, "request approval for the exact proposed law text")
+	}
+	if _, err := WorkflowActorRef(proof.Operator); err != nil || proof.Operator.ActorClass != ActorOperator || proof.Operator.AgentRef != "approval:"+proof.ApprovalRef {
+		return newFailure(KindUnauthorized, "fold_event", "a serious law change requires the consumed approval's operator identity", false, "use the verified operator approval identity")
+	}
+	return nil
 }
 
 const (
@@ -122,6 +166,11 @@ func deriveWorkflowLawChangeTx(ctx context.Context, q queryer, definition Workfl
 	}
 	if change.Crucial, err = workflowWorkIsCrucial(ctx, q, workID); err != nil {
 		return nil, err
+	}
+	if workflowContractEditsRegistry(binding) {
+		if change.RegistryBefore, err = readWorkflowLawRegistrySnapshot(ctx, q, workID); err != nil {
+			return nil, err
+		}
 	}
 	change.Serious = workflowLawChangeSerious(change, decisionDomains)
 	if change.TextPins, change.RegistryContentHash, err = workflowLawChangeSubmittedPins(fields); err != nil {
@@ -290,7 +339,18 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 	if change.Serious != workflowLawChangeSerious(change, decisionDomains) {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change seriousness does not follow its recorded facts", false, "record the derived seriousness")
 	}
-	return validateWorkflowLawChangePins(change, lawModifies, binding, "fold_event")
+	if workflowContractEditsRegistry(binding) != (change.RegistryBefore != nil) {
+		return newFailure(KindInvalidPayload, "fold_event", "a registry edit must record its projected before-state", false, "derive the registry before-state from the Product projection")
+	}
+	if change.RegistryBefore != nil {
+		if err := validateWorkflowLawRegistrySnapshot(change.RegistryBefore); err != nil {
+			return err
+		}
+	}
+	if err := validateWorkflowLawChangePins(change, lawModifies, binding, "fold_event"); err != nil {
+		return err
+	}
+	return validateWorkflowLawChangeApproval(change)
 }
 
 // validateLiveWorkflowLawChangeTx re-derives the counted facts from current
@@ -317,6 +377,25 @@ func validateLiveWorkflowLawChangeTx(ctx context.Context, tx *sql.Tx, definition
 	}
 	if !slices.Equal(domains, p.LawChange.DomainIDs) || p.LawChange.Crucial != crucial {
 		return newFailure(KindInvalidPayload, "fold_event", "law_change does not match the recorded law Domains and work size", false, "derive law_change from current state")
+	}
+	if workflowContractEditsRegistry(p.ArchitectureBinding) {
+		before, err := readWorkflowLawRegistrySnapshot(ctx, tx, workID)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(before, p.LawChange.RegistryBefore) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change registry before-state differs from the Product projection", false, "derive the registry before-state from current state")
+		}
+	}
+	if p.LawChange.Serious {
+		proof := p.LawChange.Approval
+		operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, proof.workflowApprovalBinding, "workflow_law_change")
+		if err != nil {
+			return err
+		}
+		if operator.WorkflowActor != proof.Operator {
+			return newFailure(KindUnauthorized, "fold_event", "law_change operator identity differs from the consumed approval", false, "record the verified operator identity")
+		}
 	}
 	return nil
 }
@@ -346,6 +425,13 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	domains, err := workflowLawChangeDomainsTx(ctx, tx, workID, changed, nil, change.DomainIDs)
 	if err != nil {
 		return err
+	}
+	if change.RegistryBefore != nil {
+		after, err := readWorkflowLawRegistrySnapshot(ctx, tx, workID)
+		if err != nil {
+			return err
+		}
+		domains = uniqueSorted(append(domains, workflowLawRegistryChangedDomains(change.RegistryBefore, after)...))
 	}
 	if len(domains) > 1 {
 		return newFailure(KindApprovalRequired, "complete_workflow", fmt.Sprintf("the enacted law change affects child Domains %s, so it is serious and needs the operator's approval of its exact text (CD-0230 D4)", strings.Join(domains, ", ")), false, "supersede the contract with the operator's approval of the exact text")

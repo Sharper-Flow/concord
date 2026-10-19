@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The fixture Product's registry root is "root"; the three child Domains
@@ -524,7 +525,136 @@ func TestLawChangeShapeValidation(t *testing.T) {
 		}
 	}
 	pinned := WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
+	requireFailureKind(t, validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil), KindApprovalRequired, "a pinned serious fact without consumed approval")
+	pinned.Approval = lawChangeApprovalProof()
 	if err := validateWorkflowLawChangeShape(&pinned, []string{}, agent, nil); err != nil {
 		t.Fatalf("a pinned serious fact refused: %v", err)
+	}
+}
+
+func lawChangeApprovalProof() *workflowLawChangeApproval {
+	ref := strings.Repeat("c", 64)
+	return &workflowLawChangeApproval{
+		workflowApprovalBinding: workflowApprovalBinding{ApprovalRef: ref, OperationDigest: lawChangeHashA, ScopeJSON: `{}`, VersionsJSON: `{"work":1}`, Consequence: "workflow_action"},
+		Operator:                WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/operator", AgentRef: "approval:" + ref, SessionRef: "session/operator", ActorClass: ActorOperator},
+	}
+}
+
+func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
+	workID := "law-change-approval"
+	s := seedLawChangeFixture(t, workID)
+	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+	proof := lawChangeApprovalProof()
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,'active',?,'[]','[]','[]','2026-09-10T00:00:00Z')`, proof.Operator.ClientRef, proof.Operator.PrincipalRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,protected_evidence_ref,protected_evidence_digest) VALUES(?,?,?,?,?,?,?,?,'2026-09-10T00:00:00Z','2026-09-11T00:00:00Z',1,0,'fixture',?)`, proof.ApprovalRef, proof.OperationDigest, proof.ScopeJSON, proof.VersionsJSON, proof.Consequence, proof.Operator.PrincipalRef, proof.Operator.ClientRef, proof.Operator.SessionRef, lawChangeHashA); err != nil {
+		t.Fatal(err)
+	}
+	request := WorkflowActionExecutionRequest{OperatorApprovalRef: proof.ApprovalRef, ApprovalOperationDigest: proof.OperationDigest, ApprovalScopeJSON: proof.ScopeJSON, ApprovalVersionsJSON: proof.VersionsJSON, ApprovalConsequence: proof.Consequence}
+	change := &WorkflowLawChange{Reason: "revise", DomainIDs: []string{"agent-surface"}, Crucial: true, Serious: true, TextPins: lawChangePins("law-agent")}
+	bind := func(request WorkflowActionExecutionRequest) error {
+		tx := lawChangeTx(t, s)
+		err := bindWorkflowLawChangeApprovalTx(context.Background(), tx, request, change)
+		_ = tx.Rollback()
+		return err
+	}
+	requireFailureKind(t, bind(request), KindApprovalRequired, "unconsumed approval")
+	if _, err := db.Exec(`UPDATE agent_approvals SET used_count=1 WHERE approval_ref=?`, proof.ApprovalRef); err != nil {
+		t.Fatal(err)
+	}
+	wrong := request
+	wrong.ApprovalOperationDigest = "sha256:" + strings.Repeat("d", 64)
+	requireFailureKind(t, bind(wrong), KindUnauthorized, "approval for a different operation")
+	if err := bind(request); err != nil {
+		t.Fatalf("consumed approval refused: %v", err)
+	}
+	if !reflect.DeepEqual(change.Approval, proof) {
+		t.Fatalf("recorded proof %+v, want consumed identity %+v", change.Approval, proof)
+	}
+	change.Approval.Operator.ActorClass = ActorAgent
+	requireFailureKind(t, validateWorkflowLawChangeApproval(change), KindUnauthorized, "agent relabeled as operator")
+	change.Approval = proof
+	change.Approval.Operator.PrincipalRef = "principal/other"
+	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
+	tx := lawChangeTx(t, s)
+	err := validateLiveWorkflowLawChangeTx(context.Background(), tx, lawChangeV1, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}})
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindUnauthorized, "operator differs from consumed approval")
+}
+
+func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
+	const workID = "law-change-replay"
+	definition := approvalRouteDefinition(t)
+	registry, registered := newResolutionRegistry(t, definition)
+	s, owner := seedResolutionSelection(t, workID, registry, registered)
+	seedIssue31DomainRegistry(t, s)
+	seedLawChangeLaw(t, s, "law-agent", "derived", "root")
+	change := &WorkflowLawChange{Reason: "revise", DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}
+	version := readWorkVersion(t, s, workID)
+	event := workflowTypedEvent("law-replay", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
+		"contract_version": 1, "premise": "The law change preserves its exact approved text.",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}},
+		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"spec_mandate": []string{"law-agent"}, "law_modifies": []string{"law-agent"}, "law_revisions": lawChangePins("law-agent"), "law_boundary_version": 1,
+		"decision_domains": []string{}, "law_change": change,
+	})
+	// No mutable approval row exists. The live fold must refuse; replay uses
+	// the proof recorded at the original live admission instead.
+	tx := lawChangeTx(t, s)
+	scope, err := beginFold(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.bindRegistry(tx, registry); err != nil {
+		t.Fatal(err)
+	}
+	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, definition, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}), KindApprovalRequired, "live admission without the consumed approval")
+	if err := foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, event, scope); err != nil {
+		t.Fatalf("recorded proof refused during replay: %v", err)
+	}
+	var encoded string
+	if err := tx.QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&encoded); err != nil {
+		t.Fatal(err)
+	}
+	var restored WorkflowLawChange
+	if err := json.Unmarshal([]byte(encoded), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(&restored, change) {
+		t.Fatalf("replay changed the consent proof: got %+v, want %+v", restored, change)
+	}
+}
+
+func TestLawChangeRegistryCountUsesEnactedEntries(t *testing.T) {
+	for _, vector := range []struct {
+		name     string
+		query    string
+		wantKind FailureKind
+	}{
+		{name: "root and one child still count one", query: `UPDATE domains SET purpose='amended' WHERE domain_id IN ('root','agent-surface')`},
+		{name: "undeclared second entry counts", query: `UPDATE domains SET purpose='amended' WHERE domain_id IN ('agent-surface','workflow-engine')`, wantKind: KindApprovalRequired},
+		{name: "added relation counts both ends", query: `INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,state,registry_content_hash,scanned_commit_oid) SELECT 'project','workflow-law-locator','product','agent-surface','depends_on','workflow-engine','active',content_hash,'test' FROM domain_registries WHERE product_id='product'`, wantKind: KindApprovalRequired},
+		{name: "removed child counts its before-state", query: `DELETE FROM domains WHERE domain_id='workflow-engine'`, wantKind: KindApprovalRequired},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			const workID = "law-change-registry-delta"
+			s := seedLawChangeFixture(t, workID)
+			// The authored scope names one child only. The completion count
+			// must also include any other entry the actual registry changed.
+			binding := &WorkflowArchitectureBinding{DomainModifies: []string{"agent-surface"}}
+			change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise registry"}), nil, binding, []string{})
+			if err != nil || change.Serious || change.RegistryBefore == nil {
+				t.Fatalf("one-child registry contract: %+v, %v", change, err)
+			}
+			lawChangeFold(t, s, vector.query)
+			err = enactLawChange(t, s, workID, change, nil, binding)
+			if vector.wantKind != "" {
+				requireFailureKind(t, err, vector.wantKind, vector.name)
+			} else if err != nil {
+				t.Fatalf("one-child enacted registry refused: %v", err)
+			}
+		})
 	}
 }

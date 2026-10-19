@@ -44,8 +44,9 @@ import (
 // call's arguments. A site that reads its own function's parameters is
 // evaluated once per static call of that function. Only a function every call
 // of which the index sees takes part: not one used as a value, nor an exported
-// method, nor a method whose name an interface call uses. The result of a
-// function with named results and a defer,
+// method, nor a method whose name an interface method use names. The result
+// of a function that defers, whose deferred call may recover a panic into
+// zero results, a method expression call,
 // a receiver, a global, a call through a value, or a local whose address
 // escapes is "*". A site whose pairs all resolve to finite
 // values adds them to the release's writes; any other site is open. Pairs are
@@ -350,6 +351,9 @@ func (a *analyzer) index(p *checkedPackage) {
 				}
 			case *ast.Ident:
 				a.markCaptured(p, v, stack)
+				if f, ok := p.info.Uses[v].(*types.Func); ok && f.Signature().Recv() != nil && types.IsInterface(f.Signature().Recv().Type()) {
+					a.dynamic[f.Name()] = true
+				}
 				if f, ok := p.info.Uses[v].(*types.Func); ok && !a.callees[v] {
 					a.function(f).value = true
 				}
@@ -430,9 +434,6 @@ func (a *analyzer) indexCall(p *checkedPackage, call *ast.CallExpr) {
 		return
 	}
 	a.callees[id] = true
-	if recv := f.Signature().Recv(); recv != nil && types.IsInterface(recv.Type()) {
-		a.dynamic[f.Name()] = true
-	}
 	if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && p.info.Selections[sel] != nil && p.info.Selections[sel].Kind() == types.MethodExpr {
 		a.function(f).value = true
 		return
@@ -952,8 +953,10 @@ func pairs(kinds, versions []string) []string {
 
 // evaluate resolves one site's pairs within the step budget. A site that
 // reads its function's parameters resolves once per static call of that
-// function, or once unbound when the index does not see every call. A site
-// with no pair writes nothing; a "*" pair absorbs the rest.
+// function, or once unbound when the index does not see every call. A "*"
+// pair absorbs the rest. A site that resolves to no pair is open: its values
+// arrive only through a cycle cut, as in dead recursion, or a call that never
+// returns.
 func (a *analyzer) evaluate(function string, resolve func(*env) []string) []string {
 	a.steps = 0
 	result := resolve(&env{function: function, strict: true})
@@ -969,12 +972,9 @@ func (a *analyzer) evaluate(function string, resolve func(*env) []string) []stri
 	}
 	set := map[string]bool{}
 	for _, pair := range result {
-		if strings.Contains(pair, "?") {
-			pair = "* v*"
-		}
 		set[pair] = true
 	}
-	if a.steps > resolveBudget || set["* v*"] {
+	if a.steps > resolveBudget || set["* v*"] || len(set) == 0 {
 		return anyPair
 	}
 	return slices.Sorted(maps.Keys(set))
@@ -1363,24 +1363,23 @@ const callDepth = 8
 // parameters bound to this call's arguments.
 func (a *analyzer) resolveCall(p *checkedPackage, call *ast.CallExpr, field string, sc *scope) []string {
 	f, ok := p.info.Uses[calleeIdent(call.Fun)].(*types.Func)
-	if !ok {
+	sel, isSel := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || isSel && p.info.Selections[sel] != nil && p.info.Selections[sel].Kind() == types.MethodExpr {
 		return anyValue
 	}
 	name := f.Origin().FullName()
 	fn := a.funcs[name]
-	sig := f.Signature()
-	named := sig.Results().Len() > 0 && sig.Results().At(0).Name() != ""
-	if fn == nil || fn.decl == nil || fn.decl.Body == nil || named && fn.deferred {
+	if fn == nil || fn.decl == nil || fn.decl.Body == nil || fn.deferred {
 		return anyValue
 	}
 	depth := 0
 	for e := sc.env; e != nil; e = e.caller {
 		depth++
 	}
-	key := seenKey{call, field, sc.env}
 	if depth > callDepth {
 		return anyValue
 	}
+	key := seenKey{call, field, sc.env}
 	if sc.seen[key] {
 		a.cuts++
 		return nil

@@ -772,12 +772,39 @@ func G(m making) { maker{}.make("thing.a"); m.make("thing.b") }`, nil, []string{
 func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
 
 func G() { maker{}.make("thing.a"); maker.make(maker{}, "thing.b") }`, nil, []string{"* v1"}},
+		"interface method value": {`type maker struct{}
+
+func (maker) make(kind string) Event { return Event{Kind: kind, PayloadVersion: 1} }
+
+type making interface{ make(string) Event }
+
+func G(m making) { maker{}.make("thing.a"); h := m.make; h("thing.b") }`, nil, []string{"* v1"}},
+		"dead recursion": {`func F(kind string, n int) Event {
+	if n > 0 {
+		return F(kind, n-1)
+	}
+	return Event{Kind: kind, PayloadVersion: 1}
+}`, nil, []string{"* v*"}},
 		"named result and defer": {`func kindOf() (kind string) {
 	defer func() { kind = "thing.c" }()
 	return "thing.a"
 }
 
 func F() Event { return Event{Kind: kindOf(), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"unnamed result and recover": {`func kindOf(fail bool) string {
+	defer func() { _ = recover() }()
+	if fail {
+		panic("fail")
+	}
+	return "thing.a"
+}
+
+func F() Event { return Event{Kind: kindOf(true), PayloadVersion: 1} }`, nil, []string{"* v1"}},
+		"method expression result": {`type namer string
+
+func (namer) name(kind string) string { return kind }
+
+func F() Event { return Event{Kind: namer.name("thing.a", "thing.c"), PayloadVersion: 1} }`, nil, []string{"* v1"}},
 		"interface method result": {`type namer interface{ kind() string }
 
 func F(n namer) Event { return Event{Kind: n.kind(), PayloadVersion: 1} }`, nil, []string{"* v1"}},

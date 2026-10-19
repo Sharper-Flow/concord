@@ -617,8 +617,9 @@ type nativeGoPackage struct {
 	SFiles, CFiles, CXXFiles, MFiles, HFiles, FFiles, SysoFiles []string
 	EmbedFiles, TestEmbedFiles, XTestEmbedFiles                 []string
 	Module                                                      *struct {
-		Dir     string
-		Replace *struct{ Dir string }
+		Dir, Path string
+		Main      bool
+		Replace   *struct{ Dir, Version string }
 	}
 	Error *struct{ Err string }
 }

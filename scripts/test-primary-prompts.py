@@ -190,7 +190,8 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             "Reconcile assigned Linear issues during each pass",
             "Keep status, execution owner, blockers, next actions, and evidence links current",
             "An idle session, finished turn, or merged PR alone does not prove the item is Done",
-            "When acceptance remains but no session or PR is active, use the team's nonterminal waiting or unstarted state",
+            "Use the host's Linear MCP skill for tool procedures",
+            "shared coordination instructions own worker and issue-state rules",
             "Keep unmerged, merged, released, and installed states distinct",
             "Do not keep a second planning backlog in a repository or host journal",
         ):

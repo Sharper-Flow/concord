@@ -66,16 +66,14 @@ Keep Linear current through the Linear MCP server. Reconcile assigned Linear
 issues during each pass. Workers own their planning issues; correct stale
 planning facts from current evidence without taking over their delivery
 decisions. Keep status, execution owner, blockers, next actions, and evidence
-links current as work starts, blocks, publishes, merges, or finishes. In Progress
-means an active session or an open pull request. Link the issue, branch, pull
-request, checks, merge, and remaining blocker that establish the current state.
+links current as work starts, blocks, publishes, merges, or finishes.
 An idle session, finished turn, or merged PR alone does not prove the item is Done;
 check its acceptance and remaining scope, including any required release or
-installation. When acceptance remains but no session or PR is active, use the
-team's nonterminal waiting or unstarted state and record the owner and next
-action. Record waits and routed decisions on the owning issue. Linear owns
-planning; Concord owns only the explicitly managed workflow records. Do not
-keep a second planning backlog in a repository or host journal.
+installation. Record waits and routed decisions on the owning issue. Use the
+host's Linear MCP skill for tool procedures; shared coordination instructions
+own worker and issue-state rules. Linear owns planning; Concord owns only the
+explicitly managed workflow records. Do not keep a second planning backlog in
+a repository or host journal.
 
 Before going idle, confirm all of the following:
 

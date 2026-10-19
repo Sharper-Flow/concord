@@ -80,7 +80,15 @@ type WorkerJobRecordedPayload struct {
 	// immutable as the rest of its content, and it reads back only from
 	// this event — no projection column carries it.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	Digest           string            `json:"digest"`
+	// ChecksRepair is the core-derived checks repair metadata (CD-0205 D4):
+	// the stated reason and, for every named unresolved revision, its
+	// binding beside the old checks the exact recorded events hold. The
+	// action path derives it from recorded history and the fold verifies it
+	// against the same events, so a caller never asserts it. It enters the
+	// content digest and is omitempty, so every historical revision without
+	// one serializes byte-identically and keeps its digest.
+	ChecksRepair *WorkerJobChecksRepair `json:"checks_repair,omitempty"`
+	Digest       string                 `json:"digest"`
 }
 
 // DeriveWorkerJobDigest derives the canonical content digest of one worker-job
@@ -106,7 +114,8 @@ func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 		ReservedIntegration string                  `json:"reserved_integration,omitempty"`
 		Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
 		AcceptanceOracle    *AcceptanceOracle       `json:"acceptance_oracle,omitempty"`
-	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle}
+		ChecksRepair        *WorkerJobChecksRepair  `json:"checks_repair,omitempty"`
+	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle, payload.ChecksRepair}
 	raw, err := json.Marshal(content)
 	if err != nil {
 		return ""
@@ -114,6 +123,15 @@ func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
+
+// WorkerJobChecksRepairMaxBytes bounds the canonical JSON bytes of one
+// recorded revision's checks-repair metadata, exactly as the acceptance
+// oracle bound bounds its own content: the writer owns the figure, the
+// schema leaves it unstated, and an over-bound repair refuses whole instead
+// of truncating a named revision's recorded past. A revision without the
+// metadata carries no bound and serializes byte-identically to its
+// historical shape.
+const WorkerJobChecksRepairMaxBytes = 32 * 1024
 
 // validateWorkerJobRecordedPayload is the registered semantic validator: the
 // event is a work-aggregate mutation that advances the work version, so the
@@ -203,6 +221,37 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 			return err
 		}
 	}
+	if payload.ChecksRepair != nil {
+		metadata, err := json.Marshal(payload.ChecksRepair)
+		if err != nil {
+			return invalidWorkerPayload("worker.job_recorded checks_repair cannot encode: " + err.Error())
+		}
+		if len(metadata) > WorkerJobChecksRepairMaxBytes {
+			return invalidWorkerPayload(fmt.Sprintf("worker.job_recorded checks_repair metadata measures %d bytes and exceeds the %d byte bound; it is refused, never truncated", len(metadata), WorkerJobChecksRepairMaxBytes))
+		}
+		if len(payload.ChecksRepair.Reason) < 1 || len(payload.ChecksRepair.Reason) > 4096 {
+			return invalidWorkerPayload("worker.job_recorded checks_repair reason must be between 1 and 4096 bytes")
+		}
+		entries := payload.ChecksRepair.Revisions
+		if len(entries) < 1 || len(entries) > 64 {
+			return invalidWorkerPayload("worker.job_recorded checks_repair names between 1 and 64 revisions")
+		}
+		seenRevisions := make(map[int64]bool, len(entries))
+		for _, entry := range entries {
+			if entry.WorkerJob.JobID != payload.JobID || entry.WorkerJob.Revision < 1 || entry.WorkerJob.Revision >= payload.Revision || entry.WorkerJob.Digest == "" || seenRevisions[entry.WorkerJob.Revision] {
+				return invalidWorkerPayload("worker.job_recorded checks_repair names distinct earlier recorded revisions of the same job")
+			}
+			seenRevisions[entry.WorkerJob.Revision] = true
+			if len(entry.Checks) < 1 || len(entry.Checks) > 64 {
+				return invalidWorkerPayload("worker.job_recorded checks_repair carries the named revision's old checks")
+			}
+			for _, check := range entry.Checks {
+				if len(check) < 1 || len(check) > 256 {
+					return invalidWorkerPayload("worker.job_recorded checks_repair old checks entries must be between 1 and 256 bytes")
+				}
+			}
+		}
+	}
 	if !workerProvenancePattern.MatchString(payload.Digest) {
 		return invalidWorkerPayload("worker.job_recorded digest must be a sha256 digest")
 	}
@@ -271,6 +320,14 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if payload.Revision != next {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.job_recorded revision must be the next revision of the job", false, "record the job's next contiguous revision")
+	}
+	// The checks repair's metadata is derived truth at the folded event's
+	// own strict prefix: the fold re-derives it from the exact recorded
+	// events before this event and refuses a payload whose metadata asserts
+	// old checks, bindings, or names the history does not hold (CD-0205
+	// D4). The digest check above already pinned the bytes.
+	if err := verifyWorkerJobChecksRepairTx(ctx, tx, event.SubjectID, payload, event.Seq-1); err != nil {
+		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, payload.WorkflowVersionFields); err != nil {
 		return err
@@ -378,6 +435,29 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 	if oracleCapable && oracle == nil {
 		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition version "+fmt.Sprint(registered.Definition.Version), "author the closed owner/case/control oracle for the job")
 	}
+	// The checks repair (CD-0205 D4): the authoring fields travel together
+	// and only on a repair-capable pinned version; the core derives the
+	// recorded metadata from the exact recorded events and the caller never
+	// asserts it.
+	repairCapable := workflowChecksRepairActive(registered.Definition)
+	var repairRevisions []int64
+	repairReason := ""
+	if raw, present := fields["repair_revisions"]; present {
+		if !repairCapable {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), false, "record the repair on a repair-capable definition version")
+		}
+		if err := json.Unmarshal(raw, &repairRevisions); err != nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions must be an array of revision integers", false, "name the unresolved revisions the repair repairs")
+		}
+	}
+	if raw, present := fields["repair_reason"]; present {
+		if !repairCapable {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), false, "record the repair on a repair-capable definition version")
+		}
+		if err := json.Unmarshal(raw, &repairReason); err != nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason must be one bounded prose string", false, "state why the named revisions' checks could not be executed or decided")
+		}
+	}
 	payload := WorkerJobRecordedPayload{
 		JobID: jobID, Revision: revision, ContractVersion: contractVersion,
 		Objective:           workflowFieldStringDefault(fields, "objective", ""),
@@ -391,6 +471,20 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 		ReservedIntegration: workflowFieldStringDefault(fields, "reserved_integration", ""),
 		Readiness:           &WorkerJobReadiness{Ready: ready, Evidence: nonNilStrings(readinessEvidence)},
 		AcceptanceOracle:    oracle,
+	}
+	if len(repairRevisions) != 0 || repairReason != "" {
+		if len(repairRevisions) == 0 || repairReason == "" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions and repair_reason are supplied together", false, "name the unresolved revisions and state why their checks could not run")
+		}
+		watermark, err := workerChecksRepairWatermarkTx(ctx, tx, request.WorkID)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := deriveWorkerJobChecksRepairTx(ctx, tx, request.WorkID, payload, repairRevisions, repairReason, watermark)
+		if err != nil {
+			return nil, err
+		}
+		payload.ChecksRepair = metadata
 	}
 	if oracle != nil {
 		if err := validateAcceptanceOracle(oracle, payload.PredicateIDs); err != nil {
@@ -417,11 +511,14 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 // binding must name a recorded revision of that exact job, with the digest
 // the recording derived, and that revision must not already be satisfied. A
 // binding with no backing record refuses the dispatch; a satisfied revision
-// refuses a redispatch, on resume as on first ask. The check runs in the
-// fold, so it holds for live appends and for log-ordered replay alike: a
-// recording always precedes its dispatches, and a satisfaction always
-// precedes the redispatch it refuses, in any legal log.
-func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID string, binding *WorkerJobBinding) error {
+// refuses a redispatch, on resume as on first ask — except the one dispatch
+// the funded confirming review of an unconfirmed checks repair admits, whose
+// authorization consumed the funding on the exact satisfied repairing
+// revision (CD-0205 D4). The check runs in the fold, so it holds for live
+// appends and for log-ordered replay alike: a recording always precedes its
+// dispatches, and a satisfaction always precedes the redispatch it refuses,
+// in any legal log.
+func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID, attemptID string, binding *WorkerJobBinding) error {
 	var digest, state string
 	if err := tx.QueryRowContext(ctx, `SELECT digest,state FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state); err != nil {
 		if err == sql.ErrNoRows {
@@ -433,9 +530,146 @@ func verifyWorkerDispatchedJobBindingTx(ctx context.Context, tx *sql.Tx, workID 
 		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched worker_job digest does not match the recorded revision", false, "dispatch under the recorded revision digest")
 	}
 	if state == "satisfied" {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
+		admitted, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, workID, attemptID, *binding)
+		if err != nil {
+			return err
+		}
+		if !admitted {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "a satisfied worker-job revision cannot redispatch", false, "record a new revision of the job or dispatch another ready job")
+		}
 	}
 	return nil
+}
+
+// dispatchConsumedChecksRepairReviewTx reports whether the attempt's
+// dispatch_worker authorization dispatched the confirming review of exactly
+// this repairing revision.
+func dispatchConsumedChecksRepairReviewTx(ctx context.Context, q queryer, workID, attemptID string, binding WorkerJobBinding) (bool, error) {
+	var jobID string
+	var revision int64
+	var digest string
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.checks_repair_review.worker_job.job_id'), json_extract(payload,'$.checks_repair_review.worker_job.revision'), json_extract(payload,'$.checks_repair_review.worker_job.digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.checks_repair_review') IS NOT NULL ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&jobID, &revision, &digest)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "fold_event", "cannot read the confirming review's dispatched authorization", true, "retry once the dispatch authorization is readable", err)
+	}
+	return jobID == binding.JobID && revision == binding.Revision && digest == binding.Digest, nil
+}
+
+// markWorkerJobRepairReadinessTx resolves the named revisions of an accepted
+// repairing revision for prerequisite readiness (CD-0205 D4): each named
+// revision records the repairing acceptance as its satisfaction reference,
+// so a later job's prerequisite pins resolve through that real recorded
+// acceptance while the repair stands unconfirmed or confirmed. The
+// correction walk keeps the named obligations unresolved until the
+// confirming review's accepted ship verdict, so this readiness resolution
+// never clears correction debt. It is a no-op for a non-repair revision.
+func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event, binding *WorkerJobBinding) error {
+	if binding == nil {
+		return nil
+	}
+	repairs, err := readWorkerJobChecksRepairsTx(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	metadata, recorded := repairs[*binding]
+	if !recorded {
+		return nil
+	}
+	// Only the acceptance that opens the repair grants readiness: a later
+	// acceptance bound to the repairing revision, such as the voiding
+	// no_ship review's, never restores it (CD-0205 D4).
+	history, err := workerChecksRepairWalkTx(ctx, tx, event.SubjectID, event.Seq-1)
+	if err != nil {
+		return err
+	}
+	repair := history.repairOfBinding(binding.JobID, binding.Revision)
+	if repair == nil || repair.acceptanceSeq != 0 || repair.voided {
+		return nil
+	}
+	// Two repairs can be recorded before either result is accepted. Check
+	// again at the acceptance that would open the second repair (CD-0205 D4).
+	if open := history.openUnconfirmedRepairBeside(binding.JobID, binding.Revision); open != nil {
+		return newFailure(KindInvalidOperation, "fold_event",
+			fmt.Sprintf("a second unconfirmed checks repair of the job cannot open while revision %d's repair stands unconfirmed", open.binding.Revision),
+			false, "let the open repair's confirming review end before accepting another repairing revision of the job")
+	}
+	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	for _, entry := range metadata.Revisions {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied', satisfied_at=?, satisfied_result_ref=? WHERE work_id=? AND job_id=? AND revision=? AND state='recorded'`, now, event.EventID, event.SubjectID, entry.WorkerJob.JobID, entry.WorkerJob.Revision); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot record the repairing revision's provisional readiness", true, "retry once the database is writable", err)
+		}
+	}
+	return nil
+}
+
+// revertWorkerJobRepairReadinessTx voids one repair's provisional readiness:
+// the named revisions lose the satisfaction the repairing acceptance gave
+// them when the confirming review fails, is abandoned, is rejected, or
+// completes no_ship, or when a contract supersession voids the repair. The
+// satisfied-reference comparison keeps a named revision some later real
+// acceptance satisfied exactly where it stands.
+func revertWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, workID string, binding WorkerJobBinding) error {
+	var repairRef sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&repairRef); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the repairing revision's disposition", true, "retry once the worker-job projection is readable", err)
+	}
+	repairs, err := readWorkerJobChecksRepairsTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	metadata, recorded := repairs[binding]
+	if !recorded {
+		return nil
+	}
+	for _, entry := range metadata.Revisions {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='recorded', satisfied_at=NULL, satisfied_result_ref=NULL WHERE work_id=? AND job_id=? AND revision=? AND state='satisfied' AND satisfied_result_ref=?`, workID, entry.WorkerJob.JobID, entry.WorkerJob.Revision, repairRef); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot void the repairing revision's provisional readiness", true, "retry once the database is writable", err)
+		}
+	}
+	return nil
+}
+
+// voidWorkerJobRepairByAttemptTx reverts the provisional readiness of the
+// repair whose confirming review the attempt dispatched, if any, and the
+// repair is not confirmed. Prefix is the voiding event's own strict prefix,
+// so the walked state is the pre-void state.
+func voidWorkerJobRepairByAttemptTx(ctx context.Context, tx *sql.Tx, workID, attemptID string, prefix int64) error {
+	_, binding, err := dispatchCompletionJobForAttempt(ctx, tx, workID, attemptID)
+	if err != nil || binding == nil {
+		return err
+	}
+	history, err := workerChecksRepairWalkTx(ctx, tx, workID, prefix)
+	if err != nil {
+		return err
+	}
+	repair := history.confirmingAttemptOf(attemptID)
+	if repair == nil || repair.confirmed || !repair.openUnconfirmed() {
+		return nil
+	}
+	return revertWorkerJobRepairReadinessTx(ctx, tx, workID, *binding)
+}
+
+// markAcceptedWorkerJobTx records satisfaction and provisional repair readiness
+// without clearing correction debt. A confirming review judges the repairing
+// revision; it never replaces that revision's recorded satisfaction reference.
+func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	if p.ActionID != "accept_worker_result" || p.WorkerJob == nil {
+		return nil
+	}
+	confirming, err := dispatchConsumedChecksRepairReviewTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, *p.WorkerJob)
+	if err != nil || confirming {
+		return err
+	}
+	if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+		return err
+	}
+	return markWorkerJobRepairReadinessTx(ctx, tx, event, p.WorkerJob)
 }
 
 // markWorkerJobSatisfiedTx records the disposition an accepted worker result
@@ -482,11 +716,12 @@ type WorkerJobRevisionView struct {
 	// AcceptanceOracle reads back from the job-recorded event — never a
 	// projection column — so the view carries exactly the content the
 	// revision's digest covers.
-	AcceptanceOracle   *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
-	State              string            `json:"state"`
-	Ready              bool              `json:"ready"`
-	SatisfiedResultRef string            `json:"satisfied_result_ref,omitempty"`
-	RecordedAt         string            `json:"recorded_at"`
+	AcceptanceOracle   *AcceptanceOracle      `json:"acceptance_oracle,omitempty"`
+	ChecksRepair       *WorkerJobChecksRepair `json:"checks_repair,omitempty"`
+	State              string                 `json:"state"`
+	Ready              bool                   `json:"ready"`
+	SatisfiedResultRef string                 `json:"satisfied_result_ref,omitempty"`
+	RecordedAt         string                 `json:"recorded_at"`
 }
 
 // workerJobReadyPredicate is the one admission rule for selecting a revision
@@ -554,12 +789,17 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	if err != nil {
 		return nil, err
 	}
+	repairs, err := readWorkerJobChecksRepairsTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
 	for index := range views {
 		oracle, recorded := oracles[views[index].Binding]
 		if !recorded {
 			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
 		}
 		views[index].AcceptanceOracle = oracle
+		views[index].ChecksRepair = repairs[views[index].Binding]
 	}
 	return views, nil
 }
@@ -656,6 +896,10 @@ type WorkerPacketJob struct {
 	// review, and verify packets bind. Optional and omitted on every
 	// revision a pre-oracle definition recorded.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
+	// ChecksRepair rides the repairing revision's packet (CD-0205 D4): the
+	// confirming review's packet carries the old checks, the new checks, and
+	// the stated reason. Optional and omitted on every non-repair revision.
+	ChecksRepair *WorkerJobChecksRepair `json:"checks_repair,omitempty"`
 }
 
 // packetJobFromView projects a recorded revision onto the packet shape.
@@ -665,7 +909,7 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 		Objective: view.Objective, StoppingCondition: view.StoppingCondition, ProjectScope: view.ProjectScope,
 		PathScope: nonNilStrings(view.PathScope), PredicateIDs: nonNilStrings(view.PredicateIDs), Checks: nonNilStrings(view.Checks),
 		Prerequisites: nonNilPrerequisites(view.Prerequisites), UnresolvedRefs: nonNilStrings(view.UnresolvedRefs), ReservedIntegration: view.ReservedIntegration,
-		AcceptanceOracle: view.AcceptanceOracle,
+		AcceptanceOracle: view.AcceptanceOracle, ChecksRepair: view.ChecksRepair,
 	}
 }
 
@@ -673,11 +917,13 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 // job-capable pin the packet must carry inputs.worker_job naming a ready
 // recorded revision, with content equal to the record; on every earlier pin
 // the member is refused, so historical instances keep their legacy shape and
-// no job is ever inferred from a task string. It returns the binding the
-// dispatch completion records.
-func validateWorkerPacketJob(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, lane LaneDefinition, packetRaw json.RawMessage) (*WorkerJobBinding, error) {
-	refuse := func(message, remedy string) error {
-		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet "+message, false, remedy)
+// no job is ever inferred from a task string. The one satisfied revision a
+// dispatch admits is the confirming review of an open unconfirmed checks
+// repair; the typed admission rides back non-nil for that dispatch, funded
+// or an ordinary-authority repeat.
+func validateWorkerPacketJob(ctx context.Context, q queryer, definition WorkflowDefinition, workID string, lane LaneDefinition, packetRaw json.RawMessage) (*WorkerJobBinding, *WorkerChecksRepairReviewAdmission, error) {
+	refuse := func(message, remedy string) (*WorkerJobBinding, *WorkerChecksRepairReviewAdmission, error) {
+		return nil, nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet "+message, false, remedy)
 	}
 	var packet struct {
 		StepID string `json:"step_id"`
@@ -686,31 +932,46 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		} `json:"inputs"`
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return nil, refuse("is not readable", "build a fresh packet from the current work pin")
+		return refuse("is not readable", "build a fresh packet from the current work pin")
 	}
 	present := len(packet.Inputs.WorkerJob) != 0 && string(packet.Inputs.WorkerJob) != "null"
 	if !workflowWorkerJobsActive(definition) || !stepDeclaresAction(definition, packet.StepID, "record_worker_job") || !workerJobCapabilityClass(lane.CapabilityClass) {
 		if present {
-			return nil, refuse("carries inputs.worker_job, which the pinned workflow definition does not admit for a "+lane.CapabilityClass+" lane", "dispatch without a worker job")
+			return refuse("carries inputs.worker_job, which the pinned workflow definition does not admit for a "+lane.CapabilityClass+" lane", "dispatch without a worker job")
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	if !present {
-		return nil, refuse("carries no inputs.worker_job; the pinned workflow definition dispatches only a selected ready worker-job revision", "record the bounded job with record_worker_job and dispatch its ready revision")
+		return refuse("carries no inputs.worker_job; the pinned workflow definition dispatches only a selected ready worker-job revision", "record the bounded job with record_worker_job and dispatch its ready revision")
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.WorkerJob)))
 	decoder.DisallowUnknownFields()
 	var claimed WorkerPacketJob
 	if err := decoder.Decode(&claimed); err != nil {
-		return nil, refuse("inputs.worker_job is not one closed worker-job object", "build the worker job from the recorded revision")
+		return refuse("inputs.worker_job is not one closed worker-job object", "build the worker job from the recorded revision")
 	}
 	binding := WorkerJobBinding{JobID: claimed.JobID, Revision: claimed.Revision, Digest: claimed.Digest}
+	var repairReview *WorkerChecksRepairReviewAdmission
 	if err := requireWorkerJobRevisionReadyTx(ctx, q, workID, binding); err != nil {
-		return nil, err
+		// The one dispatch a satisfied revision admits is the confirming
+		// review of an open unconfirmed checks repair (CD-0205 D4): a
+		// review-capable lane whose packet binds the exact satisfied
+		// repairing revision, before that repair's one confirming dispatch
+		// exists. Funded rides whether the admission was the wall's funded
+		// one or an ordinary-authority repeat. Every other refusal keeps
+		// its text.
+		funded, admitted, admitErr := admitWorkerChecksRepairReviewDispatchTx(ctx, q, workID, lane, binding)
+		if admitErr != nil {
+			return nil, nil, admitErr
+		}
+		if !admitted {
+			return nil, nil, err
+		}
+		repairReview = &WorkerChecksRepairReviewAdmission{WorkerJob: binding, Funded: funded}
 	}
 	views, err := readWorkerJobRevisions(ctx, q, workID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, view := range views {
 		if view.Binding != binding {
@@ -719,14 +980,14 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		recorded, _ := json.Marshal(packetJobFromView(view))
 		normalized, _ := json.Marshal(claimed)
 		if string(recorded) != string(normalized) {
-			return nil, refuse("inputs.worker_job content does not match the recorded revision", "build the worker job from the recorded revision")
+			return refuse("inputs.worker_job content does not match the recorded revision", "build the worker job from the recorded revision")
 		}
 		if lane.CapabilityClass == "verification" && len(view.Checks) == 0 {
-			return nil, refuse("inputs.worker_job for a verification worker job requires nonempty checks", "record a new revision with the commands the verification worker must execute")
+			return refuse("inputs.worker_job for a verification worker job requires nonempty checks", "record a new revision with the commands the verification worker must execute")
 		}
-		return &binding, nil
+		return &binding, repairReview, nil
 	}
-	return nil, refuse("inputs.worker_job names no recorded revision", "record the job with record_worker_job before dispatching it")
+	return refuse("inputs.worker_job names no recorded revision", "record the job with record_worker_job before dispatching it")
 }
 
 // dispatchCompletionJobForAttempt reads the worker-job binding the

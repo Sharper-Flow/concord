@@ -1221,20 +1221,26 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_the_public_dispatch_override_remains_correct(self):
         # Versioned packet schemas do not expose packet authoring publicly.
-        # The canonical heads anchor dispatch at the research-context
-        # worker_packet3 closure in every family, so the three
-        # families' identical pairs dedupe to one variant whose public
-        # override stays the lane identity alone.
+        # The canonical heads anchor dispatch at the retained research-context
+        # worker_packet3 closure and the repair-capable worker_packet4
+        # closure, so the families' identical public halves dedupe to one
+        # two-branch core variant whose public override stays the lane
+        # identity alone.
         action = self.action("dispatch_worker")
-        self.assertEqual(len(action["variants"]), 1)
-        variant = action["variants"][0]
-        self.assertNotEqual(variant["payload"], variant["public_payload"])
-        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
-        packet_refs = {field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet"}
-        self.assertEqual(packet_refs, {"worker_packet3"})
+        self.assertEqual(len(action["variants"]), 2)
+        for variant in action["variants"]:
+            self.assertNotEqual(variant["payload"], variant["public_payload"])
+            self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+        packet_refs = {
+            field["schema_ref"]
+            for variant in action["variants"]
+            for field in variant["payload"]["fields"]
+            if field["name"] == "worker_packet"
+        }
+        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet4"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
-        self.assertEqual(len(branches), 1)
+        self.assertEqual(len(branches), 2)
         for fields in branches:
             self.assertEqual(sorted(fields["properties"]), ["attempt_id", "worker_packet"])
         public = payload_schema["$defs"]["work_transition_action_public_variant_dispatch_worker"]["properties"]["fields"]
@@ -1438,7 +1444,10 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
             self.assertNotIn(f"work_transition_action_public_variant_{action_id}", defs, action_id)
         consts = set()
         for name, schema in defs.items():
-            if name.startswith("work_transition_action_variant_"):
+            # A multi-branch action's field union publishes helper member
+            # defs beside the action's own variant defs; only the variant
+            # defs carry the action_id const the retirement check scans.
+            if name.startswith("work_transition_action_variant_") and "_fields_member_" not in name:
                 consts.add(schema["properties"]["action_id"]["const"])
         self.assertEqual(consts, live_ids)
         union = defs["work_transition_action_input"]
@@ -3031,12 +3040,12 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     the pinned dispatch already admitted.
 
     mutation_result.retry_worker_packet is a closed anyOf over the unchanged
-    worker_packet2 and worker_packet3 closures. The two overlap — a plain
-    packet validates under both — so oneOf would refuse exactly the ordinary
-    packets the union must keep admitting. The response member carries no
-    schema_version gate of its own: the pinned dispatch admission selects the
-    generation the work's pinned definition declares, and the response
-    returns exactly those admitted bytes.
+    worker_packet2, worker_packet3, and worker_packet4 closures. The three
+    overlap — a plain packet validates under each — so oneOf would refuse
+    exactly the ordinary packets the union must keep admitting. The response
+    member carries no schema_version gate of its own: the pinned dispatch
+    admission selects the generation the work's pinned definition declares,
+    and the response returns exactly those admitted bytes.
     """
 
     def member(self):
@@ -3068,21 +3077,22 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
                                   "finding_ids": ["research:9:0"]}]
         return packet
 
-    def test_the_retry_response_is_the_closed_two_generation_anyof(self):
+    def test_the_retry_response_is_the_closed_three_generation_anyof(self):
         member = self.member()
         self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
-                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3"])
+                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4"])
         self.assertNotIn("oneOf", member)
         self.assertNotIn("$ref", member)
         self.assertNotIn("always the versioned packet2 identity", member["description"],
                          "the response description must not pin one packet generation")
 
     def test_overlapping_plain_packets_admit_under_the_union(self):
-        # A plain packet validates under both closures, so a oneOf here would
+        # A plain packet validates under each closure, so a oneOf here would
         # refuse exactly the ordinary packets the transport must keep
         # admitting.
         self.validate(self.plain_packet("worker_packet2"))
         self.validate(self.plain_packet("worker_packet3"))
+        self.validate(self.plain_packet("worker_packet4"))
 
     def test_research_bearing_packet3_transports_and_malformed_refuses(self):
         self.validate(self.research_packet3())

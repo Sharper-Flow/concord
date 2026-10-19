@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -264,8 +265,13 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("exactly the live engineering heads declare consequence_v1", func(t *testing.T) {
+	t.Run("engineering consequence generations retain their declared policy", func(t *testing.T) {
 		t.Parallel()
+		generations := map[string][]int64{
+			"workflow.implementation": {34, 35},
+			"workflow.break_fix":      {31, 32},
+			"workflow.research":       {21},
+		}
 		live := map[string]int64{}
 		for _, head := range BuiltinWorkflowDefinitions() {
 			live[head.Ref] = head.Version
@@ -274,10 +280,13 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			if _, ok := live[ref]; !ok {
 				t.Fatalf("%s is not a live authoring head", ref)
 			}
+			if !slices.Contains(generations[ref], live[ref]) {
+				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
+			}
 		}
 		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 			want := ""
-			if version, ok := live[definition.Ref]; ok && definition.Version == version {
+			if slices.Contains(generations[definition.Ref], definition.Version) {
 				want = WorkflowApprovalPolicyConsequenceV1
 			}
 			if definition.ApprovalPolicy != want {

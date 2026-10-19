@@ -112,7 +112,7 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 
 // builtinWorkflowActionCatalogs lists every released action catalog version.
 func builtinWorkflowActionCatalogs() []workflowActionCatalog {
-	return []workflowActionCatalog{workflowActionCatalogV1()}
+	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2()}
 }
 
 func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
@@ -158,4 +158,23 @@ func workflowActionCatalogV1() workflowActionCatalog {
 		"revise_candidates":      nil,
 		"start_execution":        nil,
 	}}
+}
+
+// workflowActionCatalogV2 restates record_worker_job with the checks repair's
+// authoring members (CD-0205 D4): optional repair_revisions and
+// repair_reason, supplied together, admitted only on the versions that pin
+// this catalog. Its dispatch_worker points at the packet4 closure, the one
+// named schema whose worker-job shape admits the repair metadata — the
+// frozen packet2/packet3 closures keep the bytes they shipped with, and the
+// generator's named additions never rewrite them. Every other action's
+// contract stays byte-identical to v1.
+func workflowActionCatalogV2() workflowActionCatalog {
+	v1 := workflowActionCatalogV1()
+	revisions := make(map[string][]workflowActionRevision, len(v1.revisions))
+	for actionID, actionRevisions := range v1.revisions {
+		revisions[actionID] = actionRevisions
+	}
+	revisions["dispatch_worker"] = []workflowActionRevision{workerDispatchAction, withWorkerPacketRef(checksRepairPacketSchema)}
+	revisions["record_worker_job"] = []workflowActionRevision{workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision}
+	return workflowActionCatalog{Version: 2, revisions: revisions}
 }

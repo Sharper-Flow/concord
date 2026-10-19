@@ -125,8 +125,8 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 // builtinWorkflowCompositions lists every released composition.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationConsequenceV34(),
-		breakFixCompositionV30(), breakFixConsequenceV31(),
+		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(),
+		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(),
 		researchCompositionV20(), researchConsequenceV21(),
 	}
 }
@@ -269,4 +269,20 @@ func breakFixConsequenceV31() WorkflowComposition {
 
 func researchConsequenceV21() WorkflowComposition {
 	return withConsequencePolicy(researchCompositionV20())
+}
+
+// Checks-repair heads retain their predecessor's consequence policy and parts,
+// and repin only the action catalog for the repair authoring and packet members.
+func implementationCompositionV35() WorkflowComposition {
+	composition := implementationConsequenceV34()
+	composition.Version = 35
+	composition.ActionCatalogVersion = 2
+	return composition
+}
+
+func breakFixCompositionV32() WorkflowComposition {
+	composition := breakFixConsequenceV31()
+	composition.Version = 32
+	composition.ActionCatalogVersion = 2
+	return composition
 }

@@ -1643,9 +1643,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// does not compute the digest itself, so the assertion's evidence
 	// is bound to the exact bytes the core digested and authorized.
 	if in.request.ActionID == "dispatch_worker" {
-		if in.admission != nil && in.admission.retryEscalated() {
-			completionValues["retry_convergence"] = in.admission.RetryConvergence
-		}
 		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 		completionValues["worker_attempt_id"] = attemptID
 		packetRaw := workflowFieldRaw(fields, "worker_packet")
@@ -1800,9 +1797,36 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 		return err
 	}
 	// CD-0205: dispatch, report, and acceptance bind the selected job revision.
-	job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
+	job, repairReview, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
 	if jobErr != nil {
 		return jobErr
+	}
+	// The confirming review's typed admission (CD-0205 D4, CD-0148
+	// amendment): a dispatch whose packet binds an open repair's exact
+	// satisfied repairing revision on a review lane records the admission on
+	// its completion — the exact repairing binding beside the repairing
+	// acceptance it is bound to, funded or an ordinary-authority repeat.
+	// The admission is spent once per repair. At the escalation wall only a
+	// funded admission passes without a convergence basis: the wall stays
+	// basis-gated, and the repair buys no authoring attempt.
+	if repairReview != nil {
+		acceptanceSeq, found, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(in.ctx, in.tx, in.request.WorkID, repairReview.WorkerJob)
+		if acceptanceErr != nil {
+			return acceptanceErr
+		}
+		if !found || acceptanceSeq == 0 {
+			return newFailure(KindInvariantViolation, "workflow_action", "the confirming review dispatch binds no recorded repairing acceptance", false, "accept the repairing result before dispatching its confirming review")
+		}
+		repairReview.RepairingAcceptanceSeq = acceptanceSeq
+		completionValues["checks_repair_review"] = *repairReview
+	}
+	// Record only the authority this dispatch uses. Funded reviews still
+	// advance the existing convergence freshness boundary like any dispatch.
+	if in.admission != nil && in.admission.retryEscalated() && in.admission.RetryConvergence.valid() && !(repairReview != nil && repairReview.Funded) {
+		completionValues["retry_convergence"] = in.admission.RetryConvergence
+	}
+	if in.admission != nil && in.admission.retryEscalated() && !in.admission.RetryConvergence.valid() && (repairReview == nil || !repairReview.Funded) {
+		return workflowRetryConvergenceFailure(*in.admission)
 	}
 	if job != nil {
 		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}

@@ -315,6 +315,9 @@ var migrationTailReversals = map[int][]string{
 	135: {
 		`ALTER TABLE workflow_contracts DROP COLUMN law_change`,
 	},
+	136: {
+		`DROP TABLE workflow_timing`,
+	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
 	},

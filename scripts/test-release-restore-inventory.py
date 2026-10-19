@@ -10,8 +10,8 @@ whose tags carry each registry form the released history uses:
   entries are probed against the tag's own compiled source;
 - any other entry form, and a source that does not compile, is refused
   without being excluded;
-- tags with identical inputs share one probe group, and -previous reuses a
-  group by its digest without compiling anything.
+- tags with identical inputs share one probe group; external result caches
+  cannot bypass compilation.
 
 The fixture module is synthetic; no released Concord source is compiled.
 """
@@ -59,6 +59,14 @@ func registerScopedEventKind[T any](current, minimum int, upcasters map[int]Upca
 	return registerEventKind[T](current, minimum, upcasters)
 }
 
+func workflowRegistration[T any](current int, upcasters map[int]Upcaster) EventKindRegistration {
+	return registerEventKind[T](current, 1, upcasters)
+}
+
+func workflowScopedRegistration[T any](current int, upcasters map[int]Upcaster) EventKindRegistration {
+	return registerScopedEventKind[T](current, 1, upcasters)
+}
+
 func withRecordedSchemas(r EventKindRegistration, schemas map[int][]string) EventKindRegistration {
 	r.RecordedSchemas = schemas
 	return r
@@ -85,6 +93,19 @@ type Conflict struct {
 	Depth int `json:"depth"`
 }
 
+type Tree []Tree
+type Dict map[string]Dict
+type Key int
+func (Key) MarshalText() ([]byte, error) { return []byte("key"), nil }
+type NullableEmbedding struct { *Inner }
+type Containers struct {
+	Slice []string `json:"slice"`
+	Array [2]string `json:"array"`
+	Tree Tree `json:"tree"`
+	Dict Dict `json:"dict"`
+	Keys map[Key]int `json:"keys"`
+}
+
 type Typed struct {
 	hidden
 	Name     string            `json:"name"`
@@ -104,11 +125,18 @@ type Typed struct {
 """
 
 TYPED_REGISTRY = """
+const ThingConstant = "thing.constant"
+
 var eventKindRegistry = map[string]EventKindRegistration{
+	ThingConstant:     registerEventKind[Inner](1, 1, nil),
 	"thing.typed":     registerEventKind[Typed](2, 1, map[int]Upcaster{1: nil}),
 	"thing.scoped":    registerScopedEventKind[Inner](1, 1, nil),
 	"thing.recorded":  withRecordedSchemas(registerEventKind[Inner](2, 1, map[int]Upcaster{1: nil}), map[int][]string{1: nil}),
 	"thing.conflict":  registerEventKind[Conflict](1, 1, nil),
+	"flow.plain":      workflowRegistration[Inner](3, nil),
+	"flow.scoped":     workflowScopedRegistration[Stamp](1, nil),
+	"thing.containers": registerEventKind[Containers](1, 1, nil),
+	"thing.nullable_embedding": registerEventKind[NullableEmbedding](1, 1, nil),
 }
 """
 
@@ -130,7 +158,7 @@ BROKEN_REGISTRY = TYPED_REGISTRY + "\nvar broken int = \"not an int\"\n"
 
 
 def run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=600)
+    return subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=300)
 
 
 class InventoryTest(unittest.TestCase):
@@ -158,6 +186,8 @@ class InventoryTest(unittest.TestCase):
             ("v1.0.1-rc.1", TYPED_REGISTRY, False),
             ("v2.0.0", UNKNOWN_FORM_REGISTRY, False),
             ("v3.0.0", BROKEN_REGISTRY, False),
+            ("v4.0.0", FORM_A_REGISTRY, False),
+            ("v0.2.0", FORM_A_REGISTRY.replace('"thing.typed": {CurrentVersion: 1, MinSupported: 1},', '"thing.typed": {CurrentVersion: 1, MinSupported: 1}, "mixed": registerEventKind[Inner](1, 1, nil),'), False),
         ):
             (store / "operation.go").write_text(PRELUDE + registry)
             (cls.repo / "README").write_text(tag)
@@ -174,8 +204,8 @@ class InventoryTest(unittest.TestCase):
     def generate(cls, name: str, *extra: str, env: dict[str, str] | None = None) -> dict:
         output = cls.scratch / name
         result = run([str(cls.binary), "-out", str(output), *extra], cls.repo, env)
-        if result.returncode != 0:
-            raise AssertionError(result.stderr)
+        if result.returncode != 1 or "inventory held" not in result.stderr:
+            raise AssertionError((result.returncode, result.stdout, result.stderr))
         return json.loads(output.read_text())
 
     def rows(self) -> dict[str, dict]:
@@ -186,7 +216,7 @@ class InventoryTest(unittest.TestCase):
         return self.first["types"][registration["type"]]
 
     def test_population_is_every_strict_tag_in_version_order(self) -> None:
-        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0"])
+        self.assertEqual([row["tag"] for row in self.first["rows"]], ["v0.1.0", "v0.2.0", "v1.0.0", "v1.0.1", "v2.0.0", "v3.0.0", "v4.0.0"])
         self.assertEqual(self.first["schema"], "concord.release-restore-writers.v1")
         self.assertEqual(self.first["generator"], "go run scripts/release-restore-inventory.go")
 
@@ -202,6 +232,16 @@ class InventoryTest(unittest.TestCase):
         row = self.rows()["v0.1.0"]
         self.assertEqual((row["status"], row.get("excluded"), row["detail"]), ("inventory_refused", True, UNTYPED))
         self.assertNotIn("group", row)
+
+    def test_only_the_approved_form_a_population_is_excluded(self) -> None:
+        for tag in ("v0.2.0", "v4.0.0"):
+            self.assertEqual(self.rows()[tag]["status"], "inventory_refused")
+            self.assertNotIn("excluded", self.rows()[tag])
+
+    def test_source_census_evidence_is_recorded_for_refused_writers(self) -> None:
+        for tag, row in self.rows().items():
+            source = run(["git", "show", f"{tag}:internal/store/operation.go"], self.repo).stdout.strip().encode()
+            self.assertEqual(row["registry_source"], "sha256:" + hashlib.sha256(source).hexdigest())
 
     def test_unrecognized_entry_refuses_without_exclusion(self) -> None:
         row = self.rows()["v2.0.0"]
@@ -224,7 +264,10 @@ class InventoryTest(unittest.TestCase):
 
     def test_registry_metadata_comes_from_the_compiled_registry(self) -> None:
         group = {r["kind"]: r for r in self.first["groups"][self.rows()["v1.0.0"]["group"]]}
-        self.assertEqual(sorted(group), ["thing.conflict", "thing.recorded", "thing.scoped", "thing.typed"])
+        self.assertEqual(sorted(group), ["flow.plain", "flow.scoped", "thing.conflict", "thing.constant", "thing.containers", "thing.nullable_embedding", "thing.recorded", "thing.scoped", "thing.typed"])
+        self.assertEqual(group["thing.constant"]["payload_type"], "Inner")
+        self.assertEqual(group["thing.typed"]["payload_type"], "Typed")
+        self.assertEqual((group["flow.plain"]["current_version"], group["flow.scoped"]["payload_type"]), (3, "Stamp"))
         self.assertEqual((group["thing.typed"]["current_version"], group["thing.typed"]["upcasters"]), (2, [1]))
         self.assertEqual(group["thing.recorded"]["recorded_schemas"], [1])
         self.assertEqual(group["thing.scoped"]["recorded_schemas"], [])
@@ -239,9 +282,9 @@ class InventoryTest(unittest.TestCase):
         self.assertTrue(fields["count"]["string"])
         self.assertTrue(fields["optional"]["omitempty"])
         self.assertEqual(fields["optional"]["shape"], {"kind": "pointer", "elem": {"kind": "object", "fields": [{"name": "depth", "shape": {"kind": "int"}}]}})
-        self.assertEqual(fields["tags"]["shape"], {"kind": "array", "elem": {"kind": "string"}})
+        self.assertEqual(fields["tags"]["shape"], {"kind": "slice", "elem": {"kind": "string"}})
         self.assertEqual(fields["labels"]["shape"]["kind"], "map")
-        self.assertEqual(fields["labels"]["shape"]["key"], "string")
+        self.assertEqual(fields["labels"]["shape"]["key"], {"kind": "string"})
         self.assertEqual(fields["raw"]["shape"], {"kind": "custom", "type": "json.RawMessage"})
         self.assertEqual(fields["when"]["shape"], {"kind": "custom", "type": "store.Stamp"})
         self.assertEqual(fields["any"]["shape"], {"kind": "custom", "type": "interface {}"})
@@ -257,20 +300,19 @@ class InventoryTest(unittest.TestCase):
     def test_ambiguous_embedding_is_custom(self) -> None:
         self.assertEqual(self.shape("thing.conflict"), {"kind": "custom", "type": "store.Conflict", "reason": "embedded field name conflict"})
 
-    def test_previous_inventory_is_reused_without_compiling(self) -> None:
-        shim = self.scratch / "shim"
-        shim.mkdir(exist_ok=True)
-        calls = self.scratch / "go-calls"
-        (shim / "go").write_text(f'#!/bin/sh\necho "$PWD" >> "{calls}"\nexit 1\n')
-        (shim / "go").chmod(0o755)
-        env = {**os.environ, "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}
-        reused = self.generate("reused.json", "-previous", str(self.scratch / "first.json"), env=env)
-        # Only the refused group is probed again; it fails at the shim.
-        self.assertEqual(len(calls.read_text().splitlines()), 1)
-        for row in (*reused["rows"], *self.first["rows"]):
-            if row["tag"] == "v3.0.0":
-                row.pop("detail")
-        self.assertEqual(reused, self.first)
+    def test_previous_inventory_cannot_bypass_probing(self) -> None:
+        result = run([str(self.binary), "-previous", str(self.scratch / "first.json")], self.repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("flag provided but not defined", result.stderr)
+
+    def test_container_shapes_preserve_wire_distinctions(self) -> None:
+        fields = {f["name"]: f["shape"] for f in self.shape("thing.containers")["fields"]}
+        self.assertEqual(fields["slice"], {"kind": "slice", "elem": {"kind": "string"}})
+        self.assertEqual(fields["array"], {"kind": "array", "length": 2, "elem": {"kind": "string"}})
+        self.assertEqual(fields["tree"], {"kind": "slice", "elem": {"kind": "recursive", "type": "store.Tree"}})
+        self.assertEqual(fields["dict"]["elem"], {"kind": "recursive", "type": "store.Dict"})
+        self.assertEqual(fields["keys"]["key"], {"kind": "custom", "type": "store.Key"})
+        self.assertEqual(self.shape("thing.nullable_embedding")["kind"], "custom")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

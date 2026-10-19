@@ -1,13 +1,14 @@
 // Command release-restore-inventory records each release tag's event registry
 // and payload shapes: it parses the registry literal, then compiles a reflection
 // probe against that tag's own source. Tags with identical internal trees,
-// go.mod, and go.sum share one probe, which -previous reuses. An unrecognized
+// go.mod, and go.sum share one probe. An unrecognized
 // registry entry refuses the tag. Run from the repository root.
 package main
 
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -33,12 +33,14 @@ const (
 	untypedReason = "registry entries name no payload type (form A); accepted named exclusion from shape coverage"
 )
 
-var strictTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+var typedConstructors = map[string]bool{"registerEventKind": true, "registerScopedEventKind": true, "workflowRegistration": true, "workflowScopedRegistration": true}
 
-type entry struct {
-	Kind        string `json:"kind"`
-	PayloadType string `json:"payload_type"`
-}
+//go:embed release-restore-inventory.go
+var generatorSource string
+
+const excludedFormA = ` v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.7.1 v0.8.0 v0.9.0 v0.10.0 v0.10.1 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.15.1 v0.15.2 v0.15.3 v0.15.4 v0.16.0 v0.16.1 v0.16.2 v0.17.0 v0.17.1 v0.17.2 v0.18.0 v0.19.0 v0.20.0 v0.21.0 v0.22.0 v0.23.0 v0.24.0 v0.25.0 v0.26.0 v0.26.1 v0.27.0 v0.27.1 v0.28.0 v0.29.0 v0.30.0 v0.31.0 v0.32.0 v0.33.0 v0.33.1 v0.33.2 v0.33.3 v0.33.4 v0.34.0 v0.35.0 v0.36.0 v0.37.0 v0.37.1 `
+
+var strictTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 type row struct {
 	Tag       string `json:"tag"`
@@ -48,10 +50,12 @@ type row struct {
 	Status    string `json:"status"`
 	Excluded  bool   `json:"excluded,omitempty"`
 	Detail    string `json:"detail,omitempty"`
+	Registry  string `json:"registry_source"`
 }
 
 type registration struct {
-	entry
+	Kind            string `json:"kind"`
+	PayloadType     string `json:"payload_type"`
 	CurrentVersion  int    `json:"current_version"`
 	MinSupported    int    `json:"min_supported"`
 	Upcasters       []int  `json:"upcasters"`
@@ -71,7 +75,7 @@ type inventory struct {
 func command(dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...) //nolint:gosec // G204: name is a fixed program, argv values stay separate, and no shell runs.
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=-mod=readonly -trimpath -p=2", "CGO_ENABLED=0", "GOMAXPROCS=2")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -86,9 +90,10 @@ func git(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// registryEntries parses one registry source; each entry must name its payload
-// type (see typedPayload), and form A composite literals refuse.
-func registryEntries(src []byte) ([]entry, error) {
+// registryEntries parses one registry source into the probe's type table. Each
+// key must be a string literal or a constant name the compiler resolves, each
+// entry must name its payload type (see typedPayload); form A refuses.
+func registryEntries(src []byte) ([]string, error) {
 	file, err := parser.ParseFile(token.NewFileSet(), "operation.go", src, 0)
 	if err != nil {
 		return nil, fmt.Errorf("registry source does not parse: %v", err)
@@ -104,31 +109,41 @@ func registryEntries(src []byte) ([]entry, error) {
 	if literal == nil {
 		return nil, errors.New("no eventKindRegistry composite literal")
 	}
-	entries := make([]entry, 0, len(literal.Elts))
+	entries := make([]string, 0, len(literal.Elts))
+	untyped := 0
 	for _, element := range literal.Elts {
 		pair, _ := element.(*ast.KeyValueExpr)
-		var key *ast.BasicLit
+		key := ""
 		if pair != nil {
-			key, _ = pair.Key.(*ast.BasicLit)
+			key = name(pair.Key)
+			if lit, ok := pair.Key.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				key = lit.Value
+			}
 		}
-		if key == nil {
-			return nil, errors.New("registry entry without a literal kind key")
+		if key == "" {
+			return nil, errors.New("registry entry without a literal or constant kind key")
 		}
-		kind, err := strconv.Unquote(key.Value)
-		if _, untyped := pair.Value.(*ast.CompositeLit); untyped {
-			return nil, errors.New(untypedReason)
+		if _, composite := pair.Value.(*ast.CompositeLit); composite {
+			untyped++
+			continue
 		}
 		payload := typedPayload(pair.Value)
-		if err != nil || payload == "" {
-			return nil, fmt.Errorf("registry entry %q has an unrecognized form", kind)
+		if payload == "" {
+			return nil, fmt.Errorf("registry entry %s has an unrecognized form", key)
 		}
-		entries = append(entries, entry{Kind: kind, PayloadType: payload})
+		entries = append(entries, fmt.Sprintf("\t%s: reflect.TypeOf((*%s)(nil)).Elem(),\n", key, payload))
+	}
+	if untyped > 0 && untyped == len(literal.Elts) {
+		return nil, errors.New(untypedReason)
+	}
+	if untyped > 0 || len(entries) == 0 {
+		return nil, errors.New("empty or mixed typed/untyped registry")
 	}
 	return entries, nil
 }
 
-// typedPayload names T in registerEventKind[T](...) or
-// registerScopedEventKind[T](...), optionally inside withRecordedSchemas.
+// typedPayload names T in one of the registration constructors generic over
+// the payload type, optionally inside withRecordedSchemas.
 func typedPayload(expr ast.Expr) string {
 	call, _ := expr.(*ast.CallExpr)
 	if call == nil {
@@ -138,7 +153,7 @@ func typedPayload(expr ast.Expr) string {
 		return typedPayload(call.Args[0])
 	}
 	index, _ := call.Fun.(*ast.IndexExpr)
-	if index == nil || (name(index.X) != "registerEventKind" && name(index.X) != "registerScopedEventKind") {
+	if index == nil || !typedConstructors[name(index.X)] {
 		return ""
 	}
 	return name(index.Index)
@@ -158,7 +173,7 @@ type probeOutput struct {
 }
 
 // probe compiles and runs the shape probe against one tag's archived source.
-func probe(commit string, entries []entry) (probeOutput, error) {
+func probe(commit string, entries []string) (probeOutput, error) {
 	var out probeOutput
 	dir, err := os.MkdirTemp("", "release-restore-probe-")
 	if err != nil {
@@ -176,12 +191,8 @@ func probe(commit string, entries []entry) (probeOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	var types strings.Builder
-	for _, e := range entries {
-		fmt.Fprintf(&types, "\t%q: reflect.TypeOf((*%s)(nil)).Elem(),\n", e.Kind, e.PayloadType)
-	}
 	err = errors.Join(os.Mkdir(filepath.Join(dir, "releaserestoreprobe"), 0o750),
-		os.WriteFile(filepath.Join(dir, "internal/store/zz_release_restore_probe.go"), []byte(strings.Replace(probeTemplate, "\t// TYPES\n", types.String(), 1)), 0o600),
+		os.WriteFile(filepath.Join(dir, "internal/store/zz_release_restore_probe.go"), []byte(strings.Replace(probeTemplate, "\t// TYPES\n", strings.Join(entries, ""), 1)), 0o600),
 		os.WriteFile(filepath.Join(dir, "releaserestoreprobe/main.go"), []byte(strings.ReplaceAll(probeMain, "MODULE", strings.TrimSpace(string(module)))), 0o600))
 	if err != nil {
 		return out, err
@@ -202,19 +213,18 @@ func digest(data []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// group joins a probe to its parsed entries. The probe's registry must hold
-// exactly the parsed kinds, so a kind the parser lost or invented refuses.
-func group(entries []entry, out probeOutput, types map[string]json.RawMessage) ([]registration, error) {
-	if len(out.Registry) != len(entries) {
-		return nil, fmt.Errorf("probe registry has %d kinds, parsed %d", len(out.Registry), len(entries))
+// group reads one probe's registrations. The probe's registry must hold
+// exactly the parsed entries, so a kind the parser lost or invented refuses.
+func group(entries int, out probeOutput, types map[string]json.RawMessage) ([]registration, error) {
+	if len(out.Registry) != entries {
+		return nil, fmt.Errorf("probe registry has %d kinds, parsed %d", len(out.Registry), entries)
 	}
-	registrations := make([]registration, 0, len(entries))
-	for _, e := range entries {
-		meta, shape := out.Registry[e.Kind], out.Types[e.Kind]
-		if meta == nil || shape == nil {
-			return nil, fmt.Errorf("probe lacks kind %q", e.Kind)
+	registrations := make([]registration, 0, entries)
+	for kind, meta := range out.Registry {
+		if meta == nil || out.Types[kind] == nil {
+			return nil, fmt.Errorf("registry kind %q has no parsed payload type", kind)
 		}
-		meta.entry, meta.Type = e, digest(shape)
+		meta.Kind, meta.Type = kind, digest(out.Types[kind])
 		registrations = append(registrations, *meta)
 	}
 	for _, r := range registrations {
@@ -242,9 +252,10 @@ func listTags() ([]row, error) {
 
 // inspect parses one tag's registry and names its probe group: the exact
 // internal tree, go.mod, go.sum, and probe source.
-func inspect(result row) (row, []entry) {
+func inspect(result row) (row, []string) {
 	src, err := git("show", result.Commit+":internal/store/operation.go")
-	var entries []entry
+	result.Registry = digest([]byte(src))
+	var entries []string
 	if err == nil {
 		entries, err = registryEntries([]byte(src))
 	}
@@ -253,52 +264,37 @@ func inspect(result row) (row, []entry) {
 		inputs, err = git("rev-parse", result.Commit+":internal", result.Commit+":go.mod", result.Commit+":go.sum")
 	}
 	if err != nil {
-		result.Status, result.Detail, result.Excluded = "inventory_refused", err.Error(), err.Error() == untypedReason
+		result.Status, result.Detail = "inventory_refused", err.Error()
+		result.Excluded = err.Error() == untypedReason && strings.Contains(excludedFormA, " "+result.Tag+" ")
 		return result, nil
 	}
-	result.Group = digest([]byte(inputs + "\n" + probeTemplate + probeMain))
+	result.Group = digest([]byte(inputs + "\n" + generatorSource))
 	return result, entries
 }
 
 func main() {
 	output := flag.String("out", "cmd/concord/testdata/release_restore/writers.json", "inventory to write")
-	previous := flag.String("previous", "", "earlier inventory whose groups are reused by digest")
 	flag.Parse()
-	if err := run(*output, *previous); err != nil {
+	if err := run(*output); err != nil {
 		fmt.Fprintln(os.Stderr, "release-restore-inventory:", err)
 		os.Exit(1)
 	}
 }
 
-func run(output, previous string) error {
+func run(output string) error {
 	tags, err := listTags()
-	if err != nil {
-		return err
+	if err != nil || len(tags) == 0 {
+		return fmt.Errorf("release tags unavailable or empty: %v", err)
 	}
 	inv := inventory{Schema: schemaID, Generator: "go run scripts/release-restore-inventory.go", Groups: map[string][]registration{}, Types: map[string]json.RawMessage{}}
-	var earlier inventory
-	if previous != "" {
-		data, err := os.ReadFile(filepath.Clean(previous))
-		if err == nil {
-			err = json.Unmarshal(data, &earlier)
-		}
-		if err != nil {
-			return fmt.Errorf("previous inventory: %w", err)
-		}
-	}
 	type pending struct {
 		commit  string
-		entries []entry
+		entries []string
 	}
 	work := map[string]pending{}
 	for _, ref := range tags {
 		result, entries := inspect(ref)
-		if reused, known := earlier.Groups[result.Group]; known {
-			inv.Groups[result.Group] = reused
-			for _, r := range reused {
-				inv.Types[r.Type] = earlier.Types[r.Type]
-			}
-		} else if result.Group != "" {
+		if result.Group != "" {
 			work[result.Group] = pending{result.Commit, entries}
 		}
 		inv.Rows = append(inv.Rows, result)
@@ -313,7 +309,7 @@ func run(output, previous string) error {
 				out, err := probe(work[key].commit, work[key].entries)
 				mu.Lock()
 				if err == nil {
-					inv.Groups[key], err = group(work[key].entries, out, inv.Types)
+					inv.Groups[key], err = group(len(work[key].entries), out, inv.Types)
 				}
 				if err != nil {
 					delete(inv.Groups, key)
@@ -337,7 +333,15 @@ func run(output, previous string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(output, append(data, '\n'), 0o600)
+	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	for _, result := range inv.Rows {
+		if result.Status == "inventory_refused" && !result.Excluded {
+			return errors.New("inventory held: unapproved writer refusal; see output")
+		}
+	}
+	return nil
 }
 
 // probeTemplate joins a scratch copy of one release's internal/store. It reflects
@@ -365,7 +369,7 @@ func ReleaseRestoreProbe() ([]byte, error) {
 			registry[kind] = nil
 			continue
 		}
-		meta := map[string]any{"current_version": registration.CurrentVersion, "min_supported": registration.MinSupported}
+		meta := map[string]any{"payload_type": payload.Name(), "current_version": registration.CurrentVersion, "min_supported": registration.MinSupported}
 		for name, field := range map[string]string{"upcasters": "Upcasters", "recorded_schemas": "RecordedSchemas"} {
 			keys := []int{}
 			if value := reflect.ValueOf(registration).FieldByName(field); value.IsValid() {
@@ -382,6 +386,11 @@ func ReleaseRestoreProbe() ([]byte, error) {
 }
 
 func releaseRestoreShape(t reflect.Type, seen map[reflect.Type]bool) map[string]any {
+	if seen[t] {
+		return map[string]any{"kind": "recursive", "type": t.String()}
+	}
+	seen[t] = true
+	defer delete(seen, t)
 	custom := t.Kind() == reflect.Interface
 	for _, method := range []string{"MarshalJSON", "UnmarshalJSON", "MarshalText", "UnmarshalText"} {
 		_, owns := reflect.PointerTo(t).MethodByName(method)
@@ -397,15 +406,14 @@ func releaseRestoreShape(t reflect.Type, seen map[reflect.Type]bool) map[string]
 		if t.Elem().Kind() == reflect.Uint8 && t.Kind() == reflect.Slice {
 			return map[string]any{"kind": "bytes"}
 		}
-		return map[string]any{"kind": "array", "elem": releaseRestoreShape(t.Elem(), seen)}
-	case reflect.Map:
-		return map[string]any{"kind": "map", "key": t.Key().Kind().String(), "elem": releaseRestoreShape(t.Elem(), seen)}
-	case reflect.Struct:
-		if seen[t] {
-			return map[string]any{"kind": "recursive", "type": t.String()}
+		shape := map[string]any{"kind": t.Kind().String(), "elem": releaseRestoreShape(t.Elem(), seen)}
+		if t.Kind() == reflect.Array {
+			shape["length"] = t.Len()
 		}
-		seen[t] = true
-		defer delete(seen, t)
+		return shape
+	case reflect.Map:
+		return map[string]any{"kind": "map", "key": releaseRestoreShape(t.Key(), seen), "elem": releaseRestoreShape(t.Elem(), seen)}
+	case reflect.Struct:
 		fields, names := []map[string]any{}, map[string]bool{}
 		if !releaseRestoreFields(t, seen, &fields, names) {
 			return map[string]any{"kind": "custom", "type": t.String(), "reason": "embedded field name conflict"}
@@ -431,7 +439,13 @@ func releaseRestoreFields(t reflect.Type, seen map[reflect.Type]bool, fields *[]
 			embedded = embedded.Elem()
 		}
 		if field.Anonymous && name == "" && embedded.Kind() == reflect.Struct {
-			if seen[embedded] || !releaseRestoreFields(embedded, seen, fields, names) {
+			if field.Type.Kind() == reflect.Pointer || seen[embedded] {
+				return false
+			}
+			seen[embedded] = true
+			ok := releaseRestoreFields(embedded, seen, fields, names)
+			delete(seen, embedded)
+			if !ok {
 				return false
 			}
 			continue

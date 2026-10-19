@@ -1,9 +1,6 @@
 package main
 
-import (
-	"bytes"
-	"embed"
-)
+import _ "embed"
 
 // A writer finding records, for one release, the analyzer that ran and every
 // open site of its analysis. Every open site is held: no finding discharges a
@@ -19,21 +16,14 @@ type writerFinding struct {
 	FindingSource string       `json:"finding_source"`
 }
 
-//go:embed findings.go coverage.go
-var findingFiles embed.FS
+//go:embed findings.go
+var findingsSource string
+
+//go:embed coverage.go
+var coverageSource string
 
 // findingSource names the code that turns analyses into findings and coverage.
-var findingSource = func() string {
-	var source bytes.Buffer
-	for _, name := range []string{"findings.go", "coverage.go"} {
-		data, err := findingFiles.ReadFile(name)
-		if err != nil {
-			panic(err)
-		}
-		source.Write(data)
-	}
-	return digest(source.Bytes())
-}()
+var findingSource = digest([]byte(findingsSource + coverageSource))
 
 // writerFindings derives one finding per inventoried release. A release with
 // no analysis, or a refused one, holds no sites and records the refusal.

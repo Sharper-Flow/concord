@@ -22,7 +22,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"embed"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -55,20 +55,13 @@ var typedConstructors = map[string]bool{"registerEventKind": true, "registerScop
 // The group key pins the sources that decide a group's probe and analysis;
 // findings.go and coverage.go decide only findings and coverage.
 //
-//go:embed main.go writers.go
-var generatorFiles embed.FS
+//go:embed main.go
+var mainSource string
 
-var generatorSource = func() string {
-	var source strings.Builder
-	for _, name := range []string{"main.go", "writers.go"} {
-		data, err := generatorFiles.ReadFile(name)
-		if err != nil {
-			panic(err)
-		}
-		source.Write(data)
-	}
-	return source.String()
-}()
+//go:embed writers.go
+var writersSource string
+
+var generatorSource = mainSource + writersSource
 
 const excludedFormA = ` v0.1.0 v0.2.0 v0.3.0 v0.4.0 v0.5.0 v0.6.0 v0.7.0 v0.7.1 v0.8.0 v0.9.0 v0.10.0 v0.10.1 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.15.1 v0.15.2 v0.15.3 v0.15.4 v0.16.0 v0.16.1 v0.16.2 v0.17.0 v0.17.1 v0.17.2 v0.18.0 v0.19.0 v0.20.0 v0.21.0 v0.22.0 v0.23.0 v0.24.0 v0.25.0 v0.26.0 v0.26.1 v0.27.0 v0.27.1 v0.28.0 v0.29.0 v0.30.0 v0.31.0 v0.32.0 v0.33.0 v0.33.1 v0.33.2 v0.33.3 v0.33.4 v0.34.0 v0.35.0 v0.36.0 v0.37.0 v0.37.1 `
 
@@ -233,9 +226,6 @@ func probe(commit string, entries []string) (out probeOutput, analysis writerAna
 		return out, analysis, err
 	}
 	if _, err := command(dir, "tar", "-xf", tarball); err != nil {
-		return out, analysis, err
-	}
-	if err := os.Remove(tarball); err != nil {
 		return out, analysis, err
 	}
 	analysis = analyzeWriters(dir)

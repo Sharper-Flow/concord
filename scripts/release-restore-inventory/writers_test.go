@@ -301,12 +301,17 @@ func TestFixtureAnalysisListsEachSite(t *testing.T) {
 func TestEachWriteFormIsASite(t *testing.T) {
 	const anchor = "func ReadEvent("
 	for name, c := range map[string]struct{ code, function, expression string }{
+		"range statement": {`func Ranged(event *Event, kinds []string) {
+	for _, event.Kind = range kinds {
+	}
+}`, "Ranged", "event.Kind"},
 		"field increment": {`func Bump(event *Event) { event.PayloadVersion++ }`, "Bump", "event.PayloadVersion++"},
 		"field address":   {`func Point(event *Event) *int { return &event.PayloadVersion }`, "Point", "&event.PayloadVersion"},
 		"tuple assignment": {`func Pair(event *Event) { event.Kind, event.PayloadVersion = pair() }
 
 func pair() (string, int) { return "thing.a", 1 }`, "Pair", `event.Kind, event.PayloadVersion = pair()`},
-		"positional literal": {`func Positional() Event { return Event{"thing.a", SubjectProduct, 1, nil} }`, "Positional", `Event{"thing.a", SubjectProduct, 1, nil}`},
+		"positional literal":     {`func Positional() Event { return Event{"thing.a", SubjectProduct, 1, nil} }`, "Positional", `Event{"thing.a", SubjectProduct, 1, nil}`},
+		"literal eliding &Event": {`func Elided() []*Event { return []*Event{{Kind: "thing.a", PayloadVersion: 1}} }`, "Elided", `{Kind: "thing.a", PayloadVersion: 1}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, c.code + "\n\n" + anchor})
@@ -338,5 +343,20 @@ func TestUnanalyzableSourceIsRefused(t *testing.T) {
 				t.Fatalf("analysis = %+v", analysis)
 			}
 		})
+	}
+}
+
+// A field promoted through embedded values and pointers is still the Event's
+// field; a field that shadows it is not.
+func TestPromotedEventFieldIsASite(t *testing.T) {
+	const anchor = "func ReadEvent("
+	code := "type inner struct{ Event }\n\ntype outer struct{ *inner }\n\ntype shadow struct {\n\tEvent\n\tKind string\n}\n\n" +
+		"func Promote(o *outer) { o.Kind = \"thing.a\" }\n\nfunc Shadow(s *shadow) { s.Kind = \"thing.a\" }\n\n"
+	analysis := analyzeFixture(t, mutation{"internal/store/store.go", anchor, code + anchor})
+	site(t, analysis, storePkg+".Promote", `o.Kind = "thing.a"`)
+	for _, s := range analysis.Open {
+		if s.Function == storePkg+".Shadow" {
+			t.Errorf("a shadowing field is a site: %+v", s)
+		}
 	}
 }

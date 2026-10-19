@@ -61,11 +61,6 @@ type checkedPackage struct {
 	types *types.Package
 }
 
-type declRef struct {
-	name   string
-	digest string
-}
-
 // analyzer holds one binary's type-checked packages and the sites found.
 type analyzer struct {
 	fset    *token.FileSet
@@ -214,27 +209,28 @@ func (a *analyzer) eventField(p *checkedPackage, expr ast.Expr) string {
 }
 
 func (a *analyzer) source(node ast.Node) string {
-	src := a.sources[a.fset.Position(node.Pos()).Filename]
-	return string(src[a.fset.Position(node.Pos()).Offset:a.fset.Position(node.End()).Offset])
+	start, end := a.fset.PositionFor(node.Pos(), false), a.fset.PositionFor(node.End(), false)
+	return string(a.sources[start.Filename][start.Offset:end.Offset])
 }
 
-func (a *analyzer) declName(p *checkedPackage, d ast.Decl) declRef {
+// declName names a declaration and digests its source.
+func (a *analyzer) declName(p *checkedPackage, d ast.Decl) (string, string) {
 	body := digest([]byte(a.source(d)))
 	if fn, ok := d.(*ast.FuncDecl); ok {
 		if obj, ok := p.info.Defs[fn.Name].(*types.Func); ok {
-			return declRef{obj.FullName(), body}
+			return obj.FullName(), body
 		}
 	}
-	return declRef{p.path + " declaration at line " + strconv.Itoa(a.fset.Position(d.Pos()).Line), body}
+	return p.path + " declaration at line " + strconv.Itoa(a.fset.PositionFor(d.Pos(), false).Line), body
 }
 
 // collect lists one package's writer sites.
 func (a *analyzer) collect(p *checkedPackage) {
 	for _, file := range p.files {
 		for _, d := range file.Decls {
-			ref := a.declName(p, d)
+			name, body := a.declName(p, d)
 			add := func(node ast.Node) {
-				a.sites = append(a.sites, writerSite{Function: ref.name, Expression: normalize(a.source(node)), FunctionDigest: ref.digest, Pairs: []string{"* v*"}})
+				a.sites = append(a.sites, writerSite{Function: name, Expression: normalize(a.source(node)), FunctionDigest: body, Pairs: []string{"* v*"}})
 			}
 			ast.Inspect(d, func(n ast.Node) bool {
 				switch v := n.(type) {
@@ -255,6 +251,12 @@ func (a *analyzer) collect(p *checkedPackage) {
 					if a.eventField(p, v.X) != "" && v.Op == token.AND {
 						add(v)
 					}
+				case *ast.RangeStmt:
+					for _, lhs := range []ast.Expr{v.Key, v.Value} {
+						if a.eventField(p, lhs) != "" {
+							add(lhs)
+						}
+					}
 				}
 				return true
 			})
@@ -263,7 +265,12 @@ func (a *analyzer) collect(p *checkedPackage) {
 }
 
 func (a *analyzer) collectLiteral(p *checkedPackage, lit *ast.CompositeLit, add func(ast.Node)) {
-	if !a.isEvent(p.info.Types[lit].Type) {
+	// An element of []*Event may elide &Event; its literal records *Event.
+	typ := p.info.Types[lit].Type
+	if pointer, ok := typ.Underlying().(*types.Pointer); ok {
+		typ = pointer.Elem()
+	}
+	if !a.isEvent(typ) {
 		return
 	}
 	kind, version := false, false

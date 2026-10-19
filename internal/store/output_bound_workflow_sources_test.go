@@ -167,12 +167,9 @@ func init() {
 	// The approved contract's outcome predicates: the live approve_contract
 	// write admits at most 8 through this action-input shape and the fold
 	// re-admits the same 1..8 for replayed events (workflow.go:996-998);
-	// both the legacy and the consequence_v1 field branch carry the bound;
 	// the projection's ordinal CHECK is a bare integer comparison the DDL
 	// parser cannot read.
-	contractOutcomePredicates := maxBound(
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/0/properties/outcome_predicates/maxItems"),
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/1/properties/outcome_predicates/maxItems"))
+	contractOutcomePredicates := inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems")
 
 	// The delivery assertion artifact writers. The asserted artifact is the
 	// action request's delivery_artifact, admitted by the published input
@@ -424,12 +421,13 @@ func init() {
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)
 	registerOutputBound("/$defs/workflow_contract/properties/approved_by/maxLength",
 		actorRefDerived) // event.Actor is the workflow_actors row the fold requires
-	// The decision fact enters only through the consequence_v1 approve and
-	// supersede field branches; the fold re-admits the same canonical set
+	// The decision fact enters only through the approve and supersede
+	// fields, which a consequence_v1 pin requires and a legacy pin refuses;
+	// the fold re-admits the same canonical set
 	// (validateWorkflowDecisionDomains) for replayed events.
 	registerOutputBound("/$defs/workflow_contract/properties/decision_domains/maxItems", maxBound(
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/1/properties/decision_domains/maxItems"),
-		inputBound("/$defs/work_transition_action_variant_supersede_contract/properties/fields/oneOf/1/properties/decision_domains/maxItems")))
+		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/decision_domains/maxItems"),
+		inputBound("/$defs/work_transition_action_variant_supersede_contract/properties/fields/properties/decision_domains/maxItems")))
 	registerOutputBound("/$defs/workflow_contract/properties/law_modifies/maxItems", contractLawModifies)
 	registerOutputBound("/$defs/workflow_contract/properties/law_revisions/maxItems",
 		contractSpecMandate) // pins correspond one-to-one with spec_mandate (workflow_law_revision.go:165-167)

@@ -1310,6 +1310,46 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
         and (not contains(member, other) or other_index < index)
         for other_index, other in enumerate(flattened)
     )]
+
+    def optional_extension(narrow: dict, broad: dict) -> str | None:
+        """Name the one field broad adds to narrow, when broad is narrow plus
+        that field required: their union is narrow with the field optional."""
+        allowed = {"type", "additionalProperties", "maxProperties", "properties", "required"}
+        if set(broad) - allowed or set(narrow) - allowed:
+            return None
+        if narrow.get("additionalProperties") is not False:
+            return None
+        if any(broad.get(key) != narrow.get(key) for key in ("type", "additionalProperties", "maxProperties")):
+            return None
+        narrow_properties = narrow.get("properties", {})
+        broad_properties = broad.get("properties", {})
+        added = set(broad_properties) - set(narrow_properties)
+        if len(added) != 1 or any(broad_properties.get(key) != field for key, field in narrow_properties.items()):
+            return None
+        field = next(iter(added))
+        if set(broad.get("required", [])) != set(narrow.get("required", [])) | {field}:
+            return None
+        return field
+
+    merged = True
+    while merged and len(members) > 1:
+        merged = False
+        for narrow_index, narrow in enumerate(members):
+            for broad_index, broad in enumerate(members):
+                if broad_index == narrow_index:
+                    continue
+                if optional_extension(narrow, broad) is None:
+                    continue
+                union = copy.deepcopy(broad)
+                union["required"] = list(narrow.get("required", []))
+                if not union["required"]:
+                    del union["required"]
+                members = [member for index, member in enumerate(members) if index not in (narrow_index, broad_index)]
+                members.insert(min(narrow_index, broad_index), union)
+                merged = True
+                break
+            if merged:
+                break
     if len(members) == 1:
         return copy.deepcopy(members[0])
     disjoint = []

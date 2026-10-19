@@ -47,6 +47,7 @@ func insertHistoricalEvent(t *testing.T, s *Store, event Event) {
 		event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, event.Payload); err != nil {
 		t.Fatal(err)
 	}
+	recordHistoricalWitness(t, event.Kind, event.PayloadVersion, event.Payload)
 }
 
 // storedEventPayload returns the durable payload bytes of one event row.

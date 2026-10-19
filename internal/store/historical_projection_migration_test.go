@@ -33,6 +33,7 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			t.Fatal(err)
 		}
+		recordHistoricalWitness(t, event.Kind, event.PayloadVersion, event.Payload)
 	}
 	for _, event := range prerequisites {
 		appendEvent(event)

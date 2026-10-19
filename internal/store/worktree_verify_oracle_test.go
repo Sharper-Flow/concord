@@ -263,6 +263,12 @@ func TestNativeOracleExecuteEditedCandidateNamesTheEvaluatorRoute(t *testing.T) 
 	forged := f.a
 	forged.WorkerPacketDigest = f.b.WorkerPacketDigest
 	check("candidate-forged", forged, false)
+	foreignPreparation := f.a
+	foreignPreparation.PreparationRunRef = "worktree_verify:invented-preparation"
+	check("candidate-foreign-preparation", foreignPreparation, false)
+	foreignControl := f.a
+	foreignControl.ControlID = "control:invented"
+	check("candidate-foreign-control", foreignControl, false)
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("candidate-subject", nil)); err != nil {
 		t.Fatal(err)
 	}
